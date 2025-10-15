@@ -4,7 +4,7 @@ Advanced WAV metadata explorer and ML-ready audio analysis toolkit.
 Scans RIFF chunks to find ACID info (BPM, beats, meter, root), SMPL loop points, BWF `bext`, `LIST/INFO` tags, cues, and more.
 Enhanced with comprehensive audio feature extraction, similarity search, and ML analysis capabilities.
 
-## 🚀 New ML/DL Features
+## New ML/DL Features
 
 - **Advanced Audio Features**: MFCC, spectral features, chroma, tonnetz, and more
 - **ML-Ready Output**: Normalized feature vectors for machine learning
