@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Generated output files
+*_metadata.csv
+*_ml_ready.csv
+*_tags.json
+*_enhanced.csv
+*_clusters.csv
+*_kinds.csv
+*_survey.csv
+
+# Test files
+test_*.csv
+
+# OS
+.DS_Store
+Thumbs.db
