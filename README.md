@@ -4,16 +4,6 @@ Advanced WAV metadata explorer and ML-ready audio analysis toolkit.
 Scans RIFF chunks to find ACID info (BPM, beats, meter, root), SMPL loop points, BWF `bext`, `LIST/INFO` tags, cues, and more.
 Enhanced with comprehensive audio feature extraction, similarity search, and ML analysis capabilities.
 
-## New ML/DL Features
-
-- **Advanced Audio Features**: MFCC, spectral features, chroma, tonnetz, and more
-- **ML-Ready Output**: Normalized feature vectors for machine learning
-- **Similarity Search**: Find similar samples using cosine similarity and k-NN
-- **Clustering**: Group samples by audio characteristics
-- **Text Search**: Add descriptions and search samples by text
-- **Jupyter Integration**: Comprehensive notebooks for ML experiments
-- **Recommendation System**: Content-based sample recommendations
-
 ## Core Features
 
 - Robust EOF scanning (won't miss trailing chunks)
@@ -213,6 +203,16 @@ The enhanced `acid_cat` extracts 50+ audio features including:
 - Analyze characteristics of different producers/labels
 - Study evolution of electronic music styles
 - Research correlations between audio features and popularity
+
+## ML/DL Features
+
+- **Advanced Audio Features**: MFCC, spectral features, chroma, tonnetz, and more
+- **ML-Ready Output**: Normalized feature vectors for machine learning
+- **Similarity Search**: Find similar samples using cosine similarity and k-NN
+- **Clustering**: Group samples by audio characteristics
+- **Text Search**: Add descriptions and search samples by text
+- **Jupyter Integration**: Comprehensive notebooks for ML experiments
+- **Recommendation System**: Content-based sample recommendations
 
 ## Contributing
 
