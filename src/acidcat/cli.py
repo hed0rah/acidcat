@@ -4,6 +4,8 @@ acidcat CLI -- top-level argument parser and subcommand dispatcher.
 Usage:
     acidcat file.wav                 # info for a single file (WAV, AIFF, MIDI, Serum)
     acidcat /path/to/samples         # scan a directory
+    acidcat -                        # read from stdin
+    cat file.wav | acidcat           # piped input (implicit stdin)
     acidcat info file.aif            # explicit info subcommand
     acidcat scan DIR [-n N]          # batch scan
     acidcat chunks file.wav          # RIFF chunk walk
@@ -21,6 +23,7 @@ import sys
 
 from acidcat import __version__
 from acidcat.commands import info, scan, chunks, survey, detect, features, similar, search, dump
+from acidcat.util.stdin import is_stdin_target
 
 SUBCOMMANDS = {"info", "scan", "chunks", "survey", "detect", "features", "similar", "search", "dump"}
 
@@ -56,7 +59,8 @@ def _try_bare_path(argv):
         argv = sys.argv[1:]
 
     # is the first positional arg a known subcommand?
-    positionals = [a for a in argv if not a.startswith("-")]
+    # note: "-" (stdin) starts with "-" but is a positional, not a flag
+    positionals = [a for a in argv if not a.startswith("-") or a == "-"]
     if not positionals:
         return None
     first = positionals[0]
@@ -64,7 +68,7 @@ def _try_bare_path(argv):
         return None  # let normal parsing handle it
 
     # not a subcommand -- is it a path?
-    if os.path.exists(first):
+    if os.path.exists(first) or is_stdin_target(first):
         # build a lightweight fallback parser that accepts the bare-path form
         fb = argparse.ArgumentParser(add_help=False)
         fb.add_argument("target")
@@ -80,7 +84,9 @@ def _try_bare_path(argv):
         fb.add_argument("--ml-ready", dest="ml_ready", action="store_true")
         fb_args, _ = fb.parse_known_args(argv)
 
-        if os.path.isfile(fb_args.target):
+        if is_stdin_target(fb_args.target):
+            return info.run(fb_args)
+        elif os.path.isfile(fb_args.target):
             return info.run(fb_args)
         elif os.path.isdir(fb_args.target):
             return scan.run(fb_args)
@@ -93,6 +99,11 @@ def main(argv=None):
     result = _try_bare_path(argv)
     if result is not None:
         return result
+
+    # if no args and stdin is piped, read from stdin
+    effective = argv if argv is not None else sys.argv[1:]
+    if not effective and not sys.stdin.isatty():
+        return _try_bare_path(["-"])
 
     parser = _build_parser()
     args = parser.parse_args(argv)
