@@ -21,6 +21,9 @@ def register(subparsers):
 
 def run(args):
     filepath = args.target
+    if os.path.isdir(filepath):
+        print(f"acidcat chunks: {filepath}: is a directory (expected a file)", file=sys.stderr)
+        return 1
     if not os.path.isfile(filepath):
         print(f"acidcat chunks: {filepath}: No such file", file=sys.stderr)
         return 1

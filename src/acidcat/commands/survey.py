@@ -97,7 +97,9 @@ def run(args):
         stream = open(out_path, 'w')
 
     if fmt_name == "table":
-        stream.write(f"Chunk ID Survey -- {files_scanned} files scanned\n\n")
+        stream.write(f"Chunk ID Survey -- {files_scanned} WAV files scanned\n\n")
+        if files_scanned == 0:
+            stream.write("  (no RIFF/WAV files found -- survey only processes .wav files)\n")
         for r in rows:
             stream.write(f"  {r['chunk_id']:6s} : {r['files']} files\n")
     else:
@@ -106,7 +108,7 @@ def run(args):
     if stream is not sys.stdout:
         stream.close()
     elif not quiet:
-        print(f"\n[INFO] Scanned {files_scanned} file(s), {len(counts)} unique chunk ID(s).",
+        print(f"\n[INFO] Scanned {files_scanned} WAV file(s), {len(counts)} unique chunk ID(s).",
               file=sys.stderr)
 
     return 0
