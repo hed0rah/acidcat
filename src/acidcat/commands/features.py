@@ -5,11 +5,6 @@ acidcat features -- extract 50+ audio features for ML analysis.
 import os
 import sys
 
-import numpy as np
-import pandas as pd
-from sklearn.preprocessing import StandardScaler
-
-from acidcat.core.features import extract_audio_features
 from acidcat.core.formats import output
 from acidcat.util.csv_helpers import safe_basename_for_csv
 
@@ -28,6 +23,12 @@ def register(subparsers):
 
 
 def run(args):
+    from acidcat.util.deps import require
+    if not require("librosa", "numpy", group="analysis"):
+        return 1
+
+    from acidcat.core.features import extract_audio_features
+
     target = args.target
     quiet = getattr(args, 'quiet', False)
     ml_ready = getattr(args, 'ml_ready', False)
@@ -83,12 +84,15 @@ def run(args):
         default_base + "_features.csv"
     )
 
+    import numpy as np
+    import pandas as pd
     df = pd.DataFrame(rows)
     df.to_csv(out_path, index=False)
     if not quiet:
         print(f"\n[INFO] Wrote features for {len(rows)} files to {out_path}", file=sys.stderr)
 
     if ml_ready:
+        from sklearn.preprocessing import StandardScaler
         ml_csv = out_path.replace('.csv', '_ml_ready.csv')
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         if numeric_cols:

@@ -5,12 +5,6 @@ Extracts 50+ spectral, rhythmic, and timbral features from audio files
 using librosa.
 """
 
-import librosa
-import numpy as np
-import warnings
-warnings.filterwarnings("ignore")
-
-
 def extract_audio_features(filepath):
     """
     Extract comprehensive audio features for ML analysis.
@@ -18,6 +12,17 @@ def extract_audio_features(filepath):
     Returns dict with 50+ features (spectral, timbral, rhythmic),
     or None if the file is too short or unreadable.
     """
+    import warnings
+    warnings.filterwarnings("ignore")
+
+    try:
+        import librosa
+        import numpy as np
+    except ImportError:
+        from acidcat.util.deps import require
+        require("librosa", "numpy", group="analysis")
+        return None
+
     try:
         y, sr = librosa.load(filepath, sr=None, mono=True)
 
