@@ -5,18 +5,7 @@ acidcat similar -- find similar audio samples or cluster them.
 import os
 import sys
 
-import numpy as np
-import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
-from sklearn.neighbors import NearestNeighbors
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.decomposition import PCA
-
 from acidcat.core.formats import output
-
-import warnings
-warnings.filterwarnings('ignore')
 
 
 class AudioSimilarityEngine:
@@ -131,6 +120,33 @@ class AudioSimilarityEngine:
         }
 
 
+def _load_ml_deps():
+    """Lazy-load ML dependencies into module globals."""
+    global np, pd, StandardScaler, cosine_similarity, euclidean_distances
+    global NearestNeighbors, KMeans, DBSCAN, PCA
+
+    import warnings
+    warnings.filterwarnings('ignore')
+
+    import numpy as np_
+    import pandas as pd_
+    from sklearn.preprocessing import StandardScaler as SS
+    from sklearn.metrics.pairwise import cosine_similarity as cs, euclidean_distances as ed
+    from sklearn.neighbors import NearestNeighbors as NN
+    from sklearn.cluster import KMeans as KM, DBSCAN as DB
+    from sklearn.decomposition import PCA as PC
+
+    np = np_
+    pd = pd_
+    StandardScaler = SS
+    cosine_similarity = cs
+    euclidean_distances = ed
+    NearestNeighbors = NN
+    KMeans = KM
+    DBSCAN = DB
+    PCA = PC
+
+
 def register(subparsers):
     p = subparsers.add_parser("similar", help="Find similar samples or cluster by features.")
     p.add_argument("csv_path", help="CSV file with audio features.")
@@ -156,6 +172,11 @@ def register(subparsers):
 
 
 def run(args):
+    from acidcat.util.deps import require
+    if not require("numpy", "pandas", "sklearn", group="ml"):
+        return 1
+    _load_ml_deps()
+
     engine = AudioSimilarityEngine(csv_path=args.csv_path)
     subcmd = getattr(args, 'subcmd', None)
     fmt_name = getattr(args, 'format', 'table')

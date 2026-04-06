@@ -6,13 +6,7 @@ import csv
 import os
 import sys
 
-import numpy as np
-import pandas as pd
-from sklearn.preprocessing import StandardScaler
-
 from acidcat.core.riff import parse_riff, get_duration
-from acidcat.core.detect import estimate_librosa_metadata
-from acidcat.core.features import extract_audio_features
 from acidcat.core.formats import output
 from acidcat.util.midi import midi_note_to_name
 from acidcat.util.csv_helpers import safe_basename_for_csv
@@ -99,6 +93,7 @@ def run(args):
 
             # Features
             if do_features or do_ml_ready:
+                from acidcat.core.features import extract_audio_features
                 if not quiet:
                     print(f"  [features] {os.path.basename(filepath)}...", file=sys.stderr)
                 feats = extract_audio_features(filepath)
@@ -107,6 +102,7 @@ def run(args):
 
             # Fallback BPM/key
             if do_fallback:
+                from acidcat.core.detect import estimate_librosa_metadata
                 estimates = estimate_librosa_metadata(filepath)
                 if estimates.get("estimated_bpm") is not None:
                     row["bpm"] = estimates["estimated_bpm"]
@@ -148,6 +144,9 @@ def run(args):
 
     # Write output
     if do_ml_ready:
+        import numpy as np
+        import pandas as pd
+        from sklearn.preprocessing import StandardScaler
         df = pd.DataFrame(rows)
         df.to_csv(output_csv, index=False)
 

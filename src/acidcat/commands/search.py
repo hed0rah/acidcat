@@ -6,8 +6,6 @@ import json
 import os
 import sys
 
-import pandas as pd
-
 from acidcat.core.formats import output
 
 
@@ -15,6 +13,7 @@ class AudioTextSearch:
     """Text-based search system for audio samples."""
 
     def __init__(self, csv_path, tags_path=None):
+        import pandas as pd
         self.csv_path = csv_path
         self.df = pd.read_csv(csv_path)
         self.tags_path = tags_path or csv_path.replace('.csv', '_tags.json')

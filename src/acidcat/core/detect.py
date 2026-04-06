@@ -8,12 +8,6 @@ and librosa audio analysis with smart validation/fallback.
 import os
 import re
 
-import librosa
-import numpy as np
-import warnings
-warnings.filterwarnings("ignore")
-
-
 # ── Filename parsing ───────────────────────────────────────────────
 
 def parse_bpm_from_filename(filepath):
@@ -124,6 +118,17 @@ def estimate_librosa_metadata(filepath):
     Returns dict with keys: estimated_bpm, estimated_key, duration_sec,
     bpm_source, key_source, filename_bpm, filename_key, detected_bpm, detected_key.
     """
+    import warnings
+    warnings.filterwarnings("ignore")
+
+    try:
+        import librosa
+        import numpy as np
+    except ImportError:
+        from acidcat.util.deps import require
+        require("librosa", "numpy", group="analysis")
+        return {}
+
     try:
         y, sr = librosa.load(filepath, sr=None, mono=True)
         duration_sec = round(len(y) / sr, 4) if sr and len(y) > 0 else None
