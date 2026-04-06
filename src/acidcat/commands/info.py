@@ -16,6 +16,7 @@ from acidcat.core.detect import estimate_librosa_metadata
 from acidcat.core.features import extract_audio_features
 from acidcat.core.formats import output
 from acidcat.util.midi import midi_note_to_name
+from acidcat.util.stdin import is_stdin_target, stdin_to_tempfile
 
 
 def register(subparsers):
@@ -259,30 +260,48 @@ def _add_deep_analysis(filepath, rec, args):
 
 def run(args):
     filepath = args.target
+    tmp_path = None
+
+    # handle stdin: "acidcat -" or piped input
+    if is_stdin_target(filepath):
+        tmp_path = stdin_to_tempfile()
+        if tmp_path is None:
+            print("acidcat: no data on stdin", file=sys.stderr)
+            return 1
+        filepath = tmp_path
+
     if not os.path.isfile(filepath):
         print(f"acidcat: {filepath}: No such file", file=sys.stderr)
         return 1
 
-    fmt_type = _detect_format(filepath)
+    try:
+        fmt_type = _detect_format(filepath)
 
-    if fmt_type == "aiff":
-        rec = _info_aiff(filepath, args)
-    elif fmt_type == "midi":
-        rec = _info_midi(filepath, args)
-    elif fmt_type == "serum":
-        rec = _info_serum(filepath, args)
-    else:
-        rec = _info_wav(filepath, args)
+        if fmt_type == "aiff":
+            rec = _info_aiff(filepath, args)
+        elif fmt_type == "midi":
+            rec = _info_midi(filepath, args)
+        elif fmt_type == "serum":
+            rec = _info_serum(filepath, args)
+        else:
+            rec = _info_wav(filepath, args)
 
-    # output
-    stream = sys.stdout
-    if getattr(args, 'output', None):
-        stream = open(args.output, 'w')
+        # when reading from stdin, show <stdin> instead of tempfile name
+        if tmp_path:
+            rec["File"] = "<stdin>"
 
-    fmt_name = getattr(args, 'format', 'table')
-    output(rec, fmt=fmt_name, stream=stream)
+        # output
+        stream = sys.stdout
+        if getattr(args, 'output', None):
+            stream = open(args.output, 'w')
 
-    if stream is not sys.stdout:
-        stream.close()
+        fmt_name = getattr(args, 'format', 'table')
+        output(rec, fmt=fmt_name, stream=stream)
 
-    return 0
+        if stream is not sys.stdout:
+            stream.close()
+
+        return 0
+    finally:
+        if tmp_path:
+            os.unlink(tmp_path)
