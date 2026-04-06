@@ -47,7 +47,11 @@ env/
 
 # Test files
 test_*.csv
+*_features.csv
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Local sample library (don't commit audio files)
+sample_packs/
