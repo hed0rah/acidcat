@@ -37,7 +37,10 @@ def parse_tagged(filepath):
         require("mutagen", group="tags")
         return None
 
-    m = mutagen.File(filepath)
+    try:
+        m = mutagen.File(filepath)
+    except Exception:
+        return None
     if m is None:
         return None
 
@@ -67,7 +70,10 @@ def parse_tagged(filepath):
             # flac has native info fields
             if rec["bits_per_sample"] is None:
                 rec["bits_per_sample"] = getattr(info, "bits_per_sample", None)
-        elif fmt_name in ("OggVorbis", "OggOpus", "OggFLAC"):
+        elif fmt_name == "OggOpus":
+            rec["format_type"] = "opus"
+            _extract_vorbis(m.tags, rec)
+        elif fmt_name in ("OggVorbis", "OggFLAC"):
             rec["format_type"] = "ogg"
             _extract_vorbis(m.tags, rec)
         else:
