@@ -1,224 +1,129 @@
-# acid_cat
+# acidcat
 
-Advanced WAV metadata explorer and ML-ready audio analysis toolkit.
-Scans RIFF chunks to find ACID info (BPM, beats, meter, root), SMPL loop points, BWF `bext`, `LIST/INFO` tags, cues, and more.
-Enhanced with comprehensive audio feature extraction, similarity search, and ML analysis capabilities.
+Audio metadata explorer and analysis tool -- like exiftool, but for audio.
 
-## Core Features
+Parses WAV, AIFF, MIDI, and Serum preset files. Extracts BPM, key,
+loop points, and format metadata. Detects BPM/key via librosa when
+metadata is missing. Extracts 50+ audio features for ML.
 
-- Robust EOF scanning (won't miss trailing chunks)
-- Summary mode: BPM, beats, expected duration, SMPL loop points
-- `--all` mode: full per-chunk key/value dump to CSV
-- `--kinds` mode: quick overview of what metadata each file has
-- `--survey` mode: count chunk types across a directory tree
-- `--has acid,smpl,...` filter to target exactly what you want
-- `--fallback` mode: estimate BPM/key using librosa if no ACID/SMPL metadata is found
-- `--features` mode: extract comprehensive audio features for ML analysis
-- `--ml-ready` mode: output normalized features for machine learning
-- `-v` verbose printing in `--all` mode (and `-q` to suppress)
+## Install
 
-## Installation
+    git clone https://github.com/hed0rah/acidcat.git
+    cd acidcat
+    pip install -e .
 
-Clone the repo and install dependencies:
+## Quick Start
 
-    git clone https://github.com/jrelo/acid_cat.git
-    cd acid_cat
-    pip install -r requirements.txt
+    # Single file -- instant metadata (the default)
+    acidcat kick_808.wav
 
-Requirements include:
+    # Deep analysis with librosa
+    acidcat kick_808.wav --deep
 
-    librosa==0.10.1
-    numpy==1.26.4
-    pandas>=2.0.0
-    scikit-learn>=1.3.0
-    matplotlib>=3.7.0
-    seaborn>=0.12.0
-    jupyter>=1.0.0
+    # JSON output for piping
+    acidcat kick_808.wav -f json | jq .BPM
 
-## Basic Usage
+    # Scan a directory
+    acidcat scan ~/Samples/Breaks -n 200
 
-### Traditional Metadata Extraction
+## Commands
 
-    # Summary view of acidized files (prints to console + writes CSV)
-    python acid_cat.py "D:\Audio\Loops" --has acid -n 20
+| Command | Description |
+|---------|-------------|
+| `acidcat FILE` | Show metadata for a single file (WAV, AIFF, MIDI, Serum) |
+| `acidcat DIR` | Batch-scan a directory (auto-detected) |
+| `acidcat info FILE` | Explicit single-file metadata dump |
+| `acidcat scan DIR` | Batch-scan with CSV output |
+| `acidcat chunks FILE` | Walk RIFF chunks -- offsets, sizes, parsed fields |
+| `acidcat survey DIR` | Count chunk types across a directory tree |
+| `acidcat detect FILE\|DIR` | Estimate BPM/key using librosa |
+| `acidcat features DIR` | Extract 50+ audio features for ML |
+| `acidcat similar CSV find TARGET` | Find similar samples by features |
+| `acidcat similar CSV cluster` | Cluster samples by audio characteristics |
+| `acidcat search CSV query TEXT` | Text-based sample search |
+| `acidcat search CSV interactive` | Interactive tagging session |
+| `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
 
-    # Chunk kinds per file (prints + writes <name>_kinds.csv)
-    python acid_cat.py "D:\Audio\Loops" --kinds -n 50
+## Global Flags
 
-    # Full chunk dump to CSV (quiet)
-    python acid_cat.py "D:\Audio\Loops" --all --has acid -n 200 -q
+    -f, --format {table,json,csv}   Output format (default: table)
+    -o, --output FILE               Write output to file
+    -q, --quiet                     Suppress progress output
+    -v, --verbose                   Extra detail
+    -n, --num N                     Max files to scan (default: 500)
+    --has CHUNKS                    Filter by chunk IDs (comma-separated)
 
-    # Survey a large tree to see what metadata appears where
-    python acid_cat.py "D:\Audio" --survey -n 2000
+## Examples
 
-    # Estimate BPM/key using librosa when ACID/SMPL metadata is missing
-    python acid_cat.py "D:\Audio\Loops" --fallback -n 100
+### Metadata Exploration
 
-### ML-Enhanced Analysis
+    # What chunks exist in your sample library?
+    acidcat survey "D:\Samples\Loops" -n 5000
 
-    # Extract comprehensive audio features for ML analysis
-    python acid_cat.py "D:\Audio\Loops" --features -n 100
+    # Walk all chunks in a specific file
+    acidcat chunks "D:\Samples\Loops\breakbeat.wav"
 
-    # Generate ML-ready normalized datasets
-    python acid_cat.py "D:\Audio\Loops" --ml-ready -n 100
+    # Hex-dump the ACID and SMPL chunks
+    acidcat dump "D:\Samples\Loops\breakbeat.wav" acid smpl
 
-    # Combine with existing filters
-    python acid_cat.py "D:\Audio\Loops" --features --has acid --fallback -n 200
+    # Scan only files with ACID metadata
+    acidcat scan "D:\Samples\Loops" --has acid -n 200
 
-## Advanced ML Tools
+### BPM / Key Detection
 
-### 1. Similarity Search
+    # Estimate BPM/key with librosa (for files without metadata)
+    acidcat detect "D:\Samples\OneShots"
 
-Find samples similar to a target sample:
+    # Scan with librosa fallback for missing metadata
+    acidcat scan "D:\Samples\Loops" --fallback -n 100
 
-    # Find 5 similar samples to sample index 0
-    python audio_similarity.py samples_metadata.csv similar 0 -n 5
+### ML Feature Extraction
 
-    # Find similar samples by filename (partial match)
-    python audio_similarity.py samples_metadata.csv similar "kick_drum" -n 3
+    # Extract 50+ audio features to CSV
+    acidcat features "D:\Samples\Loops" -n 500
 
-    # Use different similarity metrics
-    python audio_similarity.py samples_metadata.csv similar 0 -m euclidean
+    # Generate normalized (StandardScaler) ML-ready dataset
+    acidcat features "D:\Samples\Loops" --ml-ready -n 500
 
-### 2. Sample Clustering
+### Similarity & Clustering
 
-Group samples by audio characteristics:
+    # Find 5 samples similar to index 0
+    acidcat similar features.csv find 0 -n 5
 
-    # K-means clustering with 5 clusters
-    python audio_similarity.py samples_metadata.csv cluster -k 5
+    # K-means clustering
+    acidcat similar features.csv cluster -k 10 -o clustered.csv
 
-    # DBSCAN clustering (density-based)
-    python audio_similarity.py samples_metadata.csv cluster -m dbscan
-
-    # Save clustered results
-    python audio_similarity.py samples_metadata.csv cluster -k 5 -o clustered_samples.csv
-
-### 3. Text-Based Search and Tagging
-
-Add descriptions and search by text:
+### Text Search & Tagging
 
     # Interactive tagging session
-    python text_search.py samples_metadata.csv interactive
+    acidcat search metadata.csv interactive
 
-    # Add description and tags to a sample
-    python text_search.py samples_metadata.csv tag "drum_loop" "Energetic 4/4 kick pattern" --tags "drums,electronic,loop"
+    # Search by text
+    acidcat search metadata.csv query "punchy kick"
 
-    # Search by text query
-    python text_search.py samples_metadata.csv search "energetic drum"
+    # Search by tags
+    acidcat search metadata.csv tags "drums,electronic"
 
-    # Search by specific tags
-    python text_search.py samples_metadata.csv tags "drums,electronic"
+## Audio Features (50+)
 
-## Jupyter Notebook Analysis
+**Spectral**: centroid, rolloff, bandwidth, contrast, zero crossing rate
+**Timbral**: MFCC (13 coefficients), chroma, mel-frequency, tonnetz
+**Rhythmic**: tempo, beat count, RMS energy
+**Metadata**: ACID BPM/key/beats, SMPL root/loops, format info
 
-Launch the comprehensive analysis notebook:
+## RIFF Chunks Parsed
 
-    jupyter notebook audio_ml_analysis.ipynb
+| Chunk | What's inside |
+|-------|---------------|
+| `acid` | BPM, root note, beats, meter |
+| `smpl` | Root key, loop start/end points |
+| `inst` | Base note, detune, gain, key/velocity range |
+| `fmt ` | Format tag, channels, sample rate, bits |
+| `fact` | Sample length (non-PCM) |
+| `cue ` | Cue marker positions |
+| `LIST` | INFO tags (title, artist, comment, software) |
+| `bext` | Broadcast extension (description, originator, date) |
 
-The notebook includes:
-- **Data Exploration**: Visualize feature distributions and correlations
-- **Dimensionality Reduction**: PCA and t-SNE visualizations
-- **Clustering Analysis**: K-means and DBSCAN clustering
-- **Similarity Search**: Content-based recommendation system
-- **Feature Importance**: Understand which features matter most
+## License
 
-## ML Workflow Example
-
-1. **Extract Features**: Generate comprehensive audio features
-   ```bash
-   python acid_cat.py "my_samples/" --ml-ready -n 1000
-   ```
-
-2. **Add Descriptions**: Tag samples with text descriptions
-   ```bash
-   python text_search.py my_samples_metadata.csv interactive
-   ```
-
-3. **Analyze and Cluster**: Explore patterns in your sample library
-   ```bash
-   python audio_similarity.py my_samples_metadata.csv cluster -k 10 -o clustered.csv
-   ```
-
-4. **Find Similarities**: Build recommendation systems
-   ```bash
-   python audio_similarity.py my_samples_metadata.csv similar "my_favorite_sample" -n 10
-   ```
-
-5. **ML Experiments**: Use Jupyter notebook for advanced analysis
-   ```bash
-   jupyter notebook audio_ml_analysis.ipynb
-   ```
-
-## Output Files
-
-- `*_metadata.csv`: Raw audio features and metadata
-- `*_ml_ready.csv`: Normalized features for ML (when using `--ml-ready`)
-- `*_tags.json`: Text descriptions and tags database
-- `*_enhanced.csv`: Combined audio features + text descriptions
-- `*_clusters.csv`: Samples with cluster assignments
-
-## Feature Extraction Details
-
-The enhanced `acid_cat` extracts 50+ audio features including:
-
-**Spectral Features**:
-- Spectral centroid, rolloff, bandwidth
-- Spectral contrast
-- Zero crossing rate
-
-**Timbral Features**:
-- MFCC coefficients (1-13)
-- Chroma features
-- Mel-frequency features
-- Tonnetz (tonal centroid features)
-
-**Rhythmic Features**:
-- Tempo estimation
-- Beat tracking
-- RMS energy
-
-**Metadata**:
-- ACID chunk data (BPM, key, beats)
-- SMPL loop points
-- Duration and sample rate
-
-## Use Cases
-
-### Music Production
-- Find samples that match your track's key and tempo
-- Discover similar-sounding samples for layering
-- Organize large sample libraries by musical characteristics
-
-### Machine Learning Research
-- Train models for genre classification
-- Develop automatic music tagging systems
-- Study relationships between audio features and perception
-
-### Sample Library Management
-- Automatically tag and categorize samples
-- Build smart recommendation systems
-- Create dynamic playlists based on audio similarity
-
-### Audio Analysis
-- Analyze characteristics of different producers/labels
-- Study evolution of electronic music styles
-- Research correlations between audio features and popularity
-
-## ML/DL Features
-
-- **Advanced Audio Features**: MFCC, spectral features, chroma, tonnetz, and more
-- **ML-Ready Output**: Normalized feature vectors for machine learning
-- **Similarity Search**: Find similar samples using cosine similarity and k-NN
-- **Clustering**: Group samples by audio characteristics
-- **Text Search**: Add descriptions and search samples by text
-- **Jupyter Integration**: Comprehensive notebooks for ML experiments
-- **Recommendation System**: Content-based sample recommendations
-
-## Contributing
-
-Contributions welcome! Areas for improvement:
-- Additional audio feature extractors
-- More sophisticated similarity metrics
-- Integration with music databases
-- Real-time analysis capabilities
-- Web interface for sample exploration
+MIT
