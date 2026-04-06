@@ -53,5 +53,6 @@ test_*.csv
 .DS_Store
 Thumbs.db
 
-# Local sample library (don't commit audio files)
+# Local sample library and test audio (don't commit audio files)
 sample_packs/
+data/test_formats/

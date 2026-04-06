@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acidcat"
-version = "0.2.0"
+version = "0.3.0"
 description = "Audio metadata explorer and analysis tool -- like exiftool, but for audio"
 readme = "README.md"
 license = {text = "MIT"}
@@ -28,6 +28,9 @@ analysis = [
     "scipy>=1.13",
     "soundfile>=0.12",
 ]
+tags = [
+    "mutagen>=1.47",
+]
 ml = [
     "acidcat[analysis]",
     "pandas>=2.0",
@@ -35,7 +38,7 @@ ml = [
 ]
 viz = ["acidcat[ml]", "matplotlib>=3.7", "seaborn>=0.12"]
 notebook = ["jupyter>=1.0", "ipykernel>=6.0"]
-all = ["acidcat[ml,viz,notebook]"]
+all = ["acidcat[tags,ml,viz,notebook]"]
 
 [project.scripts]
 acidcat = "acidcat.cli:main"

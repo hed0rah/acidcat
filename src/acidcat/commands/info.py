@@ -2,7 +2,7 @@
 acidcat info -- single-file metadata dump.
 
 The star command: ``acidcat file.wav`` dumps metadata like exiftool.
-Supports WAV, AIFF, MIDI, and Serum preset files.
+Supports WAV, AIFF, MIDI, Serum, MP3, FLAC, OGG, and M4A files.
 """
 
 import os
@@ -12,6 +12,7 @@ from acidcat.core.riff import parse_riff, get_duration, get_fmt_info
 from acidcat.core.aiff import is_aiff, parse_aiff
 from acidcat.core.midi import is_midi, parse_midi
 from acidcat.core.serum import is_serum_preset, parse_serum_preset
+from acidcat.core.tagged import is_tagged_format
 from acidcat.core.detect import estimate_librosa_metadata
 from acidcat.core.features import extract_audio_features
 from acidcat.core.formats import output
@@ -40,7 +41,6 @@ def _detect_format(filepath):
         return "aiff"
     if is_serum_preset(filepath):
         return "serum"
-    # default: try as WAV/RIFF
     ext = os.path.splitext(filepath)[1].lower()
     if ext in (".aif", ".aiff"):
         return "aiff"
@@ -48,6 +48,8 @@ def _detect_format(filepath):
         return "midi"
     if ext.lower() == ".serumpreset":
         return "serum"
+    if is_tagged_format(filepath):
+        return "tagged"
     return "wav"
 
 
@@ -233,6 +235,76 @@ def _info_serum(filepath, args):
     return rec
 
 
+def _info_tagged(filepath, args):
+    """Build info record for tagged audio (MP3, FLAC, OGG, M4A)."""
+    from acidcat.core.tagged import parse_tagged
+
+    meta = parse_tagged(filepath)
+    if meta is None:
+        return {"File": os.path.basename(filepath), "Format": "unknown (mutagen failed)"}
+
+    rec = {}
+    rec["File"] = os.path.basename(filepath)
+
+    # format line
+    fmt_type = meta.get("format_type", "unknown")
+    fmt_parts = [fmt_type.upper()]
+    if meta.get("sample_rate"):
+        fmt_parts.append(f"{meta['sample_rate']}Hz")
+    if meta.get("bits_per_sample"):
+        fmt_parts.append(f"{meta['bits_per_sample']}-bit")
+    elif meta.get("bitrate"):
+        fmt_parts.append(f"{meta['bitrate'] // 1000}kbps")
+    if meta.get("channels"):
+        ch = meta["channels"]
+        ch_label = "mono" if ch == 1 else "stereo" if ch == 2 else f"{ch}ch"
+        fmt_parts.append(ch_label)
+    rec["Format"] = " ".join(fmt_parts)
+
+    if meta.get("duration") is not None:
+        rec["Duration"] = f"{meta['duration']}s"
+
+    if meta.get("title"):
+        rec["Title"] = meta["title"]
+    if meta.get("artist"):
+        rec["Artist"] = meta["artist"]
+    if meta.get("album"):
+        rec["Album"] = meta["album"]
+
+    if meta.get("bpm"):
+        rec["BPM"] = meta["bpm"]
+    else:
+        rec["BPM"] = "-"
+
+    if meta.get("key"):
+        rec["Key"] = meta["key"]
+    else:
+        rec["Key"] = "-"
+
+    if meta.get("genre"):
+        rec["Genre"] = meta["genre"]
+    if meta.get("date"):
+        rec["Date"] = meta["date"]
+    if meta.get("comment"):
+        rec["Comment"] = meta["comment"]
+    if meta.get("track_number"):
+        rec["Track"] = meta["track_number"]
+    if meta.get("disc_number"):
+        rec["Disc"] = meta["disc_number"]
+    if meta.get("encoder"):
+        rec["Encoder"] = meta["encoder"]
+    if meta.get("copyright"):
+        rec["Copyright"] = meta["copyright"]
+    if meta.get("publisher"):
+        rec["Publisher"] = meta["publisher"]
+
+    # deep analysis works on any audio format librosa can load
+    if getattr(args, 'deep', False):
+        _add_deep_analysis(filepath, rec, args)
+
+    return rec
+
+
 def _add_deep_analysis(filepath, rec, args):
     """Append librosa deep analysis fields to an existing record."""
     if not getattr(args, 'quiet', False):
@@ -283,6 +355,8 @@ def run(args):
             rec = _info_midi(filepath, args)
         elif fmt_type == "serum":
             rec = _info_serum(filepath, args)
+        elif fmt_type == "tagged":
+            rec = _info_tagged(filepath, args)
         else:
             rec = _info_wav(filepath, args)
 
