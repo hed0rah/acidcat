@@ -247,6 +247,28 @@ def test_find_compatible_infer_kind_helper():
     assert mcp_server.infer_kind(1.5, 0) == "any"
 
 
+@pytest.mark.parametrize("duration,acid_beats,expected", [
+    # Producer Loops Hypnotize pack: ACID chunk present but beats=0,
+    # durations are exact bar counts. Must classify as loops via duration.
+    (7.619, 0, "loop"),         # 2 bars at 126 BPM
+    (15.238, 0, "loop"),        # 4 bars at 126 BPM
+    # equivalence: None and 0 must behave identically for every duration band
+    (7.619, None, "loop"),
+    (15.238, None, "loop"),
+    (0.3, 0, "one_shot"),
+    (0.3, None, "one_shot"),
+    (1.5, 0, "any"),
+    (1.5, None, "any"),
+])
+def test_infer_kind_zero_beats_equivalent_to_null(duration, acid_beats, expected):
+    # regression guard: acid_beats == 0 must be treated as uninformative
+    # (equivalent to NULL), never as a one-shot signal on its own.
+    # some commercial packs (Producer Loops Hypnotize) write ACID chunks
+    # with beats=0 on legitimate loops, so inference must fall through to
+    # duration-based classification.
+    assert mcp_server.infer_kind(duration, acid_beats) == expected
+
+
 def test_tag_sample(seeded_db):
     r = mcp_server.dispatch("tag_sample", {
         "path": P_HAT, "add_tags": ["bright", "tight"],
