@@ -15,19 +15,18 @@ def parse_bpm_from_filename(filepath):
     filename = os.path.basename(filepath)
     bpm_patterns = [
         r'(\d{2,3})\s*bpm',
-        r'(\d{2,3})\s*BPM',
         r'bpm\s*(\d{2,3})',
-        r'BPM\s*(\d{2,3})',
         r'(\d{2,3})bpm',
-        r'(\d{2,3})BPM',
-        r'_(\d{2,3})_',
-        r'-(\d{2,3})-',
-        r'\s(\d{2,3})\s',
+        # bare 2-3 digit run, not adjacent to other digits or a decimal point;
+        # zero-width lookarounds so consecutive numbers (e.g. '_03_126_') both
+        # surface instead of the first consuming the shared underscore.
+        r'(?<![\d.])(\d{2,3})(?![\d.])',
     ]
+    # iterate ALL matches of each pattern; a filename like "Pack_03_126_A#"
+    # matches "_03_" before "_126_" so we need to consider every occurrence.
     for pattern in bpm_patterns:
-        match = re.search(pattern, filename, re.IGNORECASE)
-        if match:
-            bpm = int(match.group(1))
+        for match in re.findall(pattern, filename, re.IGNORECASE):
+            bpm = int(match)
             if 60 <= bpm <= 200:
                 return bpm
     return None
@@ -54,10 +53,83 @@ def parse_key_from_filename(filepath):
         if match:
             note = match.group(1).upper()
             key_text = match.group(0).lower()
-            if any(x in key_text for x in ['min', 'm']):
+            # classify minor vs major: 'min' or 'minor' anywhere; or trailing
+            # 'm' that isn't part of 'major'/'maj'.
+            if "min" in key_text:
                 return f"{note}m"
-            else:
+            if "maj" in key_text:
                 return note
+            # bare trailing m (e.g. 'Am', 'C#m')
+            if re.search(r"m\s*$", key_text):
+                return f"{note}m"
+            return note
+    return None
+
+
+# whole-token key regex: A, A#, Ab, Am, A#m, Gbm, etc.
+# Lowercase m for minor; capital M rejected to avoid false positives (file "SCREAM").
+_BARE_KEY_TOKEN = re.compile(r"^([A-G])([#b]?)(m)?$")
+
+
+def parse_bare_key_token(token):
+    """If `token` is a whole-token musical key (e.g. 'A#', 'Em', 'Bbm'), return
+    the normalized 'C#m' / 'Eb' form. Otherwise None.
+    """
+    m = _BARE_KEY_TOKEN.match(token)
+    if not m:
+        return None
+    note = m.group(1).upper()
+    accidental = m.group(2) or ""
+    minor = "m" if m.group(3) else ""
+    # normalize flat to sharp for consistency with MIDI note naming.
+    # Cb/Fb aren't pitch-raising flats; they're enharmonic with B/E.
+    if accidental == "b":
+        flat_to_sharp = {"Db": "C#", "Eb": "D#", "Gb": "F#",
+                         "Ab": "G#", "Bb": "A#",
+                         "Cb": "B", "Fb": "E"}
+        root = flat_to_sharp.get(note + "b", note + "b")
+    else:
+        root = note + accidental
+    return root + minor
+
+
+def parse_key_from_path(filepath, max_parent_depth=3):
+    """Robust key extraction across filename + parent folders.
+
+    Tries parse_key_from_filename first (matches 'Am', 'C minor', etc.),
+    then falls back to whole-token bare-key matches in the filename and
+    up to `max_parent_depth` parent folders. Returns the first hit or None.
+
+    Whole-token matching avoids false positives like "Analog" matching 'A'.
+    """
+    existing = parse_key_from_filename(filepath)
+    if existing is not None:
+        return existing
+
+    # walk filename basename + parent dirs outward
+    segments = []
+    stem = os.path.splitext(os.path.basename(filepath))[0]
+    segments.append(stem)
+    cur = os.path.dirname(filepath)
+    for _ in range(max_parent_depth):
+        if not cur or cur in ("/", "\\"):
+            break
+        parent = os.path.basename(cur)
+        if parent:
+            segments.append(parent)
+        new_cur = os.path.dirname(cur)
+        if new_cur == cur:
+            break
+        cur = new_cur
+
+    token_re = re.compile(r"[_\-\.\s]+")
+    for seg in segments:
+        for token in token_re.split(seg):
+            if not token:
+                continue
+            key = parse_bare_key_token(token)
+            if key is not None:
+                return key
     return None
 
 

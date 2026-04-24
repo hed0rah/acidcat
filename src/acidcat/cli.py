@@ -7,14 +7,16 @@ Usage:
     acidcat -                        # read from stdin
     cat file.wav | acidcat           # piped input (implicit stdin)
     acidcat info file.aif            # explicit info subcommand
-    acidcat scan DIR [-n N]          # batch scan
+    acidcat scan DIR [-n N]          # batch scan (writes CSV)
     acidcat chunks file.wav          # RIFF chunk walk
     acidcat survey DIR               # chunk type census
     acidcat detect file.wav          # librosa BPM/key estimation
     acidcat features DIR             # ML feature extraction
     acidcat similar CSV TARGET       # similarity search
-    acidcat search CSV QUERY         # text search
+    acidcat search CSV QUERY         # text search (legacy, CSV-based)
     acidcat dump file.wav acid       # hex dump a chunk
+    acidcat index DIR                # upsert DIR into the global SQLite index
+    acidcat query --bpm 120:130      # filter the global index
 """
 
 import argparse
@@ -22,10 +24,16 @@ import os
 import sys
 
 from acidcat import __version__
-from acidcat.commands import info, scan, chunks, survey, detect, features, similar, search, dump
+from acidcat.commands import (
+    info, scan, chunks, survey, detect, features, similar, search, dump,
+    index, query,
+)
 from acidcat.util.stdin import is_stdin_target
 
-SUBCOMMANDS = {"info", "scan", "chunks", "survey", "detect", "features", "similar", "search", "dump"}
+SUBCOMMANDS = {
+    "info", "scan", "chunks", "survey", "detect", "features", "similar",
+    "search", "dump", "index", "query",
+}
 
 
 def _build_parser():
@@ -46,6 +54,8 @@ def _build_parser():
     similar.register(subparsers)
     search.register(subparsers)
     dump.register(subparsers)
+    index.register(subparsers)
+    query.register(subparsers)
 
     return parser
 
