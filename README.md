@@ -6,9 +6,10 @@ Reads BPM, key, duration, tags, and format info from WAV, AIFF, MP3, FLAC,
 OGG, Opus, M4A, MIDI, and Serum presets. Zero dependencies for core metadata.
 Optional librosa analysis for BPM/key detection and ML feature extraction.
 
-Also ships a persistent SQLite index (`acidcat index`) and an MCP server
-(`acidcat-mcp`) so an LLM can query your whole sample library by bpm, key,
-tags, or full-text.
+Also ships per-library SQLite indexes (`acidcat index`) tracked in a
+small global registry, plus an MCP server (`acidcat-mcp`) so an LLM can
+query your whole collection across libraries by bpm, key, tags, or
+full-text.
 
 ## Install
 
@@ -139,50 +140,74 @@ tags, or full-text.
     # k-means clustering
     acidcat similar features.csv cluster -k 10 -o clustered.csv
 
-## Global Index
+## Libraries (per-directory indexes)
 
-`acidcat scan` writes a one-off CSV. `acidcat index` maintains a single
-persistent SQLite database at `~/.acidcat/index.db` that aggregates every
-directory you point it at. Re-running skips unchanged files and prunes
-missing ones. Query it without rescanning.
+`acidcat scan` writes a one-off CSV. `acidcat index` is the persistent
+path: each directory you index becomes a *library* with its own SQLite
+file, and a small global registry at `~/.acidcat/registry.db` lets reads
+fan out across every library you have registered.
 
-    # add a library (repeat for as many folders as you want)
-    acidcat index ~/Samples/Loops
-    acidcat index ~/Samples/OneShots
+By default the per-library DB lives centrally at
+`~/.acidcat/libraries/<label>_<hash>.db`. Pass `--in-tree` if you'd
+rather have the DB travel with the data at
+`<library>/.acidcat/index.db`.
 
-    # show what has been indexed
-    acidcat index --list-roots
-    acidcat index --stats
+    # register and index a library (label defaults to basename of DIR)
+    acidcat index ~/Samples/Loops --label loops
+    acidcat index ~/Samples/OneShots --label oneshots
 
-    # optional: include librosa features (slower, enables similarity)
-    acidcat index ~/Samples/Loops --features
+    # show every registered library
+    acidcat index --list
 
-    # optional: import legacy <name>_tags.json into the index
-    acidcat index ~/Samples --import-tags old_tags.json
+    # per-library stats
+    acidcat index --stats loops
 
-    # drop everything under a root
-    acidcat index --remove-root ~/Samples/Loops
+    # extract librosa features during indexing (slower, enables similarity)
+    acidcat index ~/Samples/Loops --label loops --features
+
+    # rebuild a library's DB from scratch
+    acidcat index ~/Samples/Loops --label loops --rebuild
+
+    # forget a library (registry only) vs remove it (deletes the DB file)
+    acidcat index --forget loops
+    acidcat index --remove loops
+
+    # list registered libraries whose DB file is missing on disk
+    acidcat index --orphans
+
+    # import a legacy <name>_tags.json into a library
+    acidcat index ~/Samples --label samples --import-tags old_tags.json
+
+Nested libraries are rejected at registration time: if you've registered
+`~/Samples`, you can't also register `~/Samples/Loops` until you forget
+the parent.
 
 ### Querying
+
+By default `acidcat query` fans out across every registered library and
+merges the results.
 
     acidcat query --bpm 120:130 --key Am
     acidcat query --tag drums --tag punchy --duration :1
     acidcat query --text "dusty lofi" --limit 20
-    acidcat query --format mp3 --root ~/Samples/Loops
+    acidcat query --format mp3 --root loops
+    acidcat query --root loops,oneshots --bpm 128
     acidcat query --bpm 128 --paths-only | xargs -I {} cp {} out/
 
-Override the DB on any command with `--db PATH` or the `ACIDCAT_DB`
-environment variable.
+`--root` accepts a label, an absolute path, or a comma-separated list.
+Override the registry on any command with `--registry PATH` or the
+`ACIDCAT_REGISTRY` environment variable.
 
 ## MCP Server
 
-`acidcat-mcp` is a stdio MCP server that exposes the global index as
-structured tools. An LLM can search your library by metadata, find
-compatible keys via Camelot, or (with `[analysis]` installed) find
-similar samples by librosa feature cosine.
+`acidcat-mcp` is a stdio MCP server that exposes the registered libraries
+as structured tools. An LLM can ask "what libraries do I have?",
+search across them by metadata, find compatible keys via Camelot, or
+(with `[analysis]` installed) find similar samples by librosa feature
+cosine.
 
-    pip install -e .[tags,mcp]        # minimum for discovery + writes
-    pip install -e .[tags,analysis,mcp]  # unlock find_similar/analyze_*
+    pip install -e .[tags,mcp]            # minimum for discovery + writes
+    pip install -e .[tags,analysis,mcp]   # unlock find_similar / analyze_*
 
 Claude Desktop / Claude Code config:
 
@@ -194,19 +219,20 @@ Claude Desktop / Claude Code config:
       }
     }
 
-Optional: pass `--db` or set `ACIDCAT_DB` on the server process if your
-index lives outside the default path.
+Optional: pass `--registry PATH` on the server process or set
+`ACIDCAT_REGISTRY` if your registry lives outside the default location.
 
 Tool tiers (each tool description starts with `Fast.`, `SLOW.`, or
 `VERY SLOW.` so the model self-selects):
 
 - **Fast (SQLite only)**: `search_samples`, `get_sample`, `locate_sample`,
-  `list_roots`, `list_tags`, `list_keys`, `list_formats`, `index_stats`,
-  `find_compatible`
+  `list_libraries`, `list_tags`, `list_keys`, `list_formats`,
+  `index_stats`, `find_compatible`
 - **Slow analysis** (needs `[analysis]`): `find_similar`, `analyze_sample`,
   `detect_bpm_key`
 - **Index management**: `reindex`, `reindex_features`
-- **Write**: `tag_sample`, `describe_sample` (marked destructive)
+- **Write** (marked destructive): `register_library`, `forget_library`,
+  `tag_sample`, `describe_sample`
 
 ## License
 

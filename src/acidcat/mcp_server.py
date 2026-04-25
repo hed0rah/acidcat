@@ -1,9 +1,15 @@
 """
-acidcat-mcp -- stdio MCP server over the global SQLite sample index.
+acidcat-mcp -- stdio MCP server over the per-library sample index layout.
 
-Register all tools up front even when optional deps (librosa) are missing;
-the slow ones return a structured error describing the install step. This
-way the LLM discovers what's possible and can surface the fix to the user.
+Default behavior fans out across every library registered in
+`~/.acidcat/registry.db` so the LLM sees one logical sample pool made up
+of many per-library DBs. Pass `--registry PATH` (or set
+ACIDCAT_REGISTRY) to use a different registry, e.g. for project
+isolation.
+
+Tools register up front even when optional deps are missing; the SLOW
+ones return a structured error describing the install step. Stdout is
+strictly the JSON-RPC channel; the server logs warnings to stderr.
 """
 
 import argparse
@@ -15,18 +21,155 @@ import sys
 import time
 
 from acidcat import __version__
-from acidcat.core import index as idx
 from acidcat.core import camelot
+from acidcat.core import index as idx
+from acidcat.core import paths as acidpaths
+from acidcat.core import registry as reg
 
 
 # ── server config ─────────────────────────────────────────────────
 
-_DB_PATH = None
+
+_REGISTRY_PATH = None  # None means: use default resolution rules
 
 
-def _get_conn():
-    """Open a fresh connection per tool call -- cheap for SQLite."""
-    return idx.open_db(_DB_PATH)
+# ── library access helpers ────────────────────────────────────────
+
+
+def _open_all_libraries():
+    """Return [(lib_row, conn), ...] for every existing registered library.
+
+    Sorted deepest-root-first so dedup-by-path consistently picks the
+    most-specific library when paths overlap (which we forbid at register
+    time, but a stale registry could still produce briefly).
+    """
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        libs = reg.list_libraries(rconn, only_existing=True)
+    finally:
+        rconn.close()
+    libs = sorted(libs, key=lambda r: -len(r["root_path"] or ""))
+    pairs = []
+    for lib in libs:
+        try:
+            pairs.append((lib, idx.open_db(lib["db_path"])))
+        except Exception:
+            # corrupt/locked DB: skip silently, the orphan check already
+            # filtered missing files
+            continue
+    return pairs
+
+
+def _close_all(pairs):
+    for _, c in pairs:
+        try:
+            c.close()
+        except Exception:
+            pass
+
+
+def _scope_libraries(pairs, scope_arg):
+    """Filter (lib, conn) pairs by --root-style scope arg.
+
+    `scope_arg` is None, a single label/path, or a comma-separated list.
+    Matches by exact label or by root-path prefix overlap.
+    """
+    if not scope_arg:
+        return pairs
+    scopes = [s.strip() for s in str(scope_arg).split(",") if s.strip()]
+    if not scopes:
+        return pairs
+    keep = []
+    for lib, conn in pairs:
+        for s in scopes:
+            if lib["label"] == s:
+                keep.append((lib, conn))
+                break
+            if os.path.exists(s):
+                norm = acidpaths.normalize(s)
+                root = lib["root_path"]
+                if root == norm or root.startswith(norm + "/") \
+                        or norm.startswith(root + "/"):
+                    keep.append((lib, conn))
+                    break
+    # close the libraries we are filtering out
+    keep_ids = {id(c) for _, c in keep}
+    for _, c in pairs:
+        if id(c) not in keep_ids:
+            try:
+                c.close()
+            except Exception:
+                pass
+    return keep
+
+
+def _open_owning_library(path):
+    """Return (lib_row, conn) for the library that contains `path`.
+
+    Walks the registry to find the registered root that contains `path`.
+    Falls back to scanning every library's samples table if the
+    canonical mapping misses (e.g. symlinks, normalization edge cases).
+    Returns (None, None) if the path is not indexed anywhere. The caller
+    must close the returned conn.
+    """
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        lib = reg.find_library_for_path(rconn, path)
+        all_libs = reg.list_libraries(rconn, only_existing=True)
+    finally:
+        rconn.close()
+
+    if lib is not None and os.path.isfile(lib["db_path"]):
+        try:
+            return lib, idx.open_db(lib["db_path"])
+        except Exception:
+            pass
+
+    # fallback: scan every library for this path (rare; covers symlinks
+    # and odd normalization mismatches)
+    norm = acidpaths.normalize(path)
+    for cand in all_libs:
+        try:
+            conn = idx.open_db(cand["db_path"])
+        except Exception:
+            continue
+        hit = conn.execute(
+            "SELECT 1 FROM samples WHERE path = ? LIMIT 1", (norm,)
+        ).fetchone()
+        if hit is None and norm != path:
+            hit = conn.execute(
+                "SELECT 1 FROM samples WHERE path = ? LIMIT 1", (path,)
+            ).fetchone()
+        if hit is not None:
+            return cand, conn
+        conn.close()
+    return None, None
+
+
+def _dedup_by_path(rows):
+    """Keep the first row per `path`. Used after fan-out merge."""
+    seen = set()
+    out = []
+    for r in rows:
+        p = r.get("path")
+        if p in seen:
+            continue
+        seen.add(p)
+        out.append(r)
+    return out
+
+
+def _resolve_stored_path(conn, user_path):
+    """Within a single library DB, resolve a user-supplied path to its
+    canonical stored form. Returns None if not present."""
+    norm = acidpaths.normalize(user_path)
+    for candidate in (norm, user_path):
+        row = conn.execute(
+            "SELECT path FROM samples WHERE path = ?", (candidate,)
+        ).fetchone()
+        if row is not None:
+            return row["path"]
+    return None
 
 
 # ── tool registry ─────────────────────────────────────────────────
@@ -49,9 +192,6 @@ def _tool(name, description, input_schema, handler, annotations):
     })
 
 
-# ── helpers ───────────────────────────────────────────────────────
-
-
 def _require_path(args, field="path"):
     v = args.get(field)
     if not v:
@@ -59,28 +199,11 @@ def _require_path(args, field="path"):
     return v
 
 
-def _resolve_stored_path(conn, user_path):
-    """Find the canonical stored path for a user-provided path.
-
-    Tries the normalized form first, then the raw form. Returns the stored
-    path, or None if the sample is not indexed.
-    """
-    norm = idx.normalize_path(user_path)
-    for candidate in (norm, user_path):
-        row = conn.execute(
-            "SELECT path FROM samples WHERE path = ?", (candidate,)
-        ).fetchone()
-        if row is not None:
-            return row["path"]
-    return None
-
-
 def _librosa_available():
     """Cheap check: does Python see librosa + numpy on the import path?
 
-    Uses find_spec so this never actually imports librosa (which would
-    cold-start the numba JIT chain and add tens of seconds to the first
-    call of any tool that probes availability).
+    Uses find_spec so this never imports librosa (which would cold-start
+    numba and add tens of seconds to the first call probing availability).
     """
     return (importlib.util.find_spec("librosa") is not None
             and importlib.util.find_spec("numpy") is not None)
@@ -97,65 +220,72 @@ def _analysis_unavailable():
 
 
 def search_samples(args):
-    conn = _get_conn()
+    where = []
+    params = []
+    joins = []
+
+    if args.get("bpm_min") is not None:
+        where.append("s.bpm >= ?")
+        params.append(float(args["bpm_min"]))
+    if args.get("bpm_max") is not None:
+        where.append("s.bpm <= ?")
+        params.append(float(args["bpm_max"]))
+    if args.get("duration_min") is not None:
+        where.append("s.duration >= ?")
+        params.append(float(args["duration_min"]))
+    if args.get("duration_max") is not None:
+        where.append("s.duration <= ?")
+        params.append(float(args["duration_max"]))
+    if args.get("key"):
+        where.append("LOWER(s.key) = LOWER(?)")
+        params.append(args["key"])
+    if args.get("format"):
+        where.append("LOWER(s.format) = LOWER(?)")
+        params.append(args["format"])
+
+    tags = args.get("tags") or []
+    if tags:
+        placeholders = ",".join("?" for _ in tags)
+        where.append(
+            f"s.path IN (SELECT path FROM tags WHERE tag IN ({placeholders}) "
+            f"GROUP BY path HAVING COUNT(DISTINCT tag) = ?)"
+        )
+        params.extend(tags)
+        params.append(len(tags))
+
+    if args.get("text"):
+        joins.append("JOIN samples_fts fts ON fts.path = s.path")
+        where.append("samples_fts MATCH ?")
+        params.append(args["text"])
+
+    limit = int(args.get("limit") or 50)
+    sql = "SELECT s.* FROM samples s " + " ".join(joins)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY s.path LIMIT ?"
+
+    pairs = _scope_libraries(_open_all_libraries(), args.get("root"))
     try:
-        where, params, joins = [], [], []
-
-        if args.get("bpm_min") is not None:
-            where.append("s.bpm >= ?")
-            params.append(float(args["bpm_min"]))
-        if args.get("bpm_max") is not None:
-            where.append("s.bpm <= ?")
-            params.append(float(args["bpm_max"]))
-        if args.get("duration_min") is not None:
-            where.append("s.duration >= ?")
-            params.append(float(args["duration_min"]))
-        if args.get("duration_max") is not None:
-            where.append("s.duration <= ?")
-            params.append(float(args["duration_max"]))
-        if args.get("key"):
-            where.append("LOWER(s.key) = LOWER(?)")
-            params.append(args["key"])
-        if args.get("format"):
-            where.append("LOWER(s.format) = LOWER(?)")
-            params.append(args["format"])
-        if args.get("root"):
-            root = idx.normalize_path(args["root"])
-            where.append("(s.scan_root = ? OR s.path LIKE ?)")
-            params.append(root)
-            params.append(root.rstrip("/") + "/%")
-
-        tags = args.get("tags") or []
-        if tags:
-            placeholders = ",".join("?" for _ in tags)
-            where.append(
-                f"s.path IN (SELECT path FROM tags WHERE tag IN ({placeholders}) "
-                f"GROUP BY path HAVING COUNT(DISTINCT tag) = ?)"
-            )
-            params.extend(tags)
-            params.append(len(tags))
-
-        if args.get("text"):
-            joins.append("JOIN samples_fts fts ON fts.path = s.path")
-            where.append("samples_fts MATCH ?")
-            params.append(args["text"])
-
-        limit = int(args.get("limit") or 50)
-        sql = "SELECT s.* FROM samples s " + " ".join(joins)
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY s.path LIMIT ?"
-        params.append(limit)
-
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-        return {"count": len(rows), "samples": rows}
+        merged = []
+        for lib, conn in pairs:
+            for r in conn.execute(sql, params + [limit]).fetchall():
+                d = dict(r)
+                d["library_label"] = lib["label"]
+                merged.append(d)
     finally:
-        conn.close()
+        _close_all(pairs)
+
+    merged = _dedup_by_path(merged)
+    merged.sort(key=lambda r: r.get("path") or "")
+    merged = merged[:limit]
+    return {"count": len(merged), "samples": merged}
 
 
 def get_sample(args):
     path = _require_path(args)
-    conn = _get_conn()
+    lib, conn = _open_owning_library(path)
+    if conn is None:
+        raise ToolError(f"sample not indexed: {path}")
     try:
         resolved = _resolve_stored_path(conn, path)
         if resolved is None:
@@ -178,6 +308,9 @@ def get_sample(args):
                 "SELECT 1 FROM features WHERE path = ?", (resolved,)
             ).fetchone()
         )
+        if lib is not None:
+            out["library_label"] = lib["label"]
+            out["library_root"] = lib["root_path"]
         return out
     finally:
         conn.close()
@@ -188,80 +321,175 @@ def locate_sample(args):
     if not name:
         raise ToolError("name is required")
     limit = int(args.get("limit") or 10)
-    conn = _get_conn()
+    # substring match anywhere in the path. The previous "%/<name>%" pattern
+    # required `name` to start at a path-component boundary, which silently
+    # failed for searches that landed mid-filename (e.g. "Kick_Wet" inside
+    # "PL_Hypnotize_03_126_Kick_Wet.wav").
+    like = "%" + name + "%"
+
+    pairs = _open_all_libraries()
+    merged = []
     try:
-        like = "%/" + name + "%"
-        rows = conn.execute(
-            "SELECT path, scan_root, format, bpm, key, duration "
-            "FROM samples WHERE path LIKE ? ORDER BY path LIMIT ?",
-            (like, limit),
-        ).fetchall()
-        return {"count": len(rows), "samples": [dict(r) for r in rows]}
+        for lib, conn in pairs:
+            rows = conn.execute(
+                "SELECT path, scan_root, format, bpm, key, duration "
+                "FROM samples WHERE path LIKE ? ORDER BY path LIMIT ?",
+                (like, limit),
+            ).fetchall()
+            for r in rows:
+                d = dict(r)
+                d["library_label"] = lib["label"]
+                merged.append(d)
     finally:
-        conn.close()
+        _close_all(pairs)
+
+    merged = _dedup_by_path(merged)
+    merged.sort(key=lambda r: r.get("path") or "")
+    merged = merged[:limit]
+    return {"count": len(merged), "samples": merged}
 
 
-def list_roots(_args):
-    conn = _get_conn()
+def list_libraries(_args):
+    """Roll up the registry into a single response."""
+    rconn = reg.open_registry(_REGISTRY_PATH)
     try:
-        return {"roots": idx.list_roots(conn)}
+        rows = reg.list_libraries(rconn)
     finally:
-        conn.close()
+        rconn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["available"] = bool(os.path.isfile(d["db_path"]))
+        out.append(d)
+    available = sum(1 for r in out if r["available"])
+    return {
+        "count": len(out),
+        "available": available,
+        "unavailable": len(out) - available,
+        "libraries": out,
+    }
 
 
 def list_tags(args):
-    conn = _get_conn()
+    prefix = args.get("prefix") or ""
+    pairs = _open_all_libraries()
+    counts = {}
     try:
-        prefix = args.get("prefix") or ""
         if prefix:
-            rows = conn.execute(
-                "SELECT tag, COUNT(*) AS count FROM tags "
-                "WHERE tag LIKE ? GROUP BY tag ORDER BY count DESC, tag",
-                (prefix + "%",),
-            ).fetchall()
+            sql = ("SELECT tag, COUNT(*) AS c FROM tags WHERE tag LIKE ? "
+                   "GROUP BY tag")
+            params = (prefix + "%",)
         else:
-            rows = conn.execute(
-                "SELECT tag, COUNT(*) AS count FROM tags "
-                "GROUP BY tag ORDER BY count DESC, tag"
-            ).fetchall()
-        return {"tags": [dict(r) for r in rows]}
+            sql = "SELECT tag, COUNT(*) AS c FROM tags GROUP BY tag"
+            params = ()
+        for _, conn in pairs:
+            for r in conn.execute(sql, params).fetchall():
+                counts[r["tag"]] = counts.get(r["tag"], 0) + r["c"]
     finally:
-        conn.close()
+        _close_all(pairs)
+    tags_out = sorted(
+        ({"tag": t, "count": c} for t, c in counts.items()),
+        key=lambda d: (-d["count"], d["tag"]),
+    )
+    return {"tags": tags_out}
 
 
 def list_keys(_args):
-    conn = _get_conn()
+    pairs = _open_all_libraries()
+    counts = {}
     try:
-        rows = conn.execute(
-            "SELECT key, COUNT(*) AS count FROM samples "
-            "WHERE key IS NOT NULL GROUP BY key ORDER BY count DESC, key"
-        ).fetchall()
-        return {"keys": [dict(r) for r in rows]}
+        for _, conn in pairs:
+            for r in conn.execute(
+                "SELECT key, COUNT(*) AS c FROM samples "
+                "WHERE key IS NOT NULL GROUP BY key"
+            ).fetchall():
+                counts[r["key"]] = counts.get(r["key"], 0) + r["c"]
     finally:
-        conn.close()
+        _close_all(pairs)
+    out = sorted(
+        ({"key": k, "count": c} for k, c in counts.items()),
+        key=lambda d: (-d["count"], d["key"]),
+    )
+    return {"keys": out}
 
 
 def list_formats(_args):
-    conn = _get_conn()
+    pairs = _open_all_libraries()
+    counts = {}
     try:
-        rows = conn.execute(
-            "SELECT format, COUNT(*) AS count FROM samples "
-            "WHERE format IS NOT NULL GROUP BY format ORDER BY count DESC"
-        ).fetchall()
-        return {"formats": [dict(r) for r in rows]}
+        for _, conn in pairs:
+            for r in conn.execute(
+                "SELECT format, COUNT(*) AS c FROM samples "
+                "WHERE format IS NOT NULL GROUP BY format"
+            ).fetchall():
+                counts[r["format"]] = counts.get(r["format"], 0) + r["c"]
     finally:
-        conn.close()
+        _close_all(pairs)
+    out = sorted(
+        ({"format": f, "count": c} for f, c in counts.items()),
+        key=lambda d: (-d["count"], d["format"]),
+    )
+    return {"formats": out}
 
 
 def index_stats(_args):
-    conn = _get_conn()
+    """Roll up stats across every library."""
+    rconn = reg.open_registry(_REGISTRY_PATH)
     try:
-        stats = idx.index_stats(conn)
-        stats["analysis_available"] = _librosa_available()
-        stats["db_path"] = _DB_PATH
-        return stats
+        all_rows = reg.list_libraries(rconn)
     finally:
-        conn.close()
+        rconn.close()
+
+    available = [r for r in all_rows if os.path.isfile(r["db_path"])]
+    unavailable = [r for r in all_rows if not os.path.isfile(r["db_path"])]
+
+    total_samples = 0
+    with_features = 0
+    with_descriptions = 0
+    by_format = {}
+    last_indexed_at = None
+
+    for lib in available:
+        try:
+            conn = idx.open_db(lib["db_path"])
+        except Exception:
+            continue
+        try:
+            total_samples += conn.execute(
+                "SELECT COUNT(*) AS c FROM samples"
+            ).fetchone()["c"]
+            with_features += conn.execute(
+                "SELECT COUNT(*) AS c FROM features"
+            ).fetchone()["c"]
+            with_descriptions += conn.execute(
+                "SELECT COUNT(*) AS c FROM descriptions"
+            ).fetchone()["c"]
+            for row in conn.execute(
+                "SELECT format, COUNT(*) AS c FROM samples "
+                "WHERE format IS NOT NULL GROUP BY format"
+            ).fetchall():
+                by_format[row["format"]] = by_format.get(row["format"], 0) \
+                    + row["c"]
+            li = lib["last_indexed_at"]
+            if li is not None and (last_indexed_at is None or li > last_indexed_at):
+                last_indexed_at = li
+        finally:
+            conn.close()
+
+    return {
+        "total_samples": total_samples,
+        "with_features": with_features,
+        "with_descriptions": with_descriptions,
+        "by_format": sorted(
+            ({"format": f, "count": c} for f, c in by_format.items()),
+            key=lambda d: -d["count"],
+        ),
+        "available_libraries": len(available),
+        "unavailable_libraries": len(unavailable),
+        "last_indexed_at": last_indexed_at,
+        "analysis_available": _librosa_available(),
+        "registry_path": acidpaths.resolve_registry_path(_REGISTRY_PATH),
+    }
 
 
 def infer_kind(duration, acid_beats):
@@ -288,94 +516,113 @@ def find_compatible(args):
     kind_arg = (args.get("kind") or "").lower() or None
     min_duration = args.get("min_duration")
 
-    conn = _get_conn()
+    # find target's metadata in its owning library
+    lib, conn = _open_owning_library(path)
+    if conn is None:
+        raise ToolError(f"sample not indexed: {path}")
     try:
         resolved = _resolve_stored_path(conn, path)
-        if resolved is None:
-            raise ToolError(f"sample not indexed: {path}")
         target = conn.execute(
             "SELECT * FROM samples WHERE path = ?", (resolved,)
         ).fetchone()
-
-        target_bpm = target["bpm"]
-        target_key = target["key"]
-        target_kind = infer_kind(target["duration"], target["acid_beats"])
-
-        # default kind: match the target's own classification (so loops return
-        # loops, one-shots return one-shots). 'any' skips kind filtering.
-        effective_kind = kind_arg or target_kind
-        if effective_kind not in ("loop", "one_shot", "any"):
-            raise ToolError(
-                f"kind must be loop, one_shot, or any (got {effective_kind!r})"
-            )
-
-        compat_keys = camelot.compatible_keys(target_key) if target_key else set()
-        if not include_relative and target_key:
-            base = camelot.key_to_camelot(target_key)
-            if base:
-                keep = {c for c in camelot.camelot_neighbors(base)
-                        if not c.endswith(("A",) if base.endswith("B") else ("B",))}
-                compat_keys = {
-                    k for k in compat_keys
-                    if camelot.key_to_camelot(k) in keep
-                }
-
-        # expand each compatible key to all enharmonic spellings so a DB row
-        # stored as "Cb" still matches when target implies "B", etc.
-        sql_keys = set()
-        for k in compat_keys:
-            sql_keys.update(camelot.enharmonic_spellings(k))
-
-        where = ["s.path != ?"]
-        params = [resolved]
-
-        if target_bpm is not None:
-            lo = target_bpm * (1 - tol)
-            hi = target_bpm * (1 + tol)
-            where.append("s.bpm BETWEEN ? AND ?")
-            params.extend([lo, hi])
-
-        if sql_keys:
-            placeholders = ",".join("?" for _ in sql_keys)
-            where.append(f"LOWER(s.key) IN ({placeholders})")
-            params.extend(k.lower() for k in sql_keys)
-
-        if effective_kind == "loop":
-            where.append("(s.acid_beats > 0 OR s.duration >= 2.0)")
-        elif effective_kind == "one_shot":
-            where.append(
-                "((s.acid_beats IS NULL OR s.acid_beats = 0) AND "
-                "(s.duration IS NULL OR s.duration < 1.0))"
-            )
-
-        if min_duration is not None:
-            where.append("s.duration >= ?")
-            params.append(float(min_duration))
-
-        sql = (
-            "SELECT s.* FROM samples s WHERE "
-            + " AND ".join(where)
-            + " ORDER BY s.bpm IS NULL, ABS(s.bpm - ?) LIMIT ?"
-        )
-        params.append(target_bpm or 0)
-        params.append(limit)
-
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
-        return {
-            "target": {
-                "path": resolved,
-                "bpm": target_bpm,
-                "key": target_key,
-                "camelot": camelot.key_to_camelot(target_key) if target_key else None,
-                "kind": target_kind,
-            },
-            "compatible_keys": sorted(compat_keys),
-            "filter_kind": effective_kind,
-            "count": len(rows),
-            "samples": rows,
-        }
     finally:
         conn.close()
+
+    target_bpm = target["bpm"]
+    target_key = target["key"]
+    target_kind = infer_kind(target["duration"], target["acid_beats"])
+
+    effective_kind = kind_arg or target_kind
+    if effective_kind not in ("loop", "one_shot", "any"):
+        raise ToolError(
+            f"kind must be loop, one_shot, or any (got {effective_kind!r})"
+        )
+
+    compat_keys = camelot.compatible_keys(target_key) if target_key else set()
+    if not include_relative and target_key:
+        base = camelot.key_to_camelot(target_key)
+        if base:
+            keep = {c for c in camelot.camelot_neighbors(base)
+                    if not c.endswith(("A",) if base.endswith("B") else ("B",))}
+            compat_keys = {
+                k for k in compat_keys
+                if camelot.key_to_camelot(k) in keep
+            }
+
+    sql_keys = set()
+    for k in compat_keys:
+        sql_keys.update(camelot.enharmonic_spellings(k))
+
+    where = ["s.path != ?"]
+    params = [resolved]
+
+    if target_bpm is not None:
+        lo = target_bpm * (1 - tol)
+        hi = target_bpm * (1 + tol)
+        where.append("s.bpm BETWEEN ? AND ?")
+        params.extend([lo, hi])
+
+    if sql_keys:
+        placeholders = ",".join("?" for _ in sql_keys)
+        where.append(f"LOWER(s.key) IN ({placeholders})")
+        params.extend(k.lower() for k in sql_keys)
+
+    if effective_kind == "loop":
+        where.append("(s.acid_beats > 0 OR s.duration >= 2.0)")
+    elif effective_kind == "one_shot":
+        where.append(
+            "((s.acid_beats IS NULL OR s.acid_beats = 0) AND "
+            "(s.duration IS NULL OR s.duration < 1.0))"
+        )
+
+    if min_duration is not None:
+        where.append("s.duration >= ?")
+        params.append(float(min_duration))
+
+    sql = (
+        "SELECT s.* FROM samples s WHERE "
+        + " AND ".join(where)
+        + " ORDER BY s.bpm IS NULL, ABS(s.bpm - ?) LIMIT ?"
+    )
+
+    # fan out across every library, applying the same WHERE
+    pairs = _open_all_libraries()
+    merged = []
+    try:
+        for cand_lib, cand_conn in pairs:
+            rows = cand_conn.execute(
+                sql, params + [target_bpm or 0, limit]
+            ).fetchall()
+            for r in rows:
+                d = dict(r)
+                d["library_label"] = cand_lib["label"]
+                merged.append(d)
+    finally:
+        _close_all(pairs)
+
+    merged = _dedup_by_path(merged)
+    merged.sort(
+        key=lambda r: (
+            0 if r.get("bpm") is not None else 1,
+            abs((r.get("bpm") or 0) - (target_bpm or 0)),
+            r.get("path") or "",
+        )
+    )
+    merged = merged[:limit]
+    return {
+        "target": {
+            "path": resolved,
+            "bpm": target_bpm,
+            "key": target_key,
+            "camelot": camelot.key_to_camelot(target_key) if target_key else None,
+            "kind": target_kind,
+            "library_label": lib["label"] if lib else None,
+        },
+        "compatible_keys": sorted(compat_keys),
+        "filter_kind": effective_kind,
+        "count": len(merged),
+        "samples": merged,
+    }
 
 
 # ── analysis tools (slow) ─────────────────────────────────────────
@@ -385,60 +632,72 @@ def find_similar(args):
     path = _require_path(args)
     n = int(args.get("n") or 5)
 
-    conn = _get_conn()
+    # try each library for the target's stored features first
+    target_feats = None
+    pairs = _open_all_libraries()
     try:
-        norm = idx.normalize_path(path)
-        target_feats = idx.get_features(conn, norm) or idx.get_features(conn, path)
-
-        if target_feats is None:
-            if not _librosa_available():
-                return _analysis_unavailable()
-            from acidcat.core.features import extract_audio_features
-            target_feats = extract_audio_features(path)
-            if target_feats is None:
-                raise ToolError(f"could not extract features from {path}")
-
-        feature_keys = sorted(
-            k for k, v in target_feats.items()
-            if isinstance(v, (int, float)) and not isinstance(v, bool)
-        )
-        if not feature_keys:
-            raise ToolError("no numeric features available")
-
-        tv = [float(target_feats[k]) for k in feature_keys]
-
-        rows = conn.execute(
-            "SELECT f.path, f.features_json, s.bpm, s.key, s.duration, s.format "
-            "FROM features f JOIN samples s ON s.path = f.path"
-        ).fetchall()
-
-        scored = []
-        for r in rows:
-            try:
-                feats = json.loads(r["features_json"])
-                v = [float(feats.get(k, 0.0) or 0.0) for k in feature_keys]
-            except Exception:
-                continue
-            sim = _cosine(tv, v)
-            scored.append({
-                "path": r["path"],
-                "bpm": r["bpm"],
-                "key": r["key"],
-                "duration": r["duration"],
-                "format": r["format"],
-                "similarity": round(sim, 6),
-            })
-        scored.sort(key=lambda x: x["similarity"], reverse=True)
-        # filter out the target itself
-        target_path = idx.normalize_path(path)
-        scored = [s for s in scored if s["path"] != target_path][:n]
-        return {
-            "target": path,
-            "population": len(rows),
-            "results": scored,
-        }
+        for _, conn in pairs:
+            target_feats = (idx.get_features(conn, acidpaths.normalize(path))
+                            or idx.get_features(conn, path))
+            if target_feats is not None:
+                break
     finally:
-        conn.close()
+        _close_all(pairs)
+
+    if target_feats is None:
+        if not _librosa_available():
+            return _analysis_unavailable()
+        from acidcat.core.features import extract_audio_features
+        target_feats = extract_audio_features(path)
+        if target_feats is None:
+            raise ToolError(f"could not extract features from {path}")
+
+    feature_keys = sorted(
+        k for k, v in target_feats.items()
+        if isinstance(v, (int, float)) and not isinstance(v, bool)
+    )
+    if not feature_keys:
+        raise ToolError("no numeric features available")
+    tv = [float(target_feats[k]) for k in feature_keys]
+
+    target_norm = acidpaths.normalize(path)
+    scored = []
+    pairs = _open_all_libraries()
+    population = 0
+    try:
+        for lib, conn in pairs:
+            rows = conn.execute(
+                "SELECT f.path, f.features_json, s.bpm, s.key, s.duration, s.format "
+                "FROM features f JOIN samples s ON s.path = f.path"
+            ).fetchall()
+            population += len(rows)
+            for r in rows:
+                try:
+                    feats = json.loads(r["features_json"])
+                    v = [float(feats.get(k, 0.0) or 0.0) for k in feature_keys]
+                except Exception:
+                    continue
+                sim = _cosine(tv, v)
+                scored.append({
+                    "path": r["path"],
+                    "bpm": r["bpm"],
+                    "key": r["key"],
+                    "duration": r["duration"],
+                    "format": r["format"],
+                    "library_label": lib["label"],
+                    "similarity": round(sim, 6),
+                })
+    finally:
+        _close_all(pairs)
+
+    scored = [s for s in scored if s["path"] != target_norm]
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    scored = _dedup_by_path(scored)[:n]
+    return {
+        "target": path,
+        "population": population,
+        "results": scored,
+    }
 
 
 def _cosine(a, b):
@@ -481,64 +740,136 @@ def detect_bpm_key(args):
 
 
 def reindex(args):
-    path = _require_path(args)
+    """Rebuild a registered library by label or path.
+
+    Walks the library's root and refreshes its DB. Updates the registry.
+    """
+    target = args.get("path") or args.get("label")
+    if not target:
+        raise ToolError("path or label is required")
     with_features = bool(args.get("with_features", False))
-    if not os.path.isdir(path):
-        raise ToolError(f"not a directory: {path}")
+
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        lib = reg.get_library(rconn, target)
+    finally:
+        rconn.close()
+    if lib is None:
+        raise ToolError(
+            f"no registered library matches '{target}'. "
+            f"register it first via register_library."
+        )
 
     from acidcat.commands.index import _walk_and_upsert
 
-    conn = _get_conn()
+    if not os.path.isdir(lib["root_path"]):
+        raise ToolError(
+            f"library root {lib['root_path']} does not exist on disk"
+        )
+
+    conn = idx.open_db(lib["db_path"])
     try:
-        scan_root = idx.normalize_path(path)
         counts = _walk_and_upsert(
-            conn, scan_root,
+            conn, lib["root_path"],
             do_features=with_features,
             do_deep=False,
             quiet=True,
         )
         conn.commit()
-        return {"root": scan_root, "counts": counts}
+        sample_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM samples"
+        ).fetchone()["c"]
+        feature_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM features"
+        ).fetchone()["c"]
     finally:
         conn.close()
 
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        reg.update_stats(
+            rconn, lib["root_path"],
+            sample_count=sample_count,
+            feature_count=feature_count,
+            last_indexed_at=time.time(),
+            schema_version=idx.SCHEMA_VERSION,
+        )
+    finally:
+        rconn.close()
+
+    return {
+        "library_label": lib["label"],
+        "library_root": lib["root_path"],
+        "counts": counts,
+        "sample_count": sample_count,
+        "feature_count": feature_count,
+    }
+
 
 def reindex_features(args):
-    limit = args.get("limit")
+    """Extract librosa features for samples that lack them, across libraries."""
     if not _librosa_available():
         return _analysis_unavailable()
     from acidcat.core.features import extract_audio_features
 
-    conn = _get_conn()
-    try:
-        sql = (
-            "SELECT s.path FROM samples s "
-            "LEFT JOIN features f ON f.path = s.path "
-            "WHERE f.path IS NULL"
-        )
-        if limit:
-            sql += " LIMIT ?"
-            rows = conn.execute(sql, (int(limit),)).fetchall()
-        else:
-            rows = conn.execute(sql).fetchall()
+    limit = args.get("limit")
+    target_label = args.get("library")  # optional: scope to one library
 
-        processed = failed = 0
-        for r in rows:
-            path = r["path"]
-            if not os.path.isfile(path):
-                failed += 1
-                continue
-            feats = extract_audio_features(path)
-            if feats is None:
-                failed += 1
-                continue
-            idx.upsert_features(conn, path, feats, version=1)
-            processed += 1
-        conn.commit()
-        return {"processed": processed, "failed": failed,
-                "remaining_unprocessed": len(rows) - processed - failed}
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        if target_label:
+            lib = reg.get_library(rconn, target_label)
+            if lib is None:
+                raise ToolError(f"no library matches '{target_label}'")
+            libs = [lib] if os.path.isfile(lib["db_path"]) else []
+        else:
+            libs = reg.list_libraries(rconn, only_existing=True)
     finally:
-        conn.close()
+        rconn.close()
+
+    processed = failed = 0
+    remaining = 0
+    for lib in libs:
+        try:
+            conn = idx.open_db(lib["db_path"])
+        except Exception:
+            continue
+        try:
+            sql = (
+                "SELECT s.path FROM samples s "
+                "LEFT JOIN features f ON f.path = s.path "
+                "WHERE f.path IS NULL"
+            )
+            if limit:
+                sql += " LIMIT ?"
+                rows = conn.execute(sql, (int(limit),)).fetchall()
+            else:
+                rows = conn.execute(sql).fetchall()
+            for r in rows:
+                p = r["path"]
+                if not os.path.isfile(p):
+                    failed += 1
+                    continue
+                feats = extract_audio_features(p)
+                if feats is None:
+                    failed += 1
+                    continue
+                idx.upsert_features(conn, p, feats, version=1)
+                processed += 1
+            conn.commit()
+            remaining += conn.execute(
+                "SELECT COUNT(*) AS c FROM samples s "
+                "LEFT JOIN features f ON f.path = s.path "
+                "WHERE f.path IS NULL"
+            ).fetchone()["c"]
+        finally:
+            conn.close()
+
+    return {
+        "processed": processed,
+        "failed": failed,
+        "remaining_unprocessed": remaining,
+    }
 
 
 # ── write tools ───────────────────────────────────────────────────
@@ -551,7 +882,9 @@ def tag_sample(args):
     if not add and not remove:
         raise ToolError("provide add_tags and/or remove_tags")
 
-    conn = _get_conn()
+    lib, conn = _open_owning_library(path)
+    if conn is None:
+        raise ToolError(f"sample not indexed: {path}")
     try:
         resolved = _resolve_stored_path(conn, path)
         if resolved is None:
@@ -566,7 +899,11 @@ def tag_sample(args):
                 "SELECT tag FROM tags WHERE path = ? ORDER BY tag", (resolved,)
             ).fetchall()
         ]
-        return {"path": resolved, "tags": tags}
+        return {
+            "path": resolved,
+            "library_label": lib["label"] if lib else None,
+            "tags": tags,
+        }
     finally:
         conn.close()
 
@@ -574,27 +911,90 @@ def tag_sample(args):
 def describe_sample(args):
     path = _require_path(args)
     description = args.get("description")
-    conn = _get_conn()
+    lib, conn = _open_owning_library(path)
+    if conn is None:
+        raise ToolError(f"sample not indexed: {path}")
     try:
         resolved = _resolve_stored_path(conn, path)
         if resolved is None:
             raise ToolError(f"sample not indexed: {path}")
         idx.upsert_description(conn, resolved, description or "")
         conn.commit()
-        return {"path": resolved, "description": description or ""}
+        return {
+            "path": resolved,
+            "library_label": lib["label"] if lib else None,
+            "description": description or "",
+        }
     finally:
         conn.close()
+
+
+def register_library(args):
+    """Register a new library and create its DB. The user must run reindex
+    afterwards (or call this after `acidcat index DIR --label NAME` from
+    the CLI). This MCP tool is for letting an LLM expose the option."""
+    root = _require_path(args, field="root")
+    label = args.get("label") or os.path.basename(acidpaths.normalize(root)) \
+        or "library"
+    in_tree = bool(args.get("in_tree", False))
+
+    if not os.path.isdir(root):
+        raise ToolError(f"not a directory: {root}")
+
+    db_path = (acidpaths.in_tree_db_path_for(root) if in_tree
+               else acidpaths.central_db_path_for(root, label))
+
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        try:
+            reg.register_library(
+                rconn, root, label=label, db_path=db_path,
+                in_tree=in_tree, schema_version=idx.SCHEMA_VERSION,
+            )
+        except reg.OverlapError as e:
+            raise ToolError(str(e))
+    finally:
+        rconn.close()
+
+    # create the DB so the registry's only_existing filter sees it
+    conn = idx.open_db(db_path)
+    conn.close()
+
+    return {
+        "label": label,
+        "root": acidpaths.normalize(root),
+        "db_path": db_path,
+        "in_tree": in_tree,
+        "next_step": "call reindex with this library's label to populate it",
+    }
+
+
+def forget_library(args):
+    """Drop a library from the registry. Does NOT delete its DB file."""
+    target = args.get("label") or args.get("root")
+    if not target:
+        raise ToolError("label or root is required")
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        n = reg.forget_library(rconn, target)
+    finally:
+        rconn.close()
+    if n == 0:
+        raise ToolError(f"no library matches '{target}'")
+    return {"forgot": target, "count": n}
 
 
 # ── tool registration ─────────────────────────────────────────────
 
 
 def _register_all():
-    # fast
+    # fast (read-only)
     _tool(
         "search_samples",
-        "Fast. Filter the sample index by bpm/key/duration/tags/text/format/root. "
-        "Prefer this over analysis tools for any discovery query.",
+        "Fast. Filter samples across all registered libraries by "
+        "bpm/key/duration/tags/text/format. Use 'root' to scope to one or "
+        "more libraries by label or path. Prefer this over analysis tools "
+        "for any discovery query.",
         {
             "type": "object",
             "properties": {
@@ -612,7 +1012,8 @@ def _register_all():
                 "format": {"type": "string",
                            "description": "wav, mp3, flac, midi, serum, ..."},
                 "root": {"type": "string",
-                         "description": "Scope to samples under this scan root."},
+                         "description": "Library label or path. "
+                         "Comma-separated for multiple."},
                 "limit": {"type": "integer", "default": 50},
             },
         },
@@ -621,7 +1022,8 @@ def _register_all():
     )
     _tool(
         "get_sample",
-        "Fast. Full metadata for one sample path, including tags and description.",
+        "Fast. Full metadata for one sample path, including tags, "
+        "description, and which library it belongs to.",
         {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -632,8 +1034,8 @@ def _register_all():
     )
     _tool(
         "locate_sample",
-        "Fast. Find a sample by filename substring across all indexed roots. "
-        "Use this to answer 'where is X?' questions.",
+        "Fast. Find samples by filename substring across every registered "
+        "library. Use this to answer 'where is X?' questions.",
         {
             "type": "object",
             "properties": {
@@ -646,15 +1048,18 @@ def _register_all():
         {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
     )
     _tool(
-        "list_roots",
-        "Fast. Indexed scan roots with file counts and last-indexed times.",
+        "list_libraries",
+        "Fast. Every library registered with acidcat: label, root path, "
+        "sample/feature counts, in-tree vs central, last indexed at, "
+        "and whether the DB file is currently available on disk.",
         {"type": "object", "properties": {}},
-        list_roots,
+        list_libraries,
         {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
     )
     _tool(
         "list_tags",
-        "Fast. Distinct tags with counts. Use 'prefix' to narrow.",
+        "Fast. Distinct tags with counts, summed across all libraries. "
+        "Use 'prefix' to narrow.",
         {
             "type": "object",
             "properties": {"prefix": {"type": "string"}},
@@ -664,31 +1069,34 @@ def _register_all():
     )
     _tool(
         "list_keys",
-        "Fast. Distinct musical keys with counts.",
+        "Fast. Distinct musical keys with counts across all libraries.",
         {"type": "object", "properties": {}},
         list_keys,
         {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
     )
     _tool(
         "list_formats",
-        "Fast. Distinct file formats with counts.",
+        "Fast. Distinct file formats with counts across all libraries.",
         {"type": "object", "properties": {}},
         list_formats,
         {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
     )
     _tool(
         "index_stats",
-        "Fast. Totals, per-format counts, analysis availability, DB path.",
+        "Fast. Roll-up counts across every library: total samples, "
+        "feature coverage, format breakdown, available vs unavailable "
+        "library count, analysis-tool availability, registry path.",
         {"type": "object", "properties": {}},
         index_stats,
         {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
     )
     _tool(
         "find_compatible",
-        "Fast. Harmonically and rhythmically compatible samples via Camelot + "
-        "BPM tolerance. By default filters to the target's own kind (loops "
-        "match loops, one-shots match one-shots) so a kalimba loop query "
-        "does not return kalimba one-shots. No audio analysis; metadata-only.",
+        "Fast. Harmonically and rhythmically compatible samples via Camelot "
+        "+ BPM tolerance. Fans out across libraries. By default filters to "
+        "the target's own kind (loops match loops, one-shots match "
+        "one-shots) so a kalimba loop query does not return kalimba "
+        "one-shots. No audio analysis; metadata-only.",
         {
             "type": "object",
             "properties": {
@@ -700,13 +1108,13 @@ def _register_all():
                     "enum": ["loop", "one_shot", "any"],
                     "description":
                         "Filter by sample kind. Default: auto-infer from "
-                        "target (loop vs one-shot based on acid_beats+duration).",
+                        "target.",
                 },
                 "min_duration": {
                     "type": "number",
                     "description":
                         "Optional seconds floor. Overrides/augments kind "
-                        "filter when you want a specific minimum length.",
+                        "filter for length-specific queries.",
                 },
                 "limit": {"type": "integer", "default": 20},
             },
@@ -720,9 +1128,9 @@ def _register_all():
     _tool(
         "find_similar",
         "SLOW if features are not indexed, fast if they are. Requires "
-        "acidcat[analysis]. Nearest neighbors by librosa feature cosine. "
-        "Only use when metadata-based tools (search_samples, find_compatible) "
-        "cannot answer.",
+        "acidcat[analysis]. Nearest neighbors by librosa feature cosine, "
+        "fanned out across all libraries. Only use when metadata-based "
+        "tools (search_samples, find_compatible) cannot answer.",
         {
             "type": "object",
             "properties": {
@@ -736,8 +1144,9 @@ def _register_all():
     )
     _tool(
         "analyze_sample",
-        "SLOW (~1-10s). Requires acidcat[analysis]. On-the-fly librosa feature "
-        "extraction for an unindexed file. Prefer get_sample for indexed files.",
+        "SLOW (~1-10s). Requires acidcat[analysis]. On-the-fly librosa "
+        "feature extraction for an unindexed file. Prefer get_sample for "
+        "indexed files.",
         {
             "type": "object",
             "properties": {
@@ -751,8 +1160,9 @@ def _register_all():
     )
     _tool(
         "detect_bpm_key",
-        "SLOW (~0.5-2s). Requires acidcat[analysis]. BPM + key estimation only. "
-        "Cheaper than analyze_sample. Prefer get_sample when possible.",
+        "SLOW (~0.5-2s). Requires acidcat[analysis]. BPM + key estimation "
+        "only. Cheaper than analyze_sample. Prefer get_sample when the "
+        "file is already indexed.",
         {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -762,18 +1172,21 @@ def _register_all():
         {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
     )
 
-    # reindex (operational, slow)
+    # index management
     _tool(
         "reindex",
-        "SLOW. Only call when the user explicitly asks to refresh the index. "
-        "Walks a directory and upserts samples incrementally.",
+        "SLOW. Re-walk a registered library and refresh its DB. Identify "
+        "the library by label or root path. Only call when the user "
+        "explicitly asks to refresh.",
         {
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
+                "label": {"type": "string",
+                          "description": "Library label (preferred)."},
+                "path": {"type": "string",
+                         "description": "Library root path (alternative)."},
                 "with_features": {"type": "boolean", "default": False},
             },
-            "required": ["path"],
         },
         reindex,
         {"readOnlyHint": False, "destructiveHint": False,
@@ -781,14 +1194,18 @@ def _register_all():
     )
     _tool(
         "reindex_features",
-        "VERY SLOW. Requires acidcat[analysis]. Extracts librosa features for "
-        "any indexed samples that do not have them yet. Only call when the "
-        "user explicitly asks.",
+        "VERY SLOW. Requires acidcat[analysis]. Extracts librosa features "
+        "for any indexed samples that lack them, across libraries (or one "
+        "library if 'library' arg provided). Only call when explicitly "
+        "asked.",
         {
             "type": "object",
             "properties": {
+                "library": {"type": "string",
+                            "description": "Optional: scope to one library "
+                                           "by label or root path."},
                 "limit": {"type": "integer",
-                          "description": "Max files to process this call."},
+                          "description": "Max files per library this call."},
             },
         },
         reindex_features,
@@ -796,11 +1213,52 @@ def _register_all():
          "idempotentHint": True, "openWorldHint": False},
     )
 
-    # write tools
+    # registry mutations
+    _tool(
+        "register_library",
+        "Modify the registry. Register a new library so it becomes part of "
+        "fan-out queries. Creates the DB but does NOT populate it (call "
+        "reindex afterwards). Default storage is central "
+        "(~/.acidcat/libraries/<label>_<hash>.db); pass in_tree=true to "
+        "store the DB inside the library's own directory.",
+        {
+            "type": "object",
+            "properties": {
+                "root": {"type": "string",
+                         "description": "Absolute path to the library root."},
+                "label": {"type": "string",
+                          "description":
+                              "Friendly label (default: basename of root)."},
+                "in_tree": {"type": "boolean", "default": False},
+            },
+            "required": ["root"],
+        },
+        register_library,
+        {"readOnlyHint": False, "destructiveHint": True,
+         "idempotentHint": True, "openWorldHint": False},
+    )
+    _tool(
+        "forget_library",
+        "Modify the registry. Remove a library from the registry. Does "
+        "NOT delete its DB file; rerunning register_library on the same "
+        "root re-attaches it. Confirm with the user before calling.",
+        {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string"},
+                "root": {"type": "string"},
+            },
+        },
+        forget_library,
+        {"readOnlyHint": False, "destructiveHint": True,
+         "idempotentHint": False, "openWorldHint": False},
+    )
+
+    # write tools (sample-level)
     _tool(
         "tag_sample",
-        "Modify the index. Add/remove tags on a sample. Confirm with the user "
-        "before calling.",
+        "Modify the index. Add or remove tags on a sample. Confirm with "
+        "the user before calling.",
         {
             "type": "object",
             "properties": {
@@ -816,8 +1274,8 @@ def _register_all():
     )
     _tool(
         "describe_sample",
-        "Modify the index. Set or clear the free-text description for a sample. "
-        "Confirm with the user before calling.",
+        "Modify the index. Set or clear the free-text description on a "
+        "sample. Confirm with the user before calling.",
         {
             "type": "object",
             "properties": {
@@ -836,7 +1294,8 @@ _register_all()
 
 
 def dispatch(name, arguments):
-    """Call a tool by name with a dict of arguments. Raises ToolError or returns dict."""
+    """Call a tool by name with a dict of arguments. Raises ToolError or
+    returns dict."""
     for t in TOOLS:
         if t["name"] == name:
             return t["handler"](arguments or {})
@@ -896,18 +1355,29 @@ async def _run_stdio():
         await app.run(read, write, app.create_initialization_options())
 
 
+def _warn_legacy_db():
+    legacy = acidpaths.legacy_global_db_path()
+    if os.path.isfile(legacy):
+        print(f"acidcat-mcp: legacy v0.4 DB at {legacy} is ignored. "
+              f"Remove with: rm {legacy}*", file=sys.stderr)
+
+
 def main(argv=None):
-    global _DB_PATH
+    global _REGISTRY_PATH
     parser = argparse.ArgumentParser(
         prog="acidcat-mcp",
-        description="MCP server exposing the acidcat sample index over stdio.",
+        description="MCP server exposing the acidcat per-library index over stdio.",
     )
-    parser.add_argument("--db", help="Override DB path (default: "
-                                     "$ACIDCAT_DB or ~/.acidcat/index.db).")
+    parser.add_argument("--registry",
+                        help="Override registry DB path "
+                             "(default: $ACIDCAT_REGISTRY or "
+                             "~/.acidcat/registry.db).")
     parser.add_argument("--version", action="version",
                         version=f"acidcat-mcp {__version__}")
     args = parser.parse_args(argv)
-    _DB_PATH = idx.resolve_db_path(args.db)
+    _REGISTRY_PATH = args.registry  # None means: use defaults
+
+    _warn_legacy_db()
 
     import asyncio
     asyncio.run(_run_stdio())
