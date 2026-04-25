@@ -124,10 +124,18 @@ def run(args):
         wanted = set(w.strip().upper() for w in has_val.split(",") if w.strip())
 
     quiet = getattr(args, 'quiet', False)
+    verbose = getattr(args, 'verbose', False) and not quiet
     do_fallback = getattr(args, 'fallback', False)
     do_features = getattr(args, 'features', False)
     do_ml_ready = getattr(args, 'ml_ready', False)
     num = getattr(args, 'num', 500)
+
+    def _vlog(msg):
+        if verbose:
+            print(msg, file=sys.stderr)
+
+    _vlog(f"[scan] dir={directory} num={num} fallback={do_fallback} "
+          f"features={do_features}")
 
     rows = []
     count = 0
@@ -186,6 +194,10 @@ def run(args):
             if not quiet:
                 bpm_str = row.get("bpm") or "-"
                 print(f"  {os.path.basename(filepath):40s} BPM={bpm_str}", file=sys.stderr)
+            if verbose:
+                _vlog(f"    format={row.get('format')} "
+                      f"key={row.get('key') or '-'} "
+                      f"dur={row.get('duration_sec') or '-'}")
 
             rows.append(row)
             count += 1
