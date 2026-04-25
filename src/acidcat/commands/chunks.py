@@ -16,7 +16,14 @@ def register(subparsers):
                    help="Output format (default: table).")
     p.add_argument("-o", "--output", help="Write output to file.")
     p.add_argument("-q", "--quiet", action="store_true")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="Diagnostic lines on stderr (container size, walk summary).")
     p.set_defaults(func=run)
+
+
+def _vlog(args, msg):
+    if getattr(args, "verbose", False) and not getattr(args, "quiet", False):
+        print(msg, file=sys.stderr)
 
 
 def run(args):
@@ -29,6 +36,9 @@ def run(args):
         return 1
 
     fmt_name = getattr(args, 'format', 'table')
+
+    _vlog(args, f"[chunks] file={os.path.basename(filepath)} "
+                f"size={os.path.getsize(filepath)}")
 
     # Get RIFF container info
     riff_info = get_riff_info(filepath)
@@ -44,9 +54,13 @@ def run(args):
             "offset": offset,
             "size": size,
         })
+    _vlog(args, f"[chunks] walked {len(chunk_list)} chunks in "
+                f"RIFF {riff_info['type']}")
 
     # Also get parsed fields
     results, meta, seen = parse_riff(filepath, enumerate_all=True)
+    _vlog(args, f"[chunks] parsed {len(results)} fields from "
+                f"{len(seen)} unique chunk types")
 
     if fmt_name == "table":
         stream = sys.stdout

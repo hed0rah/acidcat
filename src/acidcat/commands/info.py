@@ -16,8 +16,17 @@ from acidcat.core.tagged import is_tagged_format
 from acidcat.core.detect import estimate_librosa_metadata
 from acidcat.core.features import extract_audio_features
 from acidcat.core.formats import output
-from acidcat.util.midi import midi_note_to_name
+from acidcat.util.midi import midi_note_to_name, midi_note_to_pitch_class
 from acidcat.util.stdin import is_stdin_target, stdin_to_tempfile
+
+
+def _vlog(args, msg):
+    """Emit a diagnostic line to stderr when -v is set and -q is not.
+
+    Keeps stdout clean so `acidcat info ... -f json | jq` stays pipe-friendly.
+    """
+    if getattr(args, "verbose", False) and not getattr(args, "quiet", False):
+        print(msg, file=sys.stderr)
 
 
 def register(subparsers):
@@ -59,6 +68,17 @@ def _info_wav(filepath, args):
     duration = get_duration(filepath)
     fmt = get_fmt_info(filepath)
 
+    # SMPL/ACID root_note of 0 is the default-unset sentinel (MIDI C-1),
+    # not a legitimate musical root. Treat as missing.
+    smpl_root = meta.get("smpl_root_key")
+    if not smpl_root:
+        smpl_root = None
+    acid_root = meta.get("acid_root_note")
+    if not acid_root:
+        acid_root = None
+
+    _vlog(args, "[detect] fmt=wav")
+
     rec = {}
     rec["File"] = os.path.basename(filepath)
 
@@ -75,8 +95,8 @@ def _info_wav(filepath, args):
         rec["BPM"] = meta["bpm"]
         if meta["acid_beats"]:
             rec["Beats"] = meta["acid_beats"]
-        if meta["acid_root_note"] is not None:
-            rec["ACID Root"] = midi_note_to_name(meta["acid_root_note"])
+        if acid_root is not None:
+            rec["ACID Root"] = midi_note_to_name(acid_root)
         if meta["acid_beats"] and meta["bpm"]:
             expected = round((meta["acid_beats"] / meta["bpm"]) * 60, 4)
             rec["Expected Duration"] = f"{expected}s"
@@ -86,18 +106,20 @@ def _info_wav(filepath, args):
     else:
         rec["BPM"] = "-"
 
-    if meta["smpl_root_key"] is not None:
-        rec["Key"] = f"{midi_note_to_name(meta['smpl_root_key'])} (from SMPL)"
-    elif meta["acid_root_note"] is not None:
-        rec["Key"] = f"{midi_note_to_name(meta['acid_root_note'])} (from ACID)"
+    if smpl_root is not None:
+        rec["Key"] = f"{midi_note_to_pitch_class(smpl_root)} (from SMPL)"
+        _vlog(args, f"[key] smpl_root={smpl_root} -> {midi_note_to_pitch_class(smpl_root)}")
+    elif acid_root is not None:
+        rec["Key"] = f"{midi_note_to_pitch_class(acid_root)} (from ACID)"
+        _vlog(args, f"[key] acid_root={acid_root} -> {midi_note_to_pitch_class(acid_root)}")
     else:
         rec["Key"] = "-"
+        _vlog(args, "[key] no SMPL/ACID root, unset")
 
     rec["ACID"] = "yes" if meta["bpm"] is not None else "no"
 
-    has_smpl = meta["smpl_root_key"] is not None
-    if has_smpl:
-        smpl_parts = [f"root={midi_note_to_name(meta['smpl_root_key'])}"]
+    if smpl_root is not None:
+        smpl_parts = [f"root={midi_note_to_name(smpl_root)}"]
         if meta["smpl_loop_start"] is not None:
             smpl_parts.append(f"loop={meta['smpl_loop_start']}-{meta['smpl_loop_end']}")
         else:
@@ -117,6 +139,7 @@ def _info_wav(filepath, args):
 
 def _info_aiff(filepath, args):
     """Build info record for an AIFF/AIFC file."""
+    _vlog(args, "[detect] fmt=aiff")
     _, meta, seen = parse_aiff(filepath, enumerate_all=False)
 
     rec = {}
@@ -160,6 +183,7 @@ def _info_aiff(filepath, args):
 
 def _info_midi(filepath, args):
     """Build info record for a MIDI file."""
+    _vlog(args, "[detect] fmt=midi")
     meta = parse_midi(filepath)
 
     rec = {}
@@ -205,6 +229,7 @@ def _info_midi(filepath, args):
 
 def _info_serum(filepath, args):
     """Build info record for a Serum preset."""
+    _vlog(args, "[detect] fmt=serum")
     meta = parse_serum_preset(filepath)
 
     rec = {}
@@ -239,6 +264,7 @@ def _info_tagged(filepath, args):
     """Build info record for tagged audio (MP3, FLAC, OGG, M4A)."""
     from acidcat.core.tagged import parse_tagged
 
+    _vlog(args, "[detect] fmt=tagged (via mutagen)")
     meta = parse_tagged(filepath)
     if meta is None:
         return {"File": os.path.basename(filepath), "Format": "unknown (mutagen failed)"}
@@ -307,10 +333,15 @@ def _info_tagged(filepath, args):
 
 def _add_deep_analysis(filepath, rec, args):
     """Append librosa deep analysis fields to an existing record."""
+    import time as _time
+
     if not getattr(args, 'quiet', False):
         print("  [deep] Running librosa analysis...", file=sys.stderr)
 
+    t0 = _time.perf_counter()
     estimates = estimate_librosa_metadata(filepath)
+    _vlog(args, f"[librosa] estimate_librosa_metadata: "
+                f"{(_time.perf_counter() - t0) * 1000:.0f}ms")
     if estimates:
         if estimates.get("estimated_bpm") and rec.get("BPM") in (None, "-"):
             bpm_val = estimates["estimated_bpm"]
@@ -321,7 +352,10 @@ def _add_deep_analysis(filepath, rec, args):
             src = estimates.get("key_source", "")
             rec["Key"] = f"{key_val} ({src})" if src else key_val
 
+    t1 = _time.perf_counter()
     feats = extract_audio_features(filepath)
+    _vlog(args, f"[librosa] extract_audio_features: "
+                f"{(_time.perf_counter() - t1) * 1000:.0f}ms")
     if feats:
         rec["Spectral Centroid"] = f"{float(feats.get('spectral_centroid_mean', 0)):.1f} Hz"
         rec["RMS Energy"] = f"{float(feats.get('rms_mean', 0)):.6f}"
