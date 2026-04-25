@@ -1,11 +1,18 @@
 """
-acidcat query -- filter samples from the global SQLite index.
+acidcat query -- filter samples across all registered libraries.
+
+Default behavior is to fan out across every library in the registry,
+merge results, dedup by path, and apply a final LIMIT. Use --root to
+scope to one or more libraries by label or path. Override the registry
+location with --registry or the ACIDCAT_REGISTRY env var.
 """
 
 import os
 import sys
 
 from acidcat.core import index as idx
+from acidcat.core import paths as acidpaths
+from acidcat.core import registry as reg
 from acidcat.core.formats import output
 
 
@@ -18,9 +25,11 @@ DEFAULT_FIELDS = [
 def register(subparsers):
     p = subparsers.add_parser(
         "query",
-        help="Filter the global sample index.",
+        help="Filter samples across all registered libraries.",
     )
-    p.add_argument("--db", help="Override DB path (default: ~/.acidcat/index.db).")
+    p.add_argument("--registry",
+                   help="Override registry DB path "
+                        "(default: ~/.acidcat/registry.db).")
     p.add_argument("--bpm", help="BPM filter. Exact (128) or range (120:130).")
     p.add_argument("--key", help="Key filter (exact match, e.g. Am, C#).")
     p.add_argument("--duration", help="Duration filter in seconds. "
@@ -31,7 +40,9 @@ def register(subparsers):
                    help="File format filter (wav, mp3, flac, midi, ...).")
     p.add_argument("--text", help="Full-text search across title/artist/album/"
                    "genre/comment/description/tags/path.")
-    p.add_argument("--root", help="Scope results to samples under this scan root.")
+    p.add_argument("--root",
+                   help="Scope results to one or more libraries (label or "
+                        "path). Comma-separate to query multiple libraries.")
     p.add_argument("--limit", type=int, default=50, help="Max rows (default 50).")
     p.add_argument("-f", "--output-format", dest="output_format",
                    default="table", choices=["table", "json", "csv"],
@@ -39,21 +50,41 @@ def register(subparsers):
     p.add_argument("-o", "--output", help="Write output to file.")
     p.add_argument("--paths-only", action="store_true",
                    help="Print bare paths, one per line.")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="Diagnostic lines on stderr (per-library row counts).")
     p.set_defaults(func=run)
 
 
+def _vlog(args, msg):
+    if getattr(args, "verbose", False):
+        print(msg, file=sys.stderr)
+
+
 def run(args):
-    db_path = idx.resolve_db_path(getattr(args, "db", None))
-    if not os.path.isfile(db_path):
-        print(f"acidcat query: no index at {db_path}. "
-              f"Run `acidcat index DIR` first.", file=sys.stderr)
+    registry_path = getattr(args, "registry", None)
+    rconn = reg.open_registry(registry_path)
+    try:
+        libs = reg.list_libraries(rconn, only_existing=True)
+    finally:
+        rconn.close()
+
+    if not libs:
+        print("acidcat query: no libraries registered. "
+              "Run `acidcat index DIR --label NAME` first.", file=sys.stderr)
         return 1
 
-    conn = idx.open_db(db_path)
-    try:
-        rows = _run_query(conn, args)
-    finally:
-        conn.close()
+    scopes = None
+    if args.root:
+        scopes = [s.strip() for s in args.root.split(",") if s.strip()]
+        libs = _scope_libraries(libs, scopes)
+        if not libs:
+            print(f"acidcat query: no library matches --root {args.root!r}",
+                  file=sys.stderr)
+            return 1
+
+    rows = _fan_out(libs, args)
+    rows.sort(key=lambda r: r.get("path") or "")
+    rows = rows[: args.limit]
 
     if not rows:
         if not getattr(args, "paths_only", False):
@@ -76,7 +107,62 @@ def run(args):
     return 0
 
 
-def _run_query(conn, args):
+def _scope_libraries(libs, scopes):
+    """Filter libs to those matching any scope (by label or path)."""
+    out = []
+    for lib in libs:
+        for s in scopes:
+            if lib["label"] == s:
+                out.append(lib)
+                break
+            if os.path.exists(s):
+                norm = acidpaths.normalize(s)
+                root = lib["root_path"]
+                if root == norm or root.startswith(norm + "/") \
+                        or norm.startswith(root + "/"):
+                    out.append(lib)
+                    break
+    return out
+
+
+def _fan_out(libs, args):
+    """Open each library's DB, run the query, accumulate rows, dedup."""
+    sql, params = _build_sql(args)
+    per_db_sql = sql + " LIMIT ?"
+    per_db_limit = args.limit
+
+    accumulated = []
+    seen_paths = set()
+    for lib in libs:
+        try:
+            conn = idx.open_db(lib["db_path"])
+        except Exception as e:
+            _vlog(args, f"[query] {lib['label']} skipped: {e}")
+            continue
+        try:
+            rows = conn.execute(per_db_sql, params + [per_db_limit]).fetchall()
+        except Exception as e:
+            _vlog(args, f"[query] {lib['label']} query failed: {e}")
+            conn.close()
+            continue
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _vlog(args, f"[query] {lib['label']:<20s} {len(rows)} rows")
+        for r in rows:
+            d = dict(r)
+            p = d.get("path")
+            if p in seen_paths:
+                continue
+            seen_paths.add(p)
+            accumulated.append(_shape_row(d))
+    return accumulated
+
+
+def _build_sql(args):
+    """Build the WHERE clause shared across every library DB."""
     where = []
     params = []
     joins = []
@@ -107,12 +193,6 @@ def _run_query(conn, args):
         where.append("LOWER(s.format) = LOWER(?)")
         params.append(args.file_format)
 
-    if args.root:
-        root = idx.normalize_path(args.root)
-        where.append("(s.scan_root = ? OR s.path LIKE ?)")
-        params.append(root)
-        params.append(root.rstrip("/") + "/%")
-
     tags = [t for t in (args.tag or []) if t]
     if tags:
         placeholders = ",".join("?" for _ in tags)
@@ -133,15 +213,12 @@ def _run_query(conn, args):
     sql = "SELECT s.* FROM samples s " + " ".join(joins)
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY s.path LIMIT ?"
-    params.append(args.limit)
-
-    rows = conn.execute(sql, params).fetchall()
-    return [_shape_row(dict(r)) for r in rows]
+    sql += " ORDER BY s.path"
+    return sql, params
 
 
 def _shape_row(row):
-    """Project to the default display columns, keeping key data."""
+    """Project to the default display columns, keeping non-null values only."""
     out = {}
     for k in DEFAULT_FIELDS:
         if k in row and row[k] is not None:
