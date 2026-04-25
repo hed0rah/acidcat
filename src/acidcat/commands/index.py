@@ -1,6 +1,20 @@
 """
-acidcat index -- walk a directory and upsert samples into the global
-SQLite index at ~/.acidcat/index.db.
+acidcat index -- build and manage per-library sample indexes.
+
+A library is a directory you have registered for indexing. Each library
+gets its own SQLite file (default: ~/.acidcat/libraries/<label>_<hash>.db,
+or `<library>/.acidcat/index.db` with --in-tree). The global registry at
+~/.acidcat/registry.db tracks every library so reads can fan out across
+your whole collection without scanning disk.
+
+Usage:
+    acidcat index DIR [--label NAME] [--in-tree] [--features] [--deep]
+                      [--rebuild] [--import-tags FILE] [--registry PATH]
+    acidcat index --list   [--registry PATH]
+    acidcat index --orphans [--registry PATH]
+    acidcat index --stats LABEL_OR_PATH [--registry PATH]
+    acidcat index --forget LABEL_OR_PATH [--registry PATH]
+    acidcat index --remove LABEL_OR_PATH [--registry PATH]
 """
 
 import json
@@ -9,6 +23,8 @@ import sys
 import time
 
 from acidcat.core import index as idx
+from acidcat.core import paths as acidpaths
+from acidcat.core import registry as reg
 from acidcat.core.riff import parse_riff, get_duration, get_fmt_info
 from acidcat.core.aiff import is_aiff, parse_aiff
 from acidcat.core.midi import is_midi, parse_midi
@@ -37,60 +53,123 @@ def _is_junk(name):
 def register(subparsers):
     p = subparsers.add_parser(
         "index",
-        help="Build/update the global sample index at ~/.acidcat/index.db.",
+        help="Build/update a per-library sample index.",
     )
     p.add_argument("target", nargs="?", help="Directory to index.")
-    p.add_argument("--db", help="Override DB path (default: ~/.acidcat/index.db).")
+    p.add_argument("--label",
+                   help="Friendly label for the library "
+                        "(default: basename of DIR).")
+    p.add_argument("--in-tree", dest="in_tree", action="store_true",
+                   help="Store the DB inside <DIR>/.acidcat/index.db instead "
+                        "of ~/.acidcat/libraries/<label>_<hash>.db.")
+    p.add_argument("--rebuild", action="store_true",
+                   help="Delete the existing per-library DB before indexing.")
     p.add_argument("--features", action="store_true",
                    help="Extract librosa audio features during indexing.")
     p.add_argument("--deep", action="store_true",
                    help="Use librosa for BPM/key when metadata is absent.")
     p.add_argument("--import-tags", dest="import_tags",
-                   help="Import a legacy <name>_tags.json into the index.")
-    p.add_argument("--list-roots", action="store_true",
-                   help="Print known scan roots and exit.")
-    p.add_argument("--remove-root", dest="remove_root",
-                   help="Delete all samples under this root and exit.")
-    p.add_argument("--stats", action="store_true",
-                   help="Print index summary and exit.")
+                   help="Import a legacy <name>_tags.json into the library.")
+    p.add_argument("--registry",
+                   help="Override registry DB path "
+                        "(default: ~/.acidcat/registry.db).")
+    # registry-management subcommands (target-less)
+    p.add_argument("--list", dest="list_libs", action="store_true",
+                   help="List all registered libraries.")
+    p.add_argument("--orphans", action="store_true",
+                   help="List registered libraries whose DB file is missing.")
+    p.add_argument("--stats", dest="stats_target",
+                   help="Print stats for one library (by label or path).")
+    p.add_argument("--forget", dest="forget",
+                   help="Remove a library from the registry. Does NOT delete "
+                        "its DB file.")
+    p.add_argument("--remove", dest="remove",
+                   help="Forget a library AND delete its DB file.")
     p.add_argument("-q", "--quiet", action="store_true")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="Diagnostic lines on stderr.")
     p.set_defaults(func=run)
 
 
+def _vlog(args, msg):
+    if getattr(args, "verbose", False) and not getattr(args, "quiet", False):
+        print(msg, file=sys.stderr)
+
+
+def _warn_legacy_db(args):
+    """One-line stderr warning if v0.4 single-DB sits at ~/.acidcat/index.db."""
+    legacy = acidpaths.legacy_global_db_path()
+    if os.path.isfile(legacy) and not getattr(args, "quiet", False):
+        print(f"[INFO] legacy v0.4 DB at {legacy} is ignored. "
+              f"Remove with: rm {legacy}*", file=sys.stderr)
+
+
 def run(args):
-    db_path = idx.resolve_db_path(getattr(args, "db", None))
-    conn = idx.open_db(db_path)
     quiet = getattr(args, "quiet", False)
+    registry_path = getattr(args, "registry", None)
 
+    # registry-management modes (no target required)
+    if args.list_libs:
+        return _cmd_list(registry_path)
+    if args.orphans:
+        return _cmd_orphans(registry_path)
+    if args.stats_target:
+        return _cmd_stats(args.stats_target, registry_path)
+    if args.forget:
+        return _cmd_forget(args.forget, registry_path, quiet=quiet)
+    if args.remove:
+        return _cmd_remove(args.remove, registry_path, quiet=quiet)
+
+    # main index mode requires a target dir
+    if not args.target:
+        print("acidcat index: missing target directory (or use "
+              "--list/--orphans/--stats/--forget/--remove)", file=sys.stderr)
+        return 1
+
+    target = args.target
+    if not os.path.isdir(target):
+        print(f"acidcat index: {target}: Not a directory", file=sys.stderr)
+        return 1
+
+    _warn_legacy_db(args)
+
+    scan_root = acidpaths.normalize(target)
+    label = args.label or os.path.basename(scan_root) or "library"
+    in_tree = bool(args.in_tree)
+    db_path = (
+        acidpaths.in_tree_db_path_for(scan_root) if in_tree
+        else acidpaths.central_db_path_for(scan_root, label)
+    )
+
+    # open registry first to validate non-overlap before we touch any disk state
+    rconn = reg.open_registry(registry_path)
     try:
-        if args.list_roots:
-            _print_roots(conn, db_path)
-            return 0
-
-        if args.remove_root:
-            root = idx.normalize_path(args.remove_root)
-            removed = idx.remove_root(conn, root)
-            conn.commit()
-            if not quiet:
-                print(f"[INFO] removed {removed} sample(s) under {root}",
-                      file=sys.stderr)
-            return 0
-
-        if args.stats:
-            _print_stats(conn, db_path)
-            return 0
-
-        if not args.target:
-            print("acidcat index: missing target directory (or use "
-                  "--list-roots/--remove-root/--stats)", file=sys.stderr)
+        try:
+            reg.register_library(
+                rconn, scan_root, label=label, db_path=db_path,
+                in_tree=in_tree, schema_version=idx.SCHEMA_VERSION,
+            )
+        except reg.OverlapError as e:
+            print(f"acidcat index: {e}", file=sys.stderr)
             return 1
+    finally:
+        rconn.close()
 
-        target = args.target
-        if not os.path.isdir(target):
-            print(f"acidcat index: {target}: Not a directory", file=sys.stderr)
+    if args.rebuild and os.path.isfile(db_path):
+        try:
+            os.remove(db_path)
+            for ext in (".db-shm", ".db-wal"):
+                sidecar = db_path[:-3] + ext if db_path.endswith(".db") else db_path + ext
+                if os.path.isfile(sidecar):
+                    os.remove(sidecar)
+        except OSError as e:
+            print(f"acidcat index: --rebuild could not remove {db_path}: {e}",
+                  file=sys.stderr)
             return 1
+        _vlog(args, f"[index] removed existing DB at {db_path}")
 
-        scan_root = idx.normalize_path(target)
+    conn = idx.open_db(db_path)
+    try:
         if not quiet:
             print(f"[INFO] indexing {scan_root} -> {db_path}", file=sys.stderr)
 
@@ -110,16 +189,147 @@ def run(args):
 
         conn.commit()
 
-        if not quiet:
-            print(
-                f"[INFO] {counts['added']} added, {counts['updated']} updated, "
-                f"{counts['skipped']} skipped, {counts['pruned']} pruned, "
-                f"{counts['failed']} failed",
-                file=sys.stderr,
-            )
-        return 0
+        # post-walk: refresh registry stats
+        sample_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM samples"
+        ).fetchone()["c"]
+        feature_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM features"
+        ).fetchone()["c"]
     finally:
         conn.close()
+
+    rconn = reg.open_registry(registry_path)
+    try:
+        reg.update_stats(
+            rconn, scan_root,
+            sample_count=sample_count,
+            feature_count=feature_count,
+            last_indexed_at=time.time(),
+            schema_version=idx.SCHEMA_VERSION,
+        )
+    finally:
+        rconn.close()
+
+    if not quiet:
+        print(
+            f"[INFO] [{label}] {counts['added']} added, {counts['updated']} updated, "
+            f"{counts['skipped']} skipped, {counts['pruned']} pruned, "
+            f"{counts['failed']} failed",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def _cmd_list(registry_path):
+    rconn = reg.open_registry(registry_path)
+    try:
+        rows = reg.list_libraries(rconn)
+        if not rows:
+            print("(no libraries registered)")
+            return 0
+        for r in rows:
+            existing = "  " if os.path.isfile(r["db_path"]) else "! "
+            count = r["sample_count"] if r["sample_count"] is not None else "?"
+            mode = "in-tree" if r["in_tree"] else "central"
+            print(f"{existing}{r['label']:<24s} {count:>7}  [{mode}]  {r['root_path']}")
+        return 0
+    finally:
+        rconn.close()
+
+
+def _cmd_orphans(registry_path):
+    rconn = reg.open_registry(registry_path)
+    try:
+        orphans = reg.find_orphans(rconn)
+        if not orphans:
+            print("(no orphans)")
+            return 0
+        for r in orphans:
+            print(f"{r['label']:<24s}  {r['root_path']}  -> missing {r['db_path']}")
+        return 0
+    finally:
+        rconn.close()
+
+
+def _cmd_stats(target, registry_path):
+    rconn = reg.open_registry(registry_path)
+    try:
+        row = reg.get_library(rconn, target)
+        if row is None:
+            print(f"acidcat index: no library matches '{target}'", file=sys.stderr)
+            return 1
+    finally:
+        rconn.close()
+
+    if not os.path.isfile(row["db_path"]):
+        print(f"Library:      {row['label']}")
+        print(f"Root:         {row['root_path']}")
+        print(f"DB:           {row['db_path']}  (MISSING)")
+        return 1
+
+    conn = idx.open_db(row["db_path"])
+    try:
+        stats = idx.index_stats(conn)
+    finally:
+        conn.close()
+
+    print(f"Library:      {row['label']}")
+    print(f"Root:         {row['root_path']}")
+    print(f"DB:           {row['db_path']}")
+    print(f"Mode:         {'in-tree' if row['in_tree'] else 'central'}")
+    print(f"Total:        {stats['total_samples']}")
+    print(f"With features:{stats['with_features']:>6}")
+    print(f"Unique tags:  {stats['unique_tags']}")
+    print(f"Descriptions: {stats['with_descriptions']}")
+    if stats["by_format"]:
+        print("By format:")
+        for fmt in stats["by_format"]:
+            print(f"  {fmt['format']:<10s} {fmt['count']}")
+    return 0
+
+
+def _cmd_forget(target, registry_path, quiet=False):
+    rconn = reg.open_registry(registry_path)
+    try:
+        n = reg.forget_library(rconn, target)
+    finally:
+        rconn.close()
+    if n == 0:
+        print(f"acidcat index: no library matches '{target}'", file=sys.stderr)
+        return 1
+    if not quiet:
+        print(f"[INFO] forgot library '{target}' "
+              f"(DB file untouched)", file=sys.stderr)
+    return 0
+
+
+def _cmd_remove(target, registry_path, quiet=False):
+    rconn = reg.open_registry(registry_path)
+    try:
+        row = reg.get_library(rconn, target)
+        if row is None:
+            print(f"acidcat index: no library matches '{target}'",
+                  file=sys.stderr)
+            return 1
+        db_path = row["db_path"]
+        reg.forget_library(rconn, target)
+    finally:
+        rconn.close()
+
+    removed_files = []
+    for suffix in ("", "-shm", "-wal"):
+        cand = db_path + suffix
+        if os.path.isfile(cand):
+            try:
+                os.remove(cand)
+                removed_files.append(cand)
+            except OSError as e:
+                print(f"[WARN] could not remove {cand}: {e}", file=sys.stderr)
+    if not quiet:
+        print(f"[INFO] removed library '{target}' "
+              f"({len(removed_files)} file(s) deleted)", file=sys.stderr)
+    return 0
 
 
 def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=False):
@@ -432,27 +642,3 @@ def _import_tags(conn, import_file):
     return imported
 
 
-def _print_roots(conn, db_path):
-    roots = idx.list_roots(conn)
-    if not roots:
-        print(f"(no scan roots in {db_path})")
-        return
-    for r in roots:
-        print(f"{r['file_count']:>6}  {r['path']}")
-
-
-def _print_stats(conn, db_path):
-    stats = idx.index_stats(conn)
-    print(f"DB: {db_path}")
-    print(f"Total samples: {stats['total_samples']}")
-    print(f"With features: {stats['with_features']}")
-    print(f"With descriptions: {stats['with_descriptions']}")
-    print(f"Unique tags: {stats['unique_tags']}")
-    if stats["by_format"]:
-        print("By format:")
-        for row in stats["by_format"]:
-            print(f"  {row['format']:<10s} {row['count']}")
-    if stats["roots"]:
-        print("Scan roots:")
-        for r in stats["roots"]:
-            print(f"  {r['file_count']:>6}  {r['path']}")
