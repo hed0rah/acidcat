@@ -3,9 +3,36 @@
 import os
 import csv
 import json
+import struct
 import pytest
 
 from acidcat.cli import main as cli_main
+
+
+def _riff_wav_with_smpl(path, smpl_root_key=None, num_samples=4):
+    """Write a minimal PCM WAV to path, optionally with a SMPL chunk.
+
+    Used by the C-1 regression tests for the info command.
+    """
+    sample_rate, channels, bits = 44100, 1, 16
+    block_align = channels * bits // 8
+    byte_rate = sample_rate * block_align
+    audio_data = b"\x00" * (num_samples * block_align)
+    fmt = struct.pack(
+        "<HHIIHH", 1, channels, sample_rate, byte_rate, block_align, bits,
+    )
+    fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+    data_chunk = b"data" + struct.pack("<I", len(audio_data)) + audio_data
+    smpl_chunk = b""
+    if smpl_root_key is not None:
+        smpl_body = struct.pack(
+            "<IIIIIIiiI",
+            0, 0, 0, smpl_root_key, 0, 0, 0, 0, 0,
+        )
+        smpl_chunk = b"smpl" + struct.pack("<I", len(smpl_body)) + smpl_body
+    riff_body = b"WAVE" + fmt_chunk + data_chunk + smpl_chunk
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(riff_body)) + riff_body)
+    return str(path)
 
 
 def run_cli(*args):
@@ -197,6 +224,112 @@ class TestSurveyCommand:
         assert code == 0 or code is None
         assert "fmt" in out
         assert "data" in out
+
+
+class TestInfoSmplKeyDisplay:
+    """Regression tests: info should no longer display the bogus C-1 key
+    when SMPL/ACID root_key is 0, and should show pitch class (C) not C4."""
+
+    def test_smpl_root_zero_renders_as_unset(self, tmp_path):
+        path = _riff_wav_with_smpl(tmp_path / "zero.wav", smpl_root_key=0)
+        code, out, err = run_cli(path)
+        assert code == 0 or code is None
+        assert "C-1" not in out
+        # JSON form is unambiguous for the assertion
+        code_j, out_j, _ = run_cli(path, "-f", "json")
+        data = json.loads(out_j)
+        assert data["Key"] == "-"
+
+    def test_smpl_root_60_renders_as_pitch_class(self, tmp_path):
+        path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
+        code, out, err = run_cli(path)
+        assert code == 0 or code is None
+        # pitch class only in the Key line; octave suffix must not appear there
+        assert "C (from SMPL)" in out
+        assert "C4 (from SMPL)" not in out
+
+    def test_smpl_root_60_json_has_pitch_class(self, tmp_path):
+        path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
+        code, out, err = run_cli(path, "-f", "json")
+        assert code == 0 or code is None
+        data = json.loads(out)
+        assert data["Key"].startswith("C ")
+        assert "C4" not in data["Key"]
+
+    def test_no_smpl_no_acid_renders_as_unset(self, tmp_path):
+        path = _riff_wav_with_smpl(tmp_path / "nokey.wav", smpl_root_key=None)
+        code, out, err = run_cli(path)
+        assert code == 0 or code is None
+        assert "C-1" not in out
+
+
+class TestVerboseStderr:
+    """-v should add stderr diagnostics without changing stdout."""
+
+    def test_info_verbose_stdout_unchanged(self, minimal_wav):
+        _, out_quiet, _ = run_cli(minimal_wav, "-f", "json")
+        _, out_verbose, err = run_cli(minimal_wav, "-f", "json", "-v")
+        assert out_quiet == out_verbose
+        assert "[detect]" in err
+
+    def test_info_quiet_overrides_verbose(self, minimal_wav):
+        _, out, err = run_cli(minimal_wav, "-f", "json", "-v", "-q")
+        # -q wins: no verbose lines on stderr
+        assert "[detect]" not in err
+
+    def test_chunks_verbose_stdout_unchanged(self, minimal_wav):
+        _, out_plain, _ = run_cli("chunks", minimal_wav, "-f", "json")
+        _, out_verbose, err = run_cli("chunks", minimal_wav, "-f", "json", "-v")
+        assert out_plain == out_verbose
+        assert "[chunks]" in err
+
+    def test_dump_verbose_stdout_unchanged(self, minimal_wav):
+        _, out_plain, _ = run_cli("dump", minimal_wav, "fmt", "-f", "json")
+        _, out_verbose, err = run_cli("dump", minimal_wav, "fmt", "-f", "json", "-v")
+        assert out_plain == out_verbose
+        assert "[dump]" in err
+
+
+class TestDumpJson:
+    """dump -f json should emit a machine-readable list of chunks."""
+
+    def test_json_structure(self, minimal_wav):
+        code, out, err = run_cli("dump", minimal_wav, "fmt", "-f", "json")
+        assert code == 0 or code is None
+        data = json.loads(out)
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        entry = data[0]
+        for k in ("chunk", "offset", "size", "hex"):
+            assert k in entry
+        assert entry["chunk"].upper().startswith("FMT")
+        assert isinstance(entry["offset"], int)
+        assert isinstance(entry["size"], int)
+        # full payload in hex, not a preview
+        assert len(entry["hex"]) == entry["size"] * 2
+
+    def test_json_multiple_chunks(self, minimal_wav):
+        code, out, err = run_cli("dump", minimal_wav, "fmt", "data", "-f", "json")
+        assert code == 0 or code is None
+        data = json.loads(out)
+        chunks_returned = {e["chunk"].upper().strip() for e in data}
+        assert {"FMT", "DATA"}.issubset(chunks_returned)
+
+    def test_json_missing_chunk_returns_error(self, minimal_wav):
+        code, out, err = run_cli("dump", minimal_wav, "acid", "-f", "json")
+        assert code == 1
+        # no stdout emitted on error
+        assert out.strip() == ""
+
+    def test_hex_still_default(self, minimal_wav):
+        code, out, err = run_cli("dump", minimal_wav, "fmt")
+        assert code == 0 or code is None
+        # default hex output is not valid JSON
+        try:
+            json.loads(out)
+            assert False, "hex default should not be valid JSON"
+        except (json.JSONDecodeError, ValueError):
+            pass
 
     def test_survey_empty_directory(self, tmp_path):
         code, out, err = run_cli("survey", str(tmp_path), "-q")
