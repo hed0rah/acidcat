@@ -6,6 +6,16 @@ import os
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_acidcat_env(monkeypatch):
+    """Strip acidcat env vars so a dev shell with ACIDCAT_REGISTRY/ACIDCAT_DB
+    set cannot leak into the test process and corrupt the user's real
+    registry or single-DB index. Applied to every test.
+    """
+    monkeypatch.delenv("ACIDCAT_DB", raising=False)
+    monkeypatch.delenv("ACIDCAT_REGISTRY", raising=False)
+
+
 def _make_riff_wav(sample_rate=44100, channels=1, bits=16, num_samples=4):
     """Build a minimal valid PCM WAV in memory."""
     block_align = channels * bits // 8
