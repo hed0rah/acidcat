@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="acidcat logo" width="240">
+  <img src="docs/logo2.svg" alt="acidcat logo" width="240">
 </p>
 
 # acidcat
