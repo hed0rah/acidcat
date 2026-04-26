@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" alt="acidcat logo" width="240">
+</p>
+
 # acidcat
 
 Audio metadata explorer and analysis tool -- like exiftool, but for audio.
