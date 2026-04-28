@@ -250,6 +250,92 @@ class TestFindCompatible:
         assert two_lib_setup["P_SYNTH"] in paths
 
 
+class TestFindSimilar:
+    def _seed_features(self, two_lib_setup):
+        """Add stub feature vectors so find_similar has something to score."""
+        from acidcat.core import paths as acidpaths
+
+        # P_KICK: loop (acid_beats=4 in the seed). P_HAT: one_shot.
+        # P_SYNTH: loop (8s, no acid_beats but duration >= 2.0).
+        feats_a_db = acidpaths.central_db_path_for(
+            two_lib_setup["lib_a_root"], "A"
+        )
+        feats_b_db = acidpaths.central_db_path_for(
+            two_lib_setup["lib_b_root"], "B"
+        )
+
+        feats_a = idx.open_db(feats_a_db)
+        try:
+            idx.upsert_features(feats_a, two_lib_setup["P_KICK"], {
+                "spectral_centroid_mean": 200.0, "rms_mean": 0.5,
+                "duration_sec": 1.2,
+            })
+            idx.upsert_features(feats_a, two_lib_setup["P_HAT"], {
+                "spectral_centroid_mean": 6000.0, "rms_mean": 0.1,
+                "duration_sec": 0.5,
+            })
+            feats_a.commit()
+        finally:
+            feats_a.close()
+        feats_b = idx.open_db(feats_b_db)
+        try:
+            idx.upsert_features(feats_b, two_lib_setup["P_SYNTH"], {
+                "spectral_centroid_mean": 250.0, "rms_mean": 0.4,
+                "duration_sec": 8.0,
+            })
+            feats_b.commit()
+        finally:
+            feats_b.close()
+
+    def test_kind_filter_default_excludes_other_kind(self, two_lib_setup):
+        """A 0.5s one-shot target should not surface 8s loops by default."""
+        self._seed_features(two_lib_setup)
+        r = mcp_server.dispatch("find_similar", {
+            "path": two_lib_setup["P_HAT"], "n": 5,
+        })
+        assert r["target_kind"] == "one_shot"
+        assert r["filter_kind"] == "one_shot"
+        paths = {res["path"] for res in r["results"]}
+        assert two_lib_setup["P_KICK"] not in paths
+        assert two_lib_setup["P_SYNTH"] not in paths
+
+    def test_kind_filter_false_disables_filtering(self, two_lib_setup):
+        self._seed_features(two_lib_setup)
+        r = mcp_server.dispatch("find_similar", {
+            "path": two_lib_setup["P_HAT"], "n": 5,
+            "kind_filter": False,
+        })
+        assert r["filter_kind"] == "any"
+        paths = {res["path"] for res in r["results"]}
+        # with filtering off, at least one loop should reappear
+        assert (two_lib_setup["P_KICK"] in paths
+                or two_lib_setup["P_SYNTH"] in paths)
+
+    def test_explicit_kind_overrides_default(self, two_lib_setup):
+        self._seed_features(two_lib_setup)
+        r = mcp_server.dispatch("find_similar", {
+            "path": two_lib_setup["P_HAT"], "n": 5,
+            "kind": "loop",
+        })
+        assert r["filter_kind"] == "loop"
+        # the one_shot target itself must not appear in its own loop search
+        for res in r["results"]:
+            assert res["path"] != two_lib_setup["P_HAT"]
+
+    def test_results_carry_percentile_and_relative_scores(self, two_lib_setup):
+        self._seed_features(two_lib_setup)
+        r = mcp_server.dispatch("find_similar", {
+            "path": two_lib_setup["P_KICK"], "n": 5,
+            "kind_filter": False,
+        })
+        assert r["results"], "expected at least one result"
+        for res in r["results"]:
+            assert "percentile_rank" in res
+            assert 0.0 <= res["percentile_rank"] <= 100.0
+            assert "similarity_above_mean" in res
+            assert isinstance(res["similarity_above_mean"], float)
+
+
 class TestRegisterAndForget:
     def test_register_creates_db_and_registry_row(self, two_lib_setup, tmp_path):
         new_root = tmp_path / "newlib"
