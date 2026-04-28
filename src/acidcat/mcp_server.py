@@ -631,14 +631,31 @@ def find_compatible(args):
 def find_similar(args):
     path = _require_path(args)
     n = int(args.get("n") or 5)
+    kind_arg = (args.get("kind") or "").lower() or None
+    kind_filter_enabled = bool(args.get("kind_filter", True))
 
-    # try each library for the target's stored features first
+    # try each library for the target's stored features AND metadata first.
+    # we need duration + acid_beats to infer target kind for the filter.
     target_feats = None
+    target_meta = None
     pairs = _open_all_libraries()
     try:
         for _, conn in pairs:
-            target_feats = (idx.get_features(conn, acidpaths.normalize(path))
-                            or idx.get_features(conn, path))
+            for candidate in (acidpaths.normalize(path), path):
+                feats = idx.get_features(conn, candidate)
+                if feats is None:
+                    continue
+                row = conn.execute(
+                    "SELECT duration, acid_beats FROM samples WHERE path = ?",
+                    (candidate,),
+                ).fetchone()
+                target_feats = feats
+                if row is not None:
+                    target_meta = {
+                        "duration": row["duration"],
+                        "acid_beats": row["acid_beats"],
+                    }
+                break
             if target_feats is not None:
                 break
     finally:
@@ -651,6 +668,26 @@ def find_similar(args):
         target_feats = extract_audio_features(path)
         if target_feats is None:
             raise ToolError(f"could not extract features from {path}")
+        # no row to read acid_beats from; fall back to features dict's
+        # duration_sec, acid_beats unknown
+        target_meta = {
+            "duration": target_feats.get("duration_sec"),
+            "acid_beats": None,
+        }
+
+    target_kind = infer_kind(
+        (target_meta or {}).get("duration"),
+        (target_meta or {}).get("acid_beats"),
+    )
+    if kind_arg and kind_arg not in ("loop", "one_shot", "any"):
+        raise ToolError(
+            f"kind must be loop, one_shot, or any (got {kind_arg!r})"
+        )
+    effective_kind = (
+        kind_arg
+        if kind_arg
+        else (target_kind if kind_filter_enabled else "any")
+    )
 
     feature_keys = sorted(
         k for k, v in target_feats.items()
@@ -666,10 +703,20 @@ def find_similar(args):
     population = 0
     try:
         for lib, conn in pairs:
-            rows = conn.execute(
-                "SELECT f.path, f.features_json, s.bpm, s.key, s.duration, s.format "
+            sql = (
+                "SELECT f.path, f.features_json, "
+                "s.bpm, s.key, s.duration, s.format, s.acid_beats "
                 "FROM features f JOIN samples s ON s.path = f.path"
-            ).fetchall()
+            )
+            params = []
+            if effective_kind == "loop":
+                sql += (" WHERE (s.acid_beats > 0 OR s.duration >= 2.0)")
+            elif effective_kind == "one_shot":
+                sql += (
+                    " WHERE ((s.acid_beats IS NULL OR s.acid_beats = 0) "
+                    "AND (s.duration IS NULL OR s.duration < 1.0))"
+                )
+            rows = conn.execute(sql, params).fetchall()
             population += len(rows)
             for r in rows:
                 try:
@@ -692,9 +739,30 @@ def find_similar(args):
 
     scored = [s for s in scored if s["path"] != target_norm]
     scored.sort(key=lambda x: x["similarity"], reverse=True)
-    scored = _dedup_by_path(scored)[:n]
+    scored = _dedup_by_path(scored)
+
+    # population stats across the full filtered candidate set, used to
+    # surface percentile rank and relative-to-mean similarity. Helps users
+    # distinguish results inside the very-tight 0.99x clusters that pure
+    # cosine produces on same-pack samples processed identically.
+    pop_n = len(scored)
+    if pop_n > 0:
+        sims = [s["similarity"] for s in scored]
+        pop_mean = sum(sims) / pop_n
+        for rank, item in enumerate(scored):
+            # 100th percentile = top, 0th = bottom. Stable definition: the
+            # fraction of the population with a STRICTLY LOWER similarity.
+            below = sum(1 for sim in sims if sim < item["similarity"])
+            item["percentile_rank"] = round(100.0 * below / pop_n, 1)
+            item["similarity_above_mean"] = round(
+                item["similarity"] - pop_mean, 6
+            )
+
+    scored = scored[:n]
     return {
         "target": path,
+        "target_kind": target_kind,
+        "filter_kind": effective_kind,
         "population": population,
         "results": scored,
     }
@@ -1129,13 +1197,33 @@ def _register_all():
         "find_similar",
         "SLOW if features are not indexed, fast if they are. Requires "
         "acidcat[analysis]. Nearest neighbors by librosa feature cosine, "
-        "fanned out across all libraries. Only use when metadata-based "
-        "tools (search_samples, find_compatible) cannot answer.",
+        "fanned out across all libraries. By default filters to the target's "
+        "own kind (loops match loops, one-shots match one-shots) so a "
+        "0.4s 808 query does not surface a 7s drum build-up that happens to "
+        "share spectral tilt. Each result also reports percentile_rank and "
+        "similarity_above_mean to help distinguish ranks inside the tight "
+        "0.99x clusters that same-pack samples produce. Only use when "
+        "metadata-based tools (search_samples, find_compatible) cannot answer.",
         {
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
                 "n": {"type": "integer", "default": 5},
+                "kind": {
+                    "type": "string",
+                    "enum": ["loop", "one_shot", "any"],
+                    "description":
+                        "Force a specific kind filter. Default: auto-infer "
+                        "from target via duration + acid_beats.",
+                },
+                "kind_filter": {
+                    "type": "boolean",
+                    "default": True,
+                    "description":
+                        "If true (default), filter results to the target's "
+                        "inferred kind. Set false to disable filtering "
+                        "without forcing a specific kind.",
+                },
             },
             "required": ["path"],
         },

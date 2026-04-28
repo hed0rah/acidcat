@@ -142,6 +142,64 @@ class TestOverlapRejection:
         assert len(reg.list_libraries(reg_conn)) == 2
 
 
+class TestRegisterReattach:
+    def test_reattach_populates_stats_from_existing_db(self, reg_conn, tmp_path):
+        """Forget + re-register should pick up sample_count from the DB
+        that's still on disk, not leave it NULL."""
+        from acidcat.core import index as idx
+
+        root = _mkroot(tmp_path, "lib_re")
+        db_path = paths.central_db_path_for(root, "lib_re")
+
+        # first register and seed the per-lib DB with two samples
+        reg.register_library(reg_conn, root, label="lib_re", db_path=db_path)
+        sub = idx.open_db(db_path)
+        try:
+            now = 1700000000.0
+            for i in range(2):
+                idx.upsert_sample(sub, {
+                    "path": f"{root}/file_{i}.wav",
+                    "scan_root": root,
+                    "format": "wav",
+                    "duration": 1.0,
+                    "bpm": 120.0, "key": None,
+                    "title": None, "artist": None, "album": None,
+                    "genre": None, "comment": None,
+                    "acid_beats": None, "root_note": None,
+                    "sample_rate": 44100, "channels": 1, "bits_per_sample": 16,
+                    "chunks": None,
+                    "mtime": now, "size": 100,
+                    "indexed_at": now, "last_seen_at": now,
+                })
+            idx.record_scan_root(sub, root, 2, now)
+            sub.commit()
+        finally:
+            sub.close()
+
+        # forget the library; DB file remains on disk
+        reg.forget_library(reg_conn, "lib_re")
+        assert os.path.isfile(db_path)
+
+        # re-register; the count should be populated from the existing DB
+        reg.register_library(
+            reg_conn, root, label="lib_re", db_path=db_path,
+        )
+        row = reg.get_library(reg_conn, "lib_re")
+        assert row["sample_count"] == 2
+        assert row["last_indexed_at"] is not None
+
+    def test_first_register_without_existing_db(self, reg_conn, tmp_path):
+        """Fresh registration with no DB file: stats should be NULL until
+        reindex runs."""
+        root = _mkroot(tmp_path, "fresh")
+        reg.register_library(
+            reg_conn, root, label="fresh",
+            db_path=paths.central_db_path_for(root, "fresh"),
+        )
+        row = reg.get_library(reg_conn, "fresh")
+        assert row["sample_count"] is None
+
+
 class TestUpdateStats:
     def test_updates_counts(self, reg_conn, tmp_path):
         root = _mkroot(tmp_path, "x")
