@@ -186,6 +186,27 @@ Nested libraries are rejected at registration time: if you've registered
 `~/Samples`, you can't also register `~/Samples/Loops` until you forget
 the parent.
 
+### Discovery
+
+For users with many scattered packs, `--discover` walks a tree and
+registers every qualifying subdirectory as its own library in one pass.
+
+    # preview what would get registered (no writes)
+    acidcat index --discover ~/Samples --dry-run
+
+    # actually register them
+    acidcat index --discover ~/Samples
+
+    # tighter threshold and namespacing for a subset of your collection
+    acidcat index --discover /mnt/external/old_drives \
+                  --min-samples 50 --label-prefix "ext_"
+
+A directory qualifies if its subtree (within `--max-depth`, default 3)
+contains at least `--min-samples` audio files (default 20). Non-
+qualifying parents are recursed into so packs nested inside catch-all
+folders still surface. Already-registered roots are skipped. The home
+directory is refused as a discover root to prevent runaway registration.
+
 ### Querying
 
 By default `acidcat query` fans out across every registered library and
@@ -234,7 +255,8 @@ Tool tiers (each tool description starts with `Fast.`, `SLOW.`, or
   `index_stats`, `find_compatible`
 - **Slow analysis** (needs `[analysis]`): `find_similar`, `analyze_sample`,
   `detect_bpm_key`
-- **Index management**: `reindex`, `reindex_features`
+- **Index management**: `reindex`, `reindex_features`,
+  `discover_libraries`
 - **Write** (marked destructive): `register_library`, `forget_library`,
   `tag_sample`, `describe_sample`
 
