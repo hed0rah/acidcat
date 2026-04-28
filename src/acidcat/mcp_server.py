@@ -1052,6 +1052,134 @@ def forget_library(args):
     return {"forgot": target, "count": n}
 
 
+def discover_libraries(args):
+    """Walk a directory tree and register every qualifying subfolder.
+
+    Wraps the same _cmd_discover helper that the CLI uses. Always recommend
+    the LLM call this with dry_run=true first to preview, then false to
+    actually register.
+    """
+    from acidcat.commands import index as index_cmd
+
+    root = _require_path(args, field="root")
+    min_samples = int(args.get("min_samples") or 20)
+    max_depth = int(args.get("max_depth") or 3)
+    label_prefix = args.get("label_prefix") or ""
+    dry_run = bool(args.get("dry_run", False))
+    with_features = bool(args.get("with_features", False))
+
+    if not os.path.isdir(root):
+        raise ToolError(f"not a directory: {root}")
+    if index_cmd._refuses_as_root(root):
+        raise ToolError(
+            f"refusing to discover at {root!r}; pick a more specific "
+            f"samples directory."
+        )
+
+    norm_root = acidpaths.normalize(root)
+
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        registered_roots = {
+            r["root_path"] for r in reg.list_libraries(rconn)
+        }
+    finally:
+        rconn.close()
+
+    candidates = index_cmd._discover_candidates(
+        norm_root, registered_roots, min_samples, max_depth,
+    )
+
+    candidate_summaries = []
+    for c in candidates:
+        count = index_cmd._count_audio_in_subtree(c, max_depth=max_depth)
+        candidate_summaries.append({
+            "root": c,
+            "label": (label_prefix or "") + os.path.basename(c),
+            "audio_count": count,
+        })
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "root": norm_root,
+            "candidate_count": len(candidates),
+            "candidates": candidate_summaries,
+        }
+
+    registered = []
+    skipped = []
+    used_labels = set()
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        for cand in candidates:
+            base = os.path.basename(cand) or "library"
+            base_label = (label_prefix or "") + base
+            parent = os.path.basename(os.path.dirname(cand))
+            label = index_cmd._resolve_unique_label(
+                rconn, base_label, parent, used_labels,
+            )
+            db_path = acidpaths.central_db_path_for(cand, label)
+            try:
+                reg.register_library(
+                    rconn, cand, label=label, db_path=db_path,
+                    in_tree=False, schema_version=idx.SCHEMA_VERSION,
+                )
+                registered.append({"label": label, "root": cand})
+            except reg.OverlapError as e:
+                skipped.append({"root": cand, "reason": str(e)})
+    finally:
+        rconn.close()
+
+    # optionally walk + extract features per registered library
+    if with_features:
+        from acidcat.commands.index import _walk_and_upsert
+        for entry in registered:
+            cand = entry["root"]
+            rconn = reg.open_registry(_REGISTRY_PATH)
+            try:
+                row = reg.get_library(rconn, cand)
+                if row is None:
+                    continue
+                db_path = row["db_path"]
+            finally:
+                rconn.close()
+            conn = idx.open_db(db_path)
+            try:
+                _walk_and_upsert(
+                    conn, cand,
+                    do_features=True, do_deep=False, quiet=True,
+                )
+                sample_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM samples"
+                ).fetchone()["c"]
+                feature_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM features"
+                ).fetchone()["c"]
+            finally:
+                conn.close()
+            rconn = reg.open_registry(_REGISTRY_PATH)
+            try:
+                reg.update_stats(
+                    rconn, cand,
+                    sample_count=sample_count,
+                    feature_count=feature_count,
+                    last_indexed_at=time.time(),
+                    schema_version=idx.SCHEMA_VERSION,
+                )
+            finally:
+                rconn.close()
+
+    return {
+        "dry_run": False,
+        "root": norm_root,
+        "registered_count": len(registered),
+        "skipped_count": len(skipped),
+        "registered": registered,
+        "skipped": skipped,
+    }
+
+
 # ── tool registration ─────────────────────────────────────────────
 
 
@@ -1340,6 +1468,50 @@ def _register_all():
         forget_library,
         {"readOnlyHint": False, "destructiveHint": True,
          "idempotentHint": False, "openWorldHint": False},
+    )
+    _tool(
+        "discover_libraries",
+        "SLOW. Walk a directory tree and register every qualifying "
+        "subfolder as its own library. A folder qualifies if its subtree "
+        "(within max_depth) holds at least min_samples audio files. "
+        "Recurses into folders that don't qualify on their own to find "
+        "qualifying grandchildren. Always call once with dry_run=true "
+        "first to preview the candidates, then again with dry_run=false "
+        "after the user confirms.",
+        {
+            "type": "object",
+            "properties": {
+                "root": {"type": "string",
+                         "description":
+                             "Container directory to walk. acidcat refuses "
+                             "to discover at the user's home dir."},
+                "min_samples": {"type": "integer", "default": 20,
+                                "description":
+                                    "Minimum audio files in a subtree for "
+                                    "it to qualify as a library."},
+                "max_depth": {"type": "integer", "default": 3,
+                              "description":
+                                  "How many levels into the tree to walk."},
+                "label_prefix": {"type": "string", "default": "",
+                                 "description":
+                                     "Prefix every auto-derived label "
+                                     "with this string. Useful for "
+                                     "namespacing scattered collections."},
+                "dry_run": {"type": "boolean", "default": False,
+                            "description":
+                                "Return the candidate list without "
+                                "writing to the registry."},
+                "with_features": {"type": "boolean", "default": False,
+                                  "description":
+                                      "Also walk + extract librosa features "
+                                      "for each registered library. VERY "
+                                      "SLOW; defer unless explicitly asked."},
+            },
+            "required": ["root"],
+        },
+        discover_libraries,
+        {"readOnlyHint": False, "destructiveHint": True,
+         "idempotentHint": True, "openWorldHint": False},
     )
 
     # write tools (sample-level)
