@@ -366,6 +366,85 @@ class TestRegisterAndForget:
         assert "A" not in labels
 
 
+class TestDiscoverLibraries:
+    def _build_pack(self, parent, name, n_files):
+        # inline a minimal WAV bytestring rather than import from test_index
+        # (which lives outside this module's package).
+        import struct
+        pack = parent / name
+        pack.mkdir()
+        block_align = 2
+        byte_rate = 44100 * block_align
+        audio_data = b"\x00" * (4 * block_align)
+        fmt = struct.pack(
+            "<HHIIHH", 1, 1, 44100, byte_rate, block_align, 16,
+        )
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_chunk = b"data" + struct.pack("<I", len(audio_data)) + audio_data
+        riff_body = b"WAVE" + fmt_chunk + data_chunk
+        wav = b"RIFF" + struct.pack("<I", len(riff_body)) + riff_body
+        for i in range(n_files):
+            (pack / f"sample_{i:03d}.wav").write_bytes(wav)
+        return pack
+
+    def test_dry_run_lists_candidates_no_writes(self, two_lib_setup, tmp_path):
+        samples = tmp_path / "Samples"
+        samples.mkdir()
+        self._build_pack(samples, "PackA", 25)
+        self._build_pack(samples, "PackB", 30)
+
+        pre = mcp_server.dispatch("list_libraries", {})
+        pre_count = pre["count"]
+
+        r = mcp_server.dispatch("discover_libraries", {
+            "root": str(samples), "min_samples": 20, "dry_run": True,
+        })
+        assert r["dry_run"] is True
+        assert r["candidate_count"] == 2
+        labels = {c["label"] for c in r["candidates"]}
+        assert {"PackA", "PackB"}.issubset(labels)
+
+        post = mcp_server.dispatch("list_libraries", {})
+        assert post["count"] == pre_count  # no writes during dry_run
+
+    def test_register_writes_libraries(self, two_lib_setup, tmp_path):
+        samples = tmp_path / "Samples"
+        samples.mkdir()
+        self._build_pack(samples, "PackA", 25)
+
+        r = mcp_server.dispatch("discover_libraries", {
+            "root": str(samples), "min_samples": 20, "dry_run": False,
+        })
+        assert r["dry_run"] is False
+        assert r["registered_count"] == 1
+        assert r["registered"][0]["label"] == "PackA"
+
+        listed = mcp_server.dispatch("list_libraries", {})
+        labels = {lib["label"] for lib in listed["libraries"]}
+        assert "PackA" in labels
+
+    def test_label_prefix_applied(self, two_lib_setup, tmp_path):
+        samples = tmp_path / "Samples"
+        samples.mkdir()
+        self._build_pack(samples, "MyPack", 25)
+
+        r = mcp_server.dispatch("discover_libraries", {
+            "root": str(samples), "min_samples": 20,
+            "label_prefix": "v_", "dry_run": True,
+        })
+        labels = {c["label"] for c in r["candidates"]}
+        assert "v_MyPack" in labels
+
+    def test_refuses_home_dir(self, two_lib_setup, tmp_path, monkeypatch):
+        # the fixture already pinned HOME under tmp_path
+        home = os.path.expanduser("~")
+        with pytest.raises(mcp_server.ToolError) as excinfo:
+            mcp_server.dispatch("discover_libraries", {
+                "root": home, "min_samples": 20, "dry_run": True,
+            })
+        assert "refusing" in str(excinfo.value).lower()
+
+
 class TestTagSample:
     def test_add_remove_round_trip(self, two_lib_setup):
         r = mcp_server.dispatch("tag_sample", {
