@@ -85,6 +85,24 @@ def register(subparsers):
                         "its DB file.")
     p.add_argument("--remove", dest="remove",
                    help="Forget a library AND delete its DB file.")
+    # discovery (walk a tree, register qualifying directories as libraries)
+    p.add_argument("--discover", dest="discover_root",
+                   help="Walk this directory and register every qualifying "
+                        "subdirectory as its own library.")
+    p.add_argument("--min-samples", dest="min_samples", type=int, default=20,
+                   help="--discover threshold: minimum audio files in a "
+                        "subtree for it to qualify as a library (default 20).")
+    p.add_argument("--max-depth", dest="max_depth", type=int, default=3,
+                   help="--discover walks this many levels into the tree "
+                        "looking for non-qualifying parents whose children "
+                        "qualify (default 3).")
+    p.add_argument("--label-prefix", dest="label_prefix", default="",
+                   help="--discover prefixes every auto-derived label with "
+                        "this string. Useful for namespacing scattered "
+                        "collections.")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help="--discover prints what would be registered without "
+                        "writing to the registry.")
     p.add_argument("-q", "--quiet", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true",
                    help="Diagnostic lines on stderr.")
@@ -119,6 +137,19 @@ def run(args):
         return _cmd_forget(args.forget, registry_path, quiet=quiet)
     if args.remove:
         return _cmd_remove(args.remove, registry_path, quiet=quiet)
+    if getattr(args, "discover_root", None):
+        return _cmd_discover(
+            args.discover_root,
+            registry_path=registry_path,
+            min_samples=args.min_samples,
+            max_depth=args.max_depth,
+            label_prefix=args.label_prefix or "",
+            dry_run=args.dry_run,
+            do_features=args.features,
+            do_deep=args.deep,
+            quiet=quiet,
+            verbose=getattr(args, "verbose", False),
+        )
 
     # main index mode requires a target dir
     if not args.target:
@@ -329,6 +360,248 @@ def _cmd_remove(target, registry_path, quiet=False):
     if not quiet:
         print(f"[INFO] removed library '{target}' "
               f"({len(removed_files)} file(s) deleted)", file=sys.stderr)
+    return 0
+
+
+# directories acidcat refuses to discover under, regardless of audio count.
+# These are user homes and roots: registering them as libraries would create
+# nonsense library boundaries and pull in massive unrelated content.
+def _refuses_as_root(path):
+    norm = acidpaths.normalize(path)
+    if norm == acidpaths.normalize(os.path.expanduser("~")):
+        return True
+    # platform root (e.g. /, C:/)
+    if norm == os.path.dirname(norm):
+        return True
+    return False
+
+
+def _count_audio_in_subtree(directory, max_depth=99):
+    """Count files matching INDEXABLE_EXTENSIONS in `directory` up to
+    max_depth levels deep. Skips junk files (._*, .DS_Store, etc.) and
+    hidden directories (basename starting with '.').
+    """
+    count = 0
+    base_depth = directory.rstrip(os.sep).count(os.sep)
+    for root, dirs, files in os.walk(directory, followlinks=False):
+        depth = root.rstrip(os.sep).count(os.sep) - base_depth
+        if depth > max_depth:
+            dirs[:] = []
+            continue
+        # prune hidden dirs in-place so os.walk skips them
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            if _is_junk(name):
+                continue
+            ext = os.path.splitext(name)[1].lower()
+            if ext in INDEXABLE_EXTENSIONS:
+                count += 1
+    return count
+
+
+def _discover_candidates(root, registered_roots, min_samples, max_depth,
+                          current_depth=0):
+    """Walk `root` looking for subdirectories that qualify as libraries.
+
+    A directory qualifies if its subtree (within max_depth) contains at
+    least min_samples audio files AND it is not already registered AND it
+    is not nested under one of the candidates we are about to return.
+
+    Returns a sorted list of normalized absolute paths.
+    """
+    if current_depth >= max_depth:
+        return []
+    norm_root = acidpaths.normalize(root)
+    if norm_root in registered_roots:
+        # already a library: don't recurse, the caller's dedup handles it
+        return []
+
+    candidates = []
+    try:
+        children = sorted(os.listdir(root))
+    except OSError:
+        return []
+
+    for child in children:
+        if child.startswith("."):
+            continue
+        child_path = os.path.join(root, child)
+        if not os.path.isdir(child_path):
+            continue
+        if os.path.islink(child_path):
+            # don't follow symlinks: they often point at parent dirs and
+            # would create infinite walks or duplicate registrations.
+            continue
+        norm_child = acidpaths.normalize(child_path)
+        if norm_child in registered_roots:
+            continue
+        # check overlap with already-chosen candidates in this run so we
+        # do not propose nested libraries
+        if any(norm_child.startswith(c + "/") for c in candidates):
+            continue
+
+        count = _count_audio_in_subtree(child_path, max_depth=max_depth)
+        if count >= min_samples:
+            candidates.append(norm_child)
+        else:
+            # this child didn't qualify on its own; recurse one level
+            # deeper to see if any of its grandchildren do
+            sub = _discover_candidates(
+                child_path, registered_roots, min_samples,
+                max_depth, current_depth=current_depth + 1,
+            )
+            candidates.extend(sub)
+
+    return candidates
+
+
+def _resolve_unique_label(rconn, base_label, parent_basename, used_labels):
+    """Pick an unused label, preferring `base_label`. If taken, append the
+    parent dir name. If still taken, append a short hash. Mutates `used_labels`.
+    """
+    if base_label and base_label not in used_labels:
+        existing = reg.get_library(rconn, base_label)
+        if existing is None:
+            used_labels.add(base_label)
+            return base_label
+    # try parent-disambiguated
+    if parent_basename:
+        candidate = f"{base_label}_{parent_basename}"
+        if candidate not in used_labels and reg.get_library(rconn, candidate) is None:
+            used_labels.add(candidate)
+            return candidate
+    # final fallback: hash suffix
+    import hashlib
+    h = hashlib.sha1((base_label or "lib").encode("utf-8")).hexdigest()[:6]
+    candidate = f"{base_label}_{h}"
+    used_labels.add(candidate)
+    return candidate
+
+
+def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
+                   dry_run, do_features, do_deep, quiet, verbose):
+    """Walk `root`, register every qualifying subdir as its own library."""
+    if not os.path.isdir(root):
+        print(f"acidcat index: --discover ROOT must be a directory: {root}",
+              file=sys.stderr)
+        return 1
+    if _refuses_as_root(root):
+        print(f"acidcat index: refusing to --discover at {root!r}; pick a "
+              f"more specific samples directory.", file=sys.stderr)
+        return 1
+
+    norm_root = acidpaths.normalize(root)
+
+    rconn = reg.open_registry(registry_path)
+    try:
+        registered_roots = {
+            r["root_path"] for r in reg.list_libraries(rconn)
+        }
+    finally:
+        rconn.close()
+
+    if not quiet:
+        print(f"[discover] walking {norm_root}", file=sys.stderr)
+        print(f"[discover] min-samples={min_samples} max-depth={max_depth}",
+              file=sys.stderr)
+
+    candidates = _discover_candidates(
+        norm_root, registered_roots, min_samples, max_depth,
+    )
+
+    if not candidates:
+        print(f"[discover] no qualifying subdirectories found", file=sys.stderr)
+        return 0
+
+    # report
+    if not quiet:
+        for c in candidates:
+            count = _count_audio_in_subtree(c, max_depth=max_depth)
+            print(f"[discover] candidate: {os.path.basename(c):<40s} "
+                  f"({count} samples)", file=sys.stderr)
+
+    if dry_run:
+        print(f"[discover] dry-run: {len(candidates)} libraries would be "
+              f"registered. No changes made.", file=sys.stderr)
+        return 0
+
+    # register each candidate
+    registered = 0
+    failed = 0
+    used_labels = set()
+    rconn = reg.open_registry(registry_path)
+    try:
+        for cand in candidates:
+            base = os.path.basename(cand) or "library"
+            base_label = (label_prefix or "") + base
+            parent = os.path.basename(os.path.dirname(cand))
+            label = _resolve_unique_label(rconn, base_label, parent, used_labels)
+            db_path = acidpaths.central_db_path_for(cand, label)
+            try:
+                reg.register_library(
+                    rconn, cand, label=label, db_path=db_path,
+                    in_tree=False, schema_version=idx.SCHEMA_VERSION,
+                )
+                registered += 1
+                if not quiet:
+                    print(f"[discover] registered '{label}' -> {cand}",
+                          file=sys.stderr)
+            except reg.OverlapError as e:
+                failed += 1
+                if not quiet:
+                    print(f"[discover] skipped {cand}: {e}", file=sys.stderr)
+    finally:
+        rconn.close()
+
+    # optionally walk-and-upsert (full index pass) per registered library
+    if do_features or do_deep or verbose:
+        if not quiet:
+            print(f"[discover] indexing {registered} new libraries...",
+                  file=sys.stderr)
+        for cand in candidates:
+            base = os.path.basename(cand) or "library"
+            base_label = (label_prefix or "") + base
+            label = base_label  # may differ if collision; we re-resolve below
+            rconn = reg.open_registry(registry_path)
+            try:
+                row = reg.get_library(rconn, cand)
+                if row is None:
+                    continue
+                label = row["label"]
+                db_path = row["db_path"]
+            finally:
+                rconn.close()
+            conn = idx.open_db(db_path)
+            try:
+                _walk_and_upsert(
+                    conn, cand,
+                    do_features=do_features,
+                    do_deep=do_deep,
+                    quiet=quiet,
+                )
+                sample_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM samples"
+                ).fetchone()["c"]
+                feature_count = conn.execute(
+                    "SELECT COUNT(*) AS c FROM features"
+                ).fetchone()["c"]
+            finally:
+                conn.close()
+            rconn = reg.open_registry(registry_path)
+            try:
+                reg.update_stats(
+                    rconn, cand,
+                    sample_count=sample_count,
+                    feature_count=feature_count,
+                    last_indexed_at=time.time(),
+                    schema_version=idx.SCHEMA_VERSION,
+                )
+            finally:
+                rconn.close()
+
+    if not quiet:
+        print(f"[discover] done: {registered} registered, {failed} skipped",
+              file=sys.stderr)
     return 0
 
 
