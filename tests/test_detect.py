@@ -69,3 +69,20 @@ def test_parse_bpm_existing():
     # sanity: existing bpm parser still works
     assert parse_bpm_from_filename("/loops/PL_Hypnotize_03_126_A#.wav") == 126
     assert parse_bpm_from_filename("/loops/kick.wav") is None
+
+
+def test_parse_bpm_rejects_letter_adjacent_digits():
+    # Regression: pack identifier prefixes like '91V' should NOT match as
+    # BPM 91. The parser must fall through to the real tempo marker.
+    assert parse_bpm_from_filename(
+        "/packs/91V_SBH_126_drum_fill_build_up_dont_stop.wav"
+    ) == 126
+    assert parse_bpm_from_filename(
+        "/packs/91V_SBH_130_drum_fill_build_up_engine.wav"
+    ) == 130
+    # other letter-adjacent forms that should be rejected
+    assert parse_bpm_from_filename("/packs/V99kick.wav") is None
+    # existing valid forms still work
+    assert parse_bpm_from_filename("/packs/120bpm_loop.wav") == 120
+    assert parse_bpm_from_filename("/packs/loop_140_BPM.wav") == 140
+    assert parse_bpm_from_filename("/packs/_120_drum.wav") == 120

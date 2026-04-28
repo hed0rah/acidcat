@@ -17,10 +17,13 @@ def parse_bpm_from_filename(filepath):
         r'(\d{2,3})\s*bpm',
         r'bpm\s*(\d{2,3})',
         r'(\d{2,3})bpm',
-        # bare 2-3 digit run, not adjacent to other digits or a decimal point;
-        # zero-width lookarounds so consecutive numbers (e.g. '_03_126_') both
-        # surface instead of the first consuming the shared underscore.
-        r'(?<![\d.])(\d{2,3})(?![\d.])',
+        # bare 2-3 digit run, not adjacent to digits, decimals, OR letters.
+        # Letter-adjacent rejection prevents pack identifiers like '91V_SBH'
+        # from matching as BPM 91; the parser falls through to the real
+        # tempo marker (e.g. _126_ later in the filename). Zero-width
+        # lookarounds so consecutive numbers (e.g. '_03_126_') both surface
+        # instead of the first consuming the shared underscore.
+        r'(?<![\d.A-Za-z])(\d{2,3})(?![\d.A-Za-z])',
     ]
     # iterate ALL matches of each pattern; a filename like "Pack_03_126_A#"
     # matches "_03_" before "_126_" so we need to consider every occurrence.
