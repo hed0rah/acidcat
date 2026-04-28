@@ -332,10 +332,19 @@ def _cmd_remove(target, registry_path, quiet=False):
     return 0
 
 
+# commit every N processed files so a long --rebuild --features run can
+# survive interruption (Ctrl-C, power loss, OS schedule task ending) with
+# only the in-flight chunk lost rather than the entire walk. Tuned high
+# enough that small libraries don't pay extra fsync cost, low enough that
+# a 32k-file overnight job loses minutes not hours on a crash.
+_COMMIT_EVERY_N_FILES = 100
+
+
 def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=False):
     walk_start = time.time()
     added = updated = skipped = failed = 0
     seen_paths = 0
+    since_commit = 0
 
     for root, _, files in os.walk(scan_root):
         for name in files:
@@ -359,6 +368,10 @@ def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=Fa
                     idx.touch_last_seen(conn, norm, walk_start)
                     skipped += 1
                     seen_paths += 1
+                    since_commit += 1
+                    if since_commit >= _COMMIT_EVERY_N_FILES:
+                        conn.commit()
+                        since_commit = 0
                     continue
 
             row = _extract_for_index(
@@ -388,6 +401,10 @@ def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=Fa
                 _extract_and_store_features(conn, filepath, row["path"], quiet=quiet)
 
             seen_paths += 1
+            since_commit += 1
+            if since_commit >= _COMMIT_EVERY_N_FILES:
+                conn.commit()
+                since_commit = 0
             if not quiet:
                 bpm = row.get("bpm") or "-"
                 key = row.get("key") or "-"
@@ -395,6 +412,8 @@ def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=Fa
 
     pruned = idx.prune_missing(conn, scan_root, walk_start)
     idx.record_scan_root(conn, scan_root, seen_paths, walk_start)
+    # final commit handles the trailing partial chunk and the prune+record above
+    conn.commit()
 
     return {
         "added": added,

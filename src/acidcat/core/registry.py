@@ -141,6 +141,13 @@ def register_library(conn, root, label, db_path, in_tree=False,
 
     Idempotent on re-register: same `root` upserts metadata, preserves
     `created_at`. Overlapping (but non-equal) roots raise OverlapError.
+
+    If the target db_path file already exists on disk (re-attach scenario:
+    user forgot a library and is re-registering it), inspect that DB for
+    sample_count / feature_count / last_indexed_at and populate the
+    registry entry from there. Without this, list_libraries would report
+    sample_count=NULL until the user runs reindex, which is misleading.
+
     Returns the canonical db_path stored in the registry.
     """
     if not label:
@@ -173,7 +180,61 @@ def register_library(conn, root, label, db_path, in_tree=False,
          schema_version, created_at, now),
     )
     conn.commit()
+
+    # Re-attach: if the per-lib DB already exists on disk, populate the
+    # cached counts from it so list_libraries returns useful numbers
+    # without waiting for a reindex.
+    if os.path.isfile(norm_db):
+        _refresh_stats_from_db(conn, norm_root, norm_db)
+
     return norm_db
+
+
+def _refresh_stats_from_db(conn, root, db_path):
+    """Open `db_path`, read sample/feature counts and last_indexed_at, then
+    push those values into the registry row for `root`. Best-effort: silently
+    skips if the DB cannot be opened or doesn't have the expected schema.
+    """
+    import sqlite3
+
+    try:
+        # short-lived read-only connection. Avoid open_db (circular import via
+        # acidcat.core.index) and avoid PRAGMA writes against a foreign DB.
+        sub = sqlite3.connect(db_path)
+        sub.row_factory = sqlite3.Row
+    except sqlite3.DatabaseError:
+        return
+
+    try:
+        try:
+            sample_count = sub.execute(
+                "SELECT COUNT(*) AS c FROM samples"
+            ).fetchone()["c"]
+            feature_count = sub.execute(
+                "SELECT COUNT(*) AS c FROM features"
+            ).fetchone()["c"]
+        except sqlite3.OperationalError:
+            # DB exists but schema isn't an acidcat sample DB; skip
+            return
+
+        last_indexed_at = None
+        try:
+            row = sub.execute(
+                "SELECT MAX(last_indexed_at) AS t FROM scan_roots"
+            ).fetchone()
+            if row is not None:
+                last_indexed_at = row["t"]
+        except sqlite3.OperationalError:
+            pass
+    finally:
+        sub.close()
+
+    update_stats(
+        conn, root,
+        sample_count=sample_count,
+        feature_count=feature_count,
+        last_indexed_at=last_indexed_at,
+    )
 
 
 def update_stats(conn, root, sample_count=None, feature_count=None,
