@@ -85,6 +85,16 @@ def register(subparsers):
                         "its DB file.")
     p.add_argument("--remove", dest="remove",
                    help="Forget a library AND delete its DB file.")
+    p.add_argument("--refresh-stats", dest="refresh_stats",
+                   action="store_true",
+                   help="Read every registered library's DB and refresh the "
+                        "registry's cached sample_count, feature_count, and "
+                        "last_indexed_at. Useful migration step after upgrading "
+                        "from an older version that did not auto-populate "
+                        "these fields.")
+    p.add_argument("--refresh-stats-target", dest="refresh_stats_target",
+                   help="With --refresh-stats: scope to one library by label "
+                        "or path. Default: refresh every registered library.")
     # discovery (walk a tree, register qualifying directories as libraries)
     p.add_argument("--discover", dest="discover_root",
                    help="Walk this directory and register every qualifying "
@@ -126,6 +136,34 @@ def run(args):
     quiet = getattr(args, "quiet", False)
     registry_path = getattr(args, "registry", None)
 
+    # collision check: registry-management flags don't take a positional
+    # target. Silently ignoring the target hides what the user actually
+    # asked for. Surface it instead.
+    mgmt_flag_set = {
+        "--list":     args.list_libs,
+        "--orphans":  args.orphans,
+        "--stats":    bool(args.stats_target),
+        "--forget":   bool(args.forget),
+        "--remove":   bool(args.remove),
+        "--discover": bool(getattr(args, "discover_root", None)),
+        "--refresh-stats": bool(getattr(args, "refresh_stats", False)),
+    }
+    active_mgmt = [name for name, v in mgmt_flag_set.items() if v]
+    if args.target and active_mgmt:
+        print(
+            f"acidcat index: cannot combine {active_mgmt[0]} with a "
+            f"target directory. Drop the target or remove the flag.",
+            file=sys.stderr,
+        )
+        return 1
+    if len(active_mgmt) > 1:
+        print(
+            f"acidcat index: cannot combine {active_mgmt[0]} and "
+            f"{active_mgmt[1]}; pick one.",
+            file=sys.stderr,
+        )
+        return 1
+
     # registry-management modes (no target required)
     if args.list_libs:
         return _cmd_list(registry_path)
@@ -137,6 +175,11 @@ def run(args):
         return _cmd_forget(args.forget, registry_path, quiet=quiet)
     if args.remove:
         return _cmd_remove(args.remove, registry_path, quiet=quiet)
+    if getattr(args, "refresh_stats", False):
+        return _cmd_refresh_stats(
+            getattr(args, "refresh_stats_target", None),
+            registry_path, quiet=quiet,
+        )
     if getattr(args, "discover_root", None):
         return _cmd_discover(
             args.discover_root,
@@ -363,6 +406,84 @@ def _cmd_remove(target, registry_path, quiet=False):
     return 0
 
 
+def _cmd_refresh_stats(target, registry_path, quiet=False):
+    """Read each registered library's DB and push current sample/feature
+    counts back into the registry. Migration helper for users whose
+    libraries were registered before stats-on-attach landed (or who
+    walked their DBs from outside acidcat).
+    """
+    rconn = reg.open_registry(registry_path)
+    try:
+        if target:
+            row = reg.get_library(rconn, target)
+            if row is None:
+                print(f"acidcat index: no library matches '{target}'",
+                      file=sys.stderr)
+                return 1
+            libs = [row]
+        else:
+            libs = reg.list_libraries(rconn)
+    finally:
+        rconn.close()
+
+    refreshed = 0
+    skipped_missing = 0
+    for lib in libs:
+        if not os.path.isfile(lib["db_path"]):
+            skipped_missing += 1
+            if not quiet:
+                print(f"[refresh-stats] skipped {lib['label']}: "
+                      f"DB missing at {lib['db_path']}", file=sys.stderr)
+            continue
+        try:
+            conn = idx.open_db(lib["db_path"])
+        except Exception as e:
+            skipped_missing += 1
+            if not quiet:
+                print(f"[refresh-stats] skipped {lib['label']}: {e}",
+                      file=sys.stderr)
+            continue
+        try:
+            sample_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM samples"
+            ).fetchone()["c"]
+            feature_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM features"
+            ).fetchone()["c"]
+            last_indexed_at = None
+            try:
+                row = conn.execute(
+                    "SELECT MAX(last_indexed_at) AS t FROM scan_roots"
+                ).fetchone()
+                if row is not None:
+                    last_indexed_at = row["t"]
+            except Exception:
+                pass
+        finally:
+            conn.close()
+
+        rconn = reg.open_registry(registry_path)
+        try:
+            reg.update_stats(
+                rconn, lib["root_path"],
+                sample_count=sample_count,
+                feature_count=feature_count,
+                last_indexed_at=last_indexed_at,
+            )
+        finally:
+            rconn.close()
+        refreshed += 1
+        if not quiet:
+            print(f"[refresh-stats] {lib['label']:<32s} "
+                  f"samples={sample_count} features={feature_count}",
+                  file=sys.stderr)
+
+    if not quiet:
+        print(f"[refresh-stats] {refreshed} refreshed, "
+              f"{skipped_missing} skipped (missing DB).", file=sys.stderr)
+    return 0
+
+
 # directories acidcat refuses to discover under, regardless of audio count.
 # These are user homes and roots: registering them as libraries would create
 # nonsense library boundaries and pull in massive unrelated content.
@@ -542,6 +663,12 @@ def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
                     rconn, cand, label=label, db_path=db_path,
                     in_tree=False, schema_version=idx.SCHEMA_VERSION,
                 )
+                # pre-touch the DB so `acidcat index --list` does not show a
+                # leading '!' for libraries that were registered but never
+                # walked. Empty schema is created and immediately closed; a
+                # later walk fills it with rows.
+                _conn = idx.open_db(db_path)
+                _conn.close()
                 registered += 1
                 if not quiet:
                     print(f"[discover] registered '{label}' -> {cand}",
