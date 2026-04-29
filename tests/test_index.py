@@ -42,6 +42,7 @@ class _Args:
             "import_tags": None, "registry": None,
             "list_libs": False, "orphans": False,
             "stats_target": None, "forget": None, "remove": None,
+            "refresh_stats": False, "refresh_stats_target": None,
             "discover_root": None, "min_samples": 20, "max_depth": 3,
             "label_prefix": "", "dry_run": False,
             "quiet": True, "verbose": False,
@@ -611,3 +612,178 @@ class TestDiscover:
         finally:
             rconn.close()
         assert "DeepPack" not in labels
+
+    def test_creates_db_files_so_list_does_not_show_orphan(
+            self, tmp_path, central_root, registry_path, wav_bytes):
+        """v0.5.3: --discover should pre-touch each registered library's DB
+        so `acidcat index --list` does not show a leading '!' (orphan)
+        marker for freshly-discovered-but-not-yet-walked libraries."""
+        samples = tmp_path / "Samples"
+        samples.mkdir()
+        a = samples / "PackA"
+        a.mkdir()
+        _populate(a, 25, wav_bytes)
+
+        index_cmd.run(_Args(
+            discover_root=str(samples), registry=registry_path,
+            min_samples=20,
+        ))
+        rconn = reg.open_registry(registry_path)
+        try:
+            row = reg.get_library(rconn, "PackA")
+        finally:
+            rconn.close()
+        assert row is not None
+        assert os.path.isfile(row["db_path"])
+
+
+class TestCollisionGuard:
+    """v0.5.3: target + management flags can't be combined silently."""
+
+    def test_target_with_list_errors(self, tmp_path, central_root,
+                                      registry_path, wav_bytes):
+        lib = _library(tmp_path, wav_bytes)
+        rc = index_cmd.run(_Args(
+            target=str(lib), list_libs=True, registry=registry_path,
+        ))
+        assert rc == 1
+
+    def test_target_with_orphans_errors(self, tmp_path, central_root,
+                                         registry_path, wav_bytes):
+        lib = _library(tmp_path, wav_bytes)
+        rc = index_cmd.run(_Args(
+            target=str(lib), orphans=True, registry=registry_path,
+        ))
+        assert rc == 1
+
+    def test_target_with_stats_errors(self, tmp_path, central_root,
+                                       registry_path, wav_bytes):
+        lib = _library(tmp_path, wav_bytes)
+        rc = index_cmd.run(_Args(
+            target=str(lib), stats_target="some-label",
+            registry=registry_path,
+        ))
+        assert rc == 1
+
+    def test_target_with_discover_errors(self, tmp_path, central_root,
+                                          registry_path, wav_bytes):
+        lib = _library(tmp_path, wav_bytes)
+        rc = index_cmd.run(_Args(
+            target=str(lib), discover_root=str(lib),
+            registry=registry_path,
+        ))
+        assert rc == 1
+
+    def test_two_management_flags_error(self, tmp_path, central_root,
+                                         registry_path):
+        rc = index_cmd.run(_Args(
+            list_libs=True, orphans=True, registry=registry_path,
+        ))
+        assert rc == 1
+
+
+class TestRefreshStats:
+    """v0.5.3: --refresh-stats reads each library's DB and updates the
+    registry's cached counts."""
+
+    def test_refreshes_all_libraries(self, tmp_path, central_root,
+                                      registry_path, wav_bytes):
+        # set up two libraries the normal way (registers + indexes them)
+        a = tmp_path / "A"
+        a.mkdir()
+        _populate(a, 3, wav_bytes)
+        b = tmp_path / "B"
+        b.mkdir()
+        _populate(b, 5, wav_bytes)
+        index_cmd.run(_Args(target=str(a), label="lib_a", registry=registry_path))
+        index_cmd.run(_Args(target=str(b), label="lib_b", registry=registry_path))
+
+        # corrupt the registry's cached counts to simulate stale state
+        rconn = reg.open_registry(registry_path)
+        try:
+            rconn.execute(
+                "UPDATE libraries SET sample_count = NULL, "
+                "feature_count = NULL, last_indexed_at = NULL"
+            )
+            rconn.commit()
+        finally:
+            rconn.close()
+
+        # refresh
+        rc = index_cmd.run(_Args(refresh_stats=True, registry=registry_path))
+        assert rc == 0
+
+        # verify counts are back
+        rconn = reg.open_registry(registry_path)
+        try:
+            rows = {
+                r["label"]: r for r in reg.list_libraries(rconn)
+            }
+        finally:
+            rconn.close()
+        assert rows["lib_a"]["sample_count"] == 3
+        assert rows["lib_b"]["sample_count"] == 5
+
+    def test_refreshes_single_library(self, tmp_path, central_root,
+                                       registry_path, wav_bytes):
+        a = tmp_path / "A"
+        a.mkdir()
+        _populate(a, 3, wav_bytes)
+        b = tmp_path / "B"
+        b.mkdir()
+        _populate(b, 5, wav_bytes)
+        index_cmd.run(_Args(target=str(a), label="lib_a", registry=registry_path))
+        index_cmd.run(_Args(target=str(b), label="lib_b", registry=registry_path))
+
+        rconn = reg.open_registry(registry_path)
+        try:
+            rconn.execute(
+                "UPDATE libraries SET sample_count = NULL"
+            )
+            rconn.commit()
+        finally:
+            rconn.close()
+
+        index_cmd.run(_Args(
+            refresh_stats=True, refresh_stats_target="lib_a",
+            registry=registry_path,
+        ))
+        rconn = reg.open_registry(registry_path)
+        try:
+            rows = {r["label"]: r for r in reg.list_libraries(rconn)}
+        finally:
+            rconn.close()
+        assert rows["lib_a"]["sample_count"] == 3
+        # lib_b was scoped out; should still be NULL
+        assert rows["lib_b"]["sample_count"] is None
+
+    def test_refresh_unknown_target_errors(self, tmp_path, central_root,
+                                            registry_path):
+        rc = index_cmd.run(_Args(
+            refresh_stats=True, refresh_stats_target="does_not_exist",
+            registry=registry_path,
+        ))
+        assert rc == 1
+
+    def test_refresh_skips_missing_db(self, tmp_path, central_root,
+                                       registry_path, wav_bytes):
+        a = tmp_path / "A"
+        a.mkdir()
+        _populate(a, 3, wav_bytes)
+        index_cmd.run(_Args(target=str(a), label="lib_a", registry=registry_path))
+
+        # delete the DB file under the registered path
+        rconn = reg.open_registry(registry_path)
+        try:
+            row = reg.get_library(rconn, "lib_a")
+            db = row["db_path"]
+        finally:
+            rconn.close()
+        for ext in ("", "-shm", "-wal"):
+            p = db + ext
+            if os.path.isfile(p):
+                os.remove(p)
+
+        # refresh should succeed (return 0) even though the DB is missing
+        rc = index_cmd.run(_Args(refresh_stats=True, registry=registry_path))
+        assert rc == 0
