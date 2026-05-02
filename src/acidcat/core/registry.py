@@ -47,6 +47,12 @@ def open_registry(registry_path=None):
     return conn
 
 
+class RegistrySchemaVersionError(RuntimeError):
+    """Raised when the registry DB has a schema version we do not know
+    how to read. See SchemaVersionError in core/index.py for the
+    rationale (refuse rather than corrupt)."""
+
+
 def _apply_schema(conn):
     cur = conn.cursor()
 
@@ -66,7 +72,26 @@ def _apply_schema(conn):
         )
         conn.commit()
         return
-    # future: handle migrations when REGISTRY_SCHEMA_VERSION bumps
+
+    try:
+        on_disk = int(row["v"])
+    except (TypeError, ValueError):
+        raise RegistrySchemaVersionError(
+            f"registry DB has unparseable schema_version {row['v']!r}; "
+            f"refusing to open."
+        )
+    if on_disk == REGISTRY_SCHEMA_VERSION:
+        return
+    if on_disk > REGISTRY_SCHEMA_VERSION:
+        raise RegistrySchemaVersionError(
+            f"registry DB has schema_version {on_disk}, but this acidcat "
+            f"build only knows version {REGISTRY_SCHEMA_VERSION}. Upgrade "
+            f"acidcat or open the registry with a newer client."
+        )
+    raise RegistrySchemaVersionError(
+        f"registry DB at schema_version {on_disk} needs migration to "
+        f"{REGISTRY_SCHEMA_VERSION}; no migration registered."
+    )
 
 
 def _create_tables(cur):
