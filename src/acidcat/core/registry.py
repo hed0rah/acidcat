@@ -111,23 +111,28 @@ def _assert_no_overlap(conn, root):
     Re-registering the exact same root is not an overlap; callers that
     want idempotent re-register pass through register_library which
     handles that path via UPSERT.
+
+    Comparison is case-insensitive on Windows so two paths to the same
+    NTFS object cannot both register independently.
     """
     norm = paths.normalize(root)
+    norm_cmp = paths.compare_path(norm)
     rows = conn.execute(
         "SELECT db_path, root_path, label FROM libraries"
     ).fetchall()
     for r in rows:
         other = r["root_path"]
-        if other == norm:
-            # exact match: not an overlap (re-register is allowed)
+        other_cmp = paths.compare_path(other)
+        if other_cmp == norm_cmp:
+            # exact match (case-insensitive on Windows): not an overlap
             continue
-        if norm.startswith(other + "/"):
+        if norm_cmp.startswith(other_cmp + "/"):
             raise OverlapError(
                 f"path is already covered by library '{r['label']}' at {other}; "
                 f"forget that library first if you want to split",
                 conflict_row=r,
             )
-        if other.startswith(norm + "/"):
+        if other_cmp.startswith(norm_cmp + "/"):
             raise OverlapError(
                 f"library '{r['label']}' at {other} sits inside this path; "
                 f"forget it first if you want to register a parent",
@@ -333,16 +338,21 @@ def find_library_for_path(conn, sample_path):
     resolves to the most-specific library. (We forbid nested registration,
     but a stale registry or a reorg could still produce overlapping rows
     until the user runs --forget.)
+
+    Match is case-insensitive on Windows so a sample path with different
+    case than the registered root still resolves correctly.
     """
     p = paths.normalize(sample_path)
     if os.path.isfile(p):
         p = os.path.dirname(p)
+    p_cmp = paths.compare_path(p)
     rows = list_libraries(conn)
     rows = sorted(rows, key=lambda r: -len(r["root_path"] or ""))
     for r in rows:
         root = r["root_path"]
         if not root:
             continue
-        if p == root or p.startswith(root + "/"):
+        root_cmp = paths.compare_path(root)
+        if p_cmp == root_cmp or p_cmp.startswith(root_cmp + "/"):
             return r
     return None
