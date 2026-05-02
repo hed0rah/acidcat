@@ -455,7 +455,8 @@ these are all under five lines each. no architectural change.
 - F-01 serum linear-pass JSON parse (replaces the O(n^2) loop)
 - F-05 cap WAV chunk reads
 - F-07 catch `OperationalError` from FTS path, return clean error
-- F-11 SMPL note 0 -> null in index path
+- ~~F-11 SMPL note 0 -> null in index path~~ (already fixed; verified
+  at `commands/index.py:877-880`)
 - F-13 case-insensitive path normalize on Windows
 - F-23 grow `path_hash` to 12 hex chars
 
@@ -556,6 +557,26 @@ worth fixing with `json.JSONDecoder().raw_decode`, but not a true DoS.
 
 downgrade to HIGH. fix priority unchanged (it's still a bad loop).
 
+### F-11 is wrong. drop it.
+
+claim: SMPL note 0 is treated as a real key on the index path.
+
+reality: `commands/index.py:877-880` already contains:
+
+```python
+smpl = meta.get("smpl_root_key")
+acid = meta.get("acid_root_note")
+if not smpl:
+    smpl = None
+if not acid:
+    acid = None
+```
+
+`if not smpl:` is True for both `None` and `0`, so the index path
+already drops the C-1 sentinel before storing. the v0.4 fix mentioned
+in the audit was on the info side, but the same guard exists on the
+index side too. drop F-11.
+
 ### F-19 is wrong. drop it.
 
 claim: `infer_kind` mis-bins a 1.0s clip with `acid_beats=1` as `"any"`
@@ -602,15 +623,15 @@ spot-checks on the rest of the CRITICAL / HIGH / MEDIUM set:
 
 - 2 CRITICAL: **F-02, F-04**. (F-01 downgraded to HIGH, F-03 withdrawn.)
 - 7 HIGH: F-01 (downgraded), F-05, F-06, F-07, F-08, F-09. (so 6 not 7.)
-- 11 MEDIUM: F-10..F-21 minus F-19 (withdrawn).
+- 10 MEDIUM: F-10..F-21 minus F-11 (already fixed) and F-19 (withdrawn).
 - 8 LOW: F-22..F-29 unchanged.
 
-net: **27 actionable findings** out of 29 originally reported. 2 truly
-critical (both MCP tool annotation / default issues). 6 high. 11
+net: **26 actionable findings** out of 29 originally reported. 2 truly
+critical (both MCP tool annotation / default issues). 6 high. 10
 medium. 8 low. the immediate "one-line fixes" list at the top of this
-report is unaffected; F-19 is removed from the medium set; F-03 is
-removed from the post-PyPI set; F-01 stays in the pre-PyPI set
-(severity HIGH not CRITICAL).
+report is unaffected. F-11, F-19 dropped after verification (already
+fixed / misread `or` as `and`). F-03 dropped (open_db is idempotent).
+F-01 stays in the pre-PyPI set at HIGH not CRITICAL.
 
 ---
 
