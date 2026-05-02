@@ -45,10 +45,20 @@ class TestSafeLabel:
         assert paths.safe_label("///") == "library"
 
 
+class TestComparePath:
+    def test_passthrough_on_posix(self, monkeypatch):
+        monkeypatch.setattr(os, "name", "posix")
+        assert paths.compare_path("/foo/Bar") == "/foo/Bar"
+
+    def test_lowercases_on_windows(self, monkeypatch):
+        monkeypatch.setattr(os, "name", "nt")
+        assert paths.compare_path("C:/Foo/Bar") == "c:/foo/bar"
+
+
 class TestPathHash:
-    def test_eight_chars(self):
+    def test_twelve_chars(self):
         h = paths.path_hash("/foo/bar")
-        assert len(h) == 8
+        assert len(h) == 12
         # all hex
         int(h, 16)
 
@@ -79,7 +89,7 @@ class TestCentralDbPathFor:
         p = paths.central_db_path_for("/foo/Hypnotize", "hypnotize")
         name = os.path.basename(p)
         assert name.startswith("hypnotize_")
-        assert len(name) == len("hypnotize_") + 8 + len(".db")
+        assert len(name) == len("hypnotize_") + 12 + len(".db")
 
     def test_unsafe_label_sanitized(self):
         p = paths.central_db_path_for("/foo/x", "weird name / with junk")
