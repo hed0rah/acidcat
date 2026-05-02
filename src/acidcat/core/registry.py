@@ -161,30 +161,40 @@ def register_library(conn, root, label, db_path, in_tree=False,
     norm_db = paths.normalize(db_path)
     now = time.time()
 
-    _assert_no_overlap(conn, norm_root)
+    # BEGIN IMMEDIATE acquires the writer lock for the duration of the
+    # check + insert so two concurrent register_library calls cannot
+    # both pass _assert_no_overlap and then both insert overlapping
+    # rows. Without this, the read + write pair was a TOCTOU race.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        _assert_no_overlap(conn, norm_root)
 
-    existing = conn.execute(
-        "SELECT created_at FROM libraries WHERE root_path = ?", (norm_root,)
-    ).fetchone()
-    created_at = existing["created_at"] if existing else now
+        existing = conn.execute(
+            "SELECT created_at FROM libraries WHERE root_path = ?",
+            (norm_root,),
+        ).fetchone()
+        created_at = existing["created_at"] if existing else now
 
-    conn.execute(
-        """
-        INSERT INTO libraries (
-            db_path, root_path, label, in_tree,
-            schema_version, created_at, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(db_path) DO UPDATE SET
-            root_path     = excluded.root_path,
-            label         = excluded.label,
-            in_tree       = excluded.in_tree,
-            schema_version= COALESCE(excluded.schema_version, libraries.schema_version),
-            last_seen_at  = excluded.last_seen_at
-        """,
-        (norm_db, norm_root, label, 1 if in_tree else 0,
-         schema_version, created_at, now),
-    )
-    conn.commit()
+        conn.execute(
+            """
+            INSERT INTO libraries (
+                db_path, root_path, label, in_tree,
+                schema_version, created_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(db_path) DO UPDATE SET
+                root_path     = excluded.root_path,
+                label         = excluded.label,
+                in_tree       = excluded.in_tree,
+                schema_version= COALESCE(excluded.schema_version, libraries.schema_version),
+                last_seen_at  = excluded.last_seen_at
+            """,
+            (norm_db, norm_root, label, 1 if in_tree else 0,
+             schema_version, created_at, now),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
     # Re-attach: if the per-lib DB already exists on disk, populate the
     # cached counts from it so list_libraries returns useful numbers
