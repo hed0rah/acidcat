@@ -3,7 +3,7 @@
 Reverse-engineering notes and metadata extraction reference for audio-related
 file formats. Each format has a dedicated deep-dive document in `formats/`.
 
-Last updated: 2026-04-05
+Last updated: 2026-05-02
 
 ---
 
@@ -24,12 +24,15 @@ Last updated: 2026-04-05
 | [Serum Presets](formats/serum.md) | `.SerumPreset` | Full support | Preset name, author, description, tags, product version |
 | [Arturia Banks](formats/arturia.md) | `.labx` | Research done | Synth engine, preset name, author, tags, parameters |
 
-### Audio Containers (future targets)
+### Tagged Containers (acidcat parses these via mutagen)
 
-| Format | File | Status | Potential extraction |
+| Format | File | Status | What acidcat extracts |
 |--------|------|--------|-----------------------|
-| [MP4 / M4A](formats/mp4_m4a.md) | `.m4a`, `.mp4` | Documented | BPM (tmpo), key, artist, title, album, cover art |
-| [OGG](formats/ogg.md) | `.ogg`, `.opus` | Documented | BPM, key, artist, title (Vorbis Comment tags) |
+| MP3 | `.mp3` | Full support | BPM, key, title, artist, album, genre, comment (ID3v2) |
+| FLAC | `.flac` | Full support | BPM, key, title, artist, album, genre (Vorbis Comment) |
+| OGG | `.ogg`, `.oga` | Full support | BPM, key, title, artist (Vorbis Comment) |
+| Opus | `.opus` | Full support | BPM, key, title, artist (Vorbis Comment) |
+| MP4 / M4A | `.m4a`, `.mp4` | Full support | BPM (tmpo), key, title, artist, album (iTunes atoms) |
 
 ### Proprietary Instruments (partial reverse-engineering)
 
@@ -53,15 +56,21 @@ Last updated: 2026-04-05
 ## Extraction Tier Summary
 
 ### Tier 1: Implemented in acidcat
-- **WAV/RIFF** -- full chunk parsing, ACID/SMPL/inst/cue/LIST/bext
-- **AIFF/IFF** -- full chunk parsing, COMM/INST/NAME/AUTH/(c)/ANNO
-- **MIDI** -- header + track parsing, meta events, note statistics
-- **Serum** -- JSON metadata extraction from XferJson container
+- **WAV/RIFF** -- full chunk parsing, ACID/SMPL/inst/cue/LIST/bext.
+  64KB chunk read cap (F-05) protects against malformed chunk_size.
+- **AIFF/IFF** -- full chunk parsing, COMM/INST/NAME/AUTH/(c)/ANNO.
+  AIFC compression types validated against a known set (F-12).
+- **MIDI** -- header + track parsing, meta events, note statistics.
+  Sysex VLQ length bounded against MTrk remaining (F-06).
+- **Serum** -- JSON metadata extraction from XferJson container.
+  Linear-pass `raw_decode` parser (F-01).
+- **MP3 / FLAC / OGG / Opus / M4A** -- via mutagen (base dep since
+  v0.5.4). UTF-8 BOM stripped from tag values (F-26).
+- **Format dispatch** -- `_sniff_format` reads first 12 bytes and
+  identifies all of the above; extension is fallback only (F-21).
 
 ### Tier 2: Documented, ready to implement
 - **Arturia LABX** -- ZIP + text serialization, ~60 lines
-- **MP4/M4A** -- atom tree traversal for iTunes metadata
-- **OGG/Opus** -- page scanning for Vorbis Comment tags
 
 ### Tier 3: Research in progress
 - **Kontakt NKI** -- marker scanning + string extraction
