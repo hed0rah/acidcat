@@ -832,15 +832,56 @@ def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=Fa
     }
 
 
+def _sniff_format(filepath):
+    """Peek the first 12 bytes of a file and return one of:
+    'midi', 'aiff', 'wav', 'serum', 'flac', 'ogg', 'mp3', 'mp4', or None.
+
+    Robust against double-suffixed filenames (e.g. foo.aiff.wav from a
+    bad batch convert): we trust the magic bytes over the extension.
+    Returns None if the file is unreadable or unrecognized; callers
+    can fall back to extension-based dispatch in that case.
+    """
+    try:
+        with open(filepath, "rb") as f:
+            head = f.read(12)
+    except OSError:
+        return None
+    if len(head) < 4:
+        return None
+    if head[0:4] == b"MThd":
+        return "midi"
+    if head[0:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
+        return "aiff"
+    if head[0:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return "wav"
+    if head[0:8] == b"XferJson":
+        return "serum"
+    if head[0:4] == b"fLaC":
+        return "flac"
+    if head[0:4] == b"OggS":
+        return "ogg"
+    if head[0:3] == b"ID3":
+        return "mp3"
+    # MP3 sync frame (no ID3 tag): 0xFF followed by 0xFB / 0xFA / 0xF3 / 0xF2
+    if head[0] == 0xFF and head[1] in (0xFB, 0xFA, 0xF3, 0xF2):
+        return "mp3"
+    if head[4:8] == b"ftyp":
+        return "mp4"
+    return None
+
+
 def _extract_for_index(filepath, scan_root, mtime, size, walk_start, do_deep=False):
     """Dispatch to the right parser and return a sample row dict.
 
-    Returns None if the file could not be parsed at all.
-    Includes a synthetic '_tags' list for formats that carry their own tags
-    (e.g. Serum presets).
+    Magic-byte sniff has priority over extension so a double-suffixed
+    file (foo.aiff.wav) routes by its actual content, not by the
+    trailing suffix. Returns None if the file could not be parsed at
+    all. Includes a synthetic '_tags' list for formats that carry
+    their own tags (e.g. Serum presets).
     """
     norm = idx.normalize_path(filepath)
     ext = os.path.splitext(filepath)[1].lower()
+    sniffed = _sniff_format(filepath)
 
     row = {
         "path": norm,
@@ -852,15 +893,17 @@ def _extract_for_index(filepath, scan_root, mtime, size, walk_start, do_deep=Fal
     }
 
     try:
-        if is_midi(filepath) or ext in (".mid", ".midi"):
+        if sniffed == "midi" or (sniffed is None and ext in (".mid", ".midi")):
             return _from_midi(filepath, row)
-        if is_aiff(filepath) or ext in (".aif", ".aiff"):
+        if sniffed == "aiff" or (sniffed is None and ext in (".aif", ".aiff")):
             return _from_aiff(filepath, row)
-        if is_serum_preset(filepath) or ext == ".serumpreset":
+        if sniffed == "serum" or (sniffed is None and ext == ".serumpreset"):
             return _from_serum(filepath, row)
-        if is_tagged_format(filepath) and ext != ".wav":
+        if sniffed in ("flac", "ogg", "mp3", "mp4"):
             return _from_tagged(filepath, row, do_deep=do_deep)
-        # default: WAV/RIFF
+        if sniffed is None and is_tagged_format(filepath) and ext != ".wav":
+            return _from_tagged(filepath, row, do_deep=do_deep)
+        # default: WAV/RIFF (sniffed == "wav" or sniffed is None and ext is .wav or unknown)
         return _from_wav(filepath, row, do_deep=do_deep)
     except Exception:
         return None
