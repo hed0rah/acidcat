@@ -10,6 +10,17 @@ import struct
 import binascii
 
 
+# AIFC compression types in common circulation. Apple's spec defines
+# NONE/sowt/raw /twos/in24/in32/fl32/fl64/alaw/ulaw; this set covers
+# what real-world tools emit. Unknown values are surfaced as
+# "unknown:<raw>" so we never silently mistreat them as PCM.
+_AIFC_KNOWN_COMPRESSION = frozenset({
+    "NONE", "none", "sowt", "raw ", "twos", "in24", "in32",
+    "fl32", "fl64", "alaw", "ulaw", "FL32", "FL64",
+    "MAC3", "MAC6", "ima4", "QDMC", "QDM2", "Qclp",
+})
+
+
 def _parse_ieee_extended(data):
     """
     Parse 80-bit IEEE 754 extended precision float (big-endian).
@@ -137,10 +148,22 @@ def parse_aiff(filepath, enumerate_all=False):
                     if sample_rate > 0:
                         meta["duration_sec"] = round(num_frames / sample_rate, 4)
 
-                    # AIFC has compression type after sample rate
+                    # AIFC has compression type after sample rate.
+                    # Validate against known codes; unknown types are
+                    # surfaced as 'unknown:<raw>' so callers can spot
+                    # them rather than treating them as plain AIFF.
                     if form_type == "AIFC" and len(chunk_data) >= 22:
-                        comp_type = chunk_data[18:22].decode("ascii", errors="ignore")
-                        meta["compression"] = comp_type.strip()
+                        comp_type = chunk_data[18:22].decode(
+                            "ascii", errors="ignore"
+                        )
+                        comp_type = comp_type.strip()
+                        if comp_type in _AIFC_KNOWN_COMPRESSION:
+                            meta["compression"] = comp_type
+                        else:
+                            meta["compression"] = (
+                                f"unknown:{comp_type}" if comp_type
+                                else "none"
+                            )
 
                     if enumerate_all:
                         results.append(("COMM", "channels", num_channels))
