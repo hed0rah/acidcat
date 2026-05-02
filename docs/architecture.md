@@ -3,7 +3,8 @@
 How acidcat is wired together: the data flow from a file on disk to a query
 result on stdout or over MCP.
 
-Last updated: 2026-04-23
+Last updated: 2026-05-02 (v0.5.x architecture; previously updated 2026-04-23
+under the v0.4 single-DB layout).
 
 ---
 
@@ -17,7 +18,7 @@ Last updated: 2026-04-23
                                        │ walker + mtime cache
                                        ▼
             ┌───────────────────────────────────────────────┐
-            │  format detection  (commands/info._detect_fmt) │
+            │  format dispatch  (_sniff_format + ext fallback) │
             └─┬──────────────┬──────────────┬──────────────┬─┘
               │              │              │              │
               ▼              ▼              ▼              ▼
@@ -32,9 +33,19 @@ Last updated: 2026-04-23
                        │ upsert_sample / upsert_tags / upsert_features
                        ▼
             ┌───────────────────────────────────────────────┐
-            │  SQLite index  (~/.acidcat/index.db)          │
+            │  per-library SQLite indexes                   │
+            │  ~/.acidcat/libraries/<label>_<hash>.db       │
+            │  (or <library>/.acidcat/index.db if --in-tree)│
             │  samples, tags, descriptions, samples_fts,    │
             │  features, scan_roots, meta                   │
+            └──────────┬────────────────────────────────────┘
+                       │ longest-prefix routing for writes,
+                       │ fan-out + dedup for reads
+                       ▼
+            ┌───────────────────────────────────────────────┐
+            │  global registry  ~/.acidcat/registry.db      │
+            │  libraries(db_path PK, root_path UNIQUE,      │
+            │            label, in_tree, sample_count, ...) │
             └──────────┬────────────────────────────────────┘
                        │ query API
                        ▼
@@ -44,11 +55,17 @@ Last updated: 2026-04-23
             └──────────────────┴────────────────────────────┘
 ```
 
-Four layers, each replaceable: scanner, parsers, index, transports. The DSP
-subsystem (`detect.py`, `features.py`) hangs off the parser layer as an
-optional extension. Transports share the same query API so that
-`acidcat query --bpm 120:140` and the MCP `search_samples` tool run the
-same SQL against the same schema.
+Five layers, each replaceable: scanner, parsers, per-library indexes, registry,
+transports. The DSP subsystem (`detect.py`, `features.py`) hangs off the parser
+layer as an optional extension. Transports share the same query API so that
+`acidcat query --bpm 120:140` and the MCP `search_samples` tool run the same SQL
+against every registered library and merge the results.
+
+The v0.4 architecture had a single global `~/.acidcat/index.db` with a
+`scan_roots` table tracking origin per row. v0.5 inverts the relationship:
+each registered directory gets its own DB (so writes never contend across
+libraries, drives can be unmounted cleanly, and per-pack indexes can travel
+with the data via `--in-tree`). The registry is the only join point.
 
 ---
 
@@ -68,18 +85,20 @@ src/acidcat/
     features.py          feature extraction to CSV
     similar.py           similarity + clustering over features CSV
     search.py            legacy CSV text search
-    index.py             global SQLite index management
-    query.py             filter the SQLite index
+    index.py             per-library index management + --discover walker
+    query.py             fan-out filter across registered libraries
   core/                  reusable library layer
-    riff.py              RIFF/WAV chunk parser
+    riff.py              RIFF/WAV chunk parser (caps reads at 64KB)
     aiff.py              AIFF/IFF chunk parser
     midi.py              MIDI meta parser
-    serum.py             XferJson preset parser
-    tagged.py            mutagen wrapper (mp3/flac/ogg/m4a)
+    serum.py             XferJson preset parser (linear-pass JSON)
+    tagged.py            mutagen wrapper (mp3/flac/ogg/m4a) + BOM strip
     detect.py            filename parsing + librosa + validation pipeline
     features.py          librosa feature vector extractor
     camelot.py           Camelot wheel math + enharmonic normalization
-    index.py             SQLite schema, upsert, query
+    index.py             per-library SQLite schema, upsert, query
+    paths.py             path normalize + central/in-tree DB layout + hash
+    registry.py          global registry table, no-overlap guard, fan-out
     formats.py           output formatters (table/json/csv)
   util/
     midi.py              MIDI note number / name helpers
@@ -97,9 +116,56 @@ Two hard rules keep the tree healthy:
 
 ---
 
+## The registry layer
+
+Each registered directory becomes a *library* with its own SQLite DB.
+The global registry at `~/.acidcat/registry.db` tracks every library:
+
+```sql
+CREATE TABLE libraries (
+    db_path           TEXT PRIMARY KEY,
+    root_path         TEXT UNIQUE NOT NULL,
+    label             TEXT NOT NULL,
+    in_tree           INTEGER NOT NULL DEFAULT 0,
+    sample_count      INTEGER,
+    feature_count     INTEGER,
+    last_indexed_at   REAL,
+    last_seen_at      REAL,
+    schema_version    INTEGER,
+    created_at        REAL NOT NULL
+);
+```
+
+Two policy invariants are enforced at registration time by
+`core/registry.py:_assert_no_overlap`:
+
+1. **Mandatory labels.** Every library has a label, defaulted from
+   `os.path.basename(root)` if the user did not pass `--label`. The
+   label is how the LLM identifies a library in MCP tool calls and how
+   the user passes `--root LABEL` on the CLI.
+2. **No nested libraries.** A root that is `==`, parent of, or child of
+   any registered root is rejected. Comparison is case-insensitive on
+   Windows (`paths.compare_path`) so `C:/MyLib` and `c:/mylib` cannot
+   both register independently.
+
+Writes use longest-prefix routing: `find_library_for_path(sample_path)`
+returns the most-specific registered root that contains the sample, or
+`None`. Reads fan out across every registered library, dedup by `path`,
+and silently skip orphans (libraries whose `db_path` is missing on
+disk, e.g. external drive unmounted).
+
+DB filenames in central mode are `<safe_label>_<hash>.db` where the
+hash is 12 hex chars of `sha1(normalized_root)`. 12 chars is well past
+any realistic single-user catalog (collision near 16M libraries) and
+the registry stores `db_path` explicitly so existing libraries with
+older 8-char filenames keep working.
+
+---
+
 ## Data flow: indexing a directory
 
-`acidcat index DIR` or its MCP equivalent `reindex({path})`.
+`acidcat index DIR --label NAME` or its MCP equivalent
+`register_library` + `reindex`.
 
 ```
 caller                    walker                parser              index
@@ -138,35 +204,47 @@ idempotent and fast on the common case of unchanged libraries.
 
 Deletions are detected as a separate pass: after the walk, any row whose
 `last_seen_at` is older than the walk's start time and whose `scan_root`
-matches the one we just walked gets pruned.
+matches the one we just walked gets pruned. See the docstring on
+`prune_missing` for the timing model and the (rare) edge case where a
+file added near the end of a long walk could be wrongly pruned; re-running
+the index always recovers it.
+
+Bulk registration is available via `acidcat index --discover ROOT
+[--min-samples N --max-depth D]` which walks a tree and registers every
+qualifying subfolder as its own library. The MCP equivalent is
+`discover_libraries`, which defaults to `dry_run=true` so a forgetful
+LLM cannot bulk-mutate the registry by omission.
 
 ---
 
 ## Data flow: a query
 
 `acidcat query --bpm 120:140 --key F` and MCP `search_samples` take the
-same path through the layers.
+same path through the layers, with fan-out over every registered library.
 
 ```
-caller                         query API                       SQLite
-  │                                │                              │
-  │  filters: bpm=120-140, key=F   │                              │
-  │───────────────────────────────▶│                              │
-  │                                │  compatible_keys(key="F")    │
-  │                                │  -> {"F", "C", "A#", "Dm"}   │
-  │                                │                              │
-  │                                │  build WHERE clause          │
-  │                                │                              │
-  │                                │  SELECT * FROM samples       │
-  │                                │   WHERE bpm BETWEEN ?        │
-  │                                │     AND (key IN (?,?,?,?))   │
-  │                                │   LIMIT N                    │
-  │                                │────────────────────────────▶│
-  │                                │                              │
-  │                                │◀────────────────────────────│
-  │                                │  rows                        │
-  │  list[dict]                    │                              │
-  │◀───────────────────────────────│                              │
+caller                  query API              registry        per-lib DBs
+  │                          │                     │                  │
+  │  bpm=120-140, key=F      │                     │                  │
+  │─────────────────────────▶│                     │                  │
+  │                          │  list_libraries()   │                  │
+  │                          │  only_existing=True │                  │
+  │                          │────────────────────▶│                  │
+  │                          │◀────────────────────│ rows             │
+  │                          │                     │                  │
+  │                          │  build WHERE once   │                  │
+  │                          │                     │                  │
+  │                          │  for each library:  │                  │
+  │                          │    SELECT * FROM    │                  │
+  │                          │      samples ...    │                  │
+  │                          │    LIMIT N          │                  │
+  │                          │────────────────────────────────────────▶│
+  │                          │◀────────────────────────────────────────│
+  │                          │                                          │
+  │                          │  dedup_by_path                           │
+  │                          │  sort, slice [:LIMIT]                    │
+  │  list[dict]              │                                          │
+  │◀─────────────────────────│                                          │
 ```
 
 Enharmonic expansion happens at the SQL boundary. If a user asks for `F`,
@@ -229,24 +307,31 @@ parameter conventions, push the rename down into the core API.
 
 ### Current gap
 
-The MCP server opens a fresh SQLite connection on every tool call
-(`_get_conn`). For a small DB this is fast, but two observations:
+The MCP server opens a fresh SQLite connection per library per tool call
+via `_open_all_libraries()` and `_close_all()`. For small DBs this is
+fast; for the typical 20-library catalog it adds a few ms per call. Not
+a correctness issue.
 
-1. `index_stats` has been observed timing out at 60s. Fresh-connection
-   cost isn't that high for SQLite, so the timeout is more likely a
-   symptom of a specific aggregation query rather than connection setup.
-   Worth profiling the query itself with a warm connection before
-   attributing the cost to reopen.
-2. Long-running agents that make many rapid MCP calls would benefit from
-   a long-lived connection or a small pool. Not a correctness issue,
-   just a perf improvement.
+The bigger cost is librosa cold-start (~30-60s of numba JIT on the
+first analysis call in a new process). The `analyze_sample` and
+`detect_bpm_key` tool descriptions were updated to set expectations
+about this; the deferred fix is a pre-warmed worker subprocess that
+holds the import.
 
 ---
 
 ## The SQLite schema
 
-One DB at `~/.acidcat/index.db`. WAL journaling, foreign keys on. Schema
-version tracked in the `meta` table.
+Per-library DB at `~/.acidcat/libraries/<safe_label>_<hash>.db` (central
+default) or `<library_root>/.acidcat/index.db` (in-tree opt-in via
+`--in-tree`). WAL journaling, foreign keys on. Schema version tracked in
+the `meta` table; mismatched versions raise `SchemaVersionError` rather
+than running old SQL against a future schema.
+
+The schema below describes one library DB; every registered library has
+the same shape. The global registry at `~/.acidcat/registry.db` is a
+separate DB with the `libraries` table documented under "The registry
+layer" above.
 
 ### `samples` table
 
@@ -392,28 +477,33 @@ use: feature extractor version, last global reindex timestamp, etc.
 
 ## Format detection dispatch
 
-`commands/info.py:_detect_format` chooses the parser for a file by magic
-bytes first, extension second:
+`commands/index.py:_sniff_format` reads the first 12 bytes of the file
+and identifies the format. Extension is the fallback, used only when
+the magic bytes are unrecognized:
 
 ```
-is_midi(filepath)         -> "midi"    (looks for "MThd")
-is_aiff(filepath)         -> "aiff"    (looks for "FORM"/"AIFF"/"AIFC")
-is_serum_preset(filepath) -> "serum"   (looks for "XferJson" prefix)
-ext in (.aif, .aiff)      -> "aiff"
-ext in (.mid, .midi)      -> "midi"
-ext == .serumpreset       -> "serum"
-is_tagged_format(filepath)-> "tagged"  (mutagen can read it)
-default                   -> "wav"
+b"MThd"                       -> "midi"
+b"FORM" + b"AIFF"|b"AIFC"     -> "aiff"
+b"RIFF" + b"WAVE"             -> "wav"
+b"XferJson"                   -> "serum"
+b"fLaC"                       -> "flac"
+b"OggS"                       -> "ogg"
+b"ID3" or 0xFF (sync frame)   -> "mp3"
+b"ftyp" at offset 4           -> "mp4"
+unknown -> fall back to extension
 ```
 
-Order matters: magic-byte sniffers run first so a misnamed file still
-reaches the right parser. The `.wav` fallback is safe because RIFF's
-`RIFF` header is checked inside the WAV parser; non-RIFF files that
-reach that path produce an empty result rather than crashing.
+Order matters: magic-byte sniff has priority over the extension so a
+double-suffixed file (e.g. AIFF renamed to `foo.aiff.wav` from a bad
+batch convert) routes by content, not by trailing suffix. This is the
+F-21 fix from the 2026-05-02 audit; before it, the extension dispatch
+could mis-route those files into the WAV parser and silently mis-tag.
 
 Adding a new format is a three-step process:
-1. Add a `core/<format>.py` module with `is_<format>`, `parse_<format>`, and a documented return dict.
-2. Extend `_detect_format` to route to it.
+1. Add a `core/<format>.py` module with `is_<format>`, `parse_<format>`,
+   and a documented return dict.
+2. Extend `_sniff_format` in `commands/index.py` to recognize the magic
+   bytes, and route through `_extract_for_index` to the new parser.
 3. Add an `_info_<format>(filepath, args)` builder in `commands/info.py`.
 4. Add a doc under `docs/formats/<format>.md`.
 
@@ -437,7 +527,7 @@ Rules inside `validate_and_improve_bpm`:
 ```
 filename_bpm is None              -> use detected, source="detected"
 detected_bpm is None              -> use filename, source="filename"
-detected not in [60, 200]         -> reject detected, use filename
+detected not in [60, 300]         -> reject detected, use filename
 |detected - filename| <= 20       -> accept detected, source="detected"
 |detected*2  - filename| <= 20    -> use detected*2, source="corrected"
 |detected/2  - filename| <= 20    -> use detected/2, source="corrected"
