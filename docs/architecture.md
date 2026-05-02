@@ -577,13 +577,13 @@ the near-term work list.
 
 ## The optional-dependency story
 
-Core metadata reading has zero non-stdlib dependencies. `pip install
-acidcat` gives you RIFF/AIFF/MIDI/Serum out of the box.
+Core metadata reading depends on `mutagen` only (a pure-Python lib used
+for MP3/FLAC/OGG/Opus/M4A tag parsing). `pip install acidcat` gives you
+all common audio formats out of the box.
 
-Four extras add capability:
+Three extras add capability:
 
 ```
-[tags]      mutagen               MP3/FLAC/OGG/M4A support
 [analysis]  librosa, numpy, scipy BPM/key detection, feature extraction
 [ml]        pandas, scikit-learn  similarity + clustering
 [mcp]       mcp SDK               MCP server binary

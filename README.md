@@ -19,8 +19,7 @@ full-text.
 
     git clone https://github.com/hed0rah/acidcat.git
     cd acidcat
-    pip install -e .                # core: zero deps
-    pip install -e .[tags]          # + MP3/FLAC/OGG/M4A (mutagen)
+    pip install -e .                # core + mutagen (WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A)
     pip install -e .[analysis]      # + librosa BPM/key detection
     pip install -e .[ml]            # + sklearn similarity/clustering
     pip install -e .[mcp]           # + MCP server (acidcat-mcp)
@@ -94,8 +93,7 @@ full-text.
 
 | Group | What it adds | Commands enabled |
 |-------|-------------|-----------------|
-| (none) | zero deps | info, scan, chunks, survey, dump (WAV, AIFF, MIDI, Serum) |
-| `[tags]` | mutagen | info, scan for MP3, FLAC, OGG, Opus, M4A |
+| (none) | mutagen (base) | info, scan, chunks, survey, dump for WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A |
 | `[analysis]` | librosa, numpy, scipy | detect, info --deep |
 | `[ml]` | + pandas, scikit-learn | features, similar, search |
 | `[mcp]` | mcp SDK | `acidcat-mcp` stdio server |
