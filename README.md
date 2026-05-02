@@ -258,7 +258,7 @@ Tool tiers (each tool description starts with `Fast.`, `SLOW.`, or
 - **Index management**: `reindex`, `reindex_features`,
   `discover_libraries`
 - **Write** (marked destructive): `register_library`, `forget_library`,
-  `tag_sample`, `describe_sample`
+  `tag_sample`, `set_sample_description`
 
 ## License
 

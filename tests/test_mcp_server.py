@@ -119,7 +119,7 @@ class TestToolsRegistered:
             "find_similar", "analyze_sample", "detect_bpm_key",
             "reindex", "reindex_features",
             "register_library", "forget_library",
-            "tag_sample", "describe_sample",
+            "tag_sample", "set_sample_description",
         }
         assert expected.issubset(names)
         assert "list_roots" not in names
@@ -134,7 +134,7 @@ class TestToolsRegistered:
 
     def test_destructive_tools_marked(self):
         destructive = {"register_library", "forget_library",
-                       "tag_sample", "describe_sample"}
+                       "tag_sample", "set_sample_description"}
         for t in mcp_server.TOOLS:
             if t["name"] in destructive:
                 assert t["annotations"]["destructiveHint"] is True
@@ -523,7 +523,7 @@ class TestTagSample:
 
 class TestDescribeSample:
     def test_set_description(self, two_lib_setup):
-        r = mcp_server.dispatch("describe_sample", {
+        r = mcp_server.dispatch("set_sample_description", {
             "path": two_lib_setup["P_HAT"],
             "description": "crispy hat",
         })

@@ -999,7 +999,7 @@ def tag_sample(args):
         conn.close()
 
 
-def describe_sample(args):
+def set_sample_description(args):
     path = _require_path(args)
     description = args.get("description")
     lib, conn = _open_owning_library(path)
@@ -1559,7 +1559,7 @@ def _register_all():
          "idempotentHint": False, "openWorldHint": False},
     )
     _tool(
-        "describe_sample",
+        "set_sample_description",
         "Destructive. Set or clear the free-text description on a "
         "sample. Confirm with the user before calling.",
         {
@@ -1570,7 +1570,7 @@ def _register_all():
             },
             "required": ["path"],
         },
-        describe_sample,
+        set_sample_description,
         {"readOnlyHint": False, "destructiveHint": True,
          "idempotentHint": True, "openWorldHint": False},
     )
