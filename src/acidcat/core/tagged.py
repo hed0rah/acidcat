@@ -4,7 +4,8 @@ Handles MP3 (ID3v2), FLAC (Vorbis Comment), OGG/Opus (Vorbis Comment),
 and M4A/MP4 (iTunes atoms). Returns a normalized metadata dict regardless
 of source format.
 
-Requires: pip install acidcat[tags]
+mutagen is a base dependency since v0.5.4: indexing any modern sample
+collection routes mp3/flac/ogg/m4a through this module.
 """
 
 import os
@@ -42,12 +43,7 @@ def parse_tagged(filepath):
         title, artist, album, date, genre, comment, bpm, key,
         track_number, disc_number, encoder, copyright
     """
-    try:
-        import mutagen
-    except ImportError:
-        from acidcat.util.deps import require
-        require("mutagen", group="tags")
-        return None
+    import mutagen
 
     try:
         m = mutagen.File(filepath)
