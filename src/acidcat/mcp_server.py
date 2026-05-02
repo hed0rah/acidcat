@@ -30,7 +30,7 @@ from acidcat.core import registry as reg
 # ── server config ─────────────────────────────────────────────────
 
 
-_REGISTRY_PATH = None  # None means: use default resolution rules
+_REGISTRY_PATH = None  # set once in main() before _run_stdio() starts; treat as set-once after that
 
 
 # ── library access helpers ────────────────────────────────────────
@@ -1360,19 +1360,20 @@ def _register_all():
     )
     _tool(
         "analyze_sample",
-        "SLOW (~1-10s). Requires acidcat[analysis]. On-the-fly librosa "
-        "feature extraction for an unindexed file. Prefer get_sample for "
-        "indexed files.",
+        "SLOW (~1-10s after warm-up; first call ~30-60s due to librosa "
+        "import). Requires acidcat[analysis]. On-the-fly librosa feature "
+        "extraction for an unindexed file. Prefer get_sample for indexed "
+        "files.",
         {
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
-                "deep": {"type": "boolean", "default": False},
             },
             "required": ["path"],
         },
         analyze_sample,
-        {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+        {"readOnlyHint": True, "destructiveHint": False,
+         "idempotentHint": False, "openWorldHint": False},
     )
     _tool(
         "detect_bpm_key",
@@ -1385,7 +1386,8 @@ def _register_all():
             "required": ["path"],
         },
         detect_bpm_key,
-        {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+        {"readOnlyHint": True, "destructiveHint": False,
+         "idempotentHint": False, "openWorldHint": False},
     )
 
     # index management
@@ -1432,7 +1434,7 @@ def _register_all():
     # registry mutations
     _tool(
         "register_library",
-        "Modify the registry. Register a new library so it becomes part of "
+        "Destructive. Register a new library so it becomes part of "
         "fan-out queries. Creates the DB but does NOT populate it (call "
         "reindex afterwards). Default storage is central "
         "(~/.acidcat/libraries/<label>_<hash>.db); pass in_tree=true to "
@@ -1455,7 +1457,7 @@ def _register_all():
     )
     _tool(
         "forget_library",
-        "Modify the registry. Remove a library from the registry. Does "
+        "Destructive. Remove a library from the registry. Does "
         "NOT delete its DB file; rerunning register_library on the same "
         "root re-attaches it. Confirm with the user before calling.",
         {
@@ -1517,7 +1519,7 @@ def _register_all():
     # write tools (sample-level)
     _tool(
         "tag_sample",
-        "Modify the index. Add or remove tags on a sample. Confirm with "
+        "Destructive. Add or remove tags on a sample. Confirm with "
         "the user before calling.",
         {
             "type": "object",
@@ -1534,7 +1536,7 @@ def _register_all():
     )
     _tool(
         "describe_sample",
-        "Modify the index. Set or clear the free-text description on a "
+        "Destructive. Set or clear the free-text description on a "
         "sample. Confirm with the user before calling.",
         {
             "type": "object",
