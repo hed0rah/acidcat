@@ -17,6 +17,7 @@ import importlib.util
 import json
 import math
 import os
+import sqlite3
 import sys
 import time
 
@@ -268,7 +269,21 @@ def search_samples(args):
     try:
         merged = []
         for lib, conn in pairs:
-            for r in conn.execute(sql, params + [limit]).fetchall():
+            try:
+                rows = conn.execute(sql, params + [limit]).fetchall()
+            except sqlite3.OperationalError as e:
+                # FTS5 metacharacters (* " ( ) NOT AND OR) in user text
+                # bubble up as OperationalError. surface as a clean
+                # ToolError instead of leaking SQL details through the
+                # catch-all dispatcher.
+                if args.get("text"):
+                    raise ToolError(
+                        f"invalid search text: {args.get('text')!r}. "
+                        f"FTS5 special chars (* \" ( ) NOT AND OR) "
+                        f"need to be quoted as a literal phrase."
+                    )
+                raise
+            for r in rows:
                 d = dict(r)
                 d["library_label"] = lib["label"]
                 merged.append(d)

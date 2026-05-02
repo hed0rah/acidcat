@@ -161,6 +161,12 @@ class TestSearchSamplesFanOut:
         assert r["samples"][0]["path"] == two_lib_setup["P_SYNTH"]
         assert r["samples"][0]["library_label"] == "B"
 
+    def test_text_fts_syntax_error_raises_tool_error(self, two_lib_setup):
+        # FTS5 metacharacters in user text would otherwise leak through
+        # as sqlite3.OperationalError; we want a clean ToolError.
+        with pytest.raises(mcp_server.ToolError, match="invalid search text"):
+            mcp_server.dispatch("search_samples", {"text": "foo)"})
+
     def test_root_label_scope(self, two_lib_setup):
         r = mcp_server.dispatch("search_samples", {"root": "A"})
         paths = {s["path"] for s in r["samples"]}
