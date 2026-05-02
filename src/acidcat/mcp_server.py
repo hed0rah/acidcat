@@ -65,8 +65,15 @@ def _close_all(pairs):
     for _, c in pairs:
         try:
             c.close()
-        except Exception:
-            pass
+        except Exception as e:
+            # log to stderr rather than swallowing silently. silent
+            # close failures masked "database is locked" and corruption
+            # signals from production debugging in past sessions.
+            print(
+                f"acidcat-mcp: connection close failed: "
+                f"{e.__class__.__name__}: {e}",
+                file=sys.stderr,
+            )
 
 
 def _scope_libraries(pairs, scope_arg):
@@ -1140,7 +1147,7 @@ def discover_libraries(args):
             base_label = (label_prefix or "") + base
             parent = os.path.basename(os.path.dirname(cand))
             label = index_cmd._resolve_unique_label(
-                rconn, base_label, parent, used_labels,
+                rconn, base_label, parent, used_labels, root=cand,
             )
             db_path = acidpaths.central_db_path_for(cand, label)
             try:
