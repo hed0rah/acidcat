@@ -64,7 +64,11 @@ def parse_riff(filepath, enumerate_all=False):
                 seen_set.add(cid_str)
                 seen_order.append(cid_str)
 
-            chunk_data = f.read(chunk_size)
+            # cap reads at 64 KB to bound malformed chunk_size against
+            # OOM. legitimate LIST/cue chunks fit comfortably; pos
+            # arithmetic below still uses chunk_size to skip the full
+            # chunk on disk on the next iteration.
+            chunk_data = f.read(min(chunk_size, 65536))
 
             # --- Known chunk parsing ---
             if chunk_id == b'acid':
