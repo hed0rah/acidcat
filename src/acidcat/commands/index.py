@@ -576,9 +576,13 @@ def _discover_candidates(root, registered_roots, min_samples, max_depth,
     return candidates
 
 
-def _resolve_unique_label(rconn, base_label, parent_basename, used_labels):
+def _resolve_unique_label(rconn, base_label, parent_basename, used_labels,
+                          root=None):
     """Pick an unused label, preferring `base_label`. If taken, append the
-    parent dir name. If still taken, append a short hash. Mutates `used_labels`.
+    parent dir name. If still taken, append a short hash that includes
+    the candidate root path so two unrelated roots that both default to
+    the same base_label do not collide on the fallback. Mutates
+    `used_labels`.
     """
     if base_label and base_label not in used_labels:
         existing = reg.get_library(rconn, base_label)
@@ -591,9 +595,12 @@ def _resolve_unique_label(rconn, base_label, parent_basename, used_labels):
         if candidate not in used_labels and reg.get_library(rconn, candidate) is None:
             used_labels.add(candidate)
             return candidate
-    # final fallback: hash suffix
+    # final fallback: hash suffix that incorporates the root path so
+    # two distinct roots defaulting to base_label="library" do not
+    # collide on a deterministic same-input hash.
     import hashlib
-    h = hashlib.sha1((base_label or "lib").encode("utf-8")).hexdigest()[:6]
+    seed = f"{base_label or 'lib'}|{root or ''}"
+    h = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:6]
     candidate = f"{base_label}_{h}"
     used_labels.add(candidate)
     return candidate
@@ -656,7 +663,8 @@ def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
             base = os.path.basename(cand) or "library"
             base_label = (label_prefix or "") + base
             parent = os.path.basename(os.path.dirname(cand))
-            label = _resolve_unique_label(rconn, base_label, parent, used_labels)
+            label = _resolve_unique_label(rconn, base_label, parent, used_labels,
+                                          root=cand)
             db_path = acidpaths.central_db_path_for(cand, label)
             try:
                 reg.register_library(

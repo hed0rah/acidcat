@@ -30,7 +30,9 @@ def parse_bpm_from_filename(filepath):
     for pattern in bpm_patterns:
         for match in re.findall(pattern, filename, re.IGNORECASE):
             bpm = int(match)
-            if 60 <= bpm <= 200:
+            # 60..300 covers everything from slow ballad to gabber.
+            # DnB at 174, hardcore at 220, gabber at 240 all pass.
+            if 60 <= bpm <= 300:
                 return bpm
     return None
 

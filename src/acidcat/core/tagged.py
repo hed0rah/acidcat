@@ -16,6 +16,18 @@ TAGGED_EXTENSIONS = {
 }
 
 
+_BOM = "﻿"
+
+
+def _strip_bom(value):
+    """Strip a leading UTF-8 BOM from a string. Some ID3v2.4 / Vorbis
+    tags carry the BOM in the value, which would corrupt FTS matching
+    on the affected rows. No-op for non-string values."""
+    if isinstance(value, str):
+        return value.lstrip(_BOM)
+    return value
+
+
 def is_tagged_format(filepath):
     """Check if the file extension is a tagged audio format."""
     ext = os.path.splitext(filepath)[1].lower()
@@ -97,9 +109,9 @@ def _first_text(tags, key, default=None):
     if tag is None:
         return default
     if hasattr(tag, "text") and tag.text:
-        val = str(tag.text[0])
+        val = _strip_bom(str(tag.text[0]))
         return val if val else default
-    return str(tag) if tag else default
+    return _strip_bom(str(tag)) if tag else default
 
 
 def _extract_id3(tags, rec):
@@ -160,7 +172,7 @@ def _extract_vorbis(tags, rec):
     def first(key):
         vals = tags.get(key)
         if vals and isinstance(vals, list) and vals[0]:
-            return vals[0]
+            return _strip_bom(vals[0])
         return None
 
     rec["title"] = first("title") or first("TITLE")
@@ -194,7 +206,7 @@ def _extract_mp4(tags, rec):
         vals = tags.get(key)
         if vals and isinstance(vals, list):
             val = vals[0]
-            return str(val) if val else None
+            return _strip_bom(str(val)) if val else None
         return None
 
     rec["title"] = first("\xa9nam")

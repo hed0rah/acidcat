@@ -379,7 +379,17 @@ def remove_root(conn, root):
 
 
 def prune_missing(conn, scan_root, before_ts):
-    """Remove rows under scan_root whose last_seen_at is older than before_ts."""
+    """Remove rows under scan_root whose last_seen_at is older than before_ts.
+
+    Timing model: callers pass before_ts = walk_start (the timestamp at
+    the beginning of the walk). Files added to disk after the walk
+    started but before this prune runs will appear in samples (because
+    a later upsert touched them) but with last_seen_at >= before_ts, so
+    they are NOT pruned. Conversely, a file that was never visited
+    during the walk because of a symlink loop, permission error, or
+    skipped junk filter will keep its old last_seen_at and IS pruned.
+    Re-running the index recovers any wrongly-pruned file.
+    """
     paths = [
         r["path"] for r in conn.execute(
             "SELECT path FROM samples WHERE scan_root = ? AND "

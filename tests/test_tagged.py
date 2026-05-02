@@ -12,6 +12,17 @@ from acidcat.core.tagged import parse_tagged, is_tagged_format, TAGGED_EXTENSION
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "data", "test_formats")
 
 
+def test_strip_bom_removes_leading_feff():
+    # F-26: a leading UTF-8 BOM in a tag value would otherwise leak
+    # into the FTS index and break matching on the affected rows.
+    from acidcat.core.tagged import _strip_bom
+    assert _strip_bom("﻿hello") == "hello"
+    assert _strip_bom("﻿﻿trim both") == "trim both"
+    assert _strip_bom("clean") == "clean"
+    assert _strip_bom(None) is None
+    assert _strip_bom(42) == 42
+
+
 def fixture_path(name):
     return os.path.join(FIXTURES, name)
 
