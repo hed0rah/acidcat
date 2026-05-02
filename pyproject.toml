@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acidcat"
-version = "0.5.3"
+version = "0.5.4"
 description = "Audio metadata explorer and analysis tool, like exiftool but for audio"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = {text = "MIT"}
