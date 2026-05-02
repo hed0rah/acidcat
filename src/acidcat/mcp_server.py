@@ -577,10 +577,18 @@ def find_compatible(args):
         where.append("s.bpm BETWEEN ? AND ?")
         params.extend([lo, hi])
 
-    if sql_keys:
-        placeholders = ",".join("?" for _ in sql_keys)
-        where.append(f"LOWER(s.key) IN ({placeholders})")
-        params.extend(k.lower() for k in sql_keys)
+    if target_key:
+        if sql_keys:
+            placeholders = ",".join("?" for _ in sql_keys)
+            where.append(f"LOWER(s.key) IN ({placeholders})")
+            params.extend(k.lower() for k in sql_keys)
+        # if target_key was set but didn't map to a Camelot code, pass
+        # through with no harmonic constraint (BPM-only match).
+    else:
+        # keyless target (drum loops, percussion). "Compatible" only
+        # makes sense against other keyless samples; otherwise we'd
+        # return random-key results that are musically nonsensical.
+        where.append("(s.key IS NULL OR s.key = '')")
 
     if effective_kind == "loop":
         where.append("(s.acid_beats > 0 OR s.duration >= 2.0)")

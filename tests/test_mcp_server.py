@@ -255,6 +255,46 @@ class TestFindCompatible:
         paths = {s["path"] for s in r["samples"]}
         assert two_lib_setup["P_SYNTH"] in paths
 
+    def test_keyless_target_matches_only_keyless(self, two_lib_setup):
+        # F-08: a keyless target (e.g. drum loop) used to return all
+        # samples in the BPM tolerance regardless of key, including
+        # tonal samples that are musically nonsensical to layer with
+        # drums. Now we restrict to also-keyless rows.
+        from acidcat.core import paths as acidpaths
+        from acidcat.core import index as idx
+
+        a_root = two_lib_setup["lib_a_root"]
+        db_a = acidpaths.central_db_path_for(a_root, "A")
+        keyless_drum = a_root + "/drumloop_120.wav"
+
+        now = time.time()
+        conn_a = idx.open_db(db_a)
+        try:
+            idx.upsert_sample(conn_a, {
+                "path": keyless_drum, "scan_root": a_root, "format": "wav",
+                "duration": 4.0, "bpm": 120.0, "key": None,
+                "title": "drum loop", "mtime": now, "size": 100,
+                "indexed_at": now, "last_seen_at": now,
+                "artist": None, "album": None, "genre": None, "comment": None,
+                "chunks": None, "acid_beats": 4, "root_note": None,
+                "sample_rate": 44100, "channels": 2, "bits_per_sample": 16,
+            })
+            conn_a.commit()
+        finally:
+            conn_a.close()
+
+        r = mcp_server.dispatch("find_compatible", {
+            "path": keyless_drum,
+            "kind": "any",
+            "bpm_tolerance_pct": 50,
+        })
+        # P_KICK has key "C" so it must be excluded; P_HAT is "Am",
+        # also excluded; P_SYNTH is "Em", also excluded.
+        paths = {s["path"] for s in r["samples"]}
+        assert two_lib_setup["P_KICK"] not in paths
+        assert two_lib_setup["P_HAT"] not in paths
+        assert two_lib_setup["P_SYNTH"] not in paths
+
 
 class TestFindSimilar:
     def _seed_features(self, two_lib_setup):
