@@ -441,6 +441,21 @@ class TestDiscoverLibraries:
         labels = {c["label"] for c in r["candidates"]}
         assert "v_MyPack" in labels
 
+    def test_default_is_dry_run(self, two_lib_setup, tmp_path):
+        # F-02: dry_run default flipped to True so a forgetful LLM
+        # cannot trigger a destructive registry mutation by omission.
+        samples = tmp_path / "Samples"
+        samples.mkdir()
+        self._build_pack(samples, "PackA", 25)
+        pre = mcp_server.dispatch("list_libraries", {})
+        pre_count = pre["count"]
+        r = mcp_server.dispatch("discover_libraries", {
+            "root": str(samples), "min_samples": 20,
+        })
+        assert r["dry_run"] is True
+        post = mcp_server.dispatch("list_libraries", {})
+        assert post["count"] == pre_count
+
     def test_refuses_home_dir(self, two_lib_setup, tmp_path, monkeypatch):
         # the fixture already pinned HOME under tmp_path
         home = os.path.expanduser("~")

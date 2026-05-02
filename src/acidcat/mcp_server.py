@@ -1080,7 +1080,7 @@ def discover_libraries(args):
     min_samples = int(args.get("min_samples") or 20)
     max_depth = int(args.get("max_depth") or 3)
     label_prefix = args.get("label_prefix") or ""
-    dry_run = bool(args.get("dry_run", False))
+    dry_run = bool(args.get("dry_run", True))
     with_features = bool(args.get("with_features", False))
 
     if not os.path.isdir(root):
@@ -1514,10 +1514,11 @@ def _register_all():
                                      "Prefix every auto-derived label "
                                      "with this string. Useful for "
                                      "namespacing scattered collections."},
-                "dry_run": {"type": "boolean", "default": False,
+                "dry_run": {"type": "boolean", "default": True,
                             "description":
                                 "Return the candidate list without "
-                                "writing to the registry."},
+                                "writing to the registry. Defaults to "
+                                "true; pass false explicitly to commit."},
                 "with_features": {"type": "boolean", "default": False,
                                   "description":
                                       "Also walk + extract librosa features "
