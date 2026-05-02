@@ -141,8 +141,12 @@ def parse_midi(filepath):
                     meta["copyright"] = event_data.decode("ascii", errors="replace").strip()
 
             elif status == 0xF0 or status == 0xF7:
-                # sysex
+                # sysex. bound the VLQ length against remaining track
+                # bytes so a malformed file cannot push pos past the
+                # MTrk boundary into the next track's data.
                 sysex_len, pos = _read_vlq(trk_data, pos + 1)
+                if pos + sysex_len > len(trk_data):
+                    break
                 pos += sysex_len
 
             elif status & 0x80:
