@@ -63,6 +63,17 @@ def open_db(path):
     return conn
 
 
+class SchemaVersionError(RuntimeError):
+    """Raised when an existing per-library DB has a schema version we
+    do not know how to read.
+
+    Forward incompatibility: client at version N opens a DB written by
+    a future version N+1 with new columns or tables. We refuse to touch
+    it rather than running old SQL against a new schema and producing
+    silent corruption.
+    """
+
+
 def _apply_schema(conn):
     cur = conn.cursor()
 
@@ -83,7 +94,30 @@ def _apply_schema(conn):
         conn.commit()
         return
 
-    # future: handle migrations when SCHEMA_VERSION bumps.
+    try:
+        on_disk = int(row["v"])
+    except (TypeError, ValueError):
+        raise SchemaVersionError(
+            f"per-library DB has unparseable schema_version {row['v']!r}; "
+            f"refusing to open."
+        )
+    if on_disk == SCHEMA_VERSION:
+        return
+    if on_disk > SCHEMA_VERSION:
+        raise SchemaVersionError(
+            f"per-library DB has schema_version {on_disk}, but this "
+            f"acidcat build only knows version {SCHEMA_VERSION}. Upgrade "
+            f"acidcat or open the DB with a newer client."
+        )
+    # on_disk < SCHEMA_VERSION: a real migration registry would dispatch
+    # by version here. Today the only known version is 1 so this branch
+    # is unreachable; keeping the error explicit so a future bump
+    # without a migration registers as a clean failure rather than a
+    # silent run of old SQL against an old schema.
+    raise SchemaVersionError(
+        f"per-library DB at schema_version {on_disk} needs migration to "
+        f"{SCHEMA_VERSION}; no migration registered."
+    )
 
 
 def _create_tables(cur):
