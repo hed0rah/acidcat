@@ -5,6 +5,40 @@ date: 2026-05-02
 scope: full-tree review with three independent subagent passes
 method: read-only audit. no code changed. no tests modified.
 
+---
+
+## status update (2026-05-02 post-fix)
+
+All 26 actionable findings have been addressed in 13 stacked commits
+on main, ahead of `origin/main`, not yet pushed. Test count grew from
+232 to 254. The verification addendum below caused F-03, F-11, and
+F-19 to be withdrawn (subagent errors), and F-27 was verified as
+already correct (RIFF padding handled at line 213-215). F-01 was
+downgraded from CRITICAL to HIGH after reading the actual bound on
+the search loop.
+
+Per-finding fix commits, in chronological order:
+
+| commits | findings | files |
+|---------|----------|-------|
+| `31894a1` | F-04 F-09 F-17 F-20 F-24 F-29 (annotations + descriptions) | mcp_server.py, commands/index.py |
+| `b9da2b8` | F-01 F-05 (parser hardening) | core/serum.py, core/riff.py |
+| `6d238e6` | F-07 (FTS5 syntax error guard) | mcp_server.py, tests |
+| `6695579` | F-13 F-23 (Windows case + path_hash 12) | core/paths.py, core/registry.py, tests |
+| `ae81c6c` | F-02 (discover_libraries dry_run default flip) | mcp_server.py, tests |
+| `52bf095` | F-06 F-08 (MIDI sysex bounds, find_compatible keyless) | core/midi.py, mcp_server.py, tests |
+| `7e9ec3c` | F-14 F-15 (transaction discipline) | core/index.py, core/registry.py |
+| `eb8e1c0` | F-18 (describe_sample -> set_sample_description rename) | mcp_server.py, README.md, tests |
+| `e1448e3` | F-22 (schema_version mismatch error) | core/index.py, core/registry.py, tests |
+| `eda8d2a` | F-10 F-12 F-16 F-25 F-26 F-28 (polish batch) | 6 files + tests |
+| `cd09567` | F-21 (format dispatch by magic-byte sniff) | commands/index.py, tests |
+
+The remainder of this document is preserved as the original audit
+report. Read the verification addendum below for the per-finding
+status with line-of-evidence citations.
+
+---
+
 ## review structure
 
 three independent subagents covered non-overlapping concerns:
