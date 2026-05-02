@@ -36,20 +36,18 @@ def parse_serum_preset(filepath):
     if json_start < 0:
         return meta
 
-    # the JSON ends before binary blob starts; try progressively larger slices
-    # (typically the JSON is small, <2KB)
-    max_search = min(len(raw), json_start + 10000)
-    for end in range(json_start + 50, max_search):
-        try:
-            parsed = json.loads(raw[json_start:end])
-            # extract the fields we care about
-            for key in ("fileType", "presetName", "presetAuthor",
-                        "presetDescription", "product", "productVersion",
-                        "tags", "hash", "vendor", "url", "version"):
-                if key in parsed:
-                    meta[key] = parsed[key]
-            return meta
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            continue
+    # raw_decode returns (object, end_index) in a single linear pass,
+    # stopping at the first complete JSON object. avoids the O(n^2)
+    # progressive-slice scan that prior versions used.
+    try:
+        text = raw[json_start:].decode("utf-8", errors="replace")
+        parsed, _ = json.JSONDecoder().raw_decode(text)
+    except (json.JSONDecodeError, ValueError):
+        return meta
 
+    for key in ("fileType", "presetName", "presetAuthor",
+                "presetDescription", "product", "productVersion",
+                "tags", "hash", "vendor", "url", "version"):
+        if key in parsed:
+            meta[key] = parsed[key]
     return meta
