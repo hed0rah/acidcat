@@ -746,7 +746,7 @@ def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=Fa
     seen_paths = 0
     since_commit = 0
 
-    for root, _, files in os.walk(scan_root):
+    for root, _, files in os.walk(scan_root, followlinks=False):
         for name in files:
             if _is_junk(name):
                 continue
