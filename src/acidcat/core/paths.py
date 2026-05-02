@@ -37,6 +37,20 @@ def normalize(p):
     return os.path.abspath(p).replace("\\", "/")
 
 
+def compare_path(p):
+    """Comparison-only form of a path: case-insensitive on Windows,
+    unchanged elsewhere.
+
+    Stored paths are NOT mutated by this. Use only at comparison sites
+    (overlap guard, find_library_for_path, dedup) so two registrations
+    of the same NTFS object that differ only in case do not slip past
+    the no-overlap check.
+    """
+    if os.name == "nt":
+        return p.lower()
+    return p
+
+
 def acidcat_home():
     """`~/.acidcat/`. Created on demand by callers that write into it."""
     return os.path.join(os.path.expanduser("~"), ACIDCAT_DIR_NAME).replace("\\", "/")
@@ -88,13 +102,19 @@ def safe_label(label):
 
 
 def path_hash(root):
-    """8-character sha1 hex of the normalized root path.
+    """12-character sha1 hex of the normalized root path.
 
     Stable across runs and across label changes. Used as a disambiguating
     suffix in central-mode DB filenames so two libraries with the same
     label slug never collide on disk.
+
+    12 hex chars = 48 bits. Birthday-collision odds reach ~0.5% near
+    2^24 (~16M libraries), well past any realistic usage. Pre-v0.5.4
+    used 8 chars (32 bits, collision near 65k); existing libraries
+    keep their 8-char filenames because the registry stores db_path
+    explicitly.
     """
-    return hashlib.sha1(normalize(root).encode("utf-8")).hexdigest()[:8]
+    return hashlib.sha1(normalize(root).encode("utf-8")).hexdigest()[:12]
 
 
 def central_db_path_for(root, label):
