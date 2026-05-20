@@ -1,5 +1,8 @@
 """tests for acidcat.core.riff."""
 
+import struct
+import time
+
 import pytest
 from acidcat.core.riff import iter_chunks, get_riff_info, get_duration, parse_riff
 
@@ -89,6 +92,55 @@ class TestParseRiff:
         results, _, _ = parse_riff(minimal_wav, enumerate_all=True)
         ch_entry = next((v for c, k, v in results if k == "channels"), None)
         assert ch_entry == 1
+
+    def test_huge_num_cues_does_not_hang(self, tmp_path):
+        """B-7: the CUE chunk parser reads `num_cues` as a raw uint32
+        with no validation against the chunk's actual payload size, then
+        iterates `range(num_cues)`. A corrupt or malicious WAV with
+        `num_cues = 0xFFFFFFFF` would spin ~4 billion iterations before
+        the inner length check rejects each empty slice. This isn't
+        a crash, just 40-80s of wasted CPU per bad file.
+
+        Build a WAV whose `cue ` chunk advertises 0xFFFFFFFF cues but
+        carries zero real cue records. parse_riff must return promptly
+        (well under one second) and emit at most `payload_size // 24`
+        cue marker rows.
+        """
+        # fmt chunk
+        fmt = struct.pack(
+            "<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16,
+        )
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        # data chunk (tiny)
+        data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
+        # cue chunk: 4-byte num_cues header claiming 0xFFFFFFFF, then no
+        # actual cue records (payload smaller than what num_cues * 24
+        # would require). Total cue payload size = 4 bytes.
+        cue_payload = struct.pack("<I", 0xFFFFFFFF)
+        cue_chunk = b"cue " + struct.pack("<I", len(cue_payload)) + cue_payload
+        riff_body = b"WAVE" + fmt_chunk + data_chunk + cue_chunk
+        wav = b"RIFF" + struct.pack("<I", len(riff_body)) + riff_body
+
+        wav_path = tmp_path / "huge_cue.wav"
+        wav_path.write_bytes(wav)
+
+        t0 = time.perf_counter()
+        results, _, _ = parse_riff(str(wav_path), enumerate_all=True)
+        elapsed = time.perf_counter() - t0
+
+        # tight ceiling -- the fix should make this a no-op
+        assert elapsed < 0.5, (
+            f"parse_riff took {elapsed:.2f}s on a 4-billion-cue claim"
+        )
+        # bounded marker count: 4-byte payload after the 4-byte
+        # num_cues header leaves zero room for cue records, so the
+        # parser must not synthesize any.
+        cue_markers = [
+            (c, k, v) for c, k, v in results
+            if c == "cue " and isinstance(k, str) and k.startswith("marker_")
+        ]
+        assert len(cue_markers) == 0
+
 
     def test_drum_loop_if_present(self):
         import os
