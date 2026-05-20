@@ -63,6 +63,31 @@ def open_db(path):
     return conn
 
 
+class FTSQueryError(ValueError):
+    """Raised when a user-supplied --text contains FTS5 metacharacters
+    that the embedded SQLite full-text engine cannot parse.
+
+    SQLite raises a bare `sqlite3.OperationalError: fts5: syntax
+    error` for inputs like `foo*bar`, `path:"a"`, or `NOT widget`,
+    which leaks internals and gives the user no idea what to escape.
+    Callers should translate that OperationalError into this class
+    via `fts5_syntax_message` and surface the result.
+    """
+
+
+def fts5_syntax_message(text):
+    """Return a human-readable explanation of an FTS5 syntax error
+    for the given user-supplied text. Same wording across the CLI
+    (commands/query.py) and the MCP server so a user sees the same
+    message regardless of which surface they hit.
+    """
+    return (
+        f"invalid search text: {text!r}. "
+        f"FTS5 special chars (* \" ( ) NOT AND OR) need to be "
+        f"quoted as a literal phrase."
+    )
+
+
 class SchemaVersionError(RuntimeError):
     """Raised when an existing per-library DB has a schema version we
     do not know how to read.
