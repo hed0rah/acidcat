@@ -1082,6 +1082,19 @@ def _extract_and_store_features(conn, filepath, path_key, quiet=False):
     idx.upsert_features(conn, path_key, feats, version=1)
 
 
+def _escape_like(s):
+    """Escape SQLite LIKE metacharacters so user-supplied filename
+    fragments cannot match more rows than intended.
+
+    LIKE treats `_` as "any single character" and `%` as "any
+    sequence". An imported tags-json entry for `kick_126.wav` would
+    otherwise also match `kickX126.wav` (and any other one-char
+    substitute) and apply the description plus tags to the wrong
+    file. Pair this with `ESCAPE '\\'` on the SQL side.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _import_tags(conn, import_file):
     """Pull a legacy <name>_tags.json into the index.
 
@@ -1094,9 +1107,10 @@ def _import_tags(conn, import_file):
         base = os.path.basename(old_path.replace("\\", "/"))
         if not base:
             continue
-        like = "%/" + base
+        like = "%/" + _escape_like(base)
         rows = conn.execute(
-            "SELECT path FROM samples WHERE path LIKE ?", (like,)
+            "SELECT path FROM samples WHERE path LIKE ? ESCAPE '\\'",
+            (like,),
         ).fetchall()
         if not rows:
             continue
