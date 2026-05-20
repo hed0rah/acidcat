@@ -8,7 +8,10 @@ Supports WAV, AIFF, MIDI, Serum, MP3, FLAC, OGG, and M4A files.
 import os
 import sys
 
-from acidcat.core.riff import parse_riff, get_duration, get_fmt_info
+from acidcat.core.riff import (
+    parse_riff, get_duration, get_fmt_info,
+    smpl_root_or_none, acid_root_or_none,
+)
 from acidcat.core.aiff import is_aiff, parse_aiff
 from acidcat.core.midi import is_midi, parse_midi
 from acidcat.core.serum import is_serum_preset, parse_serum_preset
@@ -70,12 +73,8 @@ def _info_wav(filepath, args):
 
     # SMPL/ACID root_note of 0 is the default-unset sentinel (MIDI C-1),
     # not a legitimate musical root. Treat as missing.
-    smpl_root = meta.get("smpl_root_key")
-    if not smpl_root:
-        smpl_root = None
-    acid_root = meta.get("acid_root_note")
-    if not acid_root:
-        acid_root = None
+    smpl_root = smpl_root_or_none(meta)
+    acid_root = acid_root_or_none(meta)
 
     _vlog(args, "[detect] fmt=wav")
 
