@@ -33,6 +33,28 @@ def test_parse_midi_note_like():
     assert camelot.parse_key("F#3") == (6, 0)
 
 
+def test_parse_capital_m_means_major():
+    """B-3: Beatport, Mixed In Key, Serato and Rekordbox tag major keys
+    with a trailing capital M (e.g. `CM`, `DM`). The current parser
+    lowercases the suffix before the major/minor branch, so `CM` ->
+    `cm` -> matches the minor literal `m`. find_compatible then
+    returns harmonically wrong neighbors.
+
+    All of these must resolve to major (mode = 0).
+    """
+    assert camelot.parse_key("CM") == (0, 0)
+    assert camelot.parse_key("DM") == (2, 0)
+    assert camelot.parse_key("EM") == (4, 0)
+    assert camelot.parse_key("FM") == (5, 0)
+    assert camelot.parse_key("GM") == (7, 0)
+    # capital M with sharp/flat carries through
+    assert camelot.parse_key("F#M") == (6, 0)
+    assert camelot.parse_key("BbM") == (10, 0)
+    # round-trips through Camelot too
+    assert camelot.key_to_camelot("CM") == "8B"
+    assert camelot.key_to_camelot("DM") == "10B"
+
+
 def test_parse_invalid():
     assert camelot.parse_key("") is None
     assert camelot.parse_key(None) is None
