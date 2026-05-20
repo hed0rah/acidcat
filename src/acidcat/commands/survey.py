@@ -94,7 +94,7 @@ def run(args):
     stream = sys.stdout
     out_path = getattr(args, 'output', None)
     if out_path:
-        stream = open(out_path, 'w')
+        stream = open(out_path, 'w', encoding='utf-8')
 
     if fmt_name == "table":
         stream.write(f"Chunk ID Survey -- {files_scanned} WAV files scanned\n\n")
