@@ -400,7 +400,7 @@ def run(args):
         # output
         stream = sys.stdout
         if getattr(args, 'output', None):
-            stream = open(args.output, 'w')
+            stream = open(args.output, 'w', encoding='utf-8')
 
         fmt_name = getattr(args, 'format', 'table')
         output(rec, fmt=fmt_name, stream=stream)

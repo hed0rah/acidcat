@@ -43,7 +43,7 @@ def run(args):
         feats["filename"] = os.path.basename(target)
         stream = sys.stdout
         if getattr(args, 'output', None):
-            stream = open(args.output, 'w')
+            stream = open(args.output, 'w', encoding='utf-8')
         output(feats, fmt=fmt_name, stream=stream)
         if stream is not sys.stdout:
             stream.close()

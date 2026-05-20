@@ -65,7 +65,7 @@ def run(args):
     if fmt_name == "table":
         stream = sys.stdout
         if getattr(args, 'output', None):
-            stream = open(args.output, 'w')
+            stream = open(args.output, 'w', encoding='utf-8')
 
         stream.write(f"RIFF container: {riff_info['size']} bytes, type={riff_info['type']}\n")
         stream.write(f"File: {os.path.basename(filepath)}\n\n")
@@ -88,7 +88,7 @@ def run(args):
         data = [{"chunk": cid, "key": key, "value": val} for cid, key, val in results]
         stream = sys.stdout
         if getattr(args, 'output', None):
-            stream = open(args.output, 'w')
+            stream = open(args.output, 'w', encoding='utf-8')
         output(data, fmt=fmt_name, stream=stream)
         if stream is not sys.stdout:
             stream.close()
