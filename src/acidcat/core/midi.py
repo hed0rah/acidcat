@@ -186,9 +186,13 @@ def parse_midi(filepath):
                     channel = running_status & 0x0F
                     d1 = status
                     if msg_type in (0x80, 0x90, 0xA0, 0xB0, 0xE0):
+                        # running status, 2-byte message. d1 is the byte
+                        # we already read into `status`; d2 sits at pos+1.
+                        # pos must advance past both so the next VLQ read
+                        # starts on a real delta-time byte, not d2.
                         if pos + 1 < len(trk_data):
                             d2 = trk_data[pos + 1]
-                            pos += 1
+                            pos += 2
                             if msg_type == 0x90 and d2 > 0:
                                 meta["note_count"] += 1
                                 meta["channels_used"].add(channel)
@@ -199,7 +203,10 @@ def parse_midi(filepath):
                         else:
                             break
                     elif msg_type in (0xC0, 0xD0):
-                        pass  # d1 is the only data byte, already consumed
+                        # running status, 1-byte message (program change /
+                        # channel pressure). d1 was already consumed; step
+                        # past it.
+                        pos += 1
                     else:
                         pos += 1
                 else:
