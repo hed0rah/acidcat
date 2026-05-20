@@ -377,6 +377,65 @@ class TestSmplRootKey:
         assert row["root_note"] == 60
 
 
+class TestFTSCommitBudget:
+    def test_walk_respects_commit_batch(self, tmp_path, central_root,
+                                          registry_path, wav_bytes,
+                                          monkeypatch):
+        """B-2: `rebuild_fts_for_path` historically wrapped its DELETE +
+        INSERT in `with conn:`, which Python's sqlite3 Connection context
+        manager commits on normal exit. That defeated the explicit
+        `_COMMIT_EVERY_N_FILES = 100` batching in `_walk_and_upsert`:
+        every file ended up committing.
+
+        This test counts how often `Connection.commit` is invoked while
+        indexing a small library. With 5 files and the bug present,
+        each file triggers at least two commits (sample upsert + FTS
+        rebuild) for ~10+ total. With the fix, the explicit commit at
+        the end of `_walk_and_upsert` should be the dominant signal:
+        the batch knob means at most a handful of commits regardless of
+        file count below the batch threshold.
+        """
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        # 20 files: with the bug present this produces ~20 COMMIT
+        # statements (one per `with conn:` exit in rebuild_fts_for_path).
+        # With the fix, _walk_and_upsert's explicit conn.commit() at
+        # batch boundaries and at the end is the only source, so we
+        # expect a handful regardless of file count under the batch
+        # threshold.
+        for i in range(20):
+            (lib / f"s{i:02d}.wav").write_bytes(wav_bytes)
+
+        from acidcat.core import index as _idx
+        real_open = _idx.open_db
+        commit_count = {"n": 0}
+
+        def counting_open(path):
+            conn = real_open(path)
+
+            def trace(stmt):
+                if stmt and stmt.strip().upper().startswith("COMMIT"):
+                    commit_count["n"] += 1
+
+            conn.set_trace_callback(trace)
+            return conn
+
+        monkeypatch.setattr(_idx, "open_db", counting_open)
+        # the command module imports `idx` as the index module reference
+        monkeypatch.setattr(index_cmd.idx, "open_db", counting_open)
+
+        rc = index_cmd.run(_Args(target=str(lib), label="x",
+                                  registry=registry_path))
+        assert rc == 0
+        # With the bug we'd see ~20 commits (one per file). With the
+        # fix, the explicit `conn.commit()` calls in _walk_and_upsert
+        # are the only source, so under 10 is a comfortable ceiling.
+        assert commit_count["n"] < 10, (
+            f"too many commits ({commit_count['n']}) -- FTS rebuild "
+            f"is likely committing per file"
+        )
+
+
 class TestJunkFilter:
     def test_appledouble_skipped(self, tmp_path, central_root, registry_path,
                                   wav_bytes):
