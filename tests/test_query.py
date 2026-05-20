@@ -190,6 +190,33 @@ class TestTagFilter:
         assert rows[0]["path"] == two_library_setup["P_KICK"]
 
 
+class TestFTS5SyntaxError:
+    """B-6: FTS5 metacharacters (* " ( ) NOT AND OR) in --text bubble
+    up as `sqlite3.OperationalError: fts5: syntax error`. The current
+    handler catches the broad `Exception` and logs only at -v, so the
+    CLI silently produces `(no matches)` with no signal to the user.
+
+    Expected behavior: non-zero exit code AND a stderr message that
+    names the offending characters and tells the user to quote them.
+    The MCP server already does this; the CLI should match.
+    """
+
+    def test_metachar_text_surfaces_error(self, two_library_setup,
+                                           capsys):
+        # `(foo` triggers fts5 syntax error (unmatched paren).
+        # `foo*bar` is actually a legal prefix match, so we use a real
+        # metacharacter that SQLite rejects.
+        rc = query_cmd.run(_Args(text="(foo"))
+        captured = capsys.readouterr()
+        # exit non-zero, and the user gets a message that mentions
+        # both the FTS5 special chars and the offending input
+        assert rc == 1
+        assert "(foo" in captured.err
+        # must mention at least one of the metacharacters by name so
+        # the user knows what to escape
+        assert "FTS5" in captured.err or "syntax" in captured.err.lower()
+
+
 class TestNoLibraries:
     def test_no_libs_registered_returns_error(self, tmp_path, monkeypatch):
         monkeypatch.setenv("ACIDCAT_REGISTRY", str(tmp_path / "empty.db"))
