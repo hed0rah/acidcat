@@ -238,19 +238,19 @@ def estimate_librosa_metadata(filepath):
         filename_bpm = parse_bpm_from_filename(filepath)
         final_bpm, bpm_source = validate_and_improve_bpm(detected_bpm, filename_bpm)
 
-        # Key
+        # Key. Chroma argmax tells us the strongest pitch class but
+        # NOT major vs minor mode -- and downstream code (camelot,
+        # find_compatible) treats a bare letter as major by
+        # convention. Emitting "A" for an A-minor file would route
+        # it to A major's harmonic neighbors, which is musically
+        # wrong. Refuse to guess; defer to filename parsing which
+        # carries mode explicitly.
+        #
+        # A future revision could correlate chroma_median against
+        # Krumhansl-Schmuckler major + minor templates and pick the
+        # higher correlation. For now we accept that without mode
+        # information we should not name a key.
         detected_key = None
-        try:
-            chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=512)
-            if chroma.size > 0:
-                chroma_median = np.median(chroma, axis=1)
-                if np.any(chroma_median > 0):
-                    note_number = int(np.argmax(chroma_median))
-                    note_names = ["C", "C#", "D", "D#", "E", "F",
-                                  "F#", "G", "G#", "A", "A#", "B"]
-                    detected_key = note_names[note_number]
-        except Exception:
-            pass
 
         filename_key = parse_key_from_filename(filepath)
         final_key, key_source = improve_key_detection(detected_key, filename_key)
