@@ -215,6 +215,39 @@ class TestScanCommand:
         assert len(rows) == 2
 
 
+class TestScanSmplSentinel:
+    """B-5: `acidcat scan` previously emitted `C-1` in the key column for
+    any WAV whose SMPL chunk had root_key=0 (the documented "unset"
+    sentinel, MIDI C-1). The info and index code paths already handle
+    this; scan was the last holdout.
+    """
+
+    def test_scan_smpl_root_zero_not_c_minus_1(self, tmp_path):
+        scan_dir = tmp_path / "scan_target"
+        scan_dir.mkdir()
+        _riff_wav_with_smpl(scan_dir / "zero.wav", smpl_root_key=0)
+        out_csv = str(tmp_path / "out.csv")
+        code, out, err = run_cli("scan", str(scan_dir), "-o", out_csv, "-q")
+        assert code == 0 or code is None
+        with open(out_csv, encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert len(rows) == 1
+        # key may fall back to filename or be empty; the regression is
+        # that it must NOT be C-1.
+        assert rows[0]["key"] != "C-1"
+
+    def test_scan_smpl_root_60_renders_pitch_class(self, tmp_path):
+        scan_dir = tmp_path / "scan_target"
+        scan_dir.mkdir()
+        _riff_wav_with_smpl(scan_dir / "c4.wav", smpl_root_key=60)
+        out_csv = str(tmp_path / "out.csv")
+        code, out, err = run_cli("scan", str(scan_dir), "-o", out_csv, "-q")
+        assert code == 0 or code is None
+        with open(out_csv, encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert rows[0]["key"] == "C4"
+
+
 class TestSurveyCommand:
     def test_survey_wav_directory(self, tmp_path, minimal_wav):
         import shutil
