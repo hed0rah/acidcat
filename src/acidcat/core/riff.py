@@ -158,7 +158,16 @@ def parse_riff(filepath, enumerate_all=False):
             elif chunk_id == b'cue ' and enumerate_all:
                 try:
                     num_cues = struct.unpack("<I", chunk_data[:4])[0]
-                    for i in range(num_cues):
+                    # Cap num_cues against the actual payload size. A
+                    # malformed or malicious WAV with num_cues =
+                    # 0xFFFFFFFF would otherwise iterate ~4 billion
+                    # times before the inner len-check rejects every
+                    # empty slice. Each cue record is exactly 24
+                    # bytes, so (len(chunk_data) - 4) // 24 is the
+                    # most we could ever read.
+                    max_cues = max(0, (len(chunk_data) - 4) // 24)
+                    safe_count = min(num_cues, max_cues)
+                    for i in range(safe_count):
                         cue_base = 4 + i * 24
                         cue_data = chunk_data[cue_base: cue_base + 24]
                         if len(cue_data) == 24:
