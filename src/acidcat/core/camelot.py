@@ -89,15 +89,16 @@ def parse_key(key_str):
     if not m:
         return None
     root = (m.group(1) + (m.group(2) or "")).lower()
-    suffix = (m.group(3) or "").lower()
+    # Preserve case on the mode suffix: capital `M` is a major-mode
+    # marker used by Beatport / Mixed In Key / Serato / Rekordbox.
+    # Lowercasing it would collapse onto the minor literal `m`.
+    suffix = m.group(3) or ""
     pc = _PITCH_CLASS.get(root)
     if pc is None:
         return None
     if suffix in ("m", "min", "minor"):
         mode = 1
-    elif suffix in ("maj", "major", "M".lower()):
-        mode = 0
-    elif suffix == "":
+    elif suffix in ("maj", "major", "M"):
         mode = 0
     else:
         mode = 0
