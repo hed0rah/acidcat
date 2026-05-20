@@ -331,6 +331,59 @@ class TestImportTags:
         assert desc["description"] == "Energetic drum loop"
 
 
+class TestImportTagsLikeEscape:
+    """B-8: `_import_tags` matches indexed paths by `LIKE '%/' || base`.
+    SQLite LIKE treats `_` as a single-char wildcard, so a legacy
+    tags-json entry for `kick_126.wav` would also match an indexed
+    `kickX126.wav` (or `kick.126.wav`, etc.) and apply the description
+    plus tags to the wrong file.
+
+    Build a library with two files differing only by an underscore vs
+    an arbitrary character, then import tags keyed on the underscored
+    name. Only the underscored file should pick up the tags.
+    """
+
+    def test_underscore_not_used_as_wildcard(self, tmp_path, central_root,
+                                              registry_path):
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        # both files exist in the same library
+        (lib / "kick_126.wav").write_bytes(_make_riff_wav())
+        (lib / "kickX126.wav").write_bytes(_make_riff_wav())
+        tags_file = tmp_path / "legacy_tags.json"
+        tags_file.write_text(json.dumps({
+            "old/path/kick_126.wav": {
+                "description": "the underscored file",
+                "tags": ["only_this_one"],
+            }
+        }))
+
+        rc = index_cmd.run(_Args(target=str(lib), label="x",
+                                  import_tags=str(tags_file),
+                                  registry=registry_path))
+        assert rc == 0
+
+        rconn = reg.open_registry(registry_path)
+        try:
+            db_path = reg.get_library(rconn, "x")["db_path"]
+        finally:
+            rconn.close()
+        conn = idx.open_db(db_path)
+        try:
+            tagged_paths = [
+                r["path"] for r in conn.execute(
+                    "SELECT DISTINCT path FROM tags"
+                )
+            ]
+        finally:
+            conn.close()
+        assert len(tagged_paths) == 1, (
+            f"tags landed on {tagged_paths} -- LIKE underscore "
+            f"was treated as wildcard"
+        )
+        assert tagged_paths[0].endswith("kick_126.wav")
+
+
 class TestSmplRootKey:
     def test_zero_treated_as_unset(self, tmp_path, central_root, registry_path):
         lib = tmp_path / "lib"
