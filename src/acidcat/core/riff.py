@@ -249,6 +249,28 @@ def iter_chunks(filepath):
                 pos += 1
 
 
+def smpl_root_or_none(meta):
+    """Coerce the SMPL `smpl_root_key` field to None when it is the
+    documented "unset" sentinel value 0 (MIDI note C-1, which no
+    legitimate sample chunk actually uses as its root). Returns the
+    integer MIDI note for any non-zero value, or None.
+
+    Use this at every call site that downstreams `smpl_root_key` into
+    a key/root display. Without it the scan CSV and any future caller
+    will ship `C-1` for files whose SMPL chunk is present but unset.
+    """
+    val = meta.get("smpl_root_key") if hasattr(meta, "get") else meta
+    return val if val else None
+
+
+def acid_root_or_none(meta):
+    """Companion to `smpl_root_or_none` for the ACID `acid_root_note`
+    field. Same zero-as-sentinel convention.
+    """
+    val = meta.get("acid_root_note") if hasattr(meta, "get") else meta
+    return val if val else None
+
+
 def get_riff_info(filepath):
     """Return RIFF container size and type string, or None if not RIFF."""
     with open(filepath, "rb") as f:

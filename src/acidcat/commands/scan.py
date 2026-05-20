@@ -6,7 +6,9 @@ import csv
 import os
 import sys
 
-from acidcat.core.riff import parse_riff, get_duration
+from acidcat.core.riff import (
+    parse_riff, get_duration, smpl_root_or_none, acid_root_or_none,
+)
 from acidcat.core.aiff import is_aiff, parse_aiff
 from acidcat.core.tagged import is_tagged_format
 from acidcat.core.formats import output
@@ -50,11 +52,19 @@ def _scan_wav(filepath):
         expected = round((meta["acid_beats"] / meta["bpm"]) * 60, 4)
         diff = round(duration - expected, 4) if duration else None
 
+    # SMPL/ACID root_key = 0 is the documented "unset" sentinel
+    # (MIDI C-1). Coerce to None before formatting so the CSV key
+    # column does not ship `C-1` for files whose SMPL chunk is
+    # present but unset.
+    smpl_root = smpl_root_or_none(meta)
+    acid_root = acid_root_or_none(meta)
+    key = midi_note_to_name(smpl_root) or midi_note_to_name(acid_root)
+
     return {
         "filename": filepath,
         "format": "wav",
         "bpm": meta["bpm"],
-        "key": midi_note_to_name(meta["smpl_root_key"]) or midi_note_to_name(meta["acid_root_note"]),
+        "key": key,
         "duration_sec": duration,
         "title": None,
         "artist": None,

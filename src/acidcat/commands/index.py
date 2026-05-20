@@ -25,7 +25,10 @@ import time
 from acidcat.core import index as idx
 from acidcat.core import paths as acidpaths
 from acidcat.core import registry as reg
-from acidcat.core.riff import parse_riff, get_duration, get_fmt_info
+from acidcat.core.riff import (
+    parse_riff, get_duration, get_fmt_info,
+    smpl_root_or_none, acid_root_or_none,
+)
 from acidcat.core.aiff import is_aiff, parse_aiff
 from acidcat.core.midi import is_midi, parse_midi
 from acidcat.core.serum import is_serum_preset, parse_serum_preset
@@ -923,12 +926,8 @@ def _from_wav(filepath, row, do_deep=False):
 
     # SMPL/ACID root_note = 0 (MIDI C-1) is the default "unset" value.
     # Treat it as missing so we can fall back to filename parsing.
-    smpl = meta.get("smpl_root_key")
-    acid = meta.get("acid_root_note")
-    if not smpl:
-        smpl = None
-    if not acid:
-        acid = None
+    smpl = smpl_root_or_none(meta)
+    acid = acid_root_or_none(meta)
 
     # key stores pitch class only (no octave); full MIDI int lives in root_note.
     row["key"] = midi_note_to_pitch_class(smpl) or midi_note_to_pitch_class(acid)
