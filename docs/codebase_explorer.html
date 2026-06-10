@@ -24,6 +24,14 @@
   --code-fg:#cbd2da;
   --ex-bg:#faf8f3;
   --pin-bg:rgba(236,80,58,0.14);
+  --ink-soft:#262626;
+  --line-soft:rgba(216,213,206,0.7);
+  --code-inline-bg:rgba(217,215,209,0.30);
+  --code-kw:#f5b06b;
+  --code-hdr:#5cc0b0;
+  --code-cm:#7d8a99;
+  --code-num:#e0b060;
+  --code-str:#a8d39a;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -37,8 +45,8 @@ h1{font-size:clamp(1.55rem,2.1vw,1.9rem);letter-spacing:-0.02em;margin-bottom:6p
 h2{font-size:0.92rem;margin-top:20px;margin-bottom:6px;padding-top:10px;border-top:1px solid var(--line);color:var(--accent-deep);text-transform:uppercase;letter-spacing:0.05em}
 h3{font-size:0.86rem;margin:8px 0 4px;color:var(--ink)}
 p{margin:0 0 6px;font-size:0.86rem}
-.lede{font-size:0.9rem;color:#242424;margin:6px 0 14px}
-code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0.85em;background:rgba(217,215,209,0.30);padding:0.04rem 0.22rem;border-radius:1px}
+.lede{font-size:0.9rem;color:var(--ink-soft);margin:6px 0 14px}
+code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0.85em;background:var(--code-inline-bg);padding:0.04rem 0.22rem;border-radius:1px}
 .chip{display:inline-block;margin:0 3px 3px 0;padding:1px 6px;border:1px solid var(--line);border-radius:2px;font-size:0.69rem;letter-spacing:0.02em;color:var(--muted)}
 .spec-line{display:inline-block;padding:2px 8px;border:1px solid var(--accent-deep);background:var(--accent-deep-soft);font-family:"SFMono-Regular",monospace;font-size:0.74rem;color:var(--accent-deep);margin-right:6px;letter-spacing:0.03em}
 .term{cursor:pointer;border-bottom:1px dotted var(--accent-deep);color:var(--accent-deep);transition:.1s;padding:0 1px;font-weight:500}
@@ -54,17 +62,17 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
 .compare td.note{color:var(--muted);font-style:italic;font-size:0.78rem}
 .compare td code{font-size:0.78em}
 .bul{list-style:none;padding:0;margin:4px 0 8px}
-.bul li{padding:2px 0 2px 16px;font-size:0.84rem;position:relative;line-height:1.5;color:#222}
+.bul li{padding:2px 0 2px 16px;font-size:0.84rem;position:relative;line-height:1.5;color:var(--ink-soft)}
 .bul li::before{content:"\00b7";position:absolute;left:5px;color:var(--accent-hot);font-weight:700;font-size:1.1rem;line-height:1}
 .bul li strong{color:var(--accent-deep);font-weight:600}
 .bul li code{font-size:0.82em}
 .wireblock{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.75rem;background:var(--code-bg);color:var(--code-fg);padding:10px 12px;margin:6px 0 10px;line-height:1.55;overflow-x:auto;white-space:pre;border-left:3px solid var(--accent-hot)}
-.wireblock .kw{color:#f5b06b}
-.wireblock .hdr{color:#5cc0b0}
-.wireblock .cm{color:#7d8a99;font-style:italic}
-.wireblock .num{color:#e0b060}
-.wireblock .str{color:#a8d39a}
-.tree{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.75rem;background:var(--ex-bg);border:1px solid var(--line);padding:10px 14px;margin:6px 0 10px;line-height:1.7;overflow-x:auto;white-space:pre;color:#2a2a2a}
+.wireblock .kw{color:var(--code-kw)}
+.wireblock .hdr{color:var(--code-hdr)}
+.wireblock .cm{color:var(--code-cm);font-style:italic}
+.wireblock .num{color:var(--code-num)}
+.wireblock .str{color:var(--code-str)}
+.tree{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.75rem;background:var(--ex-bg);border:1px solid var(--line);padding:10px 14px;margin:6px 0 10px;line-height:1.7;overflow-x:auto;white-space:pre;color:var(--ink-soft)}
 .tree .dim{color:var(--muted)}
 .figure{margin:8px 0 12px;border:1px solid var(--line);background:var(--ex-bg);padding:10px}
 .figure svg{display:block;max-width:100%;height:auto;margin:0 auto}
@@ -89,13 +97,13 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
 .margin p{margin-bottom:7px;font-size:0.8rem}
 .margin-code{display:inline-block;margin-top:2px;margin-bottom:6px;color:var(--accent-hot)}
 .margin-snippet{display:none;font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.67rem;background:var(--code-bg);color:var(--code-fg);padding:8px 9px;margin:8px 0 2px;white-space:pre;overflow-x:auto;border-left:2px solid var(--accent-hot);line-height:1.5}
-.margin-meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px;margin:7px 0 8px;padding:7px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:#2d2d2a}
+.margin-meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px;margin:7px 0 8px;padding:7px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--ink-soft)}
 .margin-meta strong{display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:1px}
 .margin-meta span{font-size:0.8rem}
 .margin-section{margin-top:10px}
 .margin-section .label{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:3px}
 .margin-section ul{margin:0;padding:0;list-style:none}
-.margin-section li{padding:2px 0;border-top:1px solid rgba(216,213,206,0.7);font-size:0.76rem;color:#2a2a2a;font-family:"SFMono-Regular",Menlo,Consolas,monospace}
+.margin-section li{padding:2px 0;border-top:1px solid var(--line-soft);font-size:0.76rem;color:var(--ink-soft);font-family:"SFMono-Regular",Menlo,Consolas,monospace}
 .margin-section li:first-child{border-top:none}
 .margin-section .more{color:var(--muted);font-style:italic;font-family:inherit}
 .margin-section a{color:var(--accent-hot);text-decoration:none;border-bottom:1px dotted var(--accent-hot);font-family:inherit;word-break:break-word}
@@ -172,14 +180,14 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
 
   <div class="figure">
   <svg viewBox="0 0 740 218" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ingest pipeline flow">
-    <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1A2F3F"/></marker></defs>
+    <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" style="fill:var(--accent-deep,#1A2F3F)"/></marker></defs>
     <style>
-      .bx{fill:#fcfcfa;stroke:#1A2F3F;stroke-width:1.1}
-      .hot{stroke:#EC503A}
-      .lb{font:600 11px "SFMono-Regular",Menlo,Consolas,monospace;fill:#1A2F3F}
-      .sm{font:10px "SFMono-Regular",Menlo,Consolas,monospace;fill:#64625c}
-      .fl{stroke:#1A2F3F;stroke-width:1;fill:none;marker-end:url(#ar)}
-      .fl2{stroke:#EC503A;stroke-width:1;fill:none;marker-end:url(#ar);stroke-dasharray:4 3}
+      .bx{fill:var(--paper,#fcfcfa);stroke:var(--accent-deep,#1A2F3F);stroke-width:1.1}
+      .hot{stroke:var(--accent-hot,#EC503A)}
+      .lb{font:600 11px "SFMono-Regular",Menlo,Consolas,monospace;fill:var(--accent-deep,#1A2F3F)}
+      .sm{font:10px "SFMono-Regular",Menlo,Consolas,monospace;fill:var(--muted,#64625c)}
+      .fl{stroke:var(--accent-deep,#1A2F3F);stroke-width:1;fill:none;marker-end:url(#ar)}
+      .fl2{stroke:var(--accent-hot,#EC503A);stroke-width:1;fill:none;marker-end:url(#ar);stroke-dasharray:4 3}
     </style>
     <rect class="bx" x="8" y="32" width="74" height="34"/><text class="lb" x="20" y="52">file</text>
     <path class="fl" d="M82,49 L116,49"/>
@@ -211,13 +219,13 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
 
   <div class="figure">
   <svg viewBox="0 0 740 196" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="fan-out query flow">
-    <defs><marker id="ar2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1A2F3F"/></marker></defs>
+    <defs><marker id="ar2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" style="fill:var(--accent-deep,#1A2F3F)"/></marker></defs>
     <style>
-      .bx2{fill:#fcfcfa;stroke:#1A2F3F;stroke-width:1.1}
-      .hot2{stroke:#EC503A}
-      .lb2{font:600 11px "SFMono-Regular",Menlo,Consolas,monospace;fill:#1A2F3F}
-      .sm2{font:10px "SFMono-Regular",Menlo,Consolas,monospace;fill:#64625c}
-      .fl3{stroke:#1A2F3F;stroke-width:1;fill:none;marker-end:url(#ar2)}
+      .bx2{fill:var(--paper,#fcfcfa);stroke:var(--accent-deep,#1A2F3F);stroke-width:1.1}
+      .hot2{stroke:var(--accent-hot,#EC503A)}
+      .lb2{font:600 11px "SFMono-Regular",Menlo,Consolas,monospace;fill:var(--accent-deep,#1A2F3F)}
+      .sm2{font:10px "SFMono-Regular",Menlo,Consolas,monospace;fill:var(--muted,#64625c)}
+      .fl3{stroke:var(--accent-deep,#1A2F3F);stroke-width:1;fill:none;marker-end:url(#ar2)}
     </style>
     <rect class="bx2" x="8" y="74" width="118" height="48"/>
     <text class="lb2" x="20" y="92">acidcat query</text>
