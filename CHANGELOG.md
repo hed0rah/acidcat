@@ -5,6 +5,40 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.5.7] - 2026-06-10
+
+First slice of the format-internals work: a High-severity parser fix
+found by verifying the docs against primary sources, byte-level format
+documentation, and a new readelf-style inspect verb.
+
+### Fixed
+
+- **acid chunk misparse**: `acid_beats` was read from the unknown
+  float at offset 8 (0 in every spec-conformant file) instead of the
+  real `num_beats` at offset 12, and the meter fields were read as two
+  uint32s spanning the wrong bytes. Verified against libsndfile and
+  hex dumps of ACIDized packs from four vendors. The long-standing
+  "acid_beats is usually 0" behavior was this bug, and kind inference
+  never saw a real beat count. **Reindex libraries to refresh stored
+  `acid_beats` values.**
+
+### Added
+
+- `acidcat inspect FILE`: readelf-style structural dump. Chunk table
+  with offsets and summaries, decoded per-field breakdown for fmt
+  (incl. extensible), data, fact, acid, smpl, inst, cue, LIST and
+  bext, `--hex` for raw bytes next to each field, `-f json` for
+  machines, and lint warnings for spec violations (riff_size lies,
+  loop points past EOF, acid beat/duration drift, cue count lies,
+  fmt-after-data ordering).
+
+### Documentation
+
+- `docs/formats/riff_wav.md`: ELF/TCP-style byte-ruler diagrams for
+  the RIFF header, chunk envelope, fmt, acid, smpl header and loop
+  entries, cue entries, and inst, plus layout provenance notes for
+  the acid chunk.
+
 ## [0.5.6] - 2026-06-10
 
 Docs and repo hygiene release. No code changes; 263 tests unchanged.
