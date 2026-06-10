@@ -82,14 +82,13 @@ from 254 in 0.5.4.
 
 Audit-driven correctness, hardening, and PyPI prep release. 14 stacked
 commits closing all 26 actionable findings from the 2026-05-02
-codebase review (`docs/codebase_review_2026-05-02.md`). Test count
-grew from 232 to 254.
+codebase review. Test count grew from 232 to 254.
 
 ### Breaking
 
 - MCP tool `describe_sample` renamed to `set_sample_description`. The
   old name read like a getter but wrote the description column. Any
-  saved Claude session referencing the old name will break.
+  saved MCP client session referencing the old name will break.
 - MCP tool `discover_libraries` default flipped from `dry_run=false`
   to `dry_run=true`. A forgetful caller that omits the flag now gets
   a preview rather than a destructive registry mutation. Existing
@@ -173,14 +172,9 @@ grew from 232 to 254.
 
 ### Documentation
 
-- Added `docs/codebase_review_2026-05-02.md` with the full audit
-  report, verification addendum (F-03 / F-11 / F-19 withdrawn after
-  reading actual code), and per-finding fix-commit map.
 - Added `docs/codebase_explorer.html`: a self-contained LaTeX-style
   reference with margin cards and hover details for every module,
   MCP tool, and audit finding.
-- Added `HANDOVER.md` at the repo root for cold-start session
-  continuity.
 - `docs/architecture.md` rewritten for the v0.5 per-library + registry
   layout. Previously described the v0.4 single-DB model.
 
@@ -190,7 +184,7 @@ grew from 232 to 254.
   opens existing DBs without modification; annotation was correct.
 - **F-11** (claimed SMPL note 0 = phantom key on index path):
   `commands/index.py:877-880` already filtered via `if not smpl`.
-- **F-19** (claimed `infer_kind` mis-bins 1s loops): subagent misread
+- **F-19** (claimed `infer_kind` mis-bins 1s loops): review misread
   `or` as `and`.
 - **F-27** (claimed RIFF chunk padding bug): pos arithmetic at
   `riff.py:213-215` already adds 1 for odd `chunk_size`.
