@@ -8,9 +8,9 @@ once it leaves alpha.
 ## [0.5.5] - 2026-05-20
 
 Bug-hunt followup release. Closes all 8 findings from the 2026-05-11
-bug hunt (`BUG_HUNT_2026-05-11.md`) plus the related output-stream
-encoding cleanup surfaced in the 2026-05-19 broad review. 263 tests
-pass (8 new), up from 254 in 0.5.4.
+adversarial bug hunt plus the related output-stream encoding cleanup
+surfaced in the 2026-05-19 broad review. 263 tests pass (8 new), up
+from 254 in 0.5.4.
 
 ### Fixed
 
