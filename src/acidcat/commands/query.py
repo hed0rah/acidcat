@@ -8,6 +8,7 @@ location with --registry or the ACIDCAT_REGISTRY env var.
 """
 
 import os
+import sqlite3
 import sys
 
 from acidcat.core import index as idx
@@ -82,7 +83,11 @@ def run(args):
                   file=sys.stderr)
             return 1
 
-    rows = _fan_out(libs, args)
+    try:
+        rows = _fan_out(libs, args)
+    except idx.FTSQueryError as e:
+        print(f"acidcat query: {e}", file=sys.stderr)
+        return 1
     rows.sort(key=lambda r: r.get("path") or "")
     rows = rows[: args.limit]
 
@@ -140,11 +145,21 @@ def _fan_out(libs, args):
             _vlog(args, f"[query] {lib['label']} skipped: {e}")
             continue
         try:
-            rows = conn.execute(per_db_sql, params + [per_db_limit]).fetchall()
-        except Exception as e:
-            _vlog(args, f"[query] {lib['label']} query failed: {e}")
-            conn.close()
-            continue
+            try:
+                rows = conn.execute(
+                    per_db_sql, params + [per_db_limit]
+                ).fetchall()
+            except sqlite3.OperationalError as e:
+                # FTS5 metacharacters in --text fail every library
+                # identically. Surface once with the shared error
+                # message so the user sees the actual problem instead
+                # of a silent "(no matches)".
+                if args.text and "fts5" in str(e).lower():
+                    raise idx.FTSQueryError(
+                        idx.fts5_syntax_message(args.text)
+                    ) from e
+                _vlog(args, f"[query] {lib['label']} query failed: {e}")
+                continue
         finally:
             try:
                 conn.close()

@@ -1,5 +1,7 @@
 """Tests for filename/path-based key and BPM parsing."""
 
+import pytest
+
 from acidcat.core.detect import (
     parse_bare_key_token,
     parse_key_from_path,
@@ -63,6 +65,59 @@ def test_path_suffix_style_matches_existing():
 def test_path_no_key_returns_none():
     assert parse_key_from_path("/loops/Analog_Break_fx.wav") is None
     assert parse_key_from_path("/loops/kick.wav") is None
+
+
+class TestLibrosaKeyDetection:
+    """B-4: `estimate_librosa_metadata` derives the detected key from
+    `np.argmax(chroma_median)`, which only returns the strongest pitch
+    class. That tells us nothing about major vs minor. The rest of the
+    system (camelot.parse_key, find_compatible) treats the bare letter
+    as major by convention, so a file actually in A minor ends up
+    routed to A major neighbors.
+
+    Short-term fix: return None for detected_key. The caller's
+    filename-based key parser (which carries mode explicitly) wins
+    instead of a wrong-mode guess.
+    """
+
+    def test_chroma_peak_at_a_does_not_emit_a(self, tmp_path, monkeypatch):
+        """Mock the librosa pipeline so chroma_cqt returns a vector that
+        peaks at pitch class A (index 9). Assert that detected_key is
+        None (not "A"), so the caller can fall back to filename parsing.
+        """
+        librosa = pytest.importorskip("librosa")
+        np = pytest.importorskip("numpy")
+
+        # build a chroma matrix that median-aggregates to a peak at A
+        chroma = np.zeros((12, 8))
+        chroma[9, :] = 1.0  # A
+
+        # 1 second of zeros at 22050 Hz is enough to bypass the
+        # "len(y) < 256" early-return without doing any real DSP
+        fake_y = np.zeros(22050, dtype=np.float32)
+        fake_sr = 22050
+
+        monkeypatch.setattr(librosa, "load",
+                             lambda *_a, **_k: (fake_y, fake_sr))
+        monkeypatch.setattr(librosa.feature, "chroma_cqt",
+                             lambda *_a, **_k: chroma)
+        # bypass tempo path: return a deterministic tempo so we focus
+        # the assertion on the key path
+        monkeypatch.setattr(librosa.onset, "onset_strength",
+                             lambda *_a, **_k: np.ones(10))
+        monkeypatch.setattr(librosa.beat, "tempo",
+                             lambda *_a, **_k: np.array([120.0]))
+
+        from acidcat.core.detect import estimate_librosa_metadata
+        # path with no key hint, so filename parser returns None and we
+        # see only the chroma-derived detected_key
+        result = estimate_librosa_metadata(
+            str(tmp_path / "anonymous_loop.wav")
+        )
+        assert result.get("detected_key") is None
+        # estimated_key should also be None (filename had none, chroma
+        # returned none)
+        assert result.get("estimated_key") is None
 
 
 def test_parse_bpm_existing():
