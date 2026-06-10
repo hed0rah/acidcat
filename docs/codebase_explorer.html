@@ -1,457 +1,574 @@
 <!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>acidcat codebase explorer / v0.5.3</title>
-<meta name="description" content="Source-level reference for the acidcat audio metadata library. Per-library SQLite indexes, global registry, MCP server. Hover any underlined term to inspect file paths, line numbers, code snippets, and audit findings.">
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>acidcat codebase explorer / v0.5.6</title>
+<meta name="description" content="Source-level reference for acidcat: format parsers, DSP internals, per-library SQLite storage, and the MCP server surface." />
+<meta property="og:title" content="acidcat codebase explorer / v0.5.6" />
+<meta property="og:type" content="article" />
 <style>
-:root{--paper:#fcfcfa;--ink:#151515;--muted:#64625c;--line:#d8d5ce;--soft:rgba(0,0,0,0.012);--bigstone:#1A2F3F;--flamingo:#EC503A;--geraldine:#F78F82;--gd-soft:rgba(247,143,130,0.10);--fl-soft:rgba(236,80,58,0.08);--bs-soft:rgba(26,47,63,0.05);--ex-bg:#faf8f3;--crit:#b3261e;--high:#cc6f00;--med:#7a6a00;--low:#5a6a5a}
+:root{
+  --paper:#fcfcfa;
+  --ink:#151515;
+  --muted:#64625c;
+  --line:#d8d5ce;
+  --soft:rgba(0,0,0,0.012);
+  --accent-deep:#1A2F3F;
+  --accent-hot:#EC503A;
+  --accent-warm:#F78F82;
+  --accent-warm-soft:rgba(247,143,130,0.10);
+  --accent-hot-soft:rgba(236,80,58,0.08);
+  --accent-deep-soft:rgba(26,47,63,0.05);
+  --code-bg:#1A2F3F;
+  --code-fg:#cbd2da;
+  --ex-bg:#faf8f3;
+  --pin-bg:rgba(236,80,58,0.14);
+  --ink-soft:#262626;
+  --line-soft:rgba(216,213,206,0.7);
+  --code-inline-bg:rgba(217,215,209,0.30);
+  --code-kw:#f5b06b;
+  --code-hdr:#5cc0b0;
+  --code-cm:#7d8a99;
+  --code-num:#e0b060;
+  --code-str:#a8d39a;
+}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{margin:0;color:var(--ink);background:var(--paper);font-family:"Iowan Old Style","Palatino Linotype","Book Antiqua",Georgia,serif;line-height:1.45}
-.page{max-width:1320px;margin:0 auto;padding:24px 16px 44px}
-.sheet{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:26px;align-items:start}
-.paper{min-width:0;border-top:2px solid var(--bigstone);border-bottom:1px solid var(--line);padding:20px 0 24px}
-.eyebrow{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--flamingo);font-weight:600}
+.page{max-width:1240px;margin:0 auto;padding:24px 16px 44px}
+.sheet{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:26px;align-items:start}
+.paper{min-width:0;border-top:2px solid var(--accent-deep);border-bottom:1px solid var(--line);padding:20px 0 24px}
+.eyebrow{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:0.14em;color:var(--accent-hot);font-weight:600}
 h1,h2,h3{margin:0;font-weight:600;line-height:1.2}
-h1{font-size:clamp(1.55rem,2.1vw,1.9rem);letter-spacing:-0.02em;margin-bottom:6px;color:var(--bigstone)}
-h2{font-size:0.92rem;margin-top:20px;margin-bottom:6px;padding-top:10px;border-top:1px solid var(--line);color:var(--bigstone);text-transform:uppercase;letter-spacing:0.05em}
+h1{font-size:clamp(1.55rem,2.1vw,1.9rem);letter-spacing:-0.02em;margin-bottom:6px;color:var(--accent-deep)}
+h2{font-size:0.92rem;margin-top:20px;margin-bottom:6px;padding-top:10px;border-top:1px solid var(--line);color:var(--accent-deep);text-transform:uppercase;letter-spacing:0.05em}
 h3{font-size:0.86rem;margin:8px 0 4px;color:var(--ink)}
 p{margin:0 0 6px;font-size:0.86rem}
-code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0.85em;background:rgba(217,215,209,0.30);padding:0.04rem 0.22rem;border-radius:1px}
+.lede{font-size:0.9rem;color:var(--ink-soft);margin:6px 0 14px}
+code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0.85em;background:var(--code-inline-bg);padding:0.04rem 0.22rem;border-radius:1px}
 .chip{display:inline-block;margin:0 3px 3px 0;padding:1px 6px;border:1px solid var(--line);border-radius:2px;font-size:0.69rem;letter-spacing:0.02em;color:var(--muted)}
-.chip.flamingo{border-color:var(--flamingo);color:var(--flamingo);background:var(--fl-soft)}
-.chip.crit{border-color:var(--crit);color:var(--crit);background:rgba(179,38,30,0.06)}
-.chip.high{border-color:var(--high);color:var(--high);background:rgba(204,111,0,0.06)}
-.chip.med{border-color:var(--med);color:var(--med);background:rgba(122,106,0,0.06)}
-.chip.low{border-color:var(--low);color:var(--low);background:rgba(90,106,90,0.06)}
-.term{cursor:pointer;border-bottom:1px dotted var(--bigstone);color:var(--bigstone);transition:.1s;padding:0 1px;font-weight:500}
-.term:hover,.term:focus-visible,.term.is-active{background:var(--gd-soft);color:var(--flamingo);border-bottom-color:var(--flamingo);outline:none}
-.term.crit{border-bottom-color:var(--crit);color:var(--crit)}
-.term.high{border-bottom-color:var(--high);color:var(--high)}
-.term.med{border-bottom-color:var(--med);color:var(--med)}
-.term.low{border-bottom-color:var(--low);color:var(--low)}
-.lede{font-size:0.9rem;color:#242424;margin:6px 0 14px}
-.spec-line{display:inline-block;padding:2px 8px;border:1px solid var(--bigstone);background:var(--bs-soft);font-family:"SFMono-Regular",monospace;font-size:0.74rem;color:var(--bigstone);margin-right:6px;letter-spacing:0.03em}
+.spec-line{display:inline-block;padding:2px 8px;border:1px solid var(--accent-deep);background:var(--accent-deep-soft);font-family:"SFMono-Regular",monospace;font-size:0.74rem;color:var(--accent-deep);margin-right:6px;letter-spacing:0.03em}
+.term{cursor:pointer;border-bottom:1px dotted var(--accent-deep);color:var(--accent-deep);transition:.1s;padding:0 1px;font-weight:500}
+.term:hover,.term:focus-visible,.term.is-active{background:var(--accent-warm-soft);color:var(--accent-hot);border-bottom-color:var(--accent-hot);outline:none}
+.term.is-pinned{background:var(--pin-bg);color:var(--accent-hot);border-bottom-style:solid}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:6px;margin:10px 0 14px}
 .stat{padding:8px 10px;border:1px solid var(--line);background:var(--paper)}
-.stat .num{font-family:"Iowan Old Style",Georgia,serif;font-size:1.45rem;font-weight:600;color:var(--bigstone);line-height:1.1}
+.stat .num{font-family:"Iowan Old Style",Georgia,serif;font-size:1.45rem;font-weight:600;color:var(--accent-deep);line-height:1.1}
 .stat .lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px}
-.path-bar{margin:10px 0 16px;border:1px solid var(--line);background:var(--ex-bg);padding:8px 12px}
-.path-bar .path-label{font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);margin-bottom:6px}
-.path-bar .path-buttons{display:flex;flex-wrap:wrap;gap:6px}
-.path-btn{font-family:inherit;font-size:0.78rem;padding:4px 10px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;border-radius:2px;transition:.15s}
-.path-btn:hover{border-color:var(--flamingo);color:var(--flamingo)}
-.path-btn[data-active="true"]{background:var(--bigstone);color:var(--paper);border-color:var(--bigstone)}
-.path-btn .verdict{margin-left:5px;font-size:0.68rem;color:var(--muted);font-style:italic}
-.path-btn[data-active="true"] .verdict{color:rgba(252,252,250,0.7)}
-[data-path]{transition:opacity .2s,background .2s;margin:5px 0 6px}
-[data-path].path-faded{opacity:0.35}
-[data-path]:not(.path-faded){border-left:2px solid var(--geraldine);padding-left:10px;margin-left:-12px;background:var(--gd-soft)}
-[data-path="all"]:not(.path-faded){border-left:none;background:transparent;margin-left:0;padding-left:0}
-[data-path] p{font-size:0.84rem;margin:0;line-height:1.5}
 .compare{width:100%;border-collapse:collapse;font-size:0.82rem;margin:6px 0 8px}
 .compare th,.compare td{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}
-.compare th{background:var(--bs-soft);color:var(--bigstone);font-weight:600;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em}
-.compare td.good{color:var(--bigstone)}.compare td.bad{color:var(--flamingo)}.compare td.note{color:var(--muted);font-style:italic;font-size:0.78rem}
+.compare th{background:var(--accent-deep-soft);color:var(--accent-deep);font-weight:600;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em}
+.compare td.note{color:var(--muted);font-style:italic;font-size:0.78rem}
 .compare td code{font-size:0.78em}
-.comp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:6px;margin:6px 0 10px}
-.comp{padding:7px 10px;border:1px solid var(--line);background:var(--paper);transition:.15s}
-.comp:hover{border-color:var(--flamingo);background:var(--fl-soft)}
-.comp .name{font-size:0.88rem;font-weight:600;color:var(--bigstone);margin-bottom:1px}
-.comp .role{font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-family:"SFMono-Regular",monospace}
-.comp .desc{font-size:0.76rem;margin-top:3px;color:#2a2a2a;line-height:1.4}
 .bul{list-style:none;padding:0;margin:4px 0 8px}
-.bul li{padding:2px 0 2px 16px;font-size:0.84rem;position:relative;line-height:1.5;color:#222}
-.bul li::before{content:"\00b7";position:absolute;left:5px;color:var(--flamingo);font-weight:700;font-size:1.1rem;line-height:1}
-.bul li strong{color:var(--bigstone);font-weight:600}
+.bul li{padding:2px 0 2px 16px;font-size:0.84rem;position:relative;line-height:1.5;color:var(--ink-soft)}
+.bul li::before{content:"\00b7";position:absolute;left:5px;color:var(--accent-hot);font-weight:700;font-size:1.1rem;line-height:1}
+.bul li strong{color:var(--accent-deep);font-weight:600}
 .bul li code{font-size:0.82em}
-.phase-list{margin:5px 0 10px;padding:0;list-style:none;counter-reset:phase}
-.phase-list li{counter-increment:phase;padding:5px 10px 5px 34px;border-left:1px solid var(--line);position:relative;margin-bottom:2px;background:rgba(0,0,0,0.012);font-size:0.84rem;line-height:1.5}
-.phase-list li::before{content:"S" counter(phase);position:absolute;left:5px;top:5px;font-family:"SFMono-Regular",monospace;font-size:0.70rem;color:var(--flamingo);font-weight:700;letter-spacing:0.05em}
-.phase-list li strong{color:var(--bigstone)}
-.phase-list li .meta{font-size:0.70rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-left:6px;font-style:italic}
-.wireblock{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.75rem;background:var(--bigstone);color:#cbd2da;padding:10px 12px;margin:6px 0 10px;line-height:1.55;overflow-x:auto;white-space:pre;border-left:3px solid var(--flamingo)}
-.wireblock .kw{color:#f5b06b}.wireblock .hdr{color:#5cc0b0}.wireblock .cm{color:#7d8a99;font-style:italic}.wireblock .num{color:#e0b060}.wireblock .str{color:#a8c995}
+.wireblock{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.75rem;background:var(--code-bg);color:var(--code-fg);padding:10px 12px;margin:6px 0 10px;line-height:1.55;overflow-x:auto;white-space:pre;border-left:3px solid var(--accent-hot)}
+.wireblock .kw{color:var(--code-kw)}
+.wireblock .hdr{color:var(--code-hdr)}
+.wireblock .cm{color:var(--code-cm);font-style:italic}
+.wireblock .num{color:var(--code-num)}
+.wireblock .str{color:var(--code-str)}
+.tree{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.75rem;background:var(--ex-bg);border:1px solid var(--line);padding:10px 14px;margin:6px 0 10px;line-height:1.7;overflow-x:auto;white-space:pre;color:var(--ink-soft)}
+.tree .dim{color:var(--muted)}
+.figure{margin:8px 0 12px;border:1px solid var(--line);background:var(--ex-bg);padding:10px}
+.figure svg{display:block;max-width:100%;height:auto;margin:0 auto}
+.figure .cap{font-size:0.74rem;color:var(--muted);text-align:center;margin-top:6px;font-style:italic;letter-spacing:0.02em}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0 0}
+.tab-btn{font-family:"SFMono-Regular",monospace;font-size:0.68rem;padding:2px 9px;border:1px solid var(--line);background:var(--paper);color:var(--muted);cursor:pointer;border-radius:2px;text-transform:uppercase;letter-spacing:0.06em;transition:.15s}
+.tab-btn:hover{border-color:var(--accent-hot);color:var(--accent-hot)}
+.tab-btn[data-active="true"]{background:var(--accent-deep);color:var(--paper);border-color:var(--accent-deep)}
 .refs{font-size:0.78rem;line-height:1.55;margin:6px 0}
 .refs .ref-row{display:grid;grid-template-columns:130px 1fr;gap:10px;padding:3px 0;border-bottom:1px dashed var(--line)}
 .refs .ref-row:last-child{border-bottom:none}
-.refs .ref-row .key{font-family:"SFMono-Regular",monospace;font-size:0.72rem;color:var(--bigstone);font-weight:600;text-transform:uppercase;letter-spacing:0.03em}
-.refs .ref-row .val{font-family:"SFMono-Regular",monospace;font-size:0.74rem}
-.refs .ref-row .val .desc{color:var(--muted);font-style:italic;font-size:0.74rem;margin-left:6px;font-family:"Iowan Old Style",Georgia,serif}
-.margin{position:sticky;top:18px;border-top:2px solid var(--bigstone);padding-top:10px;font-size:0.82rem;color:var(--muted)}
-.margin-card{border:1px solid var(--line);border-left:3px solid var(--flamingo);background:rgba(0,0,0,0.012);padding:12px 12px 10px;min-height:480px;max-height:calc(100vh - 60px);overflow-y:auto}
-.margin-card.crit{border-left-color:var(--crit)}
-.margin-card.high{border-left-color:var(--high)}
-.margin-card.med{border-left-color:var(--med)}
-.margin-card.low{border-left-color:var(--low)}
-.margin h3{font-size:0.92rem;margin-bottom:6px;color:var(--bigstone)}
+.refs .ref-row .key{font-family:"SFMono-Regular",monospace;font-size:0.72rem;color:var(--accent-deep);font-weight:600;text-transform:uppercase;letter-spacing:0.03em}
+.refs .ref-row .val a{color:var(--accent-hot);text-decoration:none;border-bottom:1px dotted var(--accent-hot)}
+.refs .ref-row .val a:hover{background:var(--accent-hot-soft)}
+.refs .ref-row .val .desc{color:var(--muted);font-style:italic;font-size:0.74rem;margin-left:6px}
+.repo-link{display:inline-block;margin-top:4px;padding:3px 8px;border:1px solid var(--accent-deep);background:var(--paper);color:var(--accent-deep);text-decoration:none;font-size:0.72rem;letter-spacing:0.04em;font-family:"SFMono-Regular",monospace}
+.repo-link:hover{background:var(--accent-deep);color:var(--paper)}
+.margin{position:sticky;top:18px;border-top:2px solid var(--accent-deep);padding-top:10px;font-size:0.82rem;color:var(--muted)}
+.margin-card{border:1px solid var(--line);border-left:3px solid var(--accent-hot);background:rgba(0,0,0,0.012);padding:12px 12px 10px;min-height:340px;transition:border-left-color .15s,background .15s}
+.margin-card.is-pinned{border-left-color:var(--accent-deep);background:var(--accent-deep-soft)}
+.margin h3{font-size:0.9rem;margin-bottom:6px;color:var(--accent-deep)}
 .margin p{margin-bottom:7px;font-size:0.8rem}
-.margin-meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px;margin:7px 0 8px;padding:7px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:#2d2d2a}
+.margin-code{display:inline-block;margin-top:2px;margin-bottom:6px;color:var(--accent-hot)}
+.margin-snippet{display:none;font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.67rem;background:var(--code-bg);color:var(--code-fg);padding:8px 9px;margin:8px 0 2px;white-space:pre;overflow-x:auto;border-left:2px solid var(--accent-hot);line-height:1.5}
+.margin-meta{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px;margin:7px 0 8px;padding:7px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--ink-soft)}
 .margin-meta strong{display:block;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:1px}
-.margin-meta span{font-size:0.78rem;font-family:"SFMono-Regular",monospace}
-.margin-code{display:inline-block;margin-top:2px;margin-bottom:6px;color:var(--flamingo);font-family:"SFMono-Regular",monospace;font-size:0.78rem}
+.margin-meta span{font-size:0.8rem}
 .margin-section{margin-top:10px}
 .margin-section .label{font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:3px}
 .margin-section ul{margin:0;padding:0;list-style:none}
-.margin-section li{padding:3px 0;border-top:1px solid rgba(216,213,206,0.7);font-size:0.74rem;color:#2a2a2a;font-family:"Iowan Old Style",Georgia,serif;line-height:1.45}
+.margin-section li{padding:2px 0;border-top:1px solid var(--line-soft);font-size:0.76rem;color:var(--ink-soft);font-family:"SFMono-Regular",Menlo,Consolas,monospace}
 .margin-section li:first-child{border-top:none}
 .margin-section .more{color:var(--muted);font-style:italic;font-family:inherit}
-.margin-snippet{display:block;font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.71rem;background:var(--bigstone);color:#cbd2da;padding:8px 10px;margin:4px 0 0;line-height:1.45;white-space:pre;overflow-x:auto;border-left:2px solid var(--flamingo)}
-.margin-snippet.crit{border-left-color:var(--crit)}
-.margin-snippet.high{border-left-color:var(--high)}
-.margin-hint{font-size:0.72rem;color:var(--muted);margin-top:12px;padding-top:7px;border-top:1px solid var(--line)}
+.margin-section a{color:var(--accent-hot);text-decoration:none;border-bottom:1px dotted var(--accent-hot);font-family:inherit;word-break:break-word}
+.margin-section a:hover{background:var(--accent-hot-soft);color:var(--accent-deep)}
+.margin-section li.link-item{white-space:normal;font-family:inherit;padding:4px 0}
+.margin-section li.link-item .src{display:block;font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-top:1px;font-family:"SFMono-Regular",monospace}
+.margin-pin-bar{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:7px;border-top:1px solid var(--line)}
+.margin-hint{font-size:0.72rem;color:var(--muted)}
 .margin-hint kbd{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.7rem;padding:0 4px;border:1px solid var(--line);border-radius:2px;background:var(--soft)}
+.margin-unpin{font-family:inherit;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;padding:2px 7px;border:1px solid var(--accent-hot);background:transparent;color:var(--accent-hot);cursor:pointer;border-radius:2px;display:none}
+.margin-card.is-pinned .margin-status{color:var(--accent-hot);font-weight:600;text-transform:uppercase;letter-spacing:0.08em;font-size:9px}
 .footer{margin-top:20px;padding-top:10px;border-top:1px solid var(--line);color:var(--muted);font-size:0.76rem}
-.footer .signoff{color:var(--bigstone);font-weight:600;letter-spacing:0.05em}
-.tree{font-family:"SFMono-Regular",Menlo,Consolas,monospace;font-size:0.78rem;background:var(--ex-bg);border:1px solid var(--line);padding:12px 14px;margin:6px 0 10px;line-height:1.55;color:#2a2a2a;white-space:pre;overflow-x:auto}
-.tree .dir{color:var(--bigstone);font-weight:600}
-.tree .anno{color:var(--muted);font-style:italic;font-family:"Iowan Old Style",Georgia,serif;font-size:0.78em}
-.findings-table{width:100%;border-collapse:collapse;font-size:0.78rem;margin:6px 0}
-.findings-table th,.findings-table td{border:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
-.findings-table th{background:var(--bs-soft);color:var(--bigstone);font-weight:600;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em}
-.findings-table td.id{font-family:"SFMono-Regular",monospace;font-size:0.74rem;width:50px}
-.findings-table td.sev{font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;width:60px}
-.findings-table td.sev.crit{color:var(--crit)}
-.findings-table td.sev.high{color:var(--high)}
-.findings-table td.sev.med{color:var(--med)}
-.findings-table td.sev.low{color:var(--low)}
-.findings-table td.loc{font-family:"SFMono-Regular",monospace;font-size:0.72rem;color:var(--bigstone);white-space:nowrap}
-@media (max-width:1100px){.sheet{grid-template-columns:1fr}.margin{position:static;order:2;border-top:1px solid var(--line)}.margin-card{max-height:none}}
-@media (max-width:980px){.comp-grid,.stat-grid{grid-template-columns:1fr}.compare{font-size:0.76rem}.refs .ref-row{grid-template-columns:100px 1fr}}
-@media print{body{background:#fff}.path-bar,.margin,.term{cursor:default}.term{border-bottom:none;color:var(--bigstone)!important;background:transparent!important}}
-</style></head><body><div class="page"><div class="sheet">
+.footer .signoff{color:var(--accent-deep);font-weight:600;letter-spacing:0.05em}
+@media (max-width:980px){
+  .sheet{grid-template-columns:1fr}
+  .margin{position:static;order:2;border-top:1px solid var(--line)}
+  .stat-grid{grid-template-columns:1fr 1fr}
+  .compare{font-size:0.76rem}
+  .refs .ref-row{grid-template-columns:100px 1fr}
+}
+@media print{
+  body{background:#fff}
+  .margin,.tabs{display:none}
+  .term{border-bottom:none;color:var(--accent-deep)!important;background:transparent!important}
+}
+</style>
+</head>
+<body>
+<div class="page"><div class="sheet">
+
 <article class="paper">
-<p class="eyebrow">Codebase Explorer / acidcat audio metadata library</p>
-<h1>acidcat v0.5.3 source &amp; audit reference</h1>
-<p class="lede"><span class="spec-line">v0.5.3</span><span class="spec-line">232 tests</span><span class="spec-line">MCP 19 tools</span><span class="spec-line">SQLite WAL + FTS5</span> Per-library SQLite indexes with a global registry. CLI plus stdio MCP server. Camelot-wheel harmonic mixing, optional librosa analysis. Hover any underlined term for the file path, line numbers, an inline source snippet, and any audit findings tied to that location.</p>
-<div class="stat-grid">
-<div class="stat"><div class="num">19</div><div class="lbl">MCP tools exposed</div></div>
-<div class="stat"><div class="num">254</div><div class="lbl">passing tests</div></div>
-<div class="stat"><div class="num">8</div><div class="lbl">audio formats parsed</div></div>
-<div class="stat"><div class="num">26 / 26</div><div class="lbl">findings addressed</div></div>
-</div>
-<div class="path-bar">
-<div class="path-label">Filter sections by concern</div>
-<div class="path-buttons">
-<button class="path-btn" data-path-btn="all" data-active="true">All <span class="verdict">default</span></button>
-<button class="path-btn" data-path-btn="storage">Storage &amp; registry <span class="verdict">SQL + paths</span></button>
-<button class="path-btn" data-path-btn="formats">Audio formats <span class="verdict">parsers</span></button>
-<button class="path-btn" data-path-btn="mcp">MCP surface <span class="verdict">19 tools</span></button>
-<button class="path-btn" data-path-btn="findings">Audit findings <span class="verdict">29 entries</span></button>
-</div>
-</div>
+  <p class="eyebrow">Engineering Reference / acidcat audio metadata library</p>
+  <h1>acidcat: format parsing, audio analysis, and a queryable sample index</h1>
+  <p class="lede">
+    <span class="spec-line">v0.5.6</span>
+    <span class="spec-line">python &gt;= 3.9</span>
+    <span class="spec-line">sqlite WAL + FTS5</span>
+    A command-line metadata explorer for audio sample libraries, in the spirit of exiftool. Parses WAV, AIFF, MIDI, Serum presets, and tagged formats at the byte level; estimates BPM and key with librosa when metadata is missing; indexes everything into per-library SQLite databases queryable from the CLI or from an LLM through a 19-tool MCP server.
+    <a class="repo-link" href="https://github.com/hed0rah/acidcat" target="_blank" rel="noopener">view on github</a>
+  </p>
 
-<h2>Source tree</h2>
-<div class="tree" data-path="all">src/acidcat/
-<span class="dir">  core/</span>
-    <span class="term" data-term="paths-py">paths.py</span>           <span class="anno">normalize, hash, central + in-tree DB paths</span>
-    <span class="term" data-term="index-py">index.py</span>           <span class="anno">per-library SQLite schema + upserts</span>
-    <span class="term" data-term="registry-py">registry.py</span>        <span class="anno">global registry, no-overlap guard</span>
-    <span class="term" data-term="riff-py">riff.py</span>            <span class="anno">WAV/RIFF parser (fmt, smpl, LIST chunks)</span>
-    <span class="term" data-term="aiff-py">aiff.py</span>            <span class="anno">AIFF + AIFC parser (FORM/COMM/INST)</span>
-    <span class="term" data-term="midi-py">midi.py</span>            <span class="anno">SMF parser, tempo + time signature</span>
-    <span class="term" data-term="serum-py">serum.py</span>           <span class="anno">Xfer Serum preset (.fxp) parser</span>
-    <span class="term" data-term="tagged-py">tagged.py</span>          <span class="anno">mutagen wrapper (MP3/FLAC/Ogg/Opus/M4A)</span>
-    <span class="term" data-term="detect-py">detect.py</span>          <span class="anno">filename heuristics: bpm, key, tags</span>
-    <span class="term" data-term="features-py">features.py</span>        <span class="anno">librosa-backed spectral features</span>
-    <span class="term" data-term="camelot-py">camelot.py</span>         <span class="anno">harmonic-mixing wheel, key compatibility</span>
-<span class="dir">  commands/</span>
-    <span class="term" data-term="cmd-index">index.py</span>           <span class="anno">CLI for index, --discover, --refresh-stats</span>
-    <span class="term" data-term="cmd-query">query.py</span>           <span class="anno">CLI fan-out query across libraries</span>
-    info.py            <span class="anno">single-file detail view</span>
-    chunks.py          <span class="anno">RIFF/AIFF chunk dump</span>
-    survey.py          <span class="anno">batch tree summary</span>
-    similar.py         <span class="anno">cosine-similarity search</span>
-    detect.py          <span class="anno">filename detection inspector</span>
-    dump.py            <span class="anno">DB row dump</span>
-    features.py        <span class="anno">feature extract CLI</span>
-    scan.py            <span class="anno">scan a directory without indexing</span>
-    search.py          <span class="anno">simple text search</span>
-  <span class="term" data-term="mcp-server">mcp_server.py</span>      <span class="anno">stdio MCP server, 19 tools (~1300 LOC)</span>
-  __init__.py
-  __main__.py</div>
+  <div class="stat-grid">
+    <div class="stat"><div class="num">11</div><div class="lbl">CLI verbs</div></div>
+    <div class="stat"><div class="num">19</div><div class="lbl">MCP tools</div></div>
+    <div class="stat"><div class="num">8</div><div class="lbl">formats parsed</div></div>
+    <div class="stat"><div class="num">263</div><div class="lbl">tests passing</div></div>
+  </div>
 
-<h2>Architecture</h2>
-<div class="comp-grid">
-<div class="comp"><span class="term" data-term="per-lib-db"><span class="name">Per-library DB</span></span><div class="role">SQLite + WAL + FTS5</div><div class="desc">One DB per registered directory. Schema 1: <code>samples / scan_roots / tags / descriptions / features / samples_fts</code>.</div></div>
-<div class="comp"><span class="term" data-term="registry"><span class="name">Global registry</span></span><div class="role">~/.acidcat/registry.db</div><div class="desc">Single SQLite file listing every library plus cached counts and last-indexed timestamps.</div></div>
-<div class="comp"><span class="term" data-term="fanout"><span class="name">Fan-out query</span></span><div class="role">read across all libs</div><div class="desc">Open every registered DB, run the same WHERE on each, dedup by <code>path</code>, sort, apply final LIMIT.</div></div>
-<div class="comp"><span class="term" data-term="prefix-route"><span class="name">Longest-prefix route</span></span><div class="role">writes target one lib</div><div class="desc"><code>find_library_for_path</code> picks the most specific registered root containing a given sample path.</div></div>
-<div class="comp"><span class="term" data-term="cost-prefix"><span class="name">MCP cost prefix</span></span><div class="role">Fast / SLOW / VERY SLOW</div><div class="desc">Tool descriptions lead with a budget prefix the LLM uses for ranking. <em>Destructive</em> prefix not yet wired (see <span class="term high" data-term="F-17">F-17</span>).</div></div>
-<div class="comp"><span class="term" data-term="camelot"><span class="name">Camelot wheel</span></span><div class="role">key compatibility</div><div class="desc">Maps musical keys to the 1A-12B / 1B-12B wheel; <code>compatible_keys</code> returns the wheel-adjacent set used by <code>find_compatible</code>.</div></div>
-</div>
+  <h2>Source tree</h2>
+  <div class="tree">src/acidcat/
+  <span class="term" data-term="cli-py">cli.py</span>                 <span class="dim">argparse + bare-path auto-dispatch</span>
+  __main__.py            <span class="dim">python -m acidcat entrypoint</span>
+  <span class="term" data-term="mcp-server">mcp_server.py</span>          <span class="dim">stdio MCP server, 19 tools, library fan-out</span>
+  commands/              <span class="dim">one module per verb, register/run pattern</span>
+    info scan chunks survey detect features
+    similar search dump <span class="term" data-term="cmd-index">index</span> <span class="term" data-term="cmd-query">query</span>
+  core/
+    <span class="term" data-term="riff-py">riff.py</span>              <span class="dim">RIFF/WAVE chunk walker, stdlib only</span>
+    <span class="term" data-term="aiff-py">aiff.py</span>              <span class="dim">AIFF/AIFC big-endian parser, 80-bit floats</span>
+    <span class="term" data-term="midi-py">midi.py</span>              <span class="dim">SMF parser: tempo, key sig, note stats</span>
+    <span class="term" data-term="serum-py">serum.py</span>             <span class="dim">Xfer Serum preset JSON block</span>
+    <span class="term" data-term="tagged-py">tagged.py</span>            <span class="dim">mutagen wrapper: mp3 / flac / ogg / m4a</span>
+    <span class="term" data-term="detect-py">detect.py</span>            <span class="dim">BPM + key: filename heuristics + librosa</span>
+    <span class="term" data-term="features-py">features.py</span>          <span class="dim">51-dim librosa feature extractor</span>
+    <span class="term" data-term="camelot-py">camelot.py</span>           <span class="dim">harmonic-mixing key wheel</span>
+    <span class="term" data-term="index-py">index.py</span>             <span class="dim">per-library SQLite schema, upserts, FTS5</span>
+    <span class="term" data-term="registry-py">registry.py</span>          <span class="dim">global library registry + overlap guard</span>
+    <span class="term" data-term="paths-py">paths.py</span>             <span class="dim">central vs in-tree DB layout, label hashing</span>
+    formats.py           <span class="dim">table / json / csv output dispatch</span>
+  util/                  <span class="dim">midi note names, csv, stdin buffer, deps gate</span></div>
 
-<h2>Storage paths</h2>
-<div class="wireblock"><span class="cm"># central default (no --in-tree)</span>
+  <h2>Data flow</h2>
+  <p>Everything acidcat does is one of three flows: <strong>ingest</strong> (parse files into a database), <strong>analyze</strong> (compute what metadata does not say), and <strong>query</strong> (fan out across every registered library). The diagrams below trace each one through the modules above.</p>
+
+  <div class="figure">
+  <svg viewBox="0 0 740 218" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ingest pipeline flow">
+    <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" style="fill:var(--accent-deep,#1A2F3F)"/></marker></defs>
+    <style>
+      .bx{fill:var(--paper,#fcfcfa);stroke:var(--accent-deep,#1A2F3F);stroke-width:1.1}
+      .hot{stroke:var(--accent-hot,#EC503A)}
+      .lb{font:600 11px "SFMono-Regular",Menlo,Consolas,monospace;fill:var(--accent-deep,#1A2F3F)}
+      .sm{font:10px "SFMono-Regular",Menlo,Consolas,monospace;fill:var(--muted,#64625c)}
+      .fl{stroke:var(--accent-deep,#1A2F3F);stroke-width:1;fill:none;marker-end:url(#ar)}
+      .fl2{stroke:var(--accent-hot,#EC503A);stroke-width:1;fill:none;marker-end:url(#ar);stroke-dasharray:4 3}
+    </style>
+    <rect class="bx" x="8" y="32" width="74" height="34"/><text class="lb" x="20" y="52">file</text>
+    <path class="fl" d="M82,49 L116,49"/>
+    <rect class="bx" x="118" y="32" width="104" height="34"/><text class="lb" x="128" y="47">magic-byte</text><text class="sm" x="128" y="59">sniff, then ext</text>
+    <path class="fl" d="M222,49 L256,49"/>
+    <rect class="bx" x="258" y="14" width="142" height="70"/>
+    <text class="lb" x="270" y="30">format parser</text>
+    <text class="sm" x="270" y="44">riff / aiff / midi</text>
+    <text class="sm" x="270" y="56">serum / tagged</text>
+    <text class="sm" x="270" y="76">struct.unpack land</text>
+    <path class="fl" d="M400,49 L434,49"/>
+    <rect class="bx" x="436" y="32" width="92" height="34"/><text class="lb" x="448" y="47">row dict</text><text class="sm" x="448" y="59">21 columns</text>
+    <path class="fl" d="M528,49 L562,49"/>
+    <rect class="bx" x="564" y="26" width="168" height="46"/>
+    <text class="lb" x="576" y="44">upsert + FTS rebuild</text>
+    <text class="sm" x="576" y="58">commit every 100 files</text>
+    <rect class="bx" x="258" y="148" width="142" height="48"/>
+    <text class="lb" x="270" y="166">librosa analysis</text>
+    <text class="sm" x="270" y="180">bpm, key, 51 features</text>
+    <path class="fl2" d="M340,148 C360,110 410,70 434,56"/>
+    <text class="sm" x="350" y="120">fills gaps metadata left</text>
+    <path class="fl" d="M648,72 L648,146"/>
+    <rect class="bx hot" x="564" y="148" width="168" height="48"/>
+    <text class="lb" x="576" y="166">per-library DB</text>
+    <text class="sm" x="576" y="180">samples + fts5 + features</text>
+  </svg>
+  <div class="cap">fig. 1: ingest. one pass per file, analysis is opt-in (--deep / --features), batched commits amortize fsync.</div>
+  </div>
+
+  <div class="figure">
+  <svg viewBox="0 0 740 196" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="fan-out query flow">
+    <defs><marker id="ar2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" style="fill:var(--accent-deep,#1A2F3F)"/></marker></defs>
+    <style>
+      .bx2{fill:var(--paper,#fcfcfa);stroke:var(--accent-deep,#1A2F3F);stroke-width:1.1}
+      .hot2{stroke:var(--accent-hot,#EC503A)}
+      .lb2{font:600 11px "SFMono-Regular",Menlo,Consolas,monospace;fill:var(--accent-deep,#1A2F3F)}
+      .sm2{font:10px "SFMono-Regular",Menlo,Consolas,monospace;fill:var(--muted,#64625c)}
+      .fl3{stroke:var(--accent-deep,#1A2F3F);stroke-width:1;fill:none;marker-end:url(#ar2)}
+    </style>
+    <rect class="bx2" x="8" y="74" width="118" height="48"/>
+    <text class="lb2" x="20" y="92">acidcat query</text>
+    <text class="sm2" x="20" y="106">or any MCP read</text>
+    <path class="fl3" d="M126,98 L160,98"/>
+    <rect class="bx2" x="162" y="74" width="110" height="48"/>
+    <text class="lb2" x="174" y="92">registry.db</text>
+    <text class="sm2" x="174" y="106">scope by --root</text>
+    <path class="fl3" d="M272,86 C310,60 350,38 388,30"/>
+    <path class="fl3" d="M272,98 L388,98"/>
+    <path class="fl3" d="M272,110 C310,136 350,158 388,166"/>
+    <rect class="bx2 hot2" x="390" y="12" width="128" height="36"/><text class="lb2" x="400" y="34">drums_lib.db</text>
+    <rect class="bx2 hot2" x="390" y="80" width="128" height="36"/><text class="lb2" x="400" y="102">synths_lib.db</text>
+    <rect class="bx2 hot2" x="390" y="148" width="128" height="36"/><text class="lb2" x="400" y="170">field_rec.db</text>
+    <text class="sm2" x="400" y="62">same WHERE on each</text>
+    <path class="fl3" d="M518,30 C556,38 588,60 612,86"/>
+    <path class="fl3" d="M518,98 L610,98"/>
+    <path class="fl3" d="M518,166 C556,158 588,136 612,110"/>
+    <rect class="bx2" x="614" y="74" width="118" height="48"/>
+    <text class="lb2" x="626" y="90">merge rows</text>
+    <text class="sm2" x="626" y="103">dedup by path</text>
+    <text class="sm2" x="626" y="115">sort, final LIMIT</text>
+  </svg>
+  <div class="cap">fig. 2: fan-out read. writes instead route to exactly one library via longest-prefix matching on the sample path.</div>
+  </div>
+
+  <h2>Module reference</h2>
+  <div class="tabs" id="mod-tabs">
+    <button class="tab-btn" data-filter="all" data-active="true">all</button>
+    <button class="tab-btn" data-filter="core">core</button>
+    <button class="tab-btn" data-filter="commands">commands</button>
+    <button class="tab-btn" data-filter="surface">cli + mcp</button>
+  </div>
+  <table class="compare" id="mod-table">
+    <thead><tr><th>module</th><th>role</th><th>worth knowing</th></tr></thead>
+    <tbody>
+      <tr data-mod="surface"><td><span class="term" data-term="cli-py">cli.py</span></td><td>argparse front door</td><td>bare paths auto-route: file to info, dir to scan, <code>-</code> to stdin</td></tr>
+      <tr data-mod="surface"><td><span class="term" data-term="mcp-server">mcp_server.py</span></td><td>stdio MCP server</td><td>19 tools, cost-prefixed descriptions, <span class="term" data-term="fan-out">fan-out</span> reads</td></tr>
+      <tr data-mod="commands"><td><span class="term" data-term="cmd-index">commands/index.py</span></td><td>walker + upserter</td><td><span class="term" data-term="sniff">magic-byte sniff</span>, <span class="term" data-term="commit-batch">batched commits</span>, prune of vanished files</td></tr>
+      <tr data-mod="commands"><td><span class="term" data-term="cmd-query">commands/query.py</span></td><td>index reads</td><td>bpm/key/duration/format/tag filters, FTS5 <code>--text</code>, scoped <code>--root</code></td></tr>
+      <tr data-mod="commands"><td>commands/info, scan, chunks, survey, dump</td><td>metadata surface</td><td>single file, batch CSV, chunk walk, chunk census, hex dump</td></tr>
+      <tr data-mod="commands"><td>commands/detect, features, similar, search</td><td>analysis surface</td><td>librosa verbs; gated behind <code>pip install acidcat[analysis]</code></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="riff-py">core/riff.py</span></td><td>WAV chunk parser</td><td><span class="term" data-term="acid-chunk">acid</span>, <span class="term" data-term="smpl-chunk">smpl</span>, <span class="term" data-term="cue-chunk">cue</span>, inst, fmt, bext, LIST/INFO</td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="aiff-py">core/aiff.py</span></td><td>AIFF/AIFC parser</td><td>big-endian, sample rate is an <span class="term" data-term="ieee-extended">80-bit extended float</span></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="midi-py">core/midi.py</span></td><td>SMF parser</td><td><span class="term" data-term="vlq">VLQ deltas</span>, <span class="term" data-term="running-status">running status</span>, <span class="term" data-term="tempo-meta">tempo meta events</span></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="serum-py">core/serum.py</span></td><td>Serum presets</td><td><span class="term" data-term="xferjson">XferJson header</span> + single-pass <code>raw_decode</code></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="tagged-py">core/tagged.py</span></td><td>tag containers</td><td><span class="term" data-term="mutagen-map">ID3 / Vorbis / MP4 atom</span> field mapping, BOM strip</td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="detect-py">core/detect.py</span></td><td>BPM + key</td><td><span class="term" data-term="bpm-filename">filename heuristics</span>, <span class="term" data-term="tempo-est">librosa tempo</span>, <span class="term" data-term="bpm-validate">cross-validation</span></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="features-py">core/features.py</span></td><td>feature vector</td><td>51 features: <span class="term" data-term="mfcc">MFCCs</span>, <span class="term" data-term="spectral-shape">spectral shape</span>, <span class="term" data-term="tonnetz">tonnetz</span>, rhythm</td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="camelot-py">core/camelot.py</span></td><td>harmonic mixing</td><td><span class="term" data-term="camelot-wheel">wheel mapping</span>, <span class="term" data-term="parse-key">tolerant key parsing</span>, enharmonics</td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="index-py">core/index.py</span></td><td>per-library store</td><td><span class="term" data-term="db-schema">6-table schema</span>, <span class="term" data-term="fts5">FTS5 mirror</span>, <span class="term" data-term="schema-version">version gate</span></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="registry-py">core/registry.py</span></td><td>library catalog</td><td><span class="term" data-term="registry-overlap">overlap guard</span>, cached stats, <span class="term" data-term="longest-prefix">longest-prefix routing</span></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="paths-py">core/paths.py</span></td><td>DB layout</td><td><span class="term" data-term="storage-layout">central vs in-tree</span>, label slug + 12-hex path hash</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Under the hood: signal analysis</h2>
+  <p>The analysis layer exists because most sample libraries lie. Filenames claim tempos the audio does not have, key tags are missing or wrong, and ACID chunks survive format conversions their data did not. acidcat treats every source as a witness and cross-examines them.</p>
+
+  <h3>BPM estimation</h3>
+  <ul class="bul">
+    <li>librosa computes an <span class="term" data-term="onset-env">onset strength envelope</span>, then <span class="term" data-term="tempo-est">tempo candidates</span> two ways: once from the envelope, once from raw audio. The median of all candidates becomes <code>detected_bpm</code>.</li>
+    <li>In parallel, <span class="term" data-term="bpm-filename">filename parsing</span> hunts for <code>140bpm</code>, <code>bpm140</code>, and bare 2-3 digit runs, rejecting digits glued to letters so pack codes like <code>91V_SBH_126_...</code> resolve to 126, not 91.</li>
+    <li><span class="term" data-term="bpm-validate">validate_and_improve_bpm</span> reconciles the two. Beat trackers commonly lock onto half or double time, so it tests 2x, 0.5x, 1.5x, and 1/1.5x corrections against the filename claim before trusting either side.</li>
+    <li>Anything under 256 samples is declared a one-shot and skips tempo entirely.</li>
+  </ul>
+
+  <h3>Key detection, and why acidcat refuses to guess</h3>
+  <ul class="bul">
+    <li>A <span class="term" data-term="chroma-pcp">chroma vector</span> collapses the spectrum into 12 pitch-class bins. Its argmax names the strongest pitch class, but a pitch class is not a key: A minor and A major share a tonic and differ in mode.</li>
+    <li>Downstream code treats a bare letter as major, so emitting "A" for an A minor sample would route <code>find_compatible</code> to the wrong side of the wheel. Since v0.5.5 chroma-only detection returns <code>None</code> and the filename parser, which carries mode explicitly, wins.</li>
+    <li>The honest fix is <span class="term" data-term="krumhansl">Krumhansl-Schmuckler key profiles</span>: correlate the chroma vector against 24 rotated major and minor templates and take the best. On the roadmap; refusing to guess beats guessing wrong.</li>
+  </ul>
+
+  <h3>Harmonic compatibility</h3>
+  <ul class="bul">
+    <li>The <span class="term" data-term="camelot-wheel">Camelot wheel</span> renames the circle of fifths into clock positions DJs can add and subtract: 8A is A minor, 8B is its relative C major, and mixing rules become "move one number or flip the letter".</li>
+    <li><span class="term" data-term="parse-key">parse_key</span> accepts whatever the wild ships: <code>Am</code>, <code>A minor</code>, <code>F#min</code>, <code>Bb maj</code>, Camelot codes like <code>5A</code>, octave forms like <code>C4</code>, and the capital-M major convention (<code>CM</code>) used by Beatport, Mixed In Key, Serato, and Rekordbox.</li>
+    <li>Enharmonic spellings are expanded on filter (Db and C# both hit), and flats are normalized to sharps at ingest so the DB holds one canonical form.</li>
+  </ul>
+
+  <h3>The 51-dimension feature vector</h3>
+  <ul class="bul">
+    <li><span class="term" data-term="mfcc">13 MFCCs</span> (mean and std each) summarize timbre: mel filterbank, log compression, then a DCT that decorrelates the bands. Coefficient 1 tracks overall energy tilt; higher ones capture formant-like texture, which is why they cluster growls near growls.</li>
+    <li><span class="term" data-term="spectral-shape">Spectral shape stats</span>: centroid (brightness), rolloff (where 85 percent of energy sits), bandwidth, contrast (peak vs valley per octave band), plus zero-crossing rate and RMS energy for noisiness and loudness.</li>
+    <li><span class="term" data-term="tonnetz">Tonnetz coordinates</span> project chroma onto interlocking circles of fifths and thirds, giving a 6-dim harmonic position where consonant keys sit near each other.</li>
+    <li>Rhythm contributes <code>tempo_librosa</code> and a beat count from beat tracking; chroma and mel spectrogram statistics round out the set.</li>
+    <li><span class="term" data-term="cosine-sim">Similarity</span> z-scores every column then ranks by cosine distance, so a quiet and a loud version of the same kick still match on shape.</li>
+    <li>The index also runs <span class="term" data-term="infer-kind">kind inference</span>: ACID beats or 2+ seconds means loop, under 1 second with no beats means one-shot.</li>
+  </ul>
+
+  <h2>File format internals</h2>
+
+  <h3>RIFF / WAV</h3>
+  <ul class="bul">
+    <li>The <span class="term" data-term="riff-walk">chunk walker</span> seeks chunk to chunk: 4-byte id, uint32 little-endian size, payload, plus a pad byte when the size is odd. Payload reads are capped at 64 KB so a malformed size field cannot allocate gigabytes.</li>
+    <li>The <span class="term" data-term="acid-chunk">acid chunk</span> is the project's namesake: Sonic Foundry ACID wrote tempo, beat count, meter, and root note into WAVs two decades ago and half the sample industry still does.</li>
+    <li>The <span class="term" data-term="smpl-chunk">smpl chunk</span> carries the sampler's root key and loop points. Root key 0 means "unset", not C-1; a shared helper strips that sentinel at every call site.</li>
+    <li><span class="term" data-term="cue-chunk">cue chunks</span> hold marker offsets. The declared count is capped against the actual payload size, since a hostile uint32 here once meant 4 billion loop iterations.</li>
+  </ul>
+
+  <h3>AIFF / AIFC</h3>
+  <ul class="bul">
+    <li>Apple's mirror image of RIFF: <code>FORM</code> container, big-endian everything, COMM instead of fmt.</li>
+    <li>The sample rate is stored as an <span class="term" data-term="ieee-extended">80-bit IEEE 754 extended-precision float</span>, a 68k-era format Python's struct cannot unpack. acidcat reassembles it by hand from the 15-bit exponent and 64-bit mantissa.</li>
+  </ul>
+
+  <h3>Standard MIDI Files</h3>
+  <ul class="bul">
+    <li>Delta times and meta lengths are <span class="term" data-term="vlq">variable-length quantities</span>: 7 bits of payload per byte, high bit set means continue.</li>
+    <li><span class="term" data-term="running-status">Running status</span> lets consecutive events omit a repeated status byte. Every mainstream DAW exports this way, and the parser's bookkeeping here is exactly where v0.5.5 fixed a one-byte desynch that corrupted note counts.</li>
+    <li>Tempo lives in <span class="term" data-term="tempo-meta">FF 51 meta events</span> as microseconds per quarter note; key signature in FF 59 as a count of sharps or flats plus a minor flag.</li>
+  </ul>
+
+  <h3>Serum presets and tagged formats</h3>
+  <ul class="bul">
+    <li>Serum .fxp files open with an <span class="term" data-term="xferjson">XferJson magic header</span>; a JSON metadata block (name, author, tags) precedes the binary wavetable data and is decoded in one linear <code>raw_decode</code> pass.</li>
+    <li>MP3, FLAC, OGG, and M4A go through <span class="term" data-term="mutagen-map">mutagen</span> with one extractor per tag dialect: ID3v2 frames, Vorbis comments, MP4 atoms. A stray UTF-8 BOM in tag text is stripped before storage.</li>
+  </ul>
+
+  <h2>Storage layer</h2>
+  <p>One SQLite database per registered library, plus one global registry that knows where they all live. Reads <span class="term" data-term="fan-out">fan out</span>; writes route to a single owner via <span class="term" data-term="longest-prefix">longest-prefix matching</span>.</p>
+
+  <div class="wireblock"><span class="cm"># central default (no --in-tree)</span>
 ~/.acidcat/
-  <span class="hdr">registry.db</span>                       <span class="cm"># SQLite, lists every library</span>
-  <span class="hdr">libraries/</span>
-    <span class="str">&lt;label&gt;_&lt;hash8&gt;.db</span>             <span class="cm"># per-library index</span>
-    <span class="str">&lt;label&gt;_&lt;hash8&gt;.db-shm</span>         <span class="cm"># WAL shared memory</span>
-    <span class="str">&lt;label&gt;_&lt;hash8&gt;.db-wal</span>         <span class="cm"># WAL log</span>
+  <span class="hdr">registry.db</span>                <span class="cm"># every library: label, root, db_path, stats</span>
+  libraries/
+    <span class="hdr">&lt;label&gt;_&lt;hash12&gt;.db</span>      <span class="cm"># per-library index (12-hex path hash)</span>
+    &lt;label&gt;_&lt;hash12&gt;.db-shm  <span class="cm"># WAL shared memory</span>
+    &lt;label&gt;_&lt;hash12&gt;.db-wal  <span class="cm"># WAL log</span>
 
-<span class="cm"># in-tree opt-in (--in-tree)</span>
+<span class="cm"># in-tree opt-in (--in-tree): index travels with the samples</span>
 &lt;library_root&gt;/.acidcat/
-  index.db</div>
+  <span class="hdr">index.db</span></div>
 
-<h2>Audio formats</h2>
-<table class="compare"><thead><tr><th>format</th><th>parser</th><th>fields extracted</th><th>findings</th></tr></thead><tbody>
-<tr><td>WAV / RIFF</td><td><span class="term" data-term="riff-py">riff.py</span></td><td><code>fmt</code> sample rate / channels / depth, <code>smpl</code> root note + loops, <code>LIST/INFO</code> tags</td><td><span class="term high" data-term="F-05">F-05</span> <span class="term low" data-term="F-27">F-27</span></td></tr>
-<tr><td>AIFF / AIFC</td><td><span class="term" data-term="aiff-py">aiff.py</span></td><td><code>COMM</code> sample rate, <code>INST</code> root note, AIFC compression type (partial)</td><td><span class="term med" data-term="F-12">F-12</span></td></tr>
-<tr><td>MIDI (SMF)</td><td><span class="term" data-term="midi-py">midi.py</span></td><td>tempo, time signature, track count, ticks-per-quarter</td><td><span class="term high" data-term="F-06">F-06</span></td></tr>
-<tr><td>Xfer Serum (.fxp)</td><td><span class="term" data-term="serum-py">serum.py</span></td><td>preset name, embedded JSON metadata</td><td><span class="term high" data-term="F-01">F-01</span></td></tr>
-<tr><td>MP3 (ID3v2)</td><td><span class="term" data-term="tagged-py">tagged.py</span></td><td>title, artist, album, genre, BPM, comment, year</td><td><span class="term low" data-term="F-26">F-26</span></td></tr>
-<tr><td>FLAC / OGG / Opus</td><td><span class="term" data-term="tagged-py">tagged.py</span></td><td>Vorbis Comment fields</td><td><span class="term low" data-term="F-26">F-26</span></td></tr>
-<tr><td>M4A / AAC</td><td><span class="term" data-term="tagged-py">tagged.py</span></td><td>iTunes atom tags via mutagen</td><td>none</td></tr>
-<tr><td>filename heuristics</td><td><span class="term" data-term="detect-py">detect.py</span></td><td>BPM, key, tag tokens</td><td><span class="term med" data-term="F-10">F-10</span></td></tr>
-</tbody></table>
+  <ul class="bul">
+    <li>The <span class="term" data-term="db-schema">per-library schema</span> separates immutable audio facts (<code>samples</code>, 21 columns) from user annotations (<code>tags</code>, <code>descriptions</code>), librosa output (<code>features</code> as JSON), scan bookkeeping (<code>scan_roots</code>), and an <span class="term" data-term="fts5">FTS5 mirror</span> with porter stemming for free-text search.</li>
+    <li><span class="term" data-term="upsert">Upserts</span> are <code>INSERT ... ON CONFLICT(path) DO UPDATE</code>, so reindexing is idempotent and mtime+size short-circuits unchanged files.</li>
+    <li>The CLI walker <span class="term" data-term="commit-batch">commits every 100 files</span> to amortize fsync; on an HDD-backed sample drive this is the difference between minutes and seconds.</li>
+    <li><span class="term" data-term="registry-overlap">register_library</span> refuses nested or duplicate roots inside a <code>BEGIN IMMEDIATE</code> transaction, closing the race between two concurrent registrations.</li>
+    <li>Both DB kinds store a <span class="term" data-term="schema-version">schema_version</span> and refuse to open anything newer than they understand: a loud error instead of silent corruption.</li>
+  </ul>
 
-<h2>MCP tool surface (19 tools)</h2>
-<table class="compare"><thead><tr><th>tier</th><th>tool</th><th>cost</th><th>notes</th></tr></thead><tbody>
-<tr><td rowspan="9" class="note">Fast</td><td><code><span class="term" data-term="t-search">search_samples</span></code></td><td class="good">Fast</td><td>FTS5 + structured filters; <span class="term high" data-term="F-07">F-07</span></td></tr>
-<tr><td><code><span class="term" data-term="t-getsample">get_sample</span></code></td><td class="good">Fast</td><td>resolve path, return all fields</td></tr>
-<tr><td><code><span class="term" data-term="t-locate">locate_sample</span></code></td><td class="good">Fast</td><td>filesystem path lookup, dedup across libs</td></tr>
-<tr><td><code>list_tags / list_keys / list_formats</code></td><td class="good">Fast</td><td>vocabulary inspection</td></tr>
-<tr><td><code><span class="term" data-term="t-stats">index_stats</span></code></td><td class="good">Fast</td><td>aggregate counts, orphan count</td></tr>
-<tr><td><code><span class="term" data-term="t-compat">find_compatible</span></code></td><td class="good">Fast</td><td>Camelot + BPM tolerance; <span class="term high" data-term="F-08">F-08</span></td></tr>
-<tr><td><code>find_similar</code></td><td class="good">Fast</td><td>cosine similarity over feature vectors</td></tr>
-<tr><td><code>list_libraries</code></td><td class="good">Fast</td><td>read-only registry view</td></tr>
-<tr><td><code>discover_libraries</code></td><td class="good">Fast</td><td>walker preview; <span class="term crit" data-term="F-02">F-02</span></td></tr>
-<tr><td rowspan="2" class="note">Slow</td><td><code><span class="term" data-term="t-analyze">analyze_sample</span></code></td><td class="bad">SLOW</td><td>librosa cold-start tax; <span class="term high" data-term="F-09">F-09</span> <span class="term crit" data-term="F-04">F-04</span> <span class="term med" data-term="F-20">F-20</span></td></tr>
-<tr><td><code>detect_bpm_key</code></td><td class="bad">SLOW</td><td>same; <span class="term crit" data-term="F-04">F-04</span></td></tr>
-<tr><td rowspan="2" class="note">Very slow</td><td><code>reindex_features</code></td><td class="bad">VERY SLOW</td><td>chunked extraction, limit defaults small</td></tr>
-<tr><td><code>scan_directory</code></td><td class="bad">VERY SLOW</td><td>tree walk + ingest</td></tr>
-<tr><td rowspan="5" class="note">Destructive</td><td><code><span class="term" data-term="t-register">register_library</span></code></td><td class="bad">Modify</td><td>creates DB; <span class="term low" data-term="F-03">F-03 (withdrawn)</span> <span class="term med" data-term="F-17">F-17</span></td></tr>
-<tr><td><code>forget_library</code></td><td class="bad">Modify</td><td>removes registry row, leaves DB</td></tr>
-<tr><td><code>tag_sample</code></td><td class="bad">Modify</td><td>add/remove tag, FTS resync</td></tr>
-<tr><td><code><span class="term" data-term="t-describe">describe_sample</span></code></td><td class="bad">Modify</td><td>misleading name; <span class="term med" data-term="F-18">F-18</span></td></tr>
-<tr><td><code>set_sample_metadata</code></td><td class="bad">Modify</td><td>title/artist/album/etc. write</td></tr>
-</tbody></table>
+  <h2>MCP surface</h2>
+  <p>The MCP server speaks stdio to Claude Desktop or any MCP client. Tool descriptions lead with a <span class="term" data-term="cost-prefix">cost prefix</span> so the model reaches for cheap reads before expensive analysis.</p>
+  <table class="compare">
+    <thead><tr><th>group</th><th>tools</th><th>cost</th></tr></thead>
+    <tbody>
+      <tr><td>index reads</td><td><code>search_samples</code> <code>get_sample</code> <code>locate_sample</code> <code>list_libraries</code> <code>list_tags</code> <code>list_keys</code> <code>list_formats</code> <code>index_stats</code></td><td>fast, SQL only</td></tr>
+      <tr><td>harmonic + similarity</td><td><code>find_compatible</code> <code>find_similar</code></td><td>fast, reads index + features</td></tr>
+      <tr><td>live analysis</td><td><code>analyze_sample</code> <code>detect_bpm_key</code></td><td class="note">slow: librosa, first call pays 30-60s numba JIT</td></tr>
+      <tr><td>index builds</td><td><code>reindex</code> <code>reindex_features</code></td><td class="note">very slow: walks the library</td></tr>
+      <tr><td>registry writes</td><td><code>register_library</code> <code>forget_library</code> <code>discover_libraries</code></td><td>mutating; discover defaults to dry_run</td></tr>
+      <tr><td>annotations</td><td><code>tag_sample</code> <code>set_sample_description</code></td><td>mutating, feeds FTS</td></tr>
+    </tbody>
+  </table>
 
-<h2>Audit findings (full table)</h2>
-<table class="findings-table"><thead><tr><th>id</th><th>sev</th><th>summary</th><th>file:line</th></tr></thead><tbody>
-<tr><td class="id"><span class="term high" data-term="F-01">F-01</span></td><td class="sev high">high</td><td>Serum O(n^2) JSON brute-force, bounded at 10KB window (verified)</td><td class="loc">core/serum.py:41-43</td></tr>
-<tr><td class="id"><span class="term crit" data-term="F-02">F-02</span></td><td class="sev crit">critical</td><td><code>discover_libraries</code> defaults to <code>dry_run=false</code></td><td class="loc">mcp_server.py:1068, 1500</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-03">F-03</span></td><td class="sev low">withdrawn</td><td><s><code>register_library</code> annotation says idempotent but isn't</s> -- verified incorrect, open_db is idempotent</td><td class="loc">mcp_server.py:1015-1037 (correct as-is)</td></tr>
-<tr><td class="id"><span class="term crit" data-term="F-04">F-04</span></td><td class="sev crit">critical</td><td><code>analyze_sample</code> / <code>detect_bpm_key</code> missing <code>idempotentHint=false</code></td><td class="loc">mcp_server.py:1375, 1388</td></tr>
-<tr><td class="id"><span class="term high" data-term="F-05">F-05</span></td><td class="sev high">high</td><td>WAV unbounded chunk read can OOM on malformed files</td><td class="loc">core/riff.py:67</td></tr>
-<tr><td class="id"><span class="term high" data-term="F-06">F-06</span></td><td class="sev high">high</td><td>MIDI sysex VLQ underrun crosses track boundary</td><td class="loc">core/midi.py:143-146</td></tr>
-<tr><td class="id"><span class="term high" data-term="F-07">F-07</span></td><td class="sev high">high</td><td>FTS5 syntax errors leak as raw <code>OperationalError</code></td><td class="loc">mcp_server.py:256-259, 1610</td></tr>
-<tr><td class="id"><span class="term high" data-term="F-08">F-08</span></td><td class="sev high">high</td><td><code>find_compatible</code> with keyless target returns unfiltered keys</td><td class="loc">mcp_server.py:541-568</td></tr>
-<tr><td class="id"><span class="term high" data-term="F-09">F-09</span></td><td class="sev high">high</td><td><code>analyze_sample</code> cost description hides librosa cold start</td><td class="loc">mcp_server.py:1363</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-10">F-10</span></td><td class="sev med">medium</td><td>BPM filename ceiling at 200 rejects DnB / hardcore</td><td class="loc">core/detect.py:33-34</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-11">F-11</span></td><td class="sev low">withdrawn</td><td><s>SMPL note 0 (C-1) treated as a real key on index path</s> -- already fixed; <code>if not smpl: smpl = None</code> handles 0</td><td class="loc">commands/index.py:877-880 (already correct)</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-12">F-12</span></td><td class="sev med">medium</td><td>AIFC compression type validation incomplete</td><td class="loc">core/aiff.py:140-143</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-13">F-13</span></td><td class="sev med">medium</td><td>Windows path case collisions duplicate registry rows</td><td class="loc">core/paths.py:31-37</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-14">F-14</span></td><td class="sev med">medium</td><td><code>rebuild_fts_for_path</code> not transactional, can orphan rows</td><td class="loc">core/index.py:257-289</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-15">F-15</span></td><td class="sev med">medium</td><td><code>_assert_no_overlap</code> TOCTOU on concurrent register</td><td class="loc">core/registry.py:103-136</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-16">F-16</span></td><td class="sev med">medium</td><td><code>_close_all</code> swallows close exceptions silently</td><td class="loc">mcp_server.py:63-68</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-17">F-17</span></td><td class="sev med">medium</td><td>Destructive MCP tools lack a "Destructive:" cost prefix</td><td class="loc">mcp_server.py:1435+</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-18">F-18</span></td><td class="sev med">medium</td><td><code>describe_sample</code> name reads as a getter but writes</td><td class="loc">mcp_server.py:1537</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-19">F-19</span></td><td class="sev low">withdrawn</td><td><s><code>infer_kind</code> mis-bins 1-second acid loops as <code>any</code></s> -- verified, subagent misread 'or' as 'and'</td><td class="loc">mcp_server.py:495-508 (correct as-is)</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-20">F-20</span></td><td class="sev med">medium</td><td><code>analyze_sample</code> schema declares <code>deep</code>, handler ignores</td><td class="loc">mcp_server.py:1370</td></tr>
-<tr><td class="id"><span class="term med" data-term="F-21">F-21</span></td><td class="sev med">medium</td><td>format dispatch order-dependent on double-suffixed files</td><td class="loc">commands/index.py:847-856</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-22">F-22</span></td><td class="sev low">low</td><td>schema-version forward-compat undefined, no migration handler</td><td class="loc">core/index.py:86, registry.py:69</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-23">F-23</span></td><td class="sev low">low</td><td><code>path_hash</code> 8 hex / 32 bits, birthday collision at ~65k</td><td class="loc">core/paths.py:90-97</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-24">F-24</span></td><td class="sev low">low</td><td><code>_walk_and_upsert</code> does not pass explicit <code>followlinks=False</code></td><td class="loc">commands/index.py:749</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-25">F-25</span></td><td class="sev low">low</td><td>label collision fallback re-uses deterministic hash</td><td class="loc">commands/index.py:579-599</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-26">F-26</span></td><td class="sev low">low</td><td>UTF-8 BOM not stripped from ID3 / Vorbis tag values</td><td class="loc">core/tagged.py</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-27">F-27</span></td><td class="sev low">low</td><td>RIFF chunk padding byte handling edge case</td><td class="loc">core/riff.py</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-28">F-28</span></td><td class="sev low">low</td><td><code>prune_missing</code> walk_start fixed at start, not end</td><td class="loc">commands/index.py:813-816</td></tr>
-<tr><td class="id"><span class="term low" data-term="F-29">F-29</span></td><td class="sev low">low</td><td><code>_REGISTRY_PATH</code> mutable global, mild concurrency smell</td><td class="loc">mcp_server.py:33</td></tr>
-</tbody></table>
+  <h2>References</h2>
+  <div class="refs">
+    <div class="ref-row"><span class="key">repo</span><span class="val"><a href="https://github.com/hed0rah/acidcat" target="_blank" rel="noopener">github.com/hed0rah/acidcat</a><span class="desc">source, issues, releases</span></span></div>
+    <div class="ref-row"><span class="key">riff</span><span class="val"><a href="https://learn.microsoft.com/en-us/windows/win32/xaudio2/resource-interchange-file-format--riff-" target="_blank" rel="noopener">Resource Interchange File Format</a><span class="desc">chunk grammar WAV inherits</span></span></div>
+    <div class="ref-row"><span class="key">smf</span><span class="val"><a href="https://midi.org/standard-midi-files" target="_blank" rel="noopener">Standard MIDI Files 1.0</a><span class="desc">VLQ, running status, meta events</span></span></div>
+    <div class="ref-row"><span class="key">fts5</span><span class="val"><a href="https://sqlite.org/fts5.html" target="_blank" rel="noopener">SQLite FTS5</a><span class="desc">full-text engine behind --text</span></span></div>
+    <div class="ref-row"><span class="key">librosa</span><span class="val"><a href="https://librosa.org/doc/latest/index.html" target="_blank" rel="noopener">librosa documentation</a><span class="desc">onset, tempo, chroma, MFCC implementations</span></span></div>
+    <div class="ref-row"><span class="key">key profiles</span><span class="val"><a href="https://rnhart.net/articles/key-finding/" target="_blank" rel="noopener">Krumhansl-Schmuckler key finding</a><span class="desc">the planned major/minor discriminator</span></span></div>
+    <div class="ref-row"><span class="key">mcp</span><span class="val"><a href="https://modelcontextprotocol.io/specification" target="_blank" rel="noopener">Model Context Protocol</a><span class="desc">stdio transport the server implements</span></span></div>
+    <div class="ref-row"><span class="key">internal</span><span class="val">docs/architecture.md, docs/format_internals.md, docs/dsp/<span class="desc">deeper dives per topic, same repo</span></span></div>
+  </div>
 
-<h2>Recommended fix order</h2>
-<ol class="phase-list">
-<li><strong>One-line annotation / description fixes.</strong> No risk. <code>F-04 F-09 F-17 F-20 F-24 F-29</code>. <span class="meta">free wins</span></li>
-<li><strong>Pre-PyPI bug fixes.</strong> Real correctness gaps the wider audience would hit. <code>F-01 F-05 F-07 F-13 F-23</code>. <span class="meta">before public release</span></li>
-<li><strong>Behavior-changing post-PyPI items.</strong> Need release notes. <code>F-02 F-06 F-08 F-14 F-15 F-18 F-22</code>. <span class="meta">v0.6.x</span></li>
-<li><strong>Polish.</strong> Nits, edge cases, hardening. <code>F-10 F-12 F-16 F-21 F-25 F-26 F-27 F-28</code>. <span class="meta">when convenient</span></li>
-</ol>
-
-<h2>Non-findings (clean surface)</h2>
-<ul class="bul">
-<li><strong>SQL injection:</strong> all dynamic SQL uses parameterized placeholders. The only dynamic-text path is FTS5 which has its own non-SQL syntax issue (<span class="term high" data-term="F-07">F-07</span>).</li>
-<li><strong>Path traversal:</strong> MCP tools route through the registry. Arbitrary file paths cannot escape registered library roots.</li>
-<li><strong>Command injection:</strong> no shell-out anywhere in production code. Subprocess use is in test fixtures only.</li>
-<li><strong>Secret exposure:</strong> no creds, tokens, or API keys in tree.</li>
-<li><strong>Dependency surface:</strong> minimal. <code>sqlite3</code> stdlib, <code>mutagen</code>, optionally <code>librosa+numpy+scikit-learn</code>.</li>
-<li><strong>Test coverage:</strong> 232 tests across 10 files exercise core flows: index, query, registry, FTS, format parsers, MCP fan-out, Camelot.</li>
-</ul>
-
-<h2>References</h2>
-<div class="refs">
-<div class="ref-row"><span class="key">spec</span><span class="val">RIFF / WAVE format <span class="desc">Microsoft Multimedia Programming Interface, 1991</span></span></div>
-<div class="ref-row"><span class="key">spec</span><span class="val">EA IFF 85 / AIFF / AIFC <span class="desc">Apple Computer, 1989-1991</span></span></div>
-<div class="ref-row"><span class="key">spec</span><span class="val">Standard MIDI File 1.0 <span class="desc">MIDI Manufacturers Association</span></span></div>
-<div class="ref-row"><span class="key">spec</span><span class="val">ID3v2.4.0 <span class="desc">id3.org, 2000</span></span></div>
-<div class="ref-row"><span class="key">spec</span><span class="val">Vorbis Comment <span class="desc">xiph.org</span></span></div>
-<div class="ref-row"><span class="key">spec</span><span class="val">SQLite FTS5 <span class="desc">sqlite.org/fts5.html</span></span></div>
-<div class="ref-row"><span class="key">spec</span><span class="val">Model Context Protocol <span class="desc">stdio transport, 2025</span></span></div>
-<div class="ref-row"><span class="key">internal</span><span class="val">docs/architecture.md <span class="desc">v0.4 architecture deep-dive (predates v0.5 per-library shift)</span></span></div>
-<div class="ref-row"><span class="key">internal</span><span class="val">docs/format_internals.md <span class="desc">format-by-format byte-level walkthrough</span></span></div>
-<div class="ref-row"><span class="key">internal</span><span class="val">docs/v0.5_field_notes.md <span class="desc">working doc, uncommitted, source of v0.5.x release priorities</span></span></div>
-<div class="ref-row"><span class="key">internal</span><span class="val">docs/codebase_review_2026-05-02.md <span class="desc">full audit report this explorer summarises</span></span></div>
-<div class="ref-row"><span class="key">internal</span><span class="val">HANDOVER.md <span class="desc">cold-start handover for a fresh session</span></span></div>
-</div>
-
-<div class="footer"><span class="signoff">acidcat codebase explorer</span> &middot; v0.5.3 &middot; review 2026-05-02 &middot; 29 audit findings &middot; built from three independent subagent passes</div>
+  <div class="footer"><span class="signoff">acidcat codebase explorer</span> &middot; v0.5.6 &middot; 2026-06-10 &middot; hover any dotted term for source detail</div>
 </article>
-<aside class="margin"><div class="margin-card" id="m-card">
-<p class="margin-code" style="display:block;font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-family:'Iowan Old Style',Georgia,serif">Source Inspector</p>
-<h3 id="m-title">Hover any underlined term</h3>
-<code class="margin-code" id="m-code">&mdash;</code>
-<p id="m-body">Move the cursor over any dotted-underline term: source modules, MCP tools, or audit findings. The card shows file path, line numbers, an inline code snippet, and any related findings.</p>
-<div class="margin-meta" id="m-meta"></div>
-<div class="margin-section" id="m-snippet" style="display:none"><div class="label">Snippet</div><pre class="margin-snippet"></pre></div>
-<div class="margin-section" id="m-rel"><div class="label">Related</div><ul><li class="more">&mdash;</li></ul></div>
-<div class="margin-section" id="m-notes"><div class="label">Notes</div><ul><li class="more">&mdash;</li></ul></div>
-<div class="margin-section" id="m-findings"><div class="label">Audit findings</div><ul><li class="more">&mdash;</li></ul></div>
-<p class="margin-hint">Hover &middot; <kbd>tab</kbd> to focus &middot; click filter buttons above to narrow sections</p>
-</div></aside>
+
+<aside class="margin">
+  <div class="margin-card" id="margin-card">
+    <p class="margin-code" style="display:block;font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted)">
+      Source Inspector <span class="margin-status"></span>
+    </p>
+    <h3 id="m-title">Hover any underlined term</h3>
+    <code class="margin-code" id="m-code">&middot;</code>
+    <p id="m-body">Move the cursor over any dotted-underline term to load module details, format internals, or DSP math. Click a term to pin the card while you read elsewhere.</p>
+    <pre class="margin-snippet" id="m-snippet"></pre>
+    <div class="margin-meta" id="m-meta"></div>
+    <div class="margin-section" id="m-rel"><div class="label">Related</div><ul><li class="more">&middot;</li></ul></div>
+    <div class="margin-section" id="m-notes"><div class="label">Notes</div><ul><li class="more">&middot;</li></ul></div>
+    <div class="margin-section" id="m-links"><div class="label">Sources</div><ul><li class="more">&middot;</li></ul></div>
+  </div>
+  <div class="margin-pin-bar">
+    <span class="margin-hint">hover &middot; click to pin &middot; <kbd>esc</kbd> unpin</span>
+    <button class="margin-unpin" id="margin-unpin" aria-label="Unpin reference card">unpin</button>
+  </div>
+</aside>
+
 </div></div>
+
 <script id="reference-data" type="application/json">
 {
-"paths-py":{"title":"core/paths.py","code":"path normalization + DB layout","body":"Single source of truth for path canonicalisation, central vs in-tree DB resolution, and the legacy v0.4 DB sentinel. Forward-slash everywhere; abs path; sha1[:8] for the unique DB suffix.","meta":{"role":"path policy","loc":"~150","exports":"normalize, central_db_path_for, in_tree_db_path_for, path_hash, find_library_root_above"},"rel":["index-py","registry-py","F-13","F-23"],"notes":["normalize uses os.path.abspath + str.replace('\\\\','/'); does not lowercase on Windows","path_hash is 8 hex chars (32 bits)","legacy_global_db_path() returns ~/.acidcat/index.db, used only for the startup warning"],"snippet":"def normalize(p):\n    return os.path.abspath(p).replace(\"\\\\\", \"/\")\n\ndef path_hash(root):\n    return hashlib.sha1(\n        normalize(root).encode(\"utf-8\")\n    ).hexdigest()[:8]\n\ndef central_db_path_for(root, label):\n    safe = safe_label(label)\n    return os.path.join(\n        central_libraries_dir(),\n        f\"{safe}_{path_hash(root)}.db\",\n    )","findings":["F-13","F-23"]},
-"index-py":{"title":"core/index.py","code":"per-library SQLite layer","body":"Defines SCHEMA_VERSION (currently 1) and the per-library DB schema: samples, scan_roots, tags, descriptions, features, samples_fts. Exports open_db, the upsert family, prune_missing, rebuild_fts_for_path, and index_stats. Uses WAL mode and Row factory.","meta":{"loc":"~400","schema":"version 1","journal":"WAL"},"rel":["paths-py","registry-py","cmd-index","F-14","F-22"],"notes":["open_db enables WAL and foreign keys, applies schema if absent","FTS5 is synced via rebuild_fts_for_path on each upsert","schema_version is stored in a meta table but no migration handler exists"],"snippet":"def open_db(path):\n    conn = sqlite3.connect(path)\n    conn.row_factory = sqlite3.Row\n    conn.execute(\"PRAGMA foreign_keys = ON\")\n    conn.execute(\"PRAGMA journal_mode = WAL\")\n    _apply_schema(conn)\n    return conn\n\nSCHEMA_VERSION = 1","findings":["F-14","F-22"]},
-"registry-py":{"title":"core/registry.py","code":"global library registry","body":"Single SQLite file at ~/.acidcat/registry.db tracking every registered library. Schema: libraries(db_path PK, root_path UNIQUE, label, in_tree, sample_count, feature_count, last_indexed_at, last_seen_at, schema_version, created_at). Implements register_library, forget_library, find_library_for_path, _assert_no_overlap.","meta":{"loc":"~250","pk":"db_path","unique":"root_path"},"rel":["paths-py","fanout","prefix-route","F-15"],"notes":["_assert_no_overlap rejects ==, parent of, child of any registered root","find_library_for_path returns the longest matching root for a sample path","_refresh_stats_from_db re-derives counts from the per-library DB; powers --refresh-stats"],"snippet":"def _assert_no_overlap(conn, root):\n    norm = normalize(root)\n    rows = conn.execute(\n        \"SELECT db_path, root_path, label FROM libraries\"\n    ).fetchall()\n    for r in rows:\n        other = r[\"root_path\"]\n        if other == norm:\n            continue\n        if norm.startswith(other + \"/\"):\n            raise OverlapError(...)\n        if other.startswith(norm + \"/\"):\n            raise OverlapError(...)","findings":["F-15"]},
-"riff-py":{"title":"core/riff.py","code":"WAV / RIFF parser","body":"Reads the fmt chunk for sample rate / channels / bit depth, the smpl chunk for MIDI root note and loop points, and LIST/INFO sub-chunks for embedded text tags. Returns a dict consumed by commands/index.py:_extract_for_index.","meta":{"loc":"~200","chunks":"fmt, smpl, LIST/INFO, data","spec":"Microsoft RIFF/WAVE 1991"},"rel":["aiff-py","cmd-index","F-05","F-11","F-27"],"notes":["chunk_size comes from the file; parser does not cap it","does not validate odd-size chunk padding consistently","SMPL MIDIUnityNote == 0 maps to C-1 (handled correctly in info.py since v0.4 fix, NOT in index path)"],"snippet":"# core/riff.py:67 (the unbounded read)\nchunk_size = struct.unpack(\"<I\", f.read(4))[0]\nchunk_data = f.read(chunk_size)   # <-- no cap\n\n# AIFF for comparison does the right thing:\n# core/aiff.py\nchunk_data = f.read(min(chunk_size, 4096))","findings":["F-05","F-11","F-27"]},
-"aiff-py":{"title":"core/aiff.py","code":"AIFF + AIFC parser","body":"Reads FORM/COMM for sample rate, INST for root note + loop points, COMT for comments. Handles both AIFF (uncompressed) and AIFC (compressed) variants. Properly caps chunk reads at 4 KB.","meta":{"loc":"~250","chunks":"COMM, INST, COMT, MARK, NAME, AUTH","spec":"EA IFF 85 / Apple AIFF 1991"},"rel":["riff-py","cmd-index","F-12"],"notes":["AIFC compression type (4 bytes after COMM common fields) not validated against known set","Unknown compression type silently treated as uncompressed AIFF, producing wrong sample rate interpretation","Sample rate is an 80-bit IEEE 754 extended; parser correctly decodes"],"snippet":"# core/aiff.py:140-143 (compression type read, no validation)\nif form_type == b\"AIFC\":\n    comp_type = data[18:22]\n    # comp_type is e.g. b'NONE', b'sowt', b'fl32', ...\n    # but we do not check against a known set","findings":["F-12"]},
-"midi-py":{"title":"core/midi.py","code":"Standard MIDI File parser","body":"Parses MThd header for format/tracks/division and MTrk meta-events for tempo (FF 51) and time signature (FF 58). Variable-length quantity (VLQ) decoder used for delta times and sysex lengths.","meta":{"loc":"~200","spec":"SMF 1.0 / MMA","events":"tempo, time-sig, key-sig"},"rel":["cmd-index","F-06"],"notes":["VLQ length on F0 sysex is read but not bounded against track_remaining","If sysex length > remaining track bytes, parser advances past MTrk boundary into next track silently","No malformed-input recovery; assumes well-formed SMF"],"snippet":"# core/midi.py:143-146 (sysex length not bounded)\nelif status == 0xF0:  # sysex\n    length, n = read_vlq(data, pos)\n    pos += n\n    pos += length          # <-- crosses MTrk boundary if length > remaining","findings":["F-06"]},
-"serum-py":{"title":"core/serum.py","code":"Xfer Serum (.fxp) preset parser","body":"Wraps a stripped FXP container holding Serum's internal JSON state. Returns the JSON blob plus a presetName field. Used by index.py to label Serum factory packs the user has indexed (Hypnotize, MOONBOY, etc.).","meta":{"loc":"~80","format":".fxp / FXP container","contents":"JSON state"},"rel":["cmd-index","F-01"],"notes":["Brute-force JSON-end search is O(n^2) in file size","On a 1 MB preset that is ~1 million parse attempts","An adversarially malformed .fxp can stall a full library walk"],"snippet":"# core/serum.py:42-43 (the O(n^2) loop)\nfor end in range(json_start + 50, max_search):\n    try:\n        return json.loads(raw[json_start:end])\n    except json.JSONDecodeError:\n        continue\n# Fix: use json.JSONDecoder().raw_decode for linear pass.","findings":["F-01"]},
-"tagged-py":{"title":"core/tagged.py","code":"mutagen wrapper","body":"Single entry point _from_tagged calls mutagen.File(path) and pulls common fields out of whichever tag scheme is present (ID3v2 for MP3, Vorbis Comment for FLAC/OGG/Opus, MP4 atoms for M4A). Added in v0.3.0 to replace the original WAV-only ingest.","meta":{"loc":"~120","backends":"mutagen","fields":"title, artist, album, genre, bpm, comment, year"},"rel":["cmd-index","F-26"],"notes":["BOM in UTF-8 string fields is not stripped","Most files are clean; some Audacity-exported MP3s have BOM in TIT2","Affects FTS matching for those rows"],"snippet":"# core/tagged.py (simplified)\nfrom mutagen import File\ndef _from_tagged(path):\n    f = File(path)\n    if f is None: return {}\n    return {\n        \"title\": str(f.tags.get(\"TIT2\", [\"\"])[0]),\n        # BOM not stripped from value strings\n        ...\n    }","findings":["F-26"]},
-"detect-py":{"title":"core/detect.py","code":"filename heuristics","body":"Regex-based extraction of BPM and key from common producer filename patterns. Tightened in v0.5.1 to reject 91V_SBH_126_* false-positives. Returns hits as the bpm/key fallback when audio metadata is silent.","meta":{"loc":"~120","ceiling":"60 <= bpm <= 200","added":"v0.5.1 regex tightening"},"rel":["cmd-index","F-10"],"notes":["BPM ceiling 200 rejects DnB at 174 (passes), gabber at 240 (rejected), labels written as half-time (180 from acid_360.wav) as well","Key regex requires word boundary; case-insensitive","Tag tokens (e.g. 'kick', 'snare') are detected separately"],"snippet":"# core/detect.py:33-34\nm = BPM_RE.search(name)\nif m:\n    bpm = int(m.group(1))\n    if 60 <= bpm <= 200:    # <-- ceiling\n        return bpm","findings":["F-10"]},
-"features-py":{"title":"core/features.py","code":"librosa-backed feature extraction","body":"extract_audio_features computes spectral centroid, rolloff, MFCC means, RMS, zero-crossing rate, and chroma. Optional dependency; gated behind acidcat[analysis]. First call in a process pays 30-60s of numba JIT.","meta":{"loc":"~200","optional":"acidcat[analysis]","cold-start":"30-60s"},"rel":["mcp-server","F-09"],"notes":["Cold-start tax is the reason the pre-warmed worker is on the docket","Per-call cost ~3s on G: drive once warm","extract_audio_features returns a dict ready for upsert_features"],"snippet":"# core/features.py (called from MCP analyze_sample)\nimport librosa, numpy as np\n\ndef extract_audio_features(path):\n    y, sr = librosa.load(path, sr=22050, mono=True)\n    return {\n        \"spectral_centroid_mean\": float(\n            np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))\n        ),\n        ...\n    }","findings":["F-09"]},
-"camelot-py":{"title":"core/camelot.py","code":"harmonic-mixing wheel","body":"Maps musical keys (C major, A minor, etc.) to Camelot wheel codes (8B, 8A, ...). compatible_keys returns the wheel-adjacent set: same number A/B, +-1 in the same letter. Used by find_compatible.","meta":{"loc":"~150","scheme":"Camelot wheel","sets":"24 keys -> 24 codes"},"rel":["mcp-server","F-08"],"notes":["enharmonic_spellings normalises e.g. 'C#m' / 'Dbm' to a canonical form","compatible_keys returns set of 4 keys (self + 3 neighbours)","Returns empty set on unknown / null key, which is what F-08 trips on"],"snippet":"# core/camelot.py (sketch)\ndef compatible_keys(key):\n    code = to_camelot(key)\n    if code is None:\n        return set()    # <-- this triggers F-08\n    n, ab = code[:-1], code[-1]\n    return {\n        from_camelot(f\"{n}{ab}\"),\n        from_camelot(f\"{n}{'A' if ab=='B' else 'B'}\"),\n        from_camelot(f\"{(int(n)%12)+1}{ab}\"),\n        from_camelot(f\"{((int(n)-2)%12)+1}{ab}\"),\n    }","findings":[]},
-"cmd-index":{"title":"commands/index.py","code":"index CLI dispatch","body":"Largest command file. Dispatches acidcat index DIR, --list, --discover, --refresh-stats, --forget, --remove, --orphans. Hosts _walk_and_upsert (the hot loop), _extract_for_index (format dispatcher), _resolve_unique_label, _count_audio_in_subtree.","meta":{"loc":"~900","commands":"index, --list, --discover, --refresh-stats","commit":"every 100 files"},"rel":["index-py","registry-py","F-11","F-21","F-24","F-25","F-28"],"notes":["_extract_for_index dispatches by extension","--discover walker added in v0.5.2","--refresh-stats added in v0.5.3 to populate stale ? counts in --list","Periodic commits every _COMMIT_EVERY_N_FILES=100"],"snippet":"# commands/index.py:847-856 (format dispatch)\next = os.path.splitext(path)[1].lower()\nif ext in {\".wav\"}:\n    return _from_wav(path)\nelif ext in {\".aif\", \".aiff\", \".aifc\"}:\n    return _from_aiff(path)\nelif ext in {\".mid\", \".midi\"}:\n    return _from_midi(path)\nelif ext == \".fxp\":\n    return _from_serum(path)\nelse:\n    return _from_tagged(path)","findings":["F-11","F-21","F-24","F-25","F-28"]},
-"cmd-query":{"title":"commands/query.py","code":"fan-out CLI query","body":"acidcat query supporting --bpm, --key, --duration, --tag, --text (FTS5), --root LABEL_OR_PATH, --format, --limit, output as table/json/csv. Opens every registered library, runs the same WHERE on each, dedups by path, sorts.","meta":{"loc":"~300","filters":"bpm, key, duration, tag, text, format","scoping":"--root by label or path"},"rel":["registry-py","fanout","F-07"],"notes":["FTS5 MATCH is parameterized but the metacharacter set is not escaped","Per-library limit applied first, then merged + final --limit","--paths-only mode emits one path per line for piping"],"snippet":"# commands/query.py:208-211 (FTS5 path)\nif args.text:\n    joins.append(\n        \"JOIN samples_fts fts ON fts.path = s.path\"\n    )\n    where.append(\"samples_fts MATCH ?\")\n    params.append(args.text)   # <-- F-07","findings":["F-07"]},
-"mcp-server":{"title":"mcp_server.py","code":"stdio MCP server","body":"~1300 LOC single file. Registers 19 tools across 4 tiers: Fast read, Slow analyze, Very Slow batch, Destructive write. Module-global _REGISTRY_PATH set in main(). Helpers: _open_all_libraries, _open_owning_library, _scope_libraries, _close_all, _dedup_by_path, _resolve_stored_path, _librosa_available.","meta":{"loc":"~1300","tools":"19","entry":"main() in __main__"},"rel":["registry-py","fanout","F-07","F-16","F-29"],"notes":["dispatch wraps each tool call in try/except returning a string error","_librosa_available uses importlib.util.find_spec to avoid cold-start probe","One process, many tool calls; cache keyed by registry"],"snippet":"# mcp_server.py:33 (the global)\n_REGISTRY_PATH = None  # set once in main()\n\n# mcp_server.py:63-68\ndef _close_all(pairs):\n    for _, c in pairs:\n        try:\n            c.close()\n        except Exception:\n            pass   # <-- F-16","findings":["F-07","F-16","F-29"]},
-"per-lib-db":{"title":"Per-library SQLite DB","code":"WAL + FTS5","body":"Each registered library has its own DB with the v0.5 schema. Reduces lock contention vs a single global DB and lets the user copy a per-pack DB to ship with the data when --in-tree.","meta":{"location":"~/.acidcat/libraries/","journal":"WAL","fts":"samples_fts (FTS5)"},"rel":["index-py","fanout","registry"],"notes":["Schema version 1 is current","FTS5 sync is per-row via rebuild_fts_for_path","Path is the natural primary key of samples"]},
-"registry":{"title":"Global registry","code":"~/.acidcat/registry.db","body":"Lightweight SQLite file with one row per library. Cached counts (sample_count, feature_count) refresh on (re-)index or via the v0.5.3 --refresh-stats command.","meta":{"path":"~/.acidcat/registry.db","schema":"libraries","unique":"root_path + label"},"rel":["registry-py","fanout","prefix-route"],"notes":["The registry is the only join point","Reads fan out from here, writes route via longest-prefix","An orphan = registered row whose db_path is missing from disk"]},
-"fanout":{"title":"Fan-out query","code":"open all -> dedup by path","body":"Standard read pattern: enumerate registered libraries, open each DB, run the same SQL, merge rows, dedup by path, sort, apply final LIMIT. Filters libraries whose DB is missing (orphans).","meta":{"reads":"all libs","dedup":"by path","scoping":"--root LABEL_OR_PATH"},"rel":["registry","prefix-route"],"notes":["Per-library limit + final cap pattern keeps memory bounded","Dedup masks duplicate registrations (see F-13)","Orphan filter is opt-in via only_existing=True"]},
-"prefix-route":{"title":"Longest-prefix routing","code":"writes -> innermost containing lib","body":"For any sample path, find_library_for_path picks the most specific registered root that contains it. Avoids the dedup-on-overlap complexity by rejecting nested libraries at registration time.","meta":{"impl":"core/registry.py","picker":"longest-root-first"},"rel":["registry","registry-py"],"notes":["Implementation iterates rows, sorts by length desc","O(N) but N is the library count which is small","No nested libraries policy makes this unambiguous"]},
-"cost-prefix":{"title":"MCP cost-prefix scheme","code":"Fast / SLOW / VERY SLOW","body":"Tool descriptions lead with a budget prefix. Drives LLM tool ranking heuristics. Verified working through Claude Desktop sessions in real use.","meta":{"tiers":"Fast, SLOW, VERY SLOW","destructive":"not yet prefixed"},"rel":["mcp-server","F-17"],"notes":["Read tools all open with 'Fast.'","Slow analysis tools open with 'SLOW.' or 'VERY SLOW.'","Mutating tools open with 'Modify the registry.' / 'Modify the index.' but no Destructive prefix"]},
-"camelot":{"title":"Camelot wheel","code":"24 codes 1A-12B / 1B-12B","body":"DJ-friendly representation of musical key. Adjacent codes are harmonically compatible. find_compatible uses this to widen a target key into the wheel-adjacent set.","meta":{"codes":"24","library":"core/camelot.py"},"rel":["camelot-py","t-compat"],"notes":["Same number, A vs B = relative major/minor","+-1 in same letter = perfect fourth/fifth","Useful for harmonic mixing and arrangement"]},
-"t-search":{"title":"search_samples","code":"MCP Fast","body":"Primary read tool. Combines structured filters (bpm, key, duration, tags, format) with optional FTS5 text. Fan-out across registered libraries.","meta":{"tier":"Fast","read-only":"yes","fan-out":"yes"},"rel":["mcp-server","cmd-query","F-07"],"notes":["FTS5 MATCH path is the F-07 entry point","BPM is filtered as an inclusive integer range","Key filter is exact match against the canonical key string"]},
-"t-getsample":{"title":"get_sample","code":"MCP Fast","body":"Resolve a sample path (or partial path) and return all stored fields plus features if present.","meta":{"tier":"Fast","read-only":"yes"},"rel":["mcp-server"],"notes":["Calls _resolve_stored_path to handle ambiguity","Returns features object if present in the per-library DB"]},
-"t-locate":{"title":"locate_sample","code":"MCP Fast","body":"Filesystem-only path lookup across libraries. Useful when the LLM has a partial filename and needs the canonical absolute path.","meta":{"tier":"Fast","read-only":"yes"},"rel":["mcp-server"],"notes":["Dedups across libraries","Returns multiple matches if ambiguous"]},
-"t-stats":{"title":"index_stats","code":"MCP Fast","body":"Aggregate counts across libraries. Surfaces sample_count, feature_count, library_count, unavailable_libraries (orphans).","meta":{"tier":"Fast","read-only":"yes"},"rel":["mcp-server","registry"],"notes":["Calls per-library index_stats and rolls up","Orphan count is the count of registered libs whose db_path file is missing"]},
-"t-compat":{"title":"find_compatible","code":"MCP Fast","body":"Given a target sample, return harmonically (Camelot-adjacent) and rhythmically (BPM tolerance) compatible samples. Hot tool for mixing workflows.","meta":{"tier":"Fast","filter":"key + bpm","tolerance":"configurable"},"rel":["camelot-py","mcp-server","F-08"],"notes":["If target_key is null, key filter is skipped entirely (F-08)","BPM tolerance is +- N percent","Returns ranked list, dedup by path"]},
-"t-analyze":{"title":"analyze_sample","code":"MCP SLOW","body":"librosa-backed extraction of spectral features for a given sample path. Description claims SLOW (~1-10s) but first call pays cold-start tax.","meta":{"tier":"SLOW","library":"librosa","cold-start":"30-60s"},"rel":["features-py","mcp-server","F-04","F-09","F-20"],"notes":["F-04: missing idempotentHint=false","F-09: cost description hides cold-start","F-20: schema declares unused 'deep' parameter"]},
-"t-register":{"title":"register_library","code":"MCP Destructive","body":"Create a new per-library DB and add it to the registry. Description does not lead with 'Destructive.' (F-17). Originally flagged for idempotency mismatch (F-03), but post-verify the implementation IS idempotent: open_db opens existing DBs without modification.","meta":{"tier":"Destructive","creates":"DB file","annotation":"destructiveHint=true, idempotentHint=true"},"rel":["registry-py","mcp-server","F-17"],"notes":["F-03 was withdrawn after verification","F-17: should lead with 'Destructive.'"]},
-"t-describe":{"title":"describe_sample","code":"MCP Destructive","body":"Set or clear the free-text description on a sample. Name reads like a getter; behaviour is a setter (F-18).","meta":{"tier":"Destructive","writes":"descriptions table","annotation":"destructiveHint=true"},"rel":["mcp-server","F-18"],"notes":["F-18: rename to set_sample_description proposed"]},
-"F-01":{"title":"F-01 serum O(n^2) JSON brute-force","code":"HIGH (post-verify)","body":"core/serum.py:42-43 tries json.loads on every prefix from start+50 up to max_search. VERIFIED 2026-05-02: max_search = min(len(raw), json_start + 10000), so worst case is ~10k iterations of up to ~10KB parse, ~100MB parse work, seconds-scale slow per file. Real perf issue but NOT a DoS. Downgraded CRITICAL to HIGH.","meta":{"sev":"HIGH","fix":"raw_decode linear pass","loc":"core/serum.py:41-43"},"rel":["serum-py"],"notes":["Original subagent claim of 'million parse attempts' was wrong","Bounded at 10KB search window","Still worth the linear-pass fix"],"snippet":"# the actual bound on the search:\nmax_search = min(len(raw), json_start + 10000)\nfor end in range(json_start + 50, max_search):\n    try:\n        return json.loads(raw[json_start:end])\n    except (json.JSONDecodeError, UnicodeDecodeError):\n        continue"},
-"F-02":{"title":"F-02 discover_libraries dry_run default","code":"CRITICAL","body":"discover_libraries declares dry_run with default False but the description says 'always call once with dry_run=true first to preview'. An LLM that ignores the recommendation triggers a destructive registry mutation.","meta":{"sev":"CRITICAL","fix":"flip default to true","loc":"mcp_server.py:1068, 1500"},"rel":["mcp-server","t-register"],"notes":["Defaults must encode the spirit of the description, not contradict it","Cheap fix; one-line"]},
-"F-03":{"title":"F-03 register_library idempotency [WITHDRAWN]","code":"WITHDRAWN","body":"VERIFIED 2026-05-02: this finding is incorrect. The register_library MCP handler at mcp_server.py:1015-1037 calls reg.register_library (UPSERT, idempotent) then idx.open_db. open_db (core/index.py:48) opens existing DB without modification; _apply_schema only creates tables IF NOT EXISTS and only inserts schema_version when absent. Re-calling register_library does NOT destroy data. Annotation is correct. Withdrawn.","meta":{"sev":"WITHDRAWN","fix":"none","loc":"mcp_server.py:1453 (correct as-is)"},"rel":["mcp-server","t-register"],"notes":["Subagent misread the open_db semantics","Verified by reading core/index.py:48-86 and mcp_server.py:1015-1037","No code change needed"]},
-"F-04":{"title":"F-04 missing idempotentHint=false","code":"CRITICAL","body":"analyze_sample and detect_bpm_key load disk content. If the file changes mid-conversation, repeat calls return different output. Annotations should declare this so MCP clients do not coalesce or cache identical-arg calls.","meta":{"sev":"CRITICAL","fix":"add idempotentHint=false","loc":"mcp_server.py:1375, 1388"},"rel":["t-analyze","mcp-server"],"notes":["One-liner per tool"]},
-"F-05":{"title":"F-05 WAV unbounded chunk read","code":"HIGH","body":"core/riff.py:67 reads chunk_size bytes from disk where chunk_size comes from the file. A malformed WAV claiming a 2 GB chunk allocates 2 GB. AIFF parser already does the right thing (caps at 4 KB).","meta":{"sev":"HIGH","fix":"cap reads at 4-8 KB","loc":"core/riff.py:67"},"rel":["riff-py","aiff-py"],"notes":["Parser only needs fmt header and smpl loop block","Stream-and-skip pattern matches AIFF"]},
-"F-06":{"title":"F-06 MIDI sysex VLQ underrun","code":"HIGH","body":"After F0 sysex status byte, VLQ length is read from the file. If length exceeds remaining bytes in the MTrk, parser advances past the track boundary into the next track silently, scrambling output.","meta":{"sev":"HIGH","fix":"clamp to track_remaining","loc":"core/midi.py:143-146"},"rel":["midi-py"],"notes":["Treat short reads as a parse error","Same defensive shape that AIFF parser uses for chunk reads"]},
-"F-07":{"title":"F-07 FTS5 syntax error leak","code":"HIGH","body":"User text goes to samples_fts MATCH ?. FTS5 metacharacters cause sqlite3.OperationalError. Dispatcher catch-all returns f'internal: {e.__class__.__name__}: {e}' to the MCP client, exposing FTS5 internals.","meta":{"sev":"HIGH","fix":"catch + map to clean error","loc":"mcp_server.py:256-259, 1610"},"rel":["mcp-server","cmd-query"],"notes":["text=foo) -> unbalanced parens","text=* -> syntax error","text=NOT foo -> empty set, surprising","Wrap quote: f'\"{text.replace(chr(34), chr(34)*2)}\"'"]},
-"F-08":{"title":"F-08 find_compatible keyless target","code":"HIGH","body":"If the target sample has no key (drum loop), compat_keys is empty and the SQL skips the key filter. Returns samples of arbitrary keys despite description saying 'harmonically and rhythmically compatible'.","meta":{"sev":"HIGH","fix":"key_filter_strict OR doc","loc":"mcp_server.py:541-568"},"rel":["t-compat","camelot-py"],"notes":["Sometimes correct (drums are key-independent)","But the LLM has no signal that the filter degraded"]},
-"F-09":{"title":"F-09 analyze_sample cost","code":"HIGH","body":"Description: SLOW (~1-10s). Reality: first call in a process pays 30-60s of numba JIT. By call 2 it really is 1-10s. Averaging hides the worst case from the LLM.","meta":{"sev":"HIGH","fix":"update description","loc":"mcp_server.py:1363"},"rel":["t-analyze","features-py"],"notes":["Same pain point that drove the deferred pre-warmed worker plan","Description fix is independent of worker shipping","Free near-term win"]},
-"F-10":{"title":"F-10 BPM filename ceiling 200","code":"MEDIUM","body":"detect.py:33-34 enforces 60 <= bpm <= 200. Drum and bass at 174 passes, gabber at 240 rejected, half-time labels (acid_360.wav for 180 BPM) rejected.","meta":{"sev":"MEDIUM","fix":"raise ceiling to 300","loc":"core/detect.py:33-34"},"rel":["detect-py"],"notes":["User catalog is in IDM/acid space; gabber + hardcore do show up","Document the band"]},
-"F-11":{"title":"F-11 SMPL note 0 [WITHDRAWN]","code":"WITHDRAWN","body":"VERIFIED 2026-05-02: this finding is already fixed. commands/index.py:877-880 contains 'if not smpl: smpl = None' which treats both None and 0 as missing. The C-1 sentinel is dropped before storage on the index path. Subagent missed the existing guard.","meta":{"sev":"WITHDRAWN","fix":"none","loc":"commands/index.py:877-880 (already correct)"},"rel":["riff-py","cmd-index"],"notes":["The 'if not smpl' guard handles 0 falsy","Subagent misread the existing code","No code change needed"]},
-"F-12":{"title":"F-12 AIFC compression validation","code":"MEDIUM","body":"AIFC COMM chunk includes a 4-byte compression type (NONE, sowt, fl32, fl64...). Parser does not validate against the known set; unknown types silently produce wrong sample rate interpretation.","meta":{"sev":"MEDIUM","fix":"validate against known set","loc":"core/aiff.py:140-143"},"rel":["aiff-py"],"notes":["Maintain a whitelist of known compression types","Warn or skip on unknown"]},
-"F-13":{"title":"F-13 Windows path case collision","code":"MEDIUM","body":"normalize uses abspath + replace, but does not lowercase on Windows. C:/MyLib and c:/mylib refer to the same NTFS object but the registry treats them as separate libraries. Dedup-by-path masks the duplication except in --list.","meta":{"sev":"MEDIUM","fix":"normcase on Windows","loc":"core/paths.py:31-37"},"rel":["paths-py","registry-py"],"notes":["Use os.path.normcase in the overlap guard","Lowercase in normalize on Windows"]},
-"F-14":{"title":"F-14 rebuild_fts_for_path not transactional","code":"MEDIUM","body":"DELETE -> SELECT -> INSERT. Early return after DELETE if SELECT finds no row leaves FTS missing a row whose samples row still exists.","meta":{"sev":"MEDIUM","fix":"BEGIN/COMMIT or INSERT OR REPLACE","loc":"core/index.py:257-289"},"rel":["index-py"],"notes":["Affects search quality over time","Stale FTS rows accumulate silently"]},
-"F-15":{"title":"F-15 _assert_no_overlap TOCTOU","code":"MEDIUM","body":"Read-then-insert without a writer lock. Two concurrent register_library calls can both pass the check then both insert overlapping rows.","meta":{"sev":"MEDIUM","fix":"BEGIN IMMEDIATE","loc":"core/registry.py:103-136"},"rel":["registry-py"],"notes":["Possible when CLI register runs during long MCP session","Take writer lock for the duration of check + insert"]},
-"F-16":{"title":"F-16 _close_all swallows close errors","code":"MEDIUM","body":"Connection close exceptions are caught and ignored. Masks 'database is locked', double-close, corruption signals. Hard to diagnose later.","meta":{"sev":"MEDIUM","fix":"log at warn","loc":"mcp_server.py:63-68"},"rel":["mcp-server"],"notes":["Swallow itself is fine","Silence is what hurts","Log the exception class at warn level"]},
-"F-17":{"title":"F-17 destructive tools lack 'Destructive.' prefix","code":"MEDIUM","body":"Read tools open with 'Fast.', slow ones with 'SLOW.', mutating ones with 'Modify the registry.' or 'Modify the index.'. An LLM ranking by cost may miss that Modify tools are also irreversible.","meta":{"sev":"MEDIUM","fix":"add Destructive. prefix","loc":"mcp_server.py:1435+"},"rel":["mcp-server","cost-prefix"],"notes":["Aligns description with destructiveHint=true annotation","Free win, no behaviour change"]},
-"F-18":{"title":"F-18 describe_sample reads as getter","code":"MEDIUM","body":"Natural language 'describe the sample' = tell me about it. The tool writes the description field. An LLM may misroute. Body text clarifies but the name is the trap.","meta":{"sev":"MEDIUM","fix":"rename to set_sample_description","loc":"mcp_server.py:1537"},"rel":["t-describe"],"notes":["Breaking rename; deserves a release note","Or annotate_sample for parallel with tag_sample"]},
-"F-19":{"title":"F-19 infer_kind 1s loop [WITHDRAWN]","code":"WITHDRAWN","body":"VERIFIED 2026-05-02: this finding is incorrect. The rule 'b > 0 or d >= 2.0' is an OR not an AND. For b=1, d=1.0 the first clause is True and the function correctly returns 'loop'. The subagent misread the boolean operator. No bug. Withdrawn.","meta":{"sev":"WITHDRAWN","fix":"none","loc":"mcp_server.py:495-508 (correct as-is)"},"rel":["mcp-server"],"notes":["Subagent misread Python 'or' as 'and'","Verified by reading mcp_server.py:495-508","No code change needed"]},
-"F-20":{"title":"F-20 analyze_sample unused 'deep' param","code":"MEDIUM","body":"Schema declares deep: boolean (default false). Handler never reads it. LLM may pass deep=true expecting deeper analysis and get the same result.","meta":{"sev":"MEDIUM","fix":"remove or implement","loc":"mcp_server.py:1370"},"rel":["t-analyze"],"notes":["Forward to extract_audio_features","Or remove from schema"]},
-"F-21":{"title":"F-21 format dispatch order","code":"MEDIUM","body":"Extension dispatch tests .wav before .aiff. Files like foo.aiff.wav (botched batch convert) hit WAV path first, parse the WAV header (which doesn't exist), then fail or mis-tag.","meta":{"sev":"MEDIUM","fix":"sniff magic bytes first","loc":"commands/index.py:847-856"},"rel":["cmd-index"],"notes":["Unlikely in practice but documented","Magic-byte sniff is the robust answer"]},
-"F-22":{"title":"F-22 schema migration undefined","code":"LOW","body":"SCHEMA_VERSION is stored in a meta table but no migration handler exists. If a future v0.6 bumps to 2, a v0.5 client opens the v0.6 DB and runs old SQL against the new schema, raising column-count errors.","meta":{"sev":"LOW","fix":"migration registry","loc":"core/index.py:86, registry.py:69"},"rel":["index-py","registry-py"],"notes":["Add guard: error on version > expected","Deferred until first version bump"]},
-"F-23":{"title":"F-23 path_hash 32 bits","code":"LOW","body":"8 hex chars = 32 bits. Birthday collision at ~65k libraries. Single-user safe. At 1k libraries, collision is 1 in tens of thousands.","meta":{"sev":"LOW","fix":"grow to 12 hex chars","loc":"core/paths.py:90-97"},"rel":["paths-py"],"notes":["Cheap to grow before any wider release","Filename collision needs hash AND label collision both"]},
-"F-24":{"title":"F-24 followlinks not explicit","code":"LOW","body":"_walk_and_upsert calls os.walk without followlinks=False. Default is correct, but explicit is better. discover already does this right.","meta":{"sev":"LOW","fix":"add followlinks=False","loc":"commands/index.py:749"},"rel":["cmd-index"],"notes":["Symbol of intent","Protects against future os.walk default changes"]},
-"F-25":{"title":"F-25 label fallback hash deterministic","code":"LOW","body":"Hash fallback in _resolve_unique_label is based only on base_label, not on root path. Two unrelated roots both defaulting to 'lib' produce identical hash suffixes.","meta":{"sev":"LOW","fix":"hash includes root path","loc":"commands/index.py:579-599"},"rel":["cmd-index"],"notes":["UNIQUE constraint on label catches it at insert","But the message will say 'duplicate' instead of disambiguating"]},
-"F-26":{"title":"F-26 BOM in tag values","code":"LOW","body":"mutagen returns text with UTF-8 BOM in some ID3v2.4 / Vorbis files. Indexed raw, search becomes flaky on those entries.","meta":{"sev":"LOW","fix":"value.lstrip('\\ufeff')","loc":"core/tagged.py"},"rel":["tagged-py"],"notes":["Mostly Audacity-exported MP3s","Strip after read"]},
-"F-27":{"title":"F-27 RIFF chunk padding","code":"LOW","body":"Spec requires odd-sized chunks be padded to even. Parser does not always re-align after an odd chunk, reading 1 byte off into the next chunk header.","meta":{"sev":"LOW","fix":"f.read(chunk_size + (chunk_size & 1))","loc":"core/riff.py"},"rel":["riff-py"],"notes":["Affects rare but valid files","Standard fix is one-liner"]},
-"F-28":{"title":"F-28 prune_missing walk_start race","code":"LOW","body":"walk_start fixed at start of walk. Files added near end could be pruned. Minor; user re-runs index.","meta":{"sev":"LOW","fix":"document or use walk_start - 1h","loc":"commands/index.py:813-816"},"rel":["cmd-index"],"notes":["Unlikely in practice","Document the timing model"]},
-"F-29":{"title":"F-29 _REGISTRY_PATH global","code":"LOW","body":"Mutable module global, set once at startup. Type signature does not enforce single-write. If the server ever supports hot-reload, this is a footgun.","meta":{"sev":"LOW","fix":"comment / functools.lru_cache","loc":"mcp_server.py:33"},"rel":["mcp-server"],"notes":["Single process today; safe","Document as set-once"]}
+"cli-py":{"title":"cli.py","code":"argparse + bare-path dispatch","body":"Eleven subcommands on a register/run pattern, plus a pre-parse pass that routes bare paths without a verb: files go to info, directories to scan, '-' reads stdin.","meta":{"loc":"133","verbs":"11","entry":"acidcat / python -m acidcat"},"rel":["cmd-index","cmd-query"],"notes":["adding a verb is one import + one register() call","exit codes propagate through __main__.py"],"snippet":"# cli.py: bare-path fallback\nif os.path.isfile(t):\n    return info.run(a)\nelif os.path.isdir(t):\n    return scan.run(a)"},
+"mcp-server":{"title":"mcp_server.py","code":"stdio MCP server, 19 tools","body":"Registers tools into a flat TOOLS list with name, description, JSON schema, handler, and annotations. Reads fan out across every registered library; ToolError surfaces clean messages to the model instead of tracebacks.","meta":{"loc":"~1680","tools":"19","transport":"stdio"},"rel":["fan-out","cost-prefix","registry-py"],"notes":["librosa availability probed with find_spec, never an import, so probing stays instant","analysis tools answer with a pip install hint when deps are missing"],"snippet":"def _tool(name, description,\n          input_schema, handler,\n          annotations):\n    TOOLS.append({...})"},
+"cmd-index":{"title":"commands/index.py","code":"walker + upserter","body":"Walks a library root, sniffs each file's format by magic bytes before trusting the extension, extracts a row dict, and upserts in batches. Vanished files are pruned, scan roots recorded.","meta":{"loc":"~1127","batch":"100 files","dispatch":"magic bytes, then ext"},"rel":["sniff","commit-batch","index-py"],"notes":["mtime+size match skips re-parse on reindex","--discover walks a tree and registers many libraries at once"]},
+"cmd-query":{"title":"commands/query.py","code":"index reads","body":"Filter the index by bpm range, key (with Camelot and enharmonic expansion), duration, format, and tags, or free-text via FTS5. Opens every registered library, runs the same WHERE, merges and dedups.","meta":{"filters":"bpm key dur fmt tag text","scope":"--root LABEL_OR_PATH"},"rel":["fan-out","fts5","camelot-py"],"notes":["FTS5 syntax errors surface with a quoting hint since v0.5.5","bpm ranges accept 120:130 colon syntax"]},
+"riff-py":{"title":"core/riff.py","code":"RIFF/WAVE chunk parser","body":"Stdlib-only chunk walker that parses acid, smpl, inst, fmt, fact, cue, LIST/INFO, and bext chunks, with a header-only duration fallback for non-PCM codecs the wave module rejects.","meta":{"loc":"382","deps":"stdlib only","cap":"64 KB reads"},"rel":["riff-walk","acid-chunk","smpl-chunk"],"notes":["iter_chunks() yields (id, offset, size) without parsing payloads","duration falls back to fact samples or data bytes / frame size"]},
+"aiff-py":{"title":"core/aiff.py","code":"AIFF/AIFC parser","body":"Big-endian FORM container parser. COMM gives channels, frames, bit depth, and a sample rate encoded as an 80-bit extended float. AIFC compression types are validated against a known set.","meta":{"loc":"262","endian":"big","magic":"FORM..AIFF/AIFC"},"rel":["ieee-extended","riff-py"],"notes":["chunk reads bounded like the RIFF side","MARK and INST chunks carry loop and root data"]},
+"midi-py":{"title":"core/midi.py","code":"SMF parser","body":"Single-pass parser over MThd and MTrk chunks extracting tempo, time signature, key signature, track names, note count and range, and tick duration converted to seconds via the first tempo.","meta":{"loc":"232","events":"meta, sysex, channel","fixed":"v0.5.5 running status"},"rel":["vlq","running-status","tempo-meta"],"notes":["sysex lengths bounded against the track so corrupt files cannot bleed across MTrk boundaries","duration_sec = ticks / division * 60 / bpm"]},
+"serum-py":{"title":"core/serum.py","code":"Xfer Serum presets","body":"Finds the JSON metadata block after the XferJson magic and decodes it in one pass with JSONDecoder.raw_decode, which stops at the first complete object instead of brute-forcing prefixes.","meta":{"loc":"53","magic":"XferJson","fields":"name, author, tags, hash"},"rel":["xferjson"],"notes":["binary wavetable data after the JSON is never touched"],"snippet":"parsed, _ = json.JSONDecoder()\n    .raw_decode(text)"},
+"tagged-py":{"title":"core/tagged.py","code":"mutagen wrapper","body":"One parse function fronting three tag dialects: ID3v2 frames for MP3, Vorbis comments for FLAC and OGG, MP4 atoms for M4A. Each extractor maps its dialect onto the same row fields.","meta":{"loc":"255","dep":"mutagen (base)","formats":"mp3 flac ogg m4a"},"rel":["mutagen-map"],"notes":["UTF-8 BOMs stripped from tag text before storage","genre lands in the row but tag-table population is a known gap"]},
+"detect-py":{"title":"core/detect.py","code":"BPM + key estimation","body":"Three witnesses: RIFF chunk metadata, filename heuristics, and librosa analysis. Each can be wrong in its own way, so the module's real job is reconciliation, not detection.","meta":{"loc":"281","bpm range":"60-300 filename","gate":"acidcat[analysis]"},"rel":["bpm-filename","bpm-validate","chroma-pcp"],"notes":["clips under 256 samples short-circuit as one-shots","parent folder names are searched for key tokens up to 3 levels up"]},
+"features-py":{"title":"core/features.py","code":"51-dim feature vector","body":"Loads audio mono at native rate and computes spectral, timbral, rhythmic, and harmonic statistics. Stored as JSON in the features table and consumed by find_similar.","meta":{"dims":"51","heavy":"mfcc + mel + tonnetz","gate":"acidcat[analysis]"},"rel":["mfcc","spectral-shape","cosine-sim"],"notes":["mean and std per feature family, so time variation survives pooling","first librosa call in a process pays the numba JIT tax"]},
+"camelot-py":{"title":"core/camelot.py","code":"harmonic mixing wheel","body":"Maps (pitch_class, mode) pairs onto the 1A-12B Camelot wheel and back. compatible_keys returns the four-slot harmonic neighborhood used by find_compatible on both CLI and MCP surfaces.","meta":{"loc":"206","codes":"1A-12B","neighbors":"same, relative, +-1"},"rel":["camelot-wheel","parse-key"],"notes":["enharmonic table lets Db match C# in either direction","pure stdlib, fully unit-tested"]},
+"index-py":{"title":"core/index.py","code":"per-library SQLite store","body":"Owns the schema, upserts, FTS rebuilds, and the schema_version gate. Connections open with WAL journaling and foreign keys on; everything is stdlib sqlite3.","meta":{"loc":"465","tables":"6","journal":"WAL"},"rel":["db-schema","fts5","upsert","schema-version"],"notes":["b-tree indexes on bpm, key, duration, format, scan_root","FTSQueryError translates fts5 syntax errors into human messages"]},
+"registry-py":{"title":"core/registry.py","code":"global library catalog","body":"Single SQLite file listing every registered library with label, root, db_path, and cached sample/feature counts. Registration validates against overlapping roots inside an immediate transaction.","meta":{"loc":"393","path":"~/.acidcat/registry.db","guard":"BEGIN IMMEDIATE"},"rel":["registry-overlap","longest-prefix","paths-py"],"notes":["find_orphans flags entries whose DB file vanished","stats refresh on demand from each library DB"]},
+"paths-py":{"title":"core/paths.py","code":"DB layout + hashing","body":"Decides where a library's DB lives: central under ~/.acidcat/libraries as label_hash12.db, or in-tree at root/.acidcat/index.db so the index ships with the drive.","meta":{"loc":"165","hash":"12 hex of root path","compare":"case-insensitive on win"},"rel":["storage-layout","registry-py"],"notes":["hash includes the root path so renamed labels cannot collide","legacy v0.4 single index.db detected and warned about"]},
+"sniff":{"title":"magic-byte format sniff","code":"commands/index.py","body":"Dispatch reads the first bytes before trusting the extension: RIFF, FORM, MThd, XferJson, fLaC, OggS, ID3 frames, and MP4 ftyp all have unambiguous signatures. A foo.aiff.wav from a botched batch convert routes correctly.","meta":{"order":"magic first, ext fallback","formats":"8"},"rel":["cmd-index","riff-py","aiff-py"],"notes":["extension fallback only for signatureless cases","added in v0.5.4"]},
+"onset-env":{"title":"onset strength envelope","code":"librosa.onset.onset_strength","body":"Frame-by-frame spectral flux on a mel spectrogram: how much new energy appeared since the last frame, half-wave rectified. Percussive hits spike it, sustained tones do not, which makes it the substrate for tempo estimation.","meta":{"input":"mel spectrogram","output":"1 value / frame","hop":"512 samples"},"rel":["tempo-est","mfcc"],"notes":["drum-heavy material gives clean combs, pads give mush","also feeds beat_track for the feature vector's beat count"]},
+"tempo-est":{"title":"tempo estimation","code":"librosa.beat.tempo, median vote","body":"Autocorrelating the onset envelope produces a tempogram whose peaks are tempo candidates. acidcat runs the estimator twice, once on the envelope and once from raw audio, and takes the median of all candidates.","meta":{"method":"tempogram peaks","vote":"median of both runs"},"rel":["onset-env","bpm-validate"],"notes":["octave errors (half/double tempo) are the classic failure, handled downstream","aggregate=None returns the full candidate list, not one number"],"snippet":"t1 = librosa.beat.tempo(\n  onset_envelope=env, sr=sr,\n  aggregate=None)\nt2 = librosa.beat.tempo(\n  y=y, sr=sr, aggregate=None)\nbpm = median(t1 + t2)"},
+"bpm-filename":{"title":"filename BPM heuristics","code":"detect.parse_bpm_from_filename","body":"Tries 140bpm / bpm140 forms first, then bare 2-3 digit runs. The bare pattern rejects digits adjacent to letters or decimals, so pack identifiers like 91V never read as tempos, and iterates all matches rather than stopping at the first.","meta":{"range":"60-300","rejects":"91V, 03 in _03_126_"},"rel":["bpm-validate","detect-py"],"notes":["range covers DnB 174, hardcore 220, gabber 240","tightened twice from field testing on real packs"],"snippet":"r'(?<![\\d.A-Za-z])(\\d{2,3})(?![\\d.A-Za-z])'\n# letter-adjacent digits rejected:\n# 91V_SBH_126_fill -> 126, not 91"},
+"bpm-validate":{"title":"BPM cross-validation","code":"detect.validate_and_improve_bpm","body":"When librosa and the filename disagree, test whether the detected tempo is an octave or 1.5x error relative to the filename claim. Within 20 BPM after correction, trust the corrected detection; otherwise trust the filename.","meta":{"threshold":"20 bpm","corrections":"x2 /2 x1.5 /1.5"},"rel":["tempo-est","bpm-filename"],"notes":["detected values outside 60-200 defer to the filename outright","returns a source label so output shows where the number came from"],"snippet":"if abs(det*2 - fn) <= 20:\n    return det*2, 'corrected'\nif abs(det/2 - fn) <= 20:\n    return det/2, 'corrected'"},
+"chroma-pcp":{"title":"chroma / pitch class profile","code":"12-bin spectral fold","body":"Collapses all octaves of the spectrum into 12 bins, one per pitch class. The median over time gives a key fingerprint: which notes dominated the clip. Strongest bin names the likely tonic but says nothing about major versus minor.","meta":{"bins":"12","variant":"chroma_cqt / chroma_stft","pooling":"median over frames"},"rel":["krumhansl","tonnetz"],"notes":["CQT variant has log-spaced bins matching musical intervals","mode lives in the relative weights of the 3rd and 6th degrees, not the argmax"]},
+"krumhansl":{"title":"Krumhansl-Schmuckler profiles","code":"the planned mode detector","body":"Perceptual weightings of how strongly each pitch class implies a given key, derived from probe-tone experiments. Correlate a chroma vector against all 24 rotated major and minor profiles; the best correlation names key and mode together.","meta":{"templates":"24 (12 maj + 12 min)","cost":"~40 lines numpy","status":"roadmap"},"rel":["chroma-pcp","camelot-wheel"],"notes":["until it lands, chroma-only detection returns None by design","filename keys carry mode explicitly and win meanwhile"]},
+"camelot-wheel":{"title":"Camelot wheel","code":"camelot.camelot_neighbors","body":"The circle of fifths relabeled as clock positions: minor keys on the A ring, relative majors on the B ring at the same number. Harmonic mixing reduces to same code, flipped letter, or one step around the ring.","meta":{"codes":"1A-12B","8A":"Am","8B":"C"},"rel":["parse-key","camelot-py"],"notes":["adjacent numbers differ by a perfect fifth","find_compatible adds a bpm tolerance window on top"],"snippet":"return [f\"{num}{letter}\",  # same\n  f\"{num}{other}\",   # relative\n  f\"{down}{letter}\", # 4th\n  f\"{up}{letter}\"]   # 5th"},
+"parse-key":{"title":"tolerant key parsing","code":"camelot.parse_key","body":"One regex accepts note, accidental, and an optional mode suffix in every convention found in the wild, plus Camelot codes and octave forms. Suffix case is preserved: capital M means major in the Beatport / Mixed In Key convention.","meta":{"accepts":"Am, F#min, Bb maj, 5A, C4, CM","returns":"(pitch_class, mode)"},"rel":["camelot-wheel","camelot-py"],"notes":["lowercasing the suffix once collapsed CM onto C minor; fixed in v0.5.5","unparseable strings return None, never a guess"],"snippet":"suffix = m.group(3) or \"\"\nif suffix in (\"m\",\"min\",\"minor\"):\n    mode = 1\nelif suffix in (\"maj\",\"major\",\"M\"):\n    mode = 0"},
+"mfcc":{"title":"MFCCs","code":"mel-frequency cepstral coefficients","body":"Spectrum through a mel filterbank, log of the energies, then a discrete cosine transform. The DCT decorrelates the bands into a compact timbre code: low coefficients carry broad spectral tilt, higher ones formant-like detail.","meta":{"count":"13, mean + std each","share":"26 of 51 dims"},"rel":["spectral-shape","cosine-sim"],"notes":["the dominant timbre signal in the similarity metric","mel spacing mimics cochlear frequency resolution"],"snippet":"mfccs = librosa.feature.mfcc(\n  y=y, sr=sr, n_mfcc=13)\nfor i in range(13):\n  f[f'mfcc_{i+1}_mean'] = mean(m[i])\n  f[f'mfcc_{i+1}_std']  = std(m[i])"},
+"spectral-shape":{"title":"spectral shape statistics","code":"centroid, rolloff, bandwidth, contrast","body":"Centroid is the spectrum's center of mass, heard as brightness. Rolloff marks where 85 percent of energy has accumulated. Bandwidth measures spread around the centroid; contrast compares peaks to valleys per octave band, separating tonal from noisy.","meta":{"stats":"mean + std each","extras":"zcr, rms energy"},"rel":["mfcc","features-py"],"notes":["zero-crossing rate spikes on hi-hats and noise","rms mean+std capture loudness and its dynamics"]},
+"tonnetz":{"title":"tonnetz","code":"6-dim tonal centroid","body":"Projects chroma onto three interlocking circles: fifths, major thirds, minor thirds, each contributing a sine and cosine coordinate. Harmonically related keys land near each other, giving similarity a sense of harmonic distance.","meta":{"dims":"6","input":"chroma","origin":"neo-Riemannian theory"},"rel":["chroma-pcp","cosine-sim"],"notes":["distinguishes harmonically static loops from progressions","mean+std pooled like everything else"]},
+"cosine-sim":{"title":"similarity ranking","code":"StandardScaler + cosine","body":"Every feature column is z-scored so kHz-scale centroids cannot drown unit-scale ZCR, then samples rank by cosine similarity to the target vector. Euclidean is available as an alternative metric.","meta":{"scaler":"z-score per column","metric":"cosine (default)"},"rel":["features-py","mfcc"],"notes":["cosine compares shape, not magnitude: loudness-invariant","kind_filter narrows candidates to loops or one-shots first"],"snippet":"sims = cosine_similarity(\n  target_features,\n  self.features_scaled)[0]"},
+"infer-kind":{"title":"kind inference","code":"mcp_server.infer_kind","body":"Cheap classifier over data already in the index: any ACID beat count or 2+ seconds of duration means loop; under a second with no beats means one-shot; the 1-2s gap stays honest as 'any'.","meta":{"classes":"loop / one_shot / any","inputs":"duration, acid_beats"},"rel":["acid-chunk","cosine-sim"],"notes":["used by find_similar and find_compatible kind filters","no audio analysis needed, runs on every query"],"snippet":"if b > 0 or d >= 2.0:\n    return \"loop\"\nif d < 1.0 and b <= 0:\n    return \"one_shot\"\nreturn \"any\""},
+"riff-walk":{"title":"RIFF chunk walk","code":"riff.parse_riff","body":"Seek to chunk, read 8-byte header (4-char id + uint32 LE size), parse what we know, then jump size bytes plus a pad byte when size is odd. Word alignment is the detail every naive parser misses.","meta":{"cap":"64 KB per read","alignment":"2-byte word"},"rel":["acid-chunk","smpl-chunk","cue-chunk"],"notes":["the cap bounds malformed sizes; skip arithmetic still uses the real size","unknown chunks surface as hex previews in acidcat chunks"],"snippet":"pos += 8 + chunk_size\nif chunk_size % 2 == 1:\n    pos += 1   # pad byte"},
+"acid-chunk":{"title":"the acid chunk","code":"28 bytes of Sonic Foundry legacy","body":"Written by ACID and still emitted across the sample industry: file type flags, root note, beat count, meter, and tempo as a 32-bit float. When present it is the most trustworthy tempo source in the file.","meta":{"layout":"<IHHIII f","fields":"ver, root, beats, meter, tempo"},"rel":["smpl-chunk","infer-kind","riff-walk"],"notes":["the project's namesake","root note 0 treated as unset, same sentinel rule as smpl"],"snippet":"version, root, _, beats, den, \\\n  num, tempo = struct.unpack(\n    \"<IHHIII f\", chunk_data)"},
+"smpl-chunk":{"title":"the smpl chunk","code":"sampler root key + loop points","body":"36-byte header carrying the MIDI unity note (the sample's root pitch) followed by loop records with start and end frame offsets. Root key 0 is the documented unset sentinel, not an actual C-1.","meta":{"header":"<IIIIIIiiI","loop record":"24 bytes"},"rel":["acid-chunk","riff-walk"],"notes":["smpl_root_or_none strips the sentinel at all call sites since v0.5.5","loop points matter to hardware samplers and modern crate tools alike"]},
+"cue-chunk":{"title":"the cue chunk","code":"marker offsets, hostile by default","body":"A uint32 count followed by 24-byte cue records. The count comes from the file, so it is capped against the actual payload size before iterating: a malicious 0xFFFFFFFF once meant 4 billion loop spins.","meta":{"record":"24 bytes","cap":"(len - 4) // 24"},"rel":["riff-walk"],"notes":["hardened in v0.5.5 with a red test first"],"snippet":"max_cues = max(0,\n  (len(chunk_data) - 4) // 24)\nsafe = min(num_cues, max_cues)"},
+"ieee-extended":{"title":"80-bit extended float","code":"aiff._parse_ieee_extended","body":"AIFF stores sample rate in the 80-bit IEEE 754 extended format native to 68k-era Macs: 1 sign bit, 15 exponent bits biased by 16383, and an explicit 64-bit mantissa. Python's struct has no code for it, so the bytes are reassembled manually.","meta":{"width":"10 bytes","bias":"16383","mantissa":"explicit 64-bit"},"rel":["aiff-py"],"notes":["44100.0 encodes as 400E AC44 0000 0000 0000","explicit leading mantissa bit, unlike float64"],"snippet":"exp = ((d[0]&0x7F)<<8) | d[1]\nfor i in range(2,10):\n    man = (man<<8) | d[i]\nf = man / (1<<63)\nf = f * 2**(exp - 16383)"},
+"vlq":{"title":"variable-length quantity","code":"midi._read_vlq","body":"MIDI's integer encoding: seven payload bits per byte, high bit set means another byte follows. Delta times and meta event lengths both use it, so a parser that loses sync here misreads everything after.","meta":{"payload":"7 bits/byte","used for":"deltas, meta lengths"},"rel":["running-status","midi-py"],"notes":["same idea as protobuf varints, decades earlier"],"snippet":"while offset < len(data):\n    b = data[offset]\n    value = (value << 7) | (b & 0x7F)\n    offset += 1\n    if not (b & 0x80): break"},
+"running-status":{"title":"running status","code":"the byte every DAW omits","body":"Consecutive channel events with the same status may omit the repeated status byte; the parser must remember the last one and recognize that the byte it just read is already data. Ableton, Logic, FL, Cubase, and Reaper all export this way.","meta":{"2-byte msgs":"advance pos by 2","1-byte msgs":"advance pos by 1"},"rel":["vlq","midi-py"],"notes":["v0.5.5 fixed a one-byte under-advance here","the desynch corrupted note counts on most real-world MIDI"],"snippet":"# d1 already consumed into status;\n# d2 sits at pos+1. step past both.\nd2 = trk_data[pos + 1]\npos += 2"},
+"tempo-meta":{"title":"tempo meta event","code":"FF 51 03 tt tt tt","body":"Tempo lives in a 3-byte meta event as microseconds per quarter note. 500000 us means 120 BPM. acidcat records the first tempo and uses it with the header's tick division to estimate duration in seconds.","meta":{"formula":"60000000 / us_per_beat","also":"FF 58 time sig, FF 59 key sig"},"rel":["midi-py","vlq"],"notes":["key sig is a sharps/flats count plus a minor flag","track names from FF 03 surface in info output"],"snippet":"us = (d[0]<<16)|(d[1]<<8)|d[2]\nbpm = 60_000_000 / us"},
+"xferjson":{"title":"XferJson header","code":"serum preset magic","body":"Serum presets open with the 8-byte XferJson signature, then a JSON object holding preset name, author, description, and tags, then binary wavetable and modulation data the parser never touches.","meta":{"magic":"XferJson","decode":"raw_decode, one pass"},"rel":["serum-py"],"notes":["raw_decode stops at the first complete object: no brute-force prefix scanning","tags here feed the same search surface as user tags"]},
+"mutagen-map":{"title":"tag dialect mapping","code":"ID3v2 / Vorbis / MP4 atoms","body":"Three extractors normalize three metadata cultures onto one row shape: ID3 frames like TIT2 and TBPM, free-form Vorbis comments like TITLE and BPM, and Apple's four-char MP4 atoms.","meta":{"mp3":"ID3v2 frames","flac/ogg":"vorbis comments","m4a":"mp4 atoms"},"rel":["tagged-py"],"notes":["tag-frame BPM lands in the same bpm column as ACID tempo","BOM-prefixed tag text from sloppy editors is stripped"]},
+"db-schema":{"title":"per-library schema","code":"6 tables, schema_version 1","body":"samples holds 21 columns of audio facts keyed by path. scan_roots tracks walk bookkeeping, tags and descriptions hold user annotations, features holds librosa JSON, samples_fts mirrors text fields for search.","meta":{"key":"path TEXT PRIMARY KEY","indexes":"bpm key duration format root"},"rel":["fts5","upsert","schema-version"],"notes":["annotations live outside samples so reindex never clobbers them","features rows carry a version for future re-extraction"],"snippet":"CREATE TABLE samples (\n  path TEXT PRIMARY KEY,\n  format, duration, bpm, key,\n  acid_beats, root_note,\n  sample_rate, channels, ...\n)"},
+"fts5":{"title":"FTS5 mirror","code":"samples_fts, porter stemmed","body":"A virtual table mirroring path, title, artist, album, genre, comment, description, and tags. Porter stemming means 'kicks' matches 'kick'. Rebuilt per row inside the caller's transaction whenever source fields change.","meta":{"tokenizer":"porter","feeds":"--text, search_samples"},"rel":["db-schema","cmd-query"],"notes":["syntax errors from * \" ( ) NOT AND OR surface with a quoting hint","rebuild participates in the batch transaction since v0.5.5"],"snippet":"CREATE VIRTUAL TABLE samples_fts\nUSING fts5(path, title, artist,\n  album, genre, comment,\n  description, tags,\n  tokenize='porter')"},
+"upsert":{"title":"idempotent upserts","code":"ON CONFLICT(path) DO UPDATE","body":"Each file becomes one INSERT with a full conflict-update clause, so reindexing is safe to repeat. A stored mtime+size pair short-circuits files that have not changed, leaving only a last_seen_at touch.","meta":{"key":"path","skip":"mtime + size match"},"rel":["db-schema","commit-batch"],"notes":["unchanged files cost one SELECT, not a re-parse"],"snippet":"INSERT INTO samples (...)\nVALUES (...)\nON CONFLICT(path) DO UPDATE\n  SET bpm=excluded.bpm, ..."},
+"commit-batch":{"title":"batched commits","code":"_COMMIT_EVERY_N_FILES = 100","body":"The walker holds a transaction open across 100 files before committing, amortizing the fsync that WAL pays per commit. On NVMe the difference is milliseconds; on a USB sample drive or network mount it is minutes.","meta":{"batch":"100 files","why":"fsync amortization"},"rel":["upsert","fts5"],"notes":["v0.5.5 fixed a nested transaction that silently committed per file","sample row and its FTS row land in the same transaction"]},
+"registry-overlap":{"title":"registration overlap guard","code":"registry.register_library","body":"Registering a root that contains, or is contained by, an existing library would double-index files, so registration checks both directions inside a BEGIN IMMEDIATE transaction that also closes the race between two concurrent registrations.","meta":{"guard":"BEGIN IMMEDIATE","compare":"case-insensitive on win"},"rel":["registry-py","longest-prefix"],"notes":["re-registering the same root is idempotent, not destructive","--discover pre-checks candidates against the same rule"]},
+"longest-prefix":{"title":"longest-prefix routing","code":"registry.find_library_for_path","body":"Writes target exactly one library: the registered root with the longest prefix match against the sample path wins. Tagging a file in a nested folder lands in the right DB without the caller naming it.","meta":{"used by":"tag_sample, set_sample_description","rule":"most specific root wins"},"rel":["fan-out","registry-py"],"notes":["reads never need it: they fan out and dedup instead"]},
+"fan-out":{"title":"fan-out reads","code":"open all, dedup by path","body":"Every read enumerates registered libraries, opens each DB, runs the same SQL, merges rows, dedups by path, sorts, and applies the final LIMIT. Missing DB files (orphans) are skipped rather than fatal.","meta":{"dedup":"by path","scope":"--root LABEL_OR_PATH"},"rel":["cmd-query","mcp-server","longest-prefix"],"notes":["per-library LIMIT plus final cap keeps memory bounded","dedup also masks accidental duplicate registrations"]},
+"schema-version":{"title":"schema version gate","code":"refuse-on-newer","body":"Both DB kinds store schema_version in a meta table. Opening a DB written by a newer acidcat raises a clean SchemaVersionError telling the user to upgrade, instead of running old SQL against a new schema and corrupting silently.","meta":{"current":"1","forward":"refuse","backward":"migration registry slot"},"rel":["db-schema","registry-py"],"notes":["the downgrade path is an explicit error until a migration registry exists"]},
+"storage-layout":{"title":"central vs in-tree layout","code":"paths.central_db_path_for","body":"Central mode keeps all library DBs under ~/.acidcat/libraries named label_hash12.db, where the hash digests the root path. In-tree mode drops index.db inside the library so a portable drive carries its own index.","meta":{"central":"~/.acidcat/libraries/","in-tree":"root/.acidcat/index.db"},"rel":["paths-py","registry-py"],"notes":["hash in the filename prevents label collisions across drives","legacy v0.4 ~/.acidcat/index.db is detected and warned about"]},
+"cost-prefix":{"title":"cost-prefix scheme","code":"Fast. / SLOW. / VERY SLOW.","body":"Every MCP tool description leads with a cost budget so the model ranks cheap reads above expensive analysis without special prompting. Mutating tools state what they modify up front.","meta":{"fast":"SQL reads","slow":"librosa calls","very slow":"library walks"},"rel":["mcp-server"],"notes":["analyze_sample's description warns about the 30-60s numba cold start","discover_libraries defaults to dry_run=true so a forgetful call previews instead of mutating"]}
 }
 </script>
+
 <script>
 (()=>{
-const D=JSON.parse(document.getElementById('reference-data').textContent);
-const card=document.getElementById('m-card');
-const els={t:document.getElementById('m-title'),c:document.getElementById('m-code'),b:document.getElementById('m-body'),m:document.getElementById('m-meta'),r:document.getElementById('m-rel'),n:document.getElementById('m-notes'),f:document.getElementById('m-findings'),sn:document.getElementById('m-snippet')};
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
-function sevClass(k){if(!k)return '';const v=(D[k]&&D[k].meta&&D[k].meta.sev)||'';return v==='CRITICAL'?'crit':v==='HIGH'?'high':v==='MEDIUM'?'med':v==='LOW'?'low':'';}
-function paint(k){
-  const x=D[k];if(!x)return;
-  const sc=sevClass(k);
-  card.classList.remove('crit','high','med','low');
-  if(sc)card.classList.add(sc);
-  els.t.textContent=x.title;
-  els.c.textContent=x.code||'-';
-  els.b.textContent=x.body||'';
-  els.m.innerHTML=Object.entries(x.meta||{}).map(([k,v])=>`<div><strong>${esc(k)}</strong><span>${esc(v)}</span></div>`).join('');
-  if(x.snippet){
-    els.sn.style.display='';
-    const pre=els.sn.querySelector('pre');
-    pre.textContent=x.snippet;
-    pre.classList.remove('crit','high');
-    if(sc)pre.classList.add(sc);
-  }else{
-    els.sn.style.display='none';
-  }
-  els.r.querySelector('ul').innerHTML=(x.rel||[]).map(r=>{const o=D[r];return o?`<li>&rsaquo; ${esc(o.title)}</li>`:'';}).join('')||'<li class="more">-</li>';
-  els.n.querySelector('ul').innerHTML=(x.notes||[]).map(n=>`<li>&middot; ${esc(n)}</li>`).join('')||'<li class="more">-</li>';
-  const fs=(x.findings||[]).filter(f=>D[f]);
-  els.f.querySelector('ul').innerHTML=fs.length?fs.map(f=>{const o=D[f];const s=(o.meta&&o.meta.sev)||'';return `<li><strong>${esc(f)}</strong> <span style="text-transform:uppercase;font-size:0.66rem;color:var(--muted)">${esc(s)}</span> &mdash; ${esc((o.title||'').replace(/^F-\\d+ /,''))}</li>`;}).join(''):'<li class="more">-</li>';
-}
-document.querySelectorAll('.term').forEach(el=>{
-  el.setAttribute('tabindex','0');
-  el.addEventListener('focus',()=>paint(el.getAttribute('data-term')));
-  el.addEventListener('click',e=>{e.preventDefault();paint(el.getAttribute('data-term'));});
-});
-document.addEventListener('mouseover',e=>{
-  const t=e.target.closest('.term');
-  if(!t)return;
-  paint(t.getAttribute('data-term'));
-  document.querySelectorAll('.term.is-active').forEach(x=>{if(x!==t)x.classList.remove('is-active');});
-  t.classList.add('is-active');
-});
-let currentPath='all';
-const sectionMap={
-  all:null,
-  storage:['paths-py','index-py','registry-py','per-lib-db','registry','fanout','prefix-route','cmd-index','cmd-query'],
-  formats:['riff-py','aiff-py','midi-py','serum-py','tagged-py','detect-py'],
-  mcp:['mcp-server','cost-prefix','t-search','t-getsample','t-locate','t-stats','t-compat','t-analyze','t-register','t-describe'],
-  findings:Object.keys(D).filter(k=>k.startsWith('F-'))
-};
-function applyPath(p){
-  currentPath=p;
-  document.querySelectorAll('.path-btn').forEach(b=>b.setAttribute('data-active',b.getAttribute('data-path-btn')===p?'true':'false'));
-  if(p==='all'){
-    document.querySelectorAll('h2').forEach(h=>{h.style.display='';h.style.opacity='1';});
-    document.querySelectorAll('.paper > *').forEach(el=>{el.style.display='';});
-    return;
-  }
-  // simple section filter: hide H2 sections whose label hints don't match
-  const sections={
-    storage:['source tree','architecture','storage paths'],
-    formats:['source tree','audio formats'],
-    mcp:['source tree','mcp tool surface'],
-    findings:['audit findings','recommended fix order','non-findings']
+  const D = JSON.parse(document.getElementById('reference-data').textContent);
+  const card = document.getElementById('margin-card');
+  const els = {
+    t: document.getElementById('m-title'),
+    c: document.getElementById('m-code'),
+    b: document.getElementById('m-body'),
+    sn: document.getElementById('m-snippet'),
+    m: document.getElementById('m-meta'),
+    r: document.getElementById('m-rel'),
+    n: document.getElementById('m-notes'),
+    l: document.getElementById('m-links'),
+    s: card.querySelector('.margin-status')
   };
-  const want=sections[p]||[];
-  let show=true;
-  Array.from(document.querySelector('.paper').children).forEach(el=>{
-    if(el.tagName==='H2'){
-      const lbl=el.textContent.trim().toLowerCase();
-      show=want.some(w=>lbl.startsWith(w));
-      el.style.display=show?'':'none';
-    }else if(el.tagName==='H1'||el.classList.contains('eyebrow')||el.classList.contains('lede')||el.classList.contains('stat-grid')||el.classList.contains('path-bar')||el.classList.contains('footer')){
-      el.style.display='';
-    }else{
-      el.style.display=show?'':'none';
-    }
+  const unpinBtn = document.getElementById('margin-unpin');
+  let pinnedKey = null;
+
+  function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
+  function host(u){try{return new URL(u).hostname.replace(/^www\./,'');}catch(e){return '';}}
+
+  function paint(k){
+    const x = D[k];
+    if(!x) return;
+    els.t.textContent = x.title;
+    els.c.textContent = x.code || '·';
+    els.b.textContent = x.body || '';
+    if(x.snippet){ els.sn.textContent = x.snippet; els.sn.style.display = 'block'; }
+    else { els.sn.style.display = 'none'; }
+    els.m.innerHTML = Object.entries(x.meta||{}).map(([k2,v])=>`<div><strong>${esc(k2)}</strong><span>${esc(v)}</span></div>`).join('');
+    els.r.querySelector('ul').innerHTML = (x.rel||[]).map(r=>{const o=D[r];return o?`<li>&rsaquo; ${esc(o.title)}</li>`:'';}).join('') || '<li class="more">&middot;</li>';
+    els.n.querySelector('ul').innerHTML = (x.notes||[]).map(n=>`<li style="white-space:normal;font-family:inherit;font-size:0.76rem">&middot; ${esc(n)}</li>`).join('') || '<li class="more">&middot;</li>';
+    els.l.querySelector('ul').innerHTML = (x.links||[]).map(L=>`<li class="link-item"><a href="${esc(L.url)}" target="_blank" rel="noopener noreferrer">${esc(L.label)}</a><span class="src">${esc(host(L.url))}</span></li>`).join('') || '<li class="more">&middot;</li>';
+  }
+
+  function setActive(el){
+    document.querySelectorAll('.term.is-active').forEach(x=>{if(x!==el)x.classList.remove('is-active');});
+    if(el) el.classList.add('is-active');
+  }
+  function pin(key, el){
+    pinnedKey = key;
+    paint(key);
+    card.classList.add('is-pinned');
+    els.s.textContent = 'pinned';
+    unpinBtn.style.display = 'inline-block';
+    document.querySelectorAll('.term.is-pinned').forEach(x=>x.classList.remove('is-pinned'));
+    if(el) el.classList.add('is-pinned');
+  }
+  function unpin(){
+    pinnedKey = null;
+    card.classList.remove('is-pinned');
+    els.s.textContent = '';
+    unpinBtn.style.display = 'none';
+    document.querySelectorAll('.term.is-pinned').forEach(x=>x.classList.remove('is-pinned'));
+  }
+
+  document.addEventListener('mouseover', e => {
+    if(pinnedKey) return;
+    const t = e.target.closest('.term');
+    if(!t) return;
+    paint(t.getAttribute('data-term'));
+    setActive(t);
   });
-}
-document.querySelectorAll('.path-btn').forEach(b=>{b.addEventListener('click',()=>applyPath(b.getAttribute('data-path-btn')));});
-applyPath('all');
+
+  document.querySelectorAll('.term').forEach(el => {
+    el.setAttribute('tabindex', '0');
+    el.addEventListener('click', e => {
+      e.preventDefault();
+      const key = el.getAttribute('data-term');
+      if(pinnedKey === key) { unpin(); return; }
+      pin(key, el);
+    });
+    el.addEventListener('keydown', e => {
+      if(e.key === 'Enter' || e.key === ' '){
+        e.preventDefault();
+        const key = el.getAttribute('data-term');
+        if(pinnedKey === key) { unpin(); return; }
+        pin(key, el);
+      }
+    });
+    el.addEventListener('focus', () => { if(!pinnedKey) paint(el.getAttribute('data-term')); });
+  });
+
+  unpinBtn.addEventListener('click', unpin);
+  document.addEventListener('keydown', e => { if(e.key === 'Escape' && pinnedKey) unpin(); });
+
+  // module table filter tabs: sit directly above the table they filter
+  const tabs = document.querySelectorAll('#mod-tabs .tab-btn');
+  const rows = document.querySelectorAll('#mod-table tbody tr');
+  tabs.forEach(btn => btn.addEventListener('click', () => {
+    tabs.forEach(b => b.setAttribute('data-active', b === btn ? 'true' : 'false'));
+    const f = btn.getAttribute('data-filter');
+    rows.forEach(r => { r.style.display = (f === 'all' || r.getAttribute('data-mod') === f) ? '' : 'none'; });
+  }));
 })();
 </script>
-</body></html>
+</body>
+</html>

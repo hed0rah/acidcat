@@ -51,7 +51,7 @@ def run(args):
         rec = _detect_single(target, quiet)
         stream = sys.stdout
         if getattr(args, 'output', None):
-            stream = open(args.output, 'w')
+            stream = open(args.output, 'w', encoding='utf-8')
         output(rec, fmt=fmt_name, stream=stream)
         if stream is not sys.stdout:
             stream.close()
@@ -76,7 +76,7 @@ def run(args):
         stream = sys.stdout
         out_path = getattr(args, 'output', None)
         if out_path:
-            stream = open(out_path, 'w')
+            stream = open(out_path, 'w', encoding='utf-8')
         output(rows, fmt=fmt_name if fmt_name != "table" else "csv", stream=stream)
         if stream is not sys.stdout:
             stream.close()

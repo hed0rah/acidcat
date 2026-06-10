@@ -158,7 +158,16 @@ def parse_riff(filepath, enumerate_all=False):
             elif chunk_id == b'cue ' and enumerate_all:
                 try:
                     num_cues = struct.unpack("<I", chunk_data[:4])[0]
-                    for i in range(num_cues):
+                    # Cap num_cues against the actual payload size. A
+                    # malformed or malicious WAV with num_cues =
+                    # 0xFFFFFFFF would otherwise iterate ~4 billion
+                    # times before the inner len-check rejects every
+                    # empty slice. Each cue record is exactly 24
+                    # bytes, so (len(chunk_data) - 4) // 24 is the
+                    # most we could ever read.
+                    max_cues = max(0, (len(chunk_data) - 4) // 24)
+                    safe_count = min(num_cues, max_cues)
+                    for i in range(safe_count):
                         cue_base = 4 + i * 24
                         cue_data = chunk_data[cue_base: cue_base + 24]
                         if len(cue_data) == 24:
@@ -247,6 +256,28 @@ def iter_chunks(filepath):
             pos += 8 + csz
             if csz % 2 == 1:
                 pos += 1
+
+
+def smpl_root_or_none(meta):
+    """Coerce the SMPL `smpl_root_key` field to None when it is the
+    documented "unset" sentinel value 0 (MIDI note C-1, which no
+    legitimate sample chunk actually uses as its root). Returns the
+    integer MIDI note for any non-zero value, or None.
+
+    Use this at every call site that downstreams `smpl_root_key` into
+    a key/root display. Without it the scan CSV and any future caller
+    will ship `C-1` for files whose SMPL chunk is present but unset.
+    """
+    val = meta.get("smpl_root_key") if hasattr(meta, "get") else meta
+    return val if val else None
+
+
+def acid_root_or_none(meta):
+    """Companion to `smpl_root_or_none` for the ACID `acid_root_note`
+    field. Same zero-as-sentinel convention.
+    """
+    val = meta.get("acid_root_note") if hasattr(meta, "get") else meta
+    return val if val else None
 
 
 def get_riff_info(filepath):

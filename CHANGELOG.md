@@ -5,18 +5,111 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.5.6] - 2026-06-10
+
+Docs and repo hygiene release. No code changes; 263 tests unchanged.
+
+### Documentation
+
+- `docs/codebase_explorer.html` rebuilt for v0.5.x: ingest and fan-out
+  flow diagrams, module table with filter tabs, 49 hover cards with
+  code snippets covering DSP internals (MFCC, chroma, tempo
+  estimation, Camelot math) and format internals (RIFF chunks, 80-bit
+  AIFF floats, MIDI running status).
+- Added `docs/audio_file_formats.md`, a coverage map of audio formats
+  for future readelf-style expansion.
+
+### Housekeeping
+
+- Internal working documents (handover notes, raw audit report)
+  removed from the repo; the explorer is the maintained reference.
+- `.gitignore` covers bug-hunter state, logo design sources, and a
+  local `.stash/` scratch directory.
+
+## [0.5.5] - 2026-05-20
+
+Bug-hunt followup release. Closes all 8 findings from the 2026-05-11
+adversarial bug hunt plus the related output-stream encoding cleanup
+surfaced in the 2026-05-19 broad review. 263 tests pass (8 new), up
+from 254 in 0.5.4.
+
+### Fixed
+
+- **B-1**: MIDI running-status branch advanced `pos` by one fewer
+  byte than expected, desynching the parser on any file emitted by
+  Ableton, Logic, FL Studio, Cubase or Reaper. `note_count`,
+  `note_min`, `note_max` and `duration_ticks` were all wrong on those
+  files. Two-byte messages now advance `pos += 2`; one-byte messages
+  (program change, channel pressure) advance `pos += 1`.
+- **B-2**: `rebuild_fts_for_path` no longer wraps its DELETE + INSERT
+  in `with conn:`. Python's sqlite3 connection context manager
+  committed the active transaction on normal exit, so the deliberate
+  `_COMMIT_EVERY_N_FILES = 100` batching in `_walk_and_upsert` was
+  paying a commit + fsync per file. Noticeably faster reindexes on
+  HDD-backed sample drives and network mounts.
+- **B-3**: Camelot parser no longer lowercases the mode suffix, so
+  `CM`, `DM`, `EM` etc. from Beatport, Mixed In Key, Serato and
+  Rekordbox resolve to major instead of being mis-classified as
+  minor. `find_compatible` returned harmonically wrong neighbors
+  for any sample tagged this way.
+- **B-4**: librosa key detection returns `None` when chroma cannot
+  determine major vs minor mode, letting the filename parser (which
+  carries mode explicitly) win instead of always emitting bare-letter
+  keys that downstream code interpreted as major. Affected `--deep`
+  on files with no filename key hint.
+- **B-5**: `acidcat scan` no longer emits `C-1` for samples whose
+  SMPL chunk has `root_key=0` (the documented "unset" sentinel).
+  Now matches the info and index paths. New shared helpers
+  `smpl_root_or_none` / `acid_root_or_none` in `core/riff.py`
+  consolidate the three call sites.
+- **B-6**: FTS5 syntax errors in `acidcat query --text` (e.g.
+  `(foo`, `NOT`, `foo OR`) now surface a single helpful stderr
+  message and exit code 1, instead of silently zeroing the result
+  set across every library. New `FTSQueryError` and
+  `fts5_syntax_message` helpers in `core/index.py` let the MCP server
+  share the wording when it adopts them.
+- **B-7**: CUE chunk parser caps `num_cues` against payload size, so
+  a corrupt or malicious WAV claiming `num_cues=0xFFFFFFFF` no longer
+  spins ~4 billion iterations before producing zero output. Reachable
+  via `acidcat chunks` / `acidcat survey` walking a bad file.
+- **B-8**: `_import_tags` LIKE pattern now escapes `_` and `%` so a
+  legacy tags-json entry for `kick_126.wav` cannot accidentally land
+  on `kickX126.wav`. New `_escape_like` helper paired with
+  `ESCAPE '\\'`. The two read-only LIKE sites in `mcp_server.py`
+  (`locate_sample`, `list_tags`) carry the same pattern and will be
+  fixed in the next MCP touch.
+
+### Changed
+
+- Output streams in `info`, `chunks`, `survey`, `detect`, `features`
+  now open with `encoding='utf-8'`. `scan` and `query` already did;
+  the others used the locale default (cp1252 on Windows), mangling
+  non-ASCII tag values via the `-o` path.
+
+### Deferred to v0.6
+
+- Unifying `_sniff_format` / `_detect_format` / extension-set checks
+  into one canonical `core.detect.classify(filepath) -> kind`. B-5
+  proves the drift exists but the per-site fix is enough for 0.5.5.
+- Adopting `FTSQueryError` / `_escape_like` in `mcp_server.py`.
+- Deprecating the legacy CSV `commands/search.py` in favor of `query`.
+- Tagged-format `tags` table population (genre frames currently only
+  reach the FTS index).
+- macOS APFS case-insensitive overlap-check parity.
+
+---
+
 ## [0.5.4] - 2026-05-02
 
 Audit-driven correctness, hardening, and PyPI prep release. 14 stacked
 commits closing all 26 actionable findings from the 2026-05-02
-codebase review (`docs/codebase_review_2026-05-02.md`). Test count
-grew from 232 to 254.
+codebase review. Test count grew from 232 to 254.
 
 ### Breaking
 
 - MCP tool `describe_sample` renamed to `set_sample_description`. The
   old name read like a getter but wrote the description column. Any
-  saved Claude session referencing the old name will break.
+  saved MCP client session referencing the old name will break.
 - MCP tool `discover_libraries` default flipped from `dry_run=false`
   to `dry_run=true`. A forgetful caller that omits the flag now gets
   a preview rather than a destructive registry mutation. Existing
@@ -100,14 +193,9 @@ grew from 232 to 254.
 
 ### Documentation
 
-- Added `docs/codebase_review_2026-05-02.md` with the full audit
-  report, verification addendum (F-03 / F-11 / F-19 withdrawn after
-  reading actual code), and per-finding fix-commit map.
 - Added `docs/codebase_explorer.html`: a self-contained LaTeX-style
   reference with margin cards and hover details for every module,
   MCP tool, and audit finding.
-- Added `HANDOVER.md` at the repo root for cold-start session
-  continuity.
 - `docs/architecture.md` rewritten for the v0.5 per-library + registry
   layout. Previously described the v0.4 single-DB model.
 
@@ -117,7 +205,7 @@ grew from 232 to 254.
   opens existing DBs without modification; annotation was correct.
 - **F-11** (claimed SMPL note 0 = phantom key on index path):
   `commands/index.py:877-880` already filtered via `if not smpl`.
-- **F-19** (claimed `infer_kind` mis-bins 1s loops): subagent misread
+- **F-19** (claimed `infer_kind` mis-bins 1s loops): review misread
   `or` as `and`.
 - **F-27** (claimed RIFF chunk padding bug): pos arithmetic at
   `riff.py:213-215` already adds 1 for odd `chunk_size`.

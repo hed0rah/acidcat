@@ -63,6 +63,31 @@ def open_db(path):
     return conn
 
 
+class FTSQueryError(ValueError):
+    """Raised when a user-supplied --text contains FTS5 metacharacters
+    that the embedded SQLite full-text engine cannot parse.
+
+    SQLite raises a bare `sqlite3.OperationalError: fts5: syntax
+    error` for inputs like `foo*bar`, `path:"a"`, or `NOT widget`,
+    which leaks internals and gives the user no idea what to escape.
+    Callers should translate that OperationalError into this class
+    via `fts5_syntax_message` and surface the result.
+    """
+
+
+def fts5_syntax_message(text):
+    """Return a human-readable explanation of an FTS5 syntax error
+    for the given user-supplied text. Same wording across the CLI
+    (commands/query.py) and the MCP server so a user sees the same
+    message regardless of which surface they hit.
+    """
+    return (
+        f"invalid search text: {text!r}. "
+        f"FTS5 special chars (* \" ( ) NOT AND OR) need to be "
+        f"quoted as a literal phrase."
+    )
+
+
 class SchemaVersionError(RuntimeError):
     """Raised when an existing per-library DB has a schema version we
     do not know how to read.
@@ -291,46 +316,50 @@ def get_features(conn, path):
 def rebuild_fts_for_path(conn, path):
     """Refresh the FTS row for a single path.
 
-    Wrapped in an explicit transaction so the DELETE + INSERT pair is
-    atomic: an early return on missing samples row, or any failure in
-    the read steps, rolls back the DELETE rather than leaving the FTS
-    table missing a row whose samples row still exists.
+    Caller owns the transaction. Do NOT wrap this body in `with conn:` --
+    Python's sqlite3 connection context manager commits the active
+    transaction on normal exit, which defeated the deliberate
+    `_COMMIT_EVERY_N_FILES` batching in _walk_and_upsert (every indexed
+    file paid a full commit + fsync).
+
+    Atomicity: callers that need the DELETE + INSERT pair to land
+    together with the samples row that triggered the rebuild already
+    open their own transaction boundary (or rely on the implicit
+    transaction from the preceding upsert). If the samples row is
+    missing we leave the FTS row deleted, which is the correct end
+    state.
     """
-    with conn:
-        conn.execute("DELETE FROM samples_fts WHERE path = ?", (path,))
-        sample = conn.execute(
-            "SELECT title, artist, album, genre, comment "
-            "FROM samples WHERE path = ?",
-            (path,),
-        ).fetchone()
-        if sample is None:
-            # samples row gone: leave the FTS row deleted (correct end
-            # state) and roll back nothing since DELETE already aligned
-            # the two tables.
-            return
-        desc_row = conn.execute(
-            "SELECT description FROM descriptions WHERE path = ?", (path,)
-        ).fetchone()
-        description = desc_row["description"] if desc_row else None
-        tag_rows = conn.execute(
-            "SELECT tag FROM tags WHERE path = ?", (path,)
-        ).fetchall()
-        tags_text = " ".join(r["tag"] for r in tag_rows)
-        conn.execute(
-            "INSERT INTO samples_fts "
-            "(path, title, artist, album, genre, comment, description, tags) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                path,
-                sample["title"] or "",
-                sample["artist"] or "",
-                sample["album"] or "",
-                sample["genre"] or "",
-                sample["comment"] or "",
-                description or "",
-                tags_text,
-            ),
-        )
+    conn.execute("DELETE FROM samples_fts WHERE path = ?", (path,))
+    sample = conn.execute(
+        "SELECT title, artist, album, genre, comment "
+        "FROM samples WHERE path = ?",
+        (path,),
+    ).fetchone()
+    if sample is None:
+        return
+    desc_row = conn.execute(
+        "SELECT description FROM descriptions WHERE path = ?", (path,)
+    ).fetchone()
+    description = desc_row["description"] if desc_row else None
+    tag_rows = conn.execute(
+        "SELECT tag FROM tags WHERE path = ?", (path,)
+    ).fetchall()
+    tags_text = " ".join(r["tag"] for r in tag_rows)
+    conn.execute(
+        "INSERT INTO samples_fts "
+        "(path, title, artist, album, genre, comment, description, tags) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            path,
+            sample["title"] or "",
+            sample["artist"] or "",
+            sample["album"] or "",
+            sample["genre"] or "",
+            sample["comment"] or "",
+            description or "",
+            tags_text,
+        ),
+    )
 
 
 def record_scan_root(conn, path, file_count, indexed_at):
