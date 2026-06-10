@@ -5,6 +5,27 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.5.6] - 2026-06-10
+
+Docs and repo hygiene release. No code changes; 263 tests unchanged.
+
+### Documentation
+
+- `docs/codebase_explorer.html` rebuilt for v0.5.x: ingest and fan-out
+  flow diagrams, module table with filter tabs, 49 hover cards with
+  code snippets covering DSP internals (MFCC, chroma, tempo
+  estimation, Camelot math) and format internals (RIFF chunks, 80-bit
+  AIFF floats, MIDI running status).
+- Added `docs/audio_file_formats.md`, a coverage map of audio formats
+  for future readelf-style expansion.
+
+### Housekeeping
+
+- Internal working documents (handover notes, raw audit report)
+  removed from the repo; the explorer is the maintained reference.
+- `.gitignore` covers bug-hunter state, logo design sources, and a
+  local `.stash/` scratch directory.
+
 ## [0.5.5] - 2026-05-20
 
 Bug-hunt followup release. Closes all 8 findings from the 2026-05-11
