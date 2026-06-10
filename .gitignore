@@ -56,3 +56,9 @@ Thumbs.db
 # Local sample library and test audio (don't commit audio files)
 sample_packs/
 data/test_formats/
+
+# bug-hunter skill working state
+.bug-hunter/
+
+# logo design sources (README logo lives at docs/logo2.svg)
+logo/
