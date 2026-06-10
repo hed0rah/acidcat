@@ -62,3 +62,6 @@ data/test_formats/
 
 # logo design sources (README logo lives at docs/logo2.svg)
 logo/
+
+# local-only scratch (reports, notes, anything not for the repo)
+.stash/
