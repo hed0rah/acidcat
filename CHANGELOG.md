@@ -5,6 +5,28 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.7.1] - 2026-06-11
+
+### Fixed
+
+- **Re-registering a pre-0.5.4 library no longer crashes** (or worse).
+  The central db filename scheme changed in 0.5.4 (label hash 8 -> 12
+  chars), so re-registration computed a different db_path for the same
+  root, slipped past the db_path upsert, and hit the root_path UNIQUE
+  constraint; without the crash it would have attached a fresh DB and
+  orphaned the old one with its tags and descriptions. The registry
+  now treats the root as the library's identity and reuses the stored
+  db_path (explicit central/in-tree transitions still re-key), and the
+  CLI adopts the canonical path the registry returns. Found when a
+  `--force` reindex of a v0.5.0-era library crashed.
+
+### Added
+
+- `inspect` walks RF64 (ds64 64-bit size overrides per EBU Tech 3306,
+  with sentinel and ordering lints) and Xfer Serum presets (signature,
+  decoded JSON metadata, blob extent). Every format acidcat parses
+  natively is now inspectable.
+
 ## [0.7.0] - 2026-06-11
 
 Apple Loops support and the tagged-format tags gap.
