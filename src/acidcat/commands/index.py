@@ -541,7 +541,7 @@ def _discover_candidates(root, registered_roots, min_samples, max_depth,
     if current_depth >= max_depth:
         return []
     norm_root = acidpaths.normalize(root)
-    if norm_root in registered_roots:
+    if acidpaths.compare_path(norm_root) in registered_roots:
         # already a library: don't recurse, the caller's dedup handles it
         return []
 
@@ -562,7 +562,7 @@ def _discover_candidates(root, registered_roots, min_samples, max_depth,
             # would create infinite walks or duplicate registrations.
             continue
         norm_child = acidpaths.normalize(child_path)
-        if norm_child in registered_roots:
+        if acidpaths.compare_path(norm_child) in registered_roots:
             continue
         # check overlap with already-chosen candidates in this run so we
         # do not propose nested libraries
@@ -631,7 +631,8 @@ def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
     rconn = reg.open_registry(registry_path)
     try:
         registered_roots = {
-            r["root_path"] for r in reg.list_libraries(rconn)
+            acidpaths.compare_path(r["root_path"])
+            for r in reg.list_libraries(rconn)
         }
     finally:
         rconn.close()
@@ -799,6 +800,7 @@ def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
                 mtime=st.st_mtime, size=st.st_size,
                 walk_start=walk_start,
                 do_deep=do_deep,
+                quiet=quiet,
             )
             if row is None:
                 failed += 1
@@ -885,7 +887,8 @@ def _sniff_format(filepath):
     return None
 
 
-def _extract_for_index(filepath, scan_root, mtime, size, walk_start, do_deep=False):
+def _extract_for_index(filepath, scan_root, mtime, size, walk_start,
+                       do_deep=False, quiet=True):
     """Dispatch to the right parser and return a sample row dict.
 
     Magic-byte sniff has priority over extension so a double-suffixed
@@ -920,7 +923,13 @@ def _extract_for_index(filepath, scan_root, mtime, size, walk_start, do_deep=Fal
             return _from_tagged(filepath, row, do_deep=do_deep)
         # default: WAV/RIFF (sniffed == "wav" or sniffed is None and ext is .wav or unknown)
         return _from_wav(filepath, row, do_deep=do_deep)
-    except Exception:
+    except Exception as e:
+        # swallowing is deliberate (a bad file must not kill the walk),
+        # but silence is not: without the class+message a programming
+        # bug looks identical to a genuinely corrupt file.
+        if not quiet:
+            print(f"  [skip] {os.path.basename(filepath)}: "
+                  f"{e.__class__.__name__}: {e}", file=sys.stderr)
         return None
 
 
@@ -1094,17 +1103,9 @@ def _extract_and_store_features(conn, filepath, path_key, quiet=False):
     idx.upsert_features(conn, path_key, feats, version=1)
 
 
-def _escape_like(s):
-    """Escape SQLite LIKE metacharacters so user-supplied filename
-    fragments cannot match more rows than intended.
-
-    LIKE treats `_` as "any single character" and `%` as "any
-    sequence". An imported tags-json entry for `kick_126.wav` would
-    otherwise also match `kickX126.wav` (and any other one-char
-    substitute) and apply the description plus tags to the wrong
-    file. Pair this with `ESCAPE '\\'` on the SQL side.
-    """
-    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+# shared with core; kept as a module name so existing call sites and
+# tests keep working
+_escape_like = idx.escape_like
 
 
 def _import_tags(conn, import_file):

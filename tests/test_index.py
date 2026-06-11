@@ -941,3 +941,22 @@ class TestForceReindex:
         )]
         assert tags == ["keeper"]
         conn.close()
+
+
+class TestRemoveRootLikeEscape:
+    def test_underscore_root_does_not_over_match(self, tmp_path):
+        """remove_root falls back to a LIKE prefix for legacy rows.
+        an underscore in the root name is a single-char wildcard
+        without escaping, so removing t/my_samples must not delete
+        rows under t/myXsamples.
+        """
+        db = str(tmp_path / "x.db")
+        conn = idx.open_db(db)
+        for p, root in [("t/my_samples/a.wav", "t/my_samples"),
+                        ("t/myXsamples/b.wav", "t/myXsamples")]:
+            idx.upsert_sample(conn, {"path": p, "scan_root": root})
+        conn.commit()
+        idx.remove_root(conn, "t/my_samples")
+        left = [r["path"] for r in conn.execute("SELECT path FROM samples")]
+        assert left == ["t/myXsamples/b.wav"]
+        conn.close()
