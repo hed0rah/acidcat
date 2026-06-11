@@ -978,6 +978,7 @@ def _from_wav(filepath, row, do_deep=False):
 
 def _from_aiff(filepath, row, do_deep=False):
     from acidcat.core.detect import parse_key_from_path, parse_bpm_from_filename
+    from acidcat.util.midi import midi_note_to_pitch_class
 
     _, meta, seen = parse_aiff(filepath, enumerate_all=False)
     row["format"] = "aiff"
@@ -990,7 +991,18 @@ def _from_aiff(filepath, row, do_deep=False):
     row["comment"] = meta.get("copyright")
     row["chunks"] = ",".join(seen) if seen else None
 
-    # AIFF has no standard bpm/key chunks; fall back to filename/folder tokens.
+    # Apple Loops carry beat count and root key in the basc chunk.
+    # tempo is derived, not stored: the loops are tempo-flexible and
+    # beats / duration * 60 recovers the recording tempo (matched the
+    # filename bpm on 103/103 surveyed loops). root is a MIDI note;
+    # the scale enum is unverified, so only the pitch class is used,
+    # same convention as the WAV smpl root.
+    if row.get("bpm") is None and meta.get("basc_beats") and row["duration"]:
+        row["bpm"] = round(meta["basc_beats"] / row["duration"] * 60, 2)
+    if row.get("key") is None and meta.get("basc_root_key"):
+        row["key"] = midi_note_to_pitch_class(meta["basc_root_key"])
+
+    # otherwise fall back to filename/folder tokens.
     if row.get("key") is None:
         row["key"] = parse_key_from_path(filepath)
     if row.get("bpm") is None:

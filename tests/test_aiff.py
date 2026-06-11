@@ -94,3 +94,32 @@ class TestParseAiff:
         _, meta, seen = parse_aiff(str(f))
         assert meta["channels"] is None
         assert seen == []
+
+
+def _basc(beats=32, root=48, scale=3, num=4, den=4):
+    payload = struct.pack(">IIHHHH", 1, beats, root, scale, num, den)
+    payload += b"\x00" * (84 - len(payload))
+    return _chunk(b"basc", payload)
+
+
+class TestAppleLoopsBasc:
+    """the basc chunk is Apple Loops metadata: beat count and root key
+    for tempo-flexible loops. no official spec; layout field-verified
+    against 103 indexed Apple Loops (derived bpm matched the filename
+    bpm on every file, root matched every filename key).
+    """
+
+    def test_basc_fields_surface(self, tmp_path):
+        f = tmp_path / "loop.aiff"
+        f.write_bytes(_form(b"AIFF", _comm_aiff(frames=441),
+                            _basc(beats=32, root=57), _ssnd()))
+        _, meta, seen = parse_aiff(str(f))
+        assert meta["basc_beats"] == 32
+        assert meta["basc_root_key"] == 57
+        assert "basc" in seen
+
+    def test_no_basc_keys_absent(self, tmp_path):
+        f = tmp_path / "plain.aiff"
+        f.write_bytes(_form(b"AIFF", _comm_aiff(), _ssnd()))
+        _, meta, _ = parse_aiff(str(f))
+        assert meta.get("basc_beats") is None
