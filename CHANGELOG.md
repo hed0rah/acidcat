@@ -5,6 +5,21 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.5.9] - 2026-06-11
+
+### Fixed
+
+- **acid_beats vetting**: the 0.5.7 layout fix surfaced real beat
+  counts, which exposed a second-order problem: batch taggers leave
+  boilerplate beats/tempo (8 / 120) in files whose one-shot flag is
+  set, and surfacing those made kind inference read 0.1s one-shots
+  as loops. New shared helper `effective_acid_beats` vets the field:
+  trust beats when the one-shot bit is clear (field-measured ~93%
+  reliable), otherwise keep them only when they reconcile with the
+  actual duration within 15% (vendors sometimes set the bit on real
+  loops with accurate counts). `parse_riff` now also surfaces
+  `acid_one_shot`. Wired into info, scan, and the indexer.
+
 ## [0.5.8] - 2026-06-11
 
 P1 slice 2: AIFF and MIDI deep-verified against their specs, three
