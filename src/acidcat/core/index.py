@@ -1,10 +1,11 @@
 """SQLite-backed sample index.
 
-Single global DB at ~/.acidcat/index.db holds metadata for every sample
-the user has pointed `acidcat index` at. Schema groups immutable audio
-facts (samples), per-root bookkeeping (scan_roots), user annotations
-(tags, descriptions), an FTS5 mirror (samples_fts), and optional librosa
-features (features).
+One DB per registered library (central default
+~/.acidcat/libraries/<label>_<hash>.db, or <root>/.acidcat/index.db
+in-tree); the global registry in core/registry.py tracks them all.
+Schema groups immutable audio facts (samples), per-root bookkeeping
+(scan_roots), user annotations (tags, descriptions), an FTS5 mirror
+(samples_fts), and optional librosa features (features).
 
 Everything here is stdlib-only. Connections are opened with foreign_keys
 on and WAL journaling for concurrent readers.
