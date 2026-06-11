@@ -73,9 +73,15 @@ def parse_riff(filepath, enumerate_all=False):
             # --- Known chunk parsing ---
             if chunk_id == b'acid':
                 try:
-                    version, root_note, _, beats, meter_den, meter_num, tempo = struct.unpack(
-                        "<IHHIII f", chunk_data
-                    )
+                    # layout per libsndfile, field-verified against real
+                    # ACIDized packs 2026-06-10: flags u32, root u16,
+                    # q1 u16, q2 f32 (unknown, observed 0.0), num_beats
+                    # u32, meter denom u16, meter numer u16, tempo f32.
+                    # a previous unpack ("<IHHIII f") read num_beats from
+                    # q2 and the meter from the real beats field, so every
+                    # spec-conformant file reported acid_beats=0.
+                    flags, root_note, _q1, _q2, beats, meter_den, meter_num, tempo = \
+                        struct.unpack("<IHHfIHHf", chunk_data)
                     meta["acid_root_note"] = root_note
                     meta["acid_beats"] = beats
                     meta["bpm"] = round(tempo, 2)
@@ -84,7 +90,8 @@ def parse_riff(filepath, enumerate_all=False):
                         results.append(("acid", "beats", beats))
                         results.append(("acid", "root_note", midi_note_to_name(root_note)))
                         results.append(("acid", "meter", f"{meter_num}/{meter_den}"))
-                        results.append(("acid", "version", version))
+                        results.append(("acid", "one_shot", bool(flags & 0x01)))
+                        results.append(("acid", "flags", flags))
                 except Exception as e:
                     if enumerate_all:
                         results.append(("acid", "error", str(e)))
