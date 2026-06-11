@@ -77,6 +77,19 @@ struct comm_chunk {
 };
 ```
 
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  | num_channels|  num_sample |  i16 / u32 spans the
+       +------+------+   _frames   |  2-byte boundary
+ 0x04  |  (frames)   | bits/sample |  ...u32 / i16
+       +------+------+------+------+
+ 0x08  |  sample_rate (80-bit ext  |
+       |   float, 10 bytes)        |
+ 0x10  |             |  AIFC ext.. |
+       +------+------+------+------+
+```
+
 ### AIFC Extension
 
 When form type is "AIFC", COMM has additional fields:
@@ -123,14 +136,31 @@ if exponent == 0x7FFF:               value = infinity
 else: value = sign * (mantissa / 2^63) * 2^(exponent - 16383)
 ```
 
-Common values:
+```
+bit-level map (10 bytes):
 
-| Sample Rate | Hex (10 bytes)                         |
-|-------------|----------------------------------------|
-| 44100       | `40 0D AC 44 00 00 00 00 00 00`        |
-| 48000       | `40 0D BB 80 00 00 00 00 00 00`        |
-| 96000       | `40 0F BB 80 00 00 00 00 00 00`        |
-| 22050       | `40 0C AC 44 00 00 00 00 00 00`        |
+  byte 0           byte 1          bytes 2..9
+ +-+-------------+----------------+--------------------------------+
+ |S| E E E E E E E E E E E E E E E| M M M M ... M M M M  (64 bits) |
+ +-+-------------+----------------+--------------------------------+
+  ^ sign          15-bit exponent   explicit-1 mantissa, BE
+                  bias 16383        (no hidden bit, unlike f32/f64)
+
+value = sign * (mantissa / 2^63) * 2^(exponent - 16383)
+```
+
+Common values (hand-verified; note the top mantissa word of 44100
+and 48000 is the rate itself, a handy eyeball check):
+
+| Sample Rate | Hex (10 bytes)                         | exponent |
+|-------------|----------------------------------------|----------|
+| 44100       | `40 0E AC 44 00 00 00 00 00 00`        | 2^15     |
+| 48000       | `40 0E BB 80 00 00 00 00 00 00`        | 2^15     |
+| 96000       | `40 0F BB 80 00 00 00 00 00 00`        | 2^16     |
+| 22050       | `40 0D AC 44 00 00 00 00 00 00`        | 2^14     |
+
+(A previous revision of this table had the 44100/48000/22050
+exponents one too low; `40 0D AC 44...` is 22050, not 44100.)
 
 ---
 
@@ -147,6 +177,17 @@ struct ssnd_chunk {
     uint32_t block_size;    // block alignment (usually 0)
     byte     data[];        // interleaved samples, big-endian
 };
+```
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  |      offset (u32 BE)      |  usually 0
+       +---------------------------+
+ 0x04  |    block_size (u32 BE)    |  usually 0
+       +---------------------------+
+ 0x08  |  sample frames, BE,       |
+       :  interleaved by channel   :
 ```
 
 ### Sample Encoding
@@ -189,6 +230,17 @@ struct marker {
 };
 ```
 
+```
+         0      1      2      3
+       +------+------+------+------+
+ +0x00 |  id (i16)   |  position   |  u32 spans the boundary
+       +------+------+   (frames)  |
+ +0x04 |  (pos cont) | len  | 'n'  |  pascal string: length byte
+       +------+------+------+------+  then chars, padded so the
+ +0x08 | 'a'  | 'm'  | 'e'  | pad  |  total 1+len lands even
+       +------+------+------+------+
+```
+
 Markers are referenced by ID from the INST chunk's loop definitions.
 
 ---
@@ -221,6 +273,27 @@ struct inst_chunk {
     int16_t  release_loop_end;
 };
 ```
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  | base | detun| low_n| hi_n |  i8 / i8 cents / u8 / u8
+       +------+------+------+------+
+ 0x04  | lo_v | hi_v |  gain (i16) |  u8 / u8 / dB
+       +------+------+------+------+
+ 0x08  | sus_mode    | sus_begin   |  i16 each; begin/end are
+       +------+------+------+------+  MARK ids, not positions
+ 0x0C  | sus_end     | rel_mode    |
+       +------+------+------+------+
+ 0x10  | rel_begin   | rel_end     |
+       +------+------+------+------+
+```
+
+Note the field-order trap relative to WAV's 7-byte `inst` chunk: AIFF
+puts the key range before the velocity range and carries gain as a
+16-bit value, and the loops live here (by marker reference) rather
+than in a separate smpl chunk. acidcat parses the scalar fields but
+does not yet resolve sustain/release loops through MARK.
 
 ### Loop Modes
 
