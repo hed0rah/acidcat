@@ -4,7 +4,10 @@ import struct
 import time
 
 import pytest
-from acidcat.core.riff import iter_chunks, get_riff_info, get_duration, parse_riff
+from acidcat.core.riff import (
+    iter_chunks, get_riff_info, get_duration, parse_riff,
+    effective_acid_beats,
+)
 
 
 class TestGetRiffInfo:
@@ -189,3 +192,55 @@ class TestParseRiff:
         results, meta, seen = parse_riff(SAMPLE_WAV)
         assert "fmt " in seen
         assert "data" in seen
+
+    def test_acid_one_shot_flag_surfaces(self, tmp_path):
+        """parse_riff reports facts: raw beats plus the one-shot flag.
+        vetting is the consumer's job via effective_acid_beats.
+        """
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
+        # flags 0x03 = one-shot + root set, boilerplate beats/tempo
+        acid_payload = struct.pack(
+            "<IHHfIHHf", 0x03, 47, 0x8000, 0.0, 8, 4, 4, 120.0,
+        )
+        acid_chunk = b"acid" + struct.pack("<I", 24) + acid_payload
+        body = b"WAVE" + fmt_chunk + data_chunk + acid_chunk
+        wav = tmp_path / "oneshot.wav"
+        wav.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+        _, meta, _ = parse_riff(str(wav))
+        assert meta["acid_beats"] == 8
+        assert meta["acid_one_shot"] is True
+        assert meta["acid_root_note"] == 47
+
+
+class TestEffectiveAcidBeats:
+    """vetting policy, calibrated on 400 real ACIDized files
+    (2026-06-11): flag clear means beats are ~93% trustworthy; flag
+    set is a coin flip between accurate loops and batch-tagger
+    boilerplate, so the duration cross-check decides.
+    """
+
+    def test_flag_clear_trusts_beats(self):
+        meta = {"acid_beats": 16, "acid_one_shot": False, "bpm": 120.0}
+        assert effective_acid_beats(meta, 0.5) == 16
+
+    def test_one_shot_boilerplate_is_dropped(self):
+        # 0.12s hat claiming 8 beats at 120 bpm (4s): bogus
+        meta = {"acid_beats": 8, "acid_one_shot": True, "bpm": 120.0}
+        assert effective_acid_beats(meta, 0.12) is None
+
+    def test_one_shot_with_reconciling_beats_is_kept(self):
+        # 8.0s file claiming 16 beats at 120 bpm (8s): vendor set the
+        # one-shot bit on a real loop, the beat count is accurate
+        meta = {"acid_beats": 16, "acid_one_shot": True, "bpm": 120.0}
+        assert effective_acid_beats(meta, 8.0) == 16
+
+    def test_one_shot_without_duration_is_dropped(self):
+        meta = {"acid_beats": 8, "acid_one_shot": True, "bpm": 120.0}
+        assert effective_acid_beats(meta, None) is None
+
+    def test_no_beats_is_none(self):
+        meta = {"acid_beats": 0, "acid_one_shot": False, "bpm": 120.0}
+        assert effective_acid_beats(meta, 4.0) is None

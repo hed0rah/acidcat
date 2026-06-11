@@ -10,7 +10,7 @@ import sys
 
 from acidcat.core.riff import (
     parse_riff, get_duration, get_fmt_info,
-    smpl_root_or_none, acid_root_or_none,
+    smpl_root_or_none, acid_root_or_none, effective_acid_beats,
 )
 from acidcat.core.aiff import is_aiff, parse_aiff
 from acidcat.core.midi import is_midi, parse_midi
@@ -92,12 +92,13 @@ def _info_wav(filepath, args):
 
     if meta["bpm"] is not None:
         rec["BPM"] = meta["bpm"]
-        if meta["acid_beats"]:
-            rec["Beats"] = meta["acid_beats"]
+        beats = effective_acid_beats(meta, duration)
+        if beats:
+            rec["Beats"] = beats
         if acid_root is not None:
             rec["ACID Root"] = midi_note_to_name(acid_root)
-        if meta["acid_beats"] and meta["bpm"]:
-            expected = round((meta["acid_beats"] / meta["bpm"]) * 60, 4)
+        if beats and meta["bpm"]:
+            expected = round((beats / meta["bpm"]) * 60, 4)
             rec["Expected Duration"] = f"{expected}s"
             if duration:
                 diff = round(duration - expected, 4)
