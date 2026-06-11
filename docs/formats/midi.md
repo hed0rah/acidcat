@@ -45,6 +45,19 @@ struct mthd {
 };
 ```
 
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  | 'M'  | 'T'  | 'h'  | 'd'  |  magic
+       +------+------+------+------+
+ 0x04  |    length (u32 BE) = 6    |  trust this, not the constant:
+       +---------------------------+  a longer header is legal and
+ 0x08  |  format     |  ntrks      |  the extra bytes are skipped
+       +------+------+------+------+
+ 0x0C  |  division   |
+       +------+------+
+```
+
 ### Format Types
 
 | Value | Meaning          | Track layout                            |
@@ -69,6 +82,24 @@ if bit 15 == 1:
     // SMPTE-based timing (rare in music production)
     smpte_format = -(division >> 8)   // -24, -25, -29, -30
     ticks_per_frame = division & 0xFF
+```
+
+```
+division bit-level, both forms:
+
+  metrical (bit 15 = 0):
+  +-+---------------------------+
+  |0|  ticks per quarter note   |   e.g. 0x01E0 = 480 ppqn
+  +-+---------------------------+
+
+  smpte (bit 15 = 1):
+  +-+--------------+------------+
+  |1| -fps (2's c) | ticks/frame|   e.g. 0xE728 = -25 fps, 40 tpf
+  +-+--------------+------------+        = 1000 ticks per second
+   15            8 7           0
+
+  smpte wall time = ticks / (fps * tpf). tempo events do not apply.
+  -29 means 29.97 drop-frame, not 29.
 ```
 
 Higher division = higher timing precision. 96 ticks/beat is common
@@ -111,6 +142,16 @@ decoding:
         byte = read()
         value = (value << 7) | (byte & 0x7F)
         if not (byte & 0x80): break
+
+bit-level, value 2000 (0x8F 0x50):
+
+  +-+--------------+   +-+--------------+
+  |1| 0 0 0 1 1 1 1|   |0| 1 0 1 0 0 0 0|
+  +-+--------------+   +-+--------------+
+   ^  high 7 bits       ^  low 7 bits
+   continue             last byte
+
+  (0x0F << 7) | 0x50  =  1920 + 80  =  2000
 ```
 
 Maximum VLQ is 4 bytes (28 bits), encoding values up to 0x0FFFFFFF.
@@ -130,6 +171,11 @@ Three categories: channel messages, system exclusive, and meta events.
 status byte format: SSSS CCCC
     SSSS = message type (8-E)
     CCCC = channel (0-15)
+
+  +-+-------------+-------------+
+  |1| S  S  S     | C  C  C  C  |   bit 7 set marks a status byte;
+  +-+-------------+-------------+   any byte < 0x80 is data
+   7  6  5  4      3  2  1  0
 ```
 
 | Status  | Type           | Data bytes | Format              |
@@ -162,6 +208,15 @@ the parser must track `running_status`.
 
 A non-status byte (< 0x80) triggers running status. The data byte
 is consumed as the first parameter of the running status message.
+
+Two rules every parser must honor:
+
+- running status applies to **channel messages only**, never to
+  sysex or meta events
+- **sysex and meta events cancel running status.** A data byte that
+  follows one of them with no fresh status byte is malformed input,
+  not a continuation of the pre-meta status. A parser that keeps the
+  stale status decodes phantom notes from garbage.
 
 ### System Exclusive (0xF0, 0xF7)
 

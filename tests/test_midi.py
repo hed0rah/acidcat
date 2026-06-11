@@ -5,9 +5,9 @@ import struct
 from acidcat.core.midi import parse_midi
 
 
-def _build_smf(tracks):
+def _build_smf(tracks, division=480):
     """Build a Standard MIDI File (format 1) with the given track bodies."""
-    hdr = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks), 480)
+    hdr = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks), division)
     out = hdr
     for body in tracks:
         out += b"MTrk" + struct.pack(">I", len(body)) + body
@@ -90,3 +90,41 @@ def test_sysex_overlong_vlq_does_not_run_past_track(tmp_path):
     assert meta["format"] == 1
     assert meta["tracks"] == 2
     assert meta["tempo_bpm"] is not None
+
+def test_smpte_division_duration(tmp_path):
+    """division with bit 15 set is SMPTE timing: the high byte is a
+    negative two's-complement frame rate, the low byte is ticks per
+    frame. wall time is ticks / (fps * tpf) and tempo does not enter
+    into it. 0xE728 is -25 fps at 40 ticks/frame = 1000 ticks/second,
+    so 2000 ticks must report 2.0 seconds. the ppqn formula fed the
+    raw division (59176) in and produced near-zero durations.
+    """
+    track = (
+        b"\x00\xFF\x51\x03\x07\xA1\x20"  # tempo 120 bpm, must not matter
+        b"\x8F\x50\xFF\x2F\x00"          # delta 2000 ticks, end of track
+    )
+    f = tmp_path / "smpte.mid"
+    f.write_bytes(_build_smf([track], division=0xE728))
+
+    meta = parse_midi(str(f))
+    assert meta["duration_sec"] == 2.0
+
+
+def test_meta_event_cancels_running_status(tmp_path):
+    """SMF 1.0: sysex and meta events cancel running status. a data
+    byte that follows a meta event without a fresh status byte is
+    malformed input and must not be decoded as a phantom note through
+    the stale status.
+    """
+    track = (
+        b"\x00\x90\x3C\x64"    # note on C4, establishes status 0x90
+        b"\x00\xFF\x01\x01A"   # meta text event cancels running status
+        b"\x00\x3E\x64"        # malformed: data bytes with no status
+        b"\x00\xFF\x2F\x00"    # end of track
+    )
+    f = tmp_path / "rs_cancel.mid"
+    f.write_bytes(_build_smf([track]))
+
+    meta = parse_midi(str(f))
+    assert meta["note_count"] == 1
+    assert meta["note_max"] == 60
