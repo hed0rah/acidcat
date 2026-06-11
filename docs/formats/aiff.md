@@ -366,6 +366,58 @@ and any other ID3 frame. Parsing requires a full ID3v2 implementation.
 
 ---
 
+## Apple Loops (basc / cate / trns)
+
+Loops prepared with Apple Loops Utility (Logic, GarageBand,
+Soundtrack-era tools) carry extra metadata chunks inside an otherwise
+standard AIFF. There is no official public spec; the layout below is
+reverse-engineering lore field-verified against 103 indexed Apple
+Loops on 2026-06-11: the derived BPM matched the filename BPM on
+every file, and the root key matched every filename key token.
+
+### basc -- Basic Description (84 bytes)
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  |      version (u32 BE)     |  observed 1
+       +---------------------------+
+ 0x04  |     num_beats (u32 BE)    |  beat count of the loop
+       +---------------------------+
+ 0x08  |  root_key   | scale_type  |  u16 MIDI note / u16 enum
+       +------+------+------+------+
+ 0x0C  |  sig_numer  |  sig_denom  |  u16 / u16, usually 4 / 4
+       +------+------+------+------+
+ 0x10  |  reserved / unknown       |
+       :  zeros observed, to 84    :
+       +---------------------------+
+```
+
+Key facts:
+
+- **tempo is not stored.** Apple Loops are tempo-flexible; the
+  recording tempo is derived as `num_beats / duration * 60`. This is
+  the only tempo source in an AIFF (no acid chunk equivalent).
+- `root_key` is a MIDI note (48 = C3 observed as the C root).
+- `scale_type` is an enum with **no verified mapping**: every
+  minor-labeled file in the surveyed pack carried value 3, but a
+  single vendor cannot disambiguate the enum. acidcat surfaces the
+  raw value and uses only the pitch class of `root_key`.
+
+### Companion chunks
+
+| Chunk  | Contents                                            |
+|--------|-----------------------------------------------------|
+| `cate` | category/descriptor taxonomy (instrument, genre)    |
+| `trns` | transient/slice table used for time-stretching      |
+| `coll` | collection name (e.g. the Jam Pack it shipped in)   |
+| `FLLR` | filler/padding for in-place metadata updates        |
+
+`cate` and `trns` are unparsed for now; the transient table is the
+interesting one (slice points, like a REX file hiding inside AIFF).
+
+---
+
 ## REX / RX2 Files
 
 Propellerhead REX files are **AIFF internally**. The `file` command
