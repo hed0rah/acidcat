@@ -88,6 +88,16 @@ def fts5_syntax_message(text):
     )
 
 
+def escape_like(s):
+    """Escape SQLite LIKE metacharacters in user-supplied fragments.
+
+    LIKE treats `_` as "any single character" and `%` as "any
+    sequence", so `kick_126.wav` would also match `kickX126.wav`.
+    Pair with `ESCAPE '\\'` on the SQL side.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class SchemaVersionError(RuntimeError):
     """Raised when an existing per-library DB has a schema version we
     do not know how to read.
@@ -390,10 +400,11 @@ def list_roots(conn):
 
 def remove_root(conn, root):
     """Delete all samples under root and drop the scan_roots entry."""
-    like = root.rstrip("/") + "/%"
+    like = escape_like(root.rstrip("/")) + "/%"
     paths = [
         r["path"] for r in conn.execute(
-            "SELECT path FROM samples WHERE scan_root = ? OR path LIKE ?",
+            "SELECT path FROM samples WHERE scan_root = ? "
+            "OR path LIKE ? ESCAPE '\\'",
             (root, like),
         ).fetchall()
     ]
