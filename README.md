@@ -76,7 +76,7 @@ full-text.
 | `acidcat similar CSV cluster` | Cluster samples by audio characteristics |
 | `acidcat search CSV query TEXT` | Text-based sample search (legacy CSV) |
 | `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
-| `acidcat inspect FILE [--hex]` | readelf-style structural dump with lint warnings |
+| `acidcat inspect FILE [--hex]` | readelf-style structural dump (WAV/AIFF/MIDI) with lint warnings |
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
 
