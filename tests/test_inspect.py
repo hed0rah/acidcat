@@ -218,6 +218,65 @@ class TestInspectMidi:
         assert any("120 bpm" in w for w in warns)
 
 
+class TestInspectRf64:
+    def _rf64(self, tmp_path, data_bytes=8, sentinel_ok=True):
+        from acidcat.commands.inspect import inspect_rf64  # noqa: F401
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * data_bytes
+        body_after_hdr = b"WAVE"
+        # ds64 sizes: riff_size = file - 8, computed after assembly
+        ds64_payload = struct.pack("<QQQI", 0, data_bytes, data_bytes // 2, 0)
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds64_payload)) + ds64_payload
+        body = body_after_hdr + ds64_chunk + fmt_chunk + data_chunk
+        riff_size = len(body)
+        ds64_payload = struct.pack("<QQQI", riff_size, data_bytes,
+                                   data_bytes // 2, 0)
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds64_payload)) + ds64_payload
+        body = body_after_hdr + ds64_chunk + fmt_chunk + data_chunk
+        hdr_size = 0xFFFFFFFF if sentinel_ok else 123
+        p = tmp_path / "t.rf64"
+        p.write_bytes(b"RF64" + struct.pack("<I", hdr_size) + body)
+        return str(p)
+
+    def test_ds64_resolves_data_size(self, tmp_path):
+        from acidcat.commands.inspect import inspect_rf64
+        path = self._rf64(tmp_path)
+        chunks, warns = inspect_rf64(path)
+        ids = [c["id"] for c in chunks]
+        assert ids == ["ds64", "fmt ", "data"]
+        data = chunks[-1]
+        assert data["size"] == 8
+        assert warns == []
+
+    def test_header_sentinel_violation_flagged(self, tmp_path):
+        from acidcat.commands.inspect import inspect_rf64
+        path = self._rf64(tmp_path, sentinel_ok=False)
+        _, warns = inspect_rf64(path)
+        assert any("sentinel" in w for w in warns)
+
+
+class TestInspectSerum:
+    def test_json_and_blob(self, tmp_path):
+        from acidcat.commands.inspect import inspect_serum
+        meta = b'{"presetName": "Growl X", "presetAuthor": "u", "tags": "bass, growl"}'
+        p = tmp_path / "g.serumpreset"
+        p.write_bytes(b"XferJson" + meta + b"\x01\x02" * 64)
+        chunks, warns = inspect_serum(str(p))
+        ids = [c["id"] for c in chunks]
+        assert ids == ["magc", "json", "blob"]
+        assert "Growl X" in chunks[1]["summary"]
+        assert chunks[2]["size"] == 128
+        assert warns == []
+
+    def test_missing_json_flagged(self, tmp_path):
+        from acidcat.commands.inspect import inspect_serum
+        p = tmp_path / "bad.serumpreset"
+        p.write_bytes(b"XferJson" + b"\x00" * 32)
+        _, warns = inspect_serum(str(p))
+        assert any("JSON" in w for w in warns)
+
+
 class TestRunCli:
     def _args(self, target, **kw):
         base = dict(target=target, show_hex=False, format="table",
