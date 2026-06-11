@@ -5,6 +5,26 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.7.0] - 2026-06-11
+
+Apple Loops support and the tagged-format tags gap.
+
+### Added
+
+- **Apple Loops `basc` parsing**: AIFF rows gain their first
+  chunk-level tempo and key source. No official spec exists; the
+  layout was field-verified against 103 indexed Apple Loops (derived
+  bpm `beats / duration * 60` matched the filename bpm on every
+  file). Indexing derives bpm and root pitch class ahead of filename
+  fallbacks; `inspect` decodes basc and labels the companion
+  cate / trns / coll / FLLR chunks. The scale enum is surfaced raw
+  pending a verified mapping.
+- **Tagged-format genre frames populate the tags table**, so
+  `query --tag house` works against mp3/flac/ogg libraries.
+  Multi-genre strings split on `,` `;` `/`.
+
+Existing libraries pick these up with `acidcat index DIR --force`.
+
 ## [0.6.0] - 2026-06-11
 
 Hardening release closing the deferred-to-v0.6 list from 0.5.5, plus
