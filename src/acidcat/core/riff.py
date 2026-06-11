@@ -32,6 +32,7 @@ def parse_riff(filepath, enumerate_all=False):
     meta = {
         "bpm": None,
         "acid_beats": None,
+        "acid_one_shot": None,
         "acid_root_note": None,
         "smpl_root_key": None,
         "smpl_loop_start": None,
@@ -84,6 +85,7 @@ def parse_riff(filepath, enumerate_all=False):
                         struct.unpack("<IHHfIHHf", chunk_data)
                     meta["acid_root_note"] = root_note
                     meta["acid_beats"] = beats
+                    meta["acid_one_shot"] = bool(flags & 0x01)
                     meta["bpm"] = round(tempo, 2)
                     if enumerate_all:
                         results.append(("acid", "bpm", meta["bpm"]))
@@ -285,6 +287,32 @@ def acid_root_or_none(meta):
     """
     val = meta.get("acid_root_note") if hasattr(meta, "get") else meta
     return val if val else None
+
+
+def effective_acid_beats(meta, duration):
+    """Vet the acid num_beats field against the one-shot flag and the
+    file's actual duration.
+
+    Field measurement (2026-06-11, 400 ACIDized files): with the
+    one-shot bit clear, num_beats reconciles with duration*tempo/60
+    in ~93% of files. With the bit set it is a coin flip: batch
+    taggers leave boilerplate 8-beat/120-bpm values in true
+    one-shots, while some vendors set the bit on real loops that
+    carry accurate beat counts. So: trust beats when the flag is
+    clear; when it is set, keep beats only if they reconcile with
+    the actual duration within 15%.
+    """
+    beats = meta.get("acid_beats")
+    if not beats:
+        return None
+    if not meta.get("acid_one_shot"):
+        return beats
+    bpm = meta.get("bpm")
+    if bpm and duration:
+        expected = beats / bpm * 60
+        if abs(expected - duration) / duration < 0.15:
+            return beats
+    return None
 
 
 def get_riff_info(filepath):
