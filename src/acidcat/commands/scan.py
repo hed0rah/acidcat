@@ -8,6 +8,7 @@ import sys
 
 from acidcat.core.riff import (
     parse_riff, get_duration, smpl_root_or_none, acid_root_or_none,
+    effective_acid_beats,
 )
 from acidcat.core.aiff import is_aiff, parse_aiff
 from acidcat.core.tagged import is_tagged_format
@@ -47,9 +48,10 @@ def _scan_wav(filepath):
     _, meta, seen = parse_riff(filepath, enumerate_all=False)
     duration = get_duration(filepath)
 
+    beats = effective_acid_beats(meta, duration)
     expected = diff = None
-    if meta["bpm"] and meta["acid_beats"] and meta["acid_beats"] > 0:
-        expected = round((meta["acid_beats"] / meta["bpm"]) * 60, 4)
+    if meta["bpm"] and beats:
+        expected = round((beats / meta["bpm"]) * 60, 4)
         diff = round(duration - expected, 4) if duration else None
 
     # SMPL/ACID root_key = 0 is the documented "unset" sentinel
@@ -68,7 +70,7 @@ def _scan_wav(filepath):
         "duration_sec": duration,
         "title": None,
         "artist": None,
-        "acid_beats": meta["acid_beats"],
+        "acid_beats": beats,
         "expected_duration": expected,
         "duration_diff": diff,
         "chunks": ",".join(c for c in seen if c not in ("RIFF", "WAVE", "fmt ", "data")),
