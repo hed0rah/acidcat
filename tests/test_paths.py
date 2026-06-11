@@ -47,12 +47,21 @@ class TestSafeLabel:
 
 class TestComparePath:
     def test_passthrough_on_posix(self, monkeypatch):
+        import sys
         monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.setattr(sys, "platform", "linux")
         assert paths.compare_path("/foo/Bar") == "/foo/Bar"
 
     def test_lowercases_on_windows(self, monkeypatch):
         monkeypatch.setattr(os, "name", "nt")
         assert paths.compare_path("C:/Foo/Bar") == "c:/foo/bar"
+
+    def test_lowercases_on_macos(self, monkeypatch):
+        # APFS/HFS+ default to case-insensitive, same hazard as NTFS
+        import sys
+        monkeypatch.setattr(os, "name", "posix")
+        monkeypatch.setattr(sys, "platform", "darwin")
+        assert paths.compare_path("/Users/Foo/Bar") == "/users/foo/bar"
 
 
 class TestPathHash:
