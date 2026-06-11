@@ -976,6 +976,34 @@ class TestAppleLoopsIndexing:
         assert row["key"] == "A"
 
 
+class TestTaggedGenrePopulatesTags:
+    def test_genre_lands_in_tags_table(self, tmp_path, central_root,
+                                       registry_path, monkeypatch):
+        """genre frames from mp3/flac/ogg reached the genre column and
+        FTS, but never the tags table, so `query --tag house` against
+        a tagged-format library returned zero. genre now feeds _tags
+        the same way serum preset tags do.
+        """
+        from acidcat.commands import index as ic
+        lib = tmp_path / "mp3s"
+        lib.mkdir()
+        (lib / "track.mp3").write_bytes(b"\x00" * 64)
+
+        monkeypatch.setattr(ic, "_sniff_format", lambda p: "mp3")
+        monkeypatch.setattr(
+            "acidcat.core.tagged.parse_tagged",
+            lambda p: {"format_type": "mp3", "genre": "House",
+                       "title": "t", "duration": 1.0},
+        )
+        assert index_cmd.run(_Args(target=str(lib), label="mp3s",
+                                   registry=registry_path)) == 0
+        db_path = acidpaths.central_db_path_for(str(lib), "mp3s")
+        conn = idx.open_db(db_path)
+        tags = [r["tag"] for r in conn.execute("SELECT tag FROM tags")]
+        conn.close()
+        assert tags == ["House"]
+
+
 class TestRemoveRootLikeEscape:
     def test_underscore_root_does_not_over_match(self, tmp_path):
         """remove_root falls back to a LIKE prefix for legacy rows.
