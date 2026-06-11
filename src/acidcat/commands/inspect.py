@@ -518,6 +518,33 @@ def _aiff_inst(b, ctx):
     return summary, fields, warns
 
 
+def _aiff_basc(b, ctx):
+    """Apple Loops basic description. no official spec; layout
+    field-verified against 103 indexed loops (derived bpm matched the
+    filename bpm on every file)."""
+    fields, warns = [], []
+    if len(b) < 16:
+        return "truncated", fields, [f"basc payload is {len(b)} bytes, expected 84"]
+    ver, beats = struct.unpack_from(">II", b, 0)
+    root, scale, sig_n, sig_d = struct.unpack_from(">HHHH", b, 8)
+    fields.append(_f(0x00, 4, "version", ver))
+    fields.append(_f(0x04, 4, "num_beats", beats))
+    fields.append(_f(0x08, 2, "root_key", root,
+                     midi_note_to_name(root) if root else "unset"))
+    fields.append(_f(0x0A, 2, "scale_type", scale, "enum unverified"))
+    fields.append(_f(0x0C, 4, "time_sig", f"{sig_n}/{sig_d}"))
+    summary = f"apple loop, {beats} beats"
+    frames, rate = ctx.get("frames"), ctx.get("rate")
+    if beats and frames and rate:
+        bpm = beats / (frames / rate) * 60
+        fields.append(_f(None, 0, "derived_bpm", round(bpm, 2),
+                         "beats / duration * 60"))
+        summary += f", ~{bpm:.0f} bpm"
+    if root:
+        summary += f", root {midi_note_to_name(root)}"
+    return summary, fields, warns
+
+
 def inspect_aiff(filepath, form_type):
     """Walk an AIFF/AIFC file and return (chunks, file_warnings)."""
     file_size = os.path.getsize(filepath)
@@ -560,12 +587,21 @@ def inspect_aiff(filepath, form_type):
                 elif cid == "INST":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_inst(payload, ctx)
+                elif cid == "basc":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_basc(payload, ctx)
                 elif cid in ("NAME", "AUTH", "(c) ", "ANNO"):
                     text = payload.decode("ascii", errors="replace").strip("\x00").strip()
                     entry["summary"] = text[:60]
                     entry["fields"] = [_f(0x00, size, "text", text[:200])]
                 elif cid == "ID3 ":
                     entry["summary"] = f"embedded ID3v2 tag, {size:,} bytes"
+                elif cid == "cate":
+                    entry["summary"] = "apple loops category data"
+                elif cid == "trns":
+                    entry["summary"] = "apple loops transient/slice data"
+                elif cid == "FLLR":
+                    entry["summary"] = "filler/padding"
                 else:
                     entry["summary"] = f"unparsed, first bytes: {payload[:16].hex(' ')}"
             except Exception as e:

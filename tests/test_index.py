@@ -943,6 +943,39 @@ class TestForceReindex:
         conn.close()
 
 
+def _make_apple_loop_aiff(beats=4, root=57, frames=88200, rate_hex="400eac440000000000000000"):
+    """minimal AIFF with COMM + basc + SSND: 2 s at 44100, so
+    beats=4 derives 120 bpm."""
+    def chunk(cid, payload):
+        raw = cid + struct.pack(">I", len(payload)) + payload
+        return raw + (b"\x00" if len(payload) % 2 else b"")
+    comm = chunk(b"COMM", struct.pack(">hIh", 1, frames, 16)
+                 + bytes.fromhex(rate_hex)[:10])
+    basc_payload = struct.pack(">IIHHHH", 1, beats, root, 3, 4, 4)
+    basc = chunk(b"basc", basc_payload + b"\x00" * (84 - len(basc_payload)))
+    ssnd = chunk(b"SSND", struct.pack(">II", 0, 0) + b"\x00" * 64)
+    body = b"AIFF" + comm + basc + ssnd
+    return b"FORM" + struct.pack(">I", len(body)) + body
+
+
+class TestAppleLoopsIndexing:
+    def test_basc_derives_bpm_and_key(self, tmp_path, central_root,
+                                      registry_path):
+        lib = tmp_path / "loops"
+        lib.mkdir()
+        # neutral filename: no bpm or key tokens to fall back on
+        (lib / "pad.aiff").write_bytes(_make_apple_loop_aiff(beats=4, root=57))
+        assert index_cmd.run(_Args(target=str(lib), label="loops",
+                                   registry=registry_path)) == 0
+        db_path = acidpaths.central_db_path_for(str(lib), "loops")
+        conn = idx.open_db(db_path)
+        row = conn.execute(
+            "SELECT bpm, key FROM samples LIMIT 1").fetchone()
+        conn.close()
+        assert row["bpm"] == 120.0
+        assert row["key"] == "A"
+
+
 class TestRemoveRootLikeEscape:
     def test_underscore_root_does_not_over_match(self, tmp_path):
         """remove_root falls back to a LIKE prefix for legacy rows.
