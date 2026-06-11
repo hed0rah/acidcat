@@ -142,6 +142,45 @@ class TestParseRiff:
         assert len(cue_markers) == 0
 
 
+    def test_acid_chunk_spec_layout(self, tmp_path):
+        """the acid chunk layout is, per libsndfile and field-verified
+        against real ACIDized packs:
+
+            offset 0   uint32  type flags
+            offset 4   uint16  root note
+            offset 6   uint16  q1 (unknown, often 0x8000)
+            offset 8   float32 q2 (unknown, observed 0.0)
+            offset 12  uint32  num_beats
+            offset 16  uint16  meter denominator
+            offset 18  uint16  meter numerator
+            offset 20  float32 tempo
+
+        the old parser unpacked '<IHHIII f', which read num_beats from
+        the q2 float (always 0 in the wild) and the meter as two
+        uint32s spanning the real num_beats and the packed meter words.
+        every spec-conformant file reported acid_beats=0 and garbage
+        meter. real loops must surface their actual beat count.
+        """
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
+        # 15-beat 4/4 loop at 122 bpm, root C4: mirrors a verified
+        # real-world acid payload byte for byte
+        acid_payload = struct.pack(
+            "<IHHfIHHf", 0x05, 60, 0x8000, 0.0, 15, 4, 4, 122.0,
+        )
+        acid_chunk = b"acid" + struct.pack("<I", 24) + acid_payload
+        body = b"WAVE" + fmt_chunk + data_chunk + acid_chunk
+        wav = tmp_path / "acid_loop.wav"
+        wav.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+        results, meta, _ = parse_riff(str(wav), enumerate_all=True)
+        assert meta["acid_beats"] == 15
+        assert meta["acid_root_note"] == 60
+        assert meta["bpm"] == 122.0
+        meter = next((v for c, k, v in results if k == "meter"), None)
+        assert meter == "4/4"
+
     def test_drum_loop_if_present(self):
         import os
         from conftest import SAMPLE_WAV
