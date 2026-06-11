@@ -121,8 +121,8 @@ def _scope_libraries(libs, scopes):
                 out.append(lib)
                 break
             if os.path.exists(s):
-                norm = acidpaths.normalize(s)
-                root = lib["root_path"]
+                norm = acidpaths.compare_path(acidpaths.normalize(s))
+                root = acidpaths.compare_path(lib["root_path"])
                 if root == norm or root.startswith(norm + "/") \
                         or norm.startswith(root + "/"):
                     out.append(lib)
