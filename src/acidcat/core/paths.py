@@ -20,6 +20,7 @@ Everything here is stdlib-only.
 import hashlib
 import os
 import re
+import sys
 
 
 ACIDCAT_DIR_NAME = ".acidcat"
@@ -38,15 +39,16 @@ def normalize(p):
 
 
 def compare_path(p):
-    """Comparison-only form of a path: case-insensitive on Windows,
-    unchanged elsewhere.
+    """Comparison-only form of a path: case-insensitive on Windows and
+    macOS, unchanged elsewhere.
 
     Stored paths are NOT mutated by this. Use only at comparison sites
-    (overlap guard, find_library_for_path, dedup) so two registrations
-    of the same NTFS object that differ only in case do not slip past
-    the no-overlap check.
+    (overlap guard, find_library_for_path, scope filters, dedup) so two
+    spellings of the same filesystem object that differ only in case do
+    not slip past the no-overlap check. APFS and HFS+ default to
+    case-insensitive on macOS, the same hazard as NTFS.
     """
-    if os.name == "nt":
+    if os.name == "nt" or sys.platform == "darwin":
         return p.lower()
     return p
 
