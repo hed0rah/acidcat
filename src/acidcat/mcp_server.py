@@ -846,6 +846,7 @@ def reindex(args):
     if not target:
         raise ToolError("path or label is required")
     with_features = bool(args.get("with_features", False))
+    force = bool(args.get("force", False))
 
     rconn = reg.open_registry(_REGISTRY_PATH)
     try:
@@ -872,6 +873,7 @@ def reindex(args):
             do_features=with_features,
             do_deep=False,
             quiet=True,
+            force=force,
         )
         conn.commit()
         sample_count = conn.execute(
@@ -1434,6 +1436,11 @@ def _register_all():
                 "path": {"type": "string",
                          "description": "Library root path (alternative)."},
                 "with_features": {"type": "boolean", "default": False},
+                "force": {"type": "boolean", "default": False,
+                          "description": "Re-extract metadata even for "
+                                         "unchanged files (after parser "
+                                         "upgrades). Preserves tags, "
+                                         "descriptions, and features."},
             },
         },
         reindex,
