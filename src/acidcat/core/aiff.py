@@ -153,15 +153,18 @@ def parse_aiff(filepath, enumerate_all=False):
                     # surfaced as 'unknown:<raw>' so callers can spot
                     # them rather than treating them as plain AIFF.
                     if form_type == "AIFC" and len(chunk_data) >= 22:
-                        comp_type = chunk_data[18:22].decode(
+                        comp_raw = chunk_data[18:22].decode(
                             "ascii", errors="ignore"
                         )
-                        comp_type = comp_type.strip()
-                        if comp_type in _AIFC_KNOWN_COMPRESSION:
-                            meta["compression"] = comp_type
+                        # membership tests the raw 4cc: codes like
+                        # "raw " carry a meaningful trailing space.
+                        # strip only for display.
+                        if comp_raw in _AIFC_KNOWN_COMPRESSION:
+                            meta["compression"] = comp_raw.strip()
                         else:
+                            stripped = comp_raw.strip()
                             meta["compression"] = (
-                                f"unknown:{comp_type}" if comp_type
+                                f"unknown:{stripped}" if stripped
                                 else "none"
                             )
 
