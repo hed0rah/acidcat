@@ -226,7 +226,11 @@ def run(args):
     rconn = reg.open_registry(registry_path)
     try:
         try:
-            reg.register_library(
+            # the registry returns the canonical db_path: on re-register
+            # it reuses the stored one, which can differ from the path
+            # computed above if the filename scheme changed since the
+            # library was first registered.
+            db_path = reg.register_library(
                 rconn, scan_root, label=label, db_path=db_path,
                 in_tree=in_tree, schema_version=idx.SCHEMA_VERSION,
             )

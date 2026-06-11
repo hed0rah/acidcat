@@ -49,6 +49,30 @@ class TestSchemaCreation:
         assert "libraries" in names
 
 
+class TestReRegisterReusesDbPath:
+    def test_changed_central_filename_reuses_stored_db(self, reg_conn,
+                                                       tmp_path):
+        """the central db filename scheme has changed across versions
+        (label hash 8 -> 12 chars in v0.5.4), so a re-register can
+        compute a different db_path for the same root. the library's
+        identity is its root: re-registering must reuse the stored
+        db_path instead of crashing on the root_path UNIQUE constraint
+        or, worse, pointing a fresh DB at the root and orphaning the
+        old one with its tags and descriptions.
+        """
+        root = _mkroot(tmp_path, "lib_a")
+        old_db = paths.normalize(str(tmp_path / "lib_a_oldhash8.db"))
+        reg.register_library(reg_conn, root, label="lib_a", db_path=old_db)
+
+        new_db = paths.normalize(str(tmp_path / "lib_a_newhash12chars.db"))
+        returned = reg.register_library(reg_conn, root, label="lib_a",
+                                        db_path=new_db)
+        assert returned == old_db
+        rows = reg_conn.execute("SELECT db_path FROM libraries").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["db_path"] == old_db
+
+
 class TestRegister:
     def test_basic(self, reg_conn, tmp_path):
         root = _mkroot(tmp_path, "lib_a")
