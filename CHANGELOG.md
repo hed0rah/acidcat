@@ -5,6 +5,35 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.5.8] - 2026-06-11
+
+P1 slice 2: AIFF and MIDI deep-verified against their specs, three
+spec-conformance fixes, byte-level diagrams for both formats.
+
+### Fixed
+
+- **MIDI SMPTE division**: files with bit 15 of the division field
+  set use SMPTE timing (negative frame rate in the high byte, ticks
+  per frame in the low byte). Duration is now computed as
+  ticks/(fps*tpf) per SMF 1.0 instead of feeding the raw division
+  into the ppqn formula; -29 maps to 29.97 drop-frame.
+- **MIDI running status**: meta and sysex events now cancel running
+  status per SMF 1.0, so malformed data bytes after a meta event no
+  longer decode as phantom notes through the stale status.
+- **AIFC `raw ` compression**: the compression 4cc is now matched
+  with its trailing space intact, so raw-PCM AIFC reports `raw`
+  instead of `unknown:raw`.
+
+### Documentation
+
+- `docs/formats/aiff.md`: byte-ruler maps for COMM, SSND, MARK
+  entries and INST, a bit-level diagram of the 80-bit extended
+  float, and a corrected sample-rate hex table (the previous
+  44100/48000/22050 encodings were one exponent too low).
+- `docs/formats/midi.md`: MThd map, division bit diagram for both
+  timing forms, status-byte bit split, a worked VLQ example, and
+  the running-status cancellation rules.
+
 ## [0.5.7] - 2026-06-10
 
 First slice of the format-internals work: a High-severity parser fix
