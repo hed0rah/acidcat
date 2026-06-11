@@ -98,6 +98,9 @@ def parse_aiff(filepath, enumerate_all=False):
         "num_frames": None,
         "duration_sec": None,
         "compression": None,
+        "basc_beats": None,
+        "basc_root_key": None,
+        "basc_scale": None,
     }
     seen_order = []
     seen_set = set()
@@ -242,6 +245,33 @@ def parse_aiff(filepath, enumerate_all=False):
                         results.append(("ANNO", "annotation", annotation))
                 except Exception:
                     pass
+
+            elif chunk_id == b"basc":
+                # Apple Loops basic description. no official spec; the
+                # layout is field-verified against 103 indexed Apple
+                # Loops (2026-06-11): u32 version, u32 num_beats,
+                # u16 root_key (MIDI note), u16 scale_type, u16/u16
+                # time signature, reserved to 84 bytes. derived bpm
+                # (beats / duration * 60) matched the filename bpm on
+                # every surveyed file. scale_type has no verified enum
+                # mapping yet; surfaced raw.
+                try:
+                    if len(chunk_data) >= 16:
+                        _ver, beats = struct.unpack(">II", chunk_data[0:8])
+                        root, scale, sig_n, sig_d = struct.unpack(
+                            ">HHHH", chunk_data[8:16]
+                        )
+                        meta["basc_beats"] = beats
+                        meta["basc_root_key"] = root
+                        meta["basc_scale"] = scale
+                        if enumerate_all:
+                            results.append(("basc", "num_beats", beats))
+                            results.append(("basc", "root_key", root))
+                            results.append(("basc", "scale_type", scale))
+                            results.append(("basc", "time_sig", f"{sig_n}/{sig_d}"))
+                except Exception as e:
+                    if enumerate_all:
+                        results.append(("basc", "error", str(e)))
 
             elif chunk_id == b"ID3 " and enumerate_all:
                 # ID3v2 tag -- just note its presence and size
