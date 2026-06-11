@@ -67,6 +67,10 @@ def register(subparsers):
                         "of ~/.acidcat/libraries/<label>_<hash>.db.")
     p.add_argument("--rebuild", action="store_true",
                    help="Delete the existing per-library DB before indexing.")
+    p.add_argument("--force", action="store_true",
+                   help="Re-extract metadata even for files whose mtime and "
+                        "size are unchanged. Use after a parser upgrade; "
+                        "preserves tags, descriptions, and features.")
     p.add_argument("--features", action="store_true",
                    help="Extract librosa audio features during indexing.")
     p.add_argument("--deep", action="store_true",
@@ -255,6 +259,7 @@ def run(args):
             do_features=args.features,
             do_deep=args.deep,
             quiet=quiet,
+            force=getattr(args, "force", False),
         )
 
         if args.import_tags:
@@ -751,7 +756,8 @@ def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
 _COMMIT_EVERY_N_FILES = 100
 
 
-def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=False):
+def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
+                     quiet=False, force=False):
     walk_start = time.time()
     added = updated = skipped = failed = 0
     seen_paths = 0
@@ -773,7 +779,10 @@ def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=Fa
                 continue
 
             existing = idx.get_sample_stat(conn, norm)
-            if existing is not None:
+            # force bypasses the mtime+size short-circuit: the files
+            # did not change but the parser may have. annotations are
+            # safe either way; they live in separate tables by path.
+            if existing is not None and not force:
                 old_mtime, old_size = existing
                 if old_mtime == st.st_mtime and old_size == st.st_size:
                     idx.touch_last_seen(conn, norm, walk_start)
@@ -821,9 +830,12 @@ def _walk_and_upsert(conn, scan_root, do_features=False, do_deep=False, quiet=Fa
                 key = row.get("key") or "-"
                 print(f"  {name:40s} bpm={bpm} key={key}", file=sys.stderr)
 
+    # make the walk durable before pruning: a failure inside
+    # prune_missing (symlink loop, permission error) must not roll
+    # back the trailing batch of upserts.
+    conn.commit()
     pruned = idx.prune_missing(conn, scan_root, walk_start)
     idx.record_scan_root(conn, scan_root, seen_paths, walk_start)
-    # final commit handles the trailing partial chunk and the prune+record above
     conn.commit()
 
     return {
