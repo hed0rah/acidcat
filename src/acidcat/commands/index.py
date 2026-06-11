@@ -1065,6 +1065,15 @@ def _from_tagged(filepath, row, do_deep=False):
     row["bpm"] = _coerce_bpm(meta.get("bpm"))
     row["key"] = meta.get("key")
 
+    # genre frames feed the tags table the same way serum preset tags
+    # do, so `query --tag house` works against tagged-format
+    # libraries. multi-genre strings split on the common separators.
+    genre = meta.get("genre")
+    if genre:
+        parts = [g.strip() for g in
+                 genre.replace(";", ",").replace("/", ",").split(",")]
+        row["_tags"] = [g for g in parts if g]
+
     if row["key"] is None:
         row["key"] = parse_key_from_path(filepath)
     if row["bpm"] is None:
