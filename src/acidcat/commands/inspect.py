@@ -7,7 +7,7 @@ spec violations it noticed along the way. `--hex` adds the raw bytes
 next to each decoded field. `-f json` emits the same structure for
 machines.
 
-WAV/RIFF only for now; AIFF and MIDI walkers follow the same shape.
+Supports WAV/RIFF, AIFF/AIFC, and Standard MIDI Files.
 """
 
 import json
@@ -16,6 +16,9 @@ import struct
 import sys
 
 from acidcat.core.riff import iter_chunks
+from acidcat.core.aiff import iter_chunks as iter_aiff_chunks
+from acidcat.core.aiff import _parse_ieee_extended, _AIFC_KNOWN_COMPRESSION
+from acidcat.core.midi import _read_vlq
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -50,9 +53,9 @@ _INFO_TAGS = {
 def register(subparsers):
     p = subparsers.add_parser(
         "inspect",
-        help="readelf-style structural dump of a WAV file.",
+        help="readelf-style structural dump of a WAV, AIFF, or MIDI file.",
     )
-    p.add_argument("target", help="Path to a WAV file.")
+    p.add_argument("target", help="Path to a WAV, AIFF, or MIDI file.")
     p.add_argument("--hex", action="store_true", dest="show_hex",
                    help="Show raw bytes next to each decoded field.")
     p.add_argument("-f", "--format", default="table", choices=["table", "json"],
@@ -391,6 +394,394 @@ def inspect_wav(filepath):
     return chunks, file_warns
 
 
+# ── aiff walk ──────────────────────────────────────────────────────
+
+
+def _bu16(b, off):
+    return struct.unpack_from(">H", b, off)[0]
+
+
+def _bu32(b, off):
+    return struct.unpack_from(">I", b, off)[0]
+
+
+def _aiff_comm(b, ctx, form_type):
+    fields, warns = [], []
+    if len(b) < 18:
+        return "truncated", fields, [f"COMM payload is {len(b)} bytes, spec minimum is 18"]
+    ch, frames, bits = struct.unpack_from(">hIh", b, 0)
+    rate = _parse_ieee_extended(b[8:18])
+    fields.append(_f(0x00, 2, "num_channels", ch))
+    fields.append(_f(0x02, 4, "num_sample_frames", frames))
+    fields.append(_f(0x06, 2, "bits_per_sample", bits))
+    rate_note = "80-bit IEEE 754 extended"
+    fields.append(_f(0x08, 10, "sample_rate", int(rate) if rate else 0, rate_note))
+    ctx.update({"channels": ch, "frames": frames, "bits": bits, "rate": rate})
+    if not rate:
+        warns.append("sample rate decodes to 0")
+
+    comp = "PCM"
+    if form_type == "AIFC":
+        if len(b) >= 22:
+            comp4 = b[18:22].decode("ascii", errors="replace")
+            comp = comp4.strip() or "none"
+            known = "" if comp4 in _AIFC_KNOWN_COMPRESSION else "unknown type"
+            fields.append(_f(0x12, 4, "compression_type", comp4, known))
+            if known:
+                warns.append(f"compression type {comp4!r} not in the known set")
+            if len(b) >= 23:
+                name_len = b[22]
+                name = b[23:23 + name_len].decode("ascii", errors="replace")
+                if name:
+                    fields.append(_f(0x16, 1 + name_len, "compression_name", name,
+                                     "pascal string"))
+            ctx["compression"] = comp4
+        else:
+            warns.append("AIFC COMM missing the compression type")
+    dur = f", {frames / rate:.3f} s" if rate else ""
+    summary = f"{comp} {bits}-bit {ch}ch {int(rate)} Hz{dur}"
+    return summary, fields, warns
+
+
+def _aiff_ssnd(b, ctx, size):
+    fields, warns = [], []
+    if len(b) < 8:
+        return "truncated", fields, ["SSND payload under 8 bytes"]
+    offset, block = struct.unpack_from(">II", b, 0)
+    fields.append(_f(0x00, 4, "offset", offset, "bytes to first frame"))
+    fields.append(_f(0x04, 4, "block_size", block))
+    audio_bytes = size - 8 - offset
+    summary = f"audio payload, {max(audio_bytes, 0):,} bytes"
+    frames, ch, bits = ctx.get("frames"), ctx.get("channels"), ctx.get("bits")
+    comp = ctx.get("compression", "NONE")
+    uncompressed = comp in ("NONE", "none", "sowt", "twos", "raw ")
+    if frames and ch and bits and uncompressed:
+        expected = frames * ch * (bits // 8)
+        if audio_bytes >= 0 and abs(audio_bytes - expected) > max(16, expected * 0.01):
+            warns.append(
+                f"SSND holds {audio_bytes:,} audio bytes but COMM frames "
+                f"imply {expected:,}"
+            )
+    return summary, fields, warns
+
+
+def _aiff_mark(b, ctx):
+    fields, warns = [], []
+    if len(b) < 2:
+        return "truncated", fields, ["MARK payload under 2 bytes"]
+    n = _bu16(b, 0)
+    fields.append(_f(0x00, 2, "num_markers", n))
+    pos = 2
+    ids = {}
+    for i in range(n):
+        if pos + 7 > len(b):
+            warns.append(f"declares {n} markers but payload ends at marker {i}")
+            break
+        mid = struct.unpack_from(">h", b, pos)[0]
+        position = _bu32(b, pos + 2)
+        name_len = b[pos + 6]
+        name = b[pos + 7:pos + 7 + name_len].decode("ascii", errors="replace")
+        fields.append(_f(pos, 7 + name_len, f"marker[{i}]", position,
+                         f"id {mid}" + (f", '{name}'" if name else "")))
+        ids[mid] = position
+        # pascal string pads so the 1+len total lands even
+        pos += 6 + 1 + name_len + ((1 + name_len) % 2)
+    ctx["marker_ids"] = ids
+    return f"{len(ids)} marker(s)", fields, warns
+
+
+def _aiff_inst(b, ctx):
+    fields, warns = [], []
+    if len(b) < 20:
+        return "truncated", fields, [f"INST payload is {len(b)} bytes, spec says 20"]
+    base, detune = struct.unpack_from(">bb", b, 0)
+    low_n, high_n, low_v, high_v = b[2], b[3], b[4], b[5]
+    gain = struct.unpack_from(">h", b, 6)[0]
+    fields.append(_f(0x00, 1, "base_note", base, midi_note_to_name(base) if base >= 0 else ""))
+    fields.append(_f(0x01, 1, "detune", detune, "cents"))
+    fields.append(_f(0x02, 1, "low_note", low_n, midi_note_to_name(low_n)))
+    fields.append(_f(0x03, 1, "high_note", high_n, midi_note_to_name(high_n)))
+    fields.append(_f(0x04, 1, "low_velocity", low_v))
+    fields.append(_f(0x05, 1, "high_velocity", high_v))
+    fields.append(_f(0x06, 2, "gain", gain, "dB"))
+    loop_ids = []
+    for label, off in (("sustain_loop", 8), ("release_loop", 14)):
+        mode, begin, end = struct.unpack_from(">hhh", b, off)
+        mode_name = {0: "off", 1: "forward", 2: "ping-pong"}.get(mode, f"unknown {mode}")
+        fields.append(_f(off, 6, label, mode_name,
+                         f"markers {begin}..{end}" if mode else ""))
+        if mode:
+            loop_ids.extend((begin, end))
+    ctx["inst_loop_marker_ids"] = loop_ids
+    summary = f"base {midi_note_to_name(base)}, keys " \
+              f"{midi_note_to_name(low_n)}-{midi_note_to_name(high_n)}"
+    return summary, fields, warns
+
+
+def inspect_aiff(filepath, form_type):
+    """Walk an AIFF/AIFC file and return (chunks, file_warnings)."""
+    file_size = os.path.getsize(filepath)
+    ctx = {}
+    chunks = []
+    file_warns = []
+    seen = []
+
+    with open(filepath, "rb") as f:
+        hdr = f.read(12)
+        form_size = struct.unpack(">I", hdr[4:8])[0]
+        if form_size + 8 != file_size:
+            file_warns.append(
+                f"FORM size says {form_size + 8:,} bytes, file is "
+                f"{file_size:,} ({file_size - form_size - 8:+,})"
+            )
+
+        for cid, offset, size in iter_aiff_chunks(filepath):
+            seen.append(cid)
+            if offset + 8 + size > file_size:
+                file_warns.append(
+                    f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
+                    f"but only {file_size - offset - 8:,} remain"
+                )
+            f.seek(offset + 8)
+            payload = f.read(min(size, _PAYLOAD_CAP))
+
+            entry = {"id": cid, "offset": offset, "size": size,
+                     "summary": "", "fields": [], "warnings": []}
+            try:
+                if cid == "COMM":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_comm(payload, ctx, form_type)
+                elif cid == "SSND":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_ssnd(payload, ctx, size)
+                elif cid == "MARK":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_mark(payload, ctx)
+                elif cid == "INST":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_inst(payload, ctx)
+                elif cid in ("NAME", "AUTH", "(c) ", "ANNO"):
+                    text = payload.decode("ascii", errors="replace").strip("\x00").strip()
+                    entry["summary"] = text[:60]
+                    entry["fields"] = [_f(0x00, size, "text", text[:200])]
+                elif cid == "ID3 ":
+                    entry["summary"] = f"embedded ID3v2 tag, {size:,} bytes"
+                else:
+                    entry["summary"] = f"unparsed, first bytes: {payload[:16].hex(' ')}"
+            except Exception as e:
+                entry["warnings"] = [f"parse error: {e.__class__.__name__}: {e}"]
+            chunks.append(entry)
+
+    if "COMM" not in seen:
+        file_warns.append("no COMM chunk: not decodable as audio")
+    if "SSND" not in seen and ctx.get("frames"):
+        file_warns.append("no SSND chunk despite COMM declaring frames")
+    loop_ids = ctx.get("inst_loop_marker_ids") or []
+    markers = ctx.get("marker_ids") or {}
+    for mid in loop_ids:
+        if mid not in markers:
+            file_warns.append(
+                f"INST loop references marker id {mid} that MARK does not define"
+            )
+    return chunks, file_warns
+
+
+# ── midi walk ──────────────────────────────────────────────────────
+
+
+_MIDI_FORMATS = {0: "single track", 1: "multi-track sync", 2: "independent patterns"}
+
+
+def _scan_track(trk, ctx):
+    """Collect display facts from one MTrk payload. Mirrors the event
+    grammar in core/midi.py but keeps per-track stats."""
+    pos = 0
+    running = 0
+    ticks = 0
+    notes = 0
+    nmin = nmax = None
+    channels = set()
+    tempos = []
+    names = []
+    time_sig = key_sig = None
+    has_eot = False
+
+    while pos < len(trk):
+        delta, pos = _read_vlq(trk, pos)
+        ticks += delta
+        if pos >= len(trk):
+            break
+        status = trk[pos]
+        if status == 0xFF:
+            running = 0
+            if pos + 2 >= len(trk):
+                break
+            etype = trk[pos + 1]
+            elen, pos = _read_vlq(trk, pos + 2)
+            if pos + elen > len(trk):
+                break
+            edata = trk[pos:pos + elen]
+            pos += elen
+            if etype == 0x51 and elen == 3:
+                us = (edata[0] << 16) | (edata[1] << 8) | edata[2]
+                if us:
+                    tempos.append(round(60_000_000 / us, 2))
+            elif etype == 0x58 and elen == 4:
+                time_sig = f"{edata[0]}/{2 ** edata[1]}"
+            elif etype == 0x59 and elen == 2:
+                sf = struct.unpack(">b", edata[0:1])[0]
+                key_sig = f"{sf:+d} {'sharps' if sf >= 0 else 'flats'}" \
+                          + (", minor" if edata[1] == 1 else "")
+            elif etype == 0x03:
+                name = edata.decode("ascii", errors="replace").strip()
+                if name:
+                    names.append(name)
+            elif etype == 0x2F:
+                has_eot = True
+        elif status in (0xF0, 0xF7):
+            running = 0
+            slen, pos = _read_vlq(trk, pos + 1)
+            if pos + slen > len(trk):
+                break
+            pos += slen
+        elif status & 0x80:
+            running = status
+            pos += 1
+            mtype = status & 0xF0
+            if mtype in (0x80, 0x90, 0xA0, 0xB0, 0xE0):
+                if pos + 1 < len(trk):
+                    d1, d2 = trk[pos], trk[pos + 1]
+                    pos += 2
+                    if mtype == 0x90 and d2 > 0:
+                        notes += 1
+                        channels.add(status & 0x0F)
+                        nmin = d1 if nmin is None else min(nmin, d1)
+                        nmax = d1 if nmax is None else max(nmax, d1)
+                else:
+                    break
+            elif mtype in (0xC0, 0xD0):
+                pos += 1
+            else:
+                pos += 2
+        elif running:
+            mtype = running & 0xF0
+            d1 = status
+            if mtype in (0x80, 0x90, 0xA0, 0xB0, 0xE0):
+                if pos + 1 < len(trk):
+                    d2 = trk[pos + 1]
+                    pos += 2
+                    if mtype == 0x90 and d2 > 0:
+                        notes += 1
+                        channels.add(running & 0x0F)
+                        nmin = d1 if nmin is None else min(nmin, d1)
+                        nmax = d1 if nmax is None else max(nmax, d1)
+                else:
+                    break
+            else:
+                pos += 1
+        else:
+            pos += 1
+
+    return {"ticks": ticks, "notes": notes, "nmin": nmin, "nmax": nmax,
+            "channels": channels, "tempos": tempos, "names": names,
+            "time_sig": time_sig, "key_sig": key_sig, "has_eot": has_eot}
+
+
+def inspect_midi(filepath):
+    """Walk a Standard MIDI File and return (chunks, file_warnings)."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read()
+    chunks = []
+    file_warns = []
+
+    hdr_len = struct.unpack(">I", data[4:8])[0]
+    fmt, ntrks, division = struct.unpack(">HHH", data[8:14])
+    fields = [
+        _f(0x00, 2, "format", fmt, _MIDI_FORMATS.get(fmt, "unknown")),
+        _f(0x02, 2, "ntrks", ntrks),
+    ]
+    ctx = {"division": division}
+    if division & 0x8000:
+        fps = -struct.unpack(">b", bytes([(division >> 8) & 0xFF]))[0]
+        tpf = division & 0xFF
+        shown = 29.97 if fps == 29 else fps
+        fields.append(_f(0x04, 2, "division", f"0x{division:04x}",
+                         f"SMPTE: {shown} fps, {tpf} ticks/frame"))
+        ctx["ticks_per_sec"] = (29.97 if fps == 29 else fps) * tpf
+    else:
+        fields.append(_f(0x04, 2, "division", division, "ticks per quarter note"))
+    if hdr_len != 6:
+        fields.append(_f(0x06, hdr_len - 6, "extra_header",
+                         f"{hdr_len - 6} bytes", "legal, skipped"))
+    summary = f"format {fmt}, {ntrks} track(s)"
+    chunks.append({"id": "MThd", "offset": 0, "size": hdr_len,
+                   "summary": summary, "fields": fields, "warnings": []})
+
+    offset = 8 + hdr_len
+    found = 0
+    first_tempo = None
+    max_ticks = 0
+    while offset + 8 <= file_size and found < ntrks:
+        if data[offset:offset + 4] != b"MTrk":
+            file_warns.append(
+                f"expected MTrk at 0x{offset:08x}, found "
+                f"{data[offset:offset + 4]!r}; stopping"
+            )
+            break
+        trk_len = struct.unpack(">I", data[offset + 4:offset + 8])[0]
+        trk = data[offset + 8:offset + 8 + trk_len]
+        entry = {"id": "MTrk", "offset": offset, "size": trk_len,
+                 "summary": "", "fields": [], "warnings": []}
+        if len(trk) < trk_len:
+            entry["warnings"].append(
+                f"declares {trk_len:,} bytes but only {len(trk):,} remain"
+            )
+        st = _scan_track(trk, ctx)
+        flds = entry["fields"]
+        if st["names"]:
+            flds.append(_f(None, 0, "name", st["names"][0]))
+        flds.append(_f(None, 0, "events_ticks", st["ticks"]))
+        if st["notes"]:
+            flds.append(_f(None, 0, "notes", st["notes"],
+                           f"{midi_note_to_name(st['nmin'])}-"
+                           f"{midi_note_to_name(st['nmax'])}"))
+            flds.append(_f(None, 0, "channels",
+                           ",".join(str(c + 1) for c in sorted(st["channels"]))))
+        if st["tempos"]:
+            shown = ", ".join(f"{t:g}" for t in st["tempos"][:4])
+            more = f" (+{len(st['tempos']) - 4} more)" if len(st["tempos"]) > 4 else ""
+            flds.append(_f(None, 0, "tempo", shown + more, "BPM"))
+            if first_tempo is None:
+                first_tempo = st["tempos"][0]
+        if st["time_sig"]:
+            flds.append(_f(None, 0, "time_sig", st["time_sig"]))
+        if st["key_sig"]:
+            flds.append(_f(None, 0, "key_sig", st["key_sig"]))
+        if not st["has_eot"]:
+            entry["warnings"].append("no end-of-track meta event")
+        max_ticks = max(max_ticks, st["ticks"])
+
+        bits = []
+        if st["names"]:
+            bits.append(f"'{st['names'][0]}'")
+        bits.append(f"{st['notes']} notes" if st["notes"] else "no notes")
+        if st["tempos"]:
+            bits.append(f"{st['tempos'][0]:g} bpm")
+        entry["summary"] = ", ".join(bits)
+        chunks.append(entry)
+
+        found += 1
+        offset += 8 + trk_len
+
+    if found < ntrks:
+        file_warns.append(f"MThd declares {ntrks} tracks, found {found}")
+    if not (division & 0x8000) and first_tempo is None and found:
+        file_warns.append("no tempo event in any track; players assume 120 bpm")
+
+    return chunks, file_warns
+
+
 # ── rendering ──────────────────────────────────────────────────────
 
 
@@ -402,9 +793,9 @@ def _hex_bytes(filepath, offset, length, cap=8):
     return s + " .." if length > cap else s
 
 
-def _render_table(filepath, chunks, file_warns, args):
+def _render_table(filepath, fmt_label, chunks, file_warns, args):
     file_size = os.path.getsize(filepath)
-    print(f"{os.path.basename(filepath)}: RIFF/WAVE, {file_size:,} bytes, "
+    print(f"{os.path.basename(filepath)}: {fmt_label}, {file_size:,} bytes, "
           f"{len(chunks)} chunks")
     print()
     print(f"  {'idx':<5} {'id':<5} {'offset':<11} {'size':<11} summary")
@@ -420,12 +811,14 @@ def _render_table(filepath, chunks, file_warns, args):
             print(f"{c['id'].strip()} @ 0x{c['offset']:08x} ({c['size']} bytes)")
             for fl in c["fields"]:
                 note = f"  {fl['note']}" if fl["note"] else ""
-                if args.show_hex:
+                # derived stats (midi track facts) carry no byte offset
+                off_col = f"+0x{fl['off']:04x}" if fl["off"] is not None else "      "
+                if args.show_hex and fl["off"] is not None:
                     hx = _hex_bytes(filepath, c["offset"] + 8 + fl["off"], fl["len"])
-                    print(f"  +0x{fl['off']:04x}  {hx:<26} "
+                    print(f"  {off_col}  {hx:<26} "
                           f"{fl['name']:<22} {fl['value']!s:<14}{note}")
                 else:
-                    print(f"  +0x{fl['off']:04x}  {fl['name']:<22} "
+                    print(f"  {off_col}  {fl['name']:<22} "
                           f"{fl['value']!s:<14}{note}")
 
     all_warns = list(file_warns)
@@ -444,21 +837,30 @@ def run(args):
         print(f"acidcat inspect: {filepath}: No such file", file=sys.stderr)
         return 1
     with open(filepath, "rb") as f:
-        magic = f.read(12)
-    if len(magic) < 12 or magic[:4] != b"RIFF" or magic[8:12] != b"WAVE":
-        if magic[:4] == b"RF64":
-            print("acidcat inspect: RF64 not supported yet", file=sys.stderr)
-        else:
-            print("acidcat inspect: not a RIFF/WAVE file "
-                  "(AIFF and MIDI walkers are planned)", file=sys.stderr)
+        magic = f.read(14)
+    if len(magic) >= 12 and magic[:4] == b"RIFF" and magic[8:12] == b"WAVE":
+        fmt_label = "RIFF/WAVE"
+        chunks, file_warns = inspect_wav(filepath)
+    elif len(magic) >= 12 and magic[:4] == b"FORM" \
+            and magic[8:12] in (b"AIFF", b"AIFC"):
+        form_type = magic[8:12].decode("ascii")
+        fmt_label = f"IFF/{form_type}"
+        chunks, file_warns = inspect_aiff(filepath, form_type)
+    elif len(magic) >= 14 and magic[:4] == b"MThd":
+        fmt_label = "Standard MIDI File"
+        chunks, file_warns = inspect_midi(filepath)
+    elif magic[:4] == b"RF64":
+        print("acidcat inspect: RF64 not supported yet", file=sys.stderr)
         return 1
-
-    chunks, file_warns = inspect_wav(filepath)
+    else:
+        print("acidcat inspect: not a WAV, AIFF, or MIDI file",
+              file=sys.stderr)
+        return 1
 
     if args.format == "json":
         json.dump({
             "file": filepath,
-            "format": "RIFF/WAVE",
+            "format": fmt_label,
             "size": os.path.getsize(filepath),
             "chunks": chunks,
             "warnings": file_warns,
@@ -466,4 +868,4 @@ def run(args):
         sys.stdout.write("\n")
         return 0
 
-    return _render_table(filepath, chunks, file_warns, args)
+    return _render_table(filepath, fmt_label, chunks, file_warns, args)

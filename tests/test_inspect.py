@@ -4,7 +4,7 @@ import struct
 from types import SimpleNamespace
 
 import pytest
-from acidcat.commands.inspect import inspect_wav, run
+from acidcat.commands.inspect import inspect_aiff, inspect_midi, inspect_wav, run
 
 
 def _wav(tmp_path, *chunks, riff_size=None, name="t.wav"):
@@ -84,6 +84,138 @@ class TestInspectWav:
         path = _wav(tmp_path, _data())
         _, warns = inspect_wav(path)
         assert any("no fmt chunk" in w for w in warns)
+
+
+RATE_44100 = bytes.fromhex("400eac440000000000000000")[:10]
+
+
+def _aiff_chunk(cid, payload):
+    raw = cid + struct.pack(">I", len(payload)) + payload
+    if len(payload) % 2:
+        raw += b"\x00"
+    return raw
+
+
+def _aiff(tmp_path, *chunks, form=b"AIFF", name="t.aiff"):
+    body = form + b"".join(chunks)
+    p = tmp_path / name
+    p.write_bytes(b"FORM" + struct.pack(">I", len(body)) + body)
+    return str(p)
+
+
+def _comm(channels=1, frames=4, bits=16):
+    return _aiff_chunk(b"COMM", struct.pack(">hIh", channels, frames, bits) + RATE_44100)
+
+
+def _ssnd(frames=4, channels=1, bits=16):
+    return _aiff_chunk(b"SSND", struct.pack(">II", 0, 0)
+                       + b"\x00" * (frames * channels * bits // 8))
+
+
+def _mark(markers):
+    payload = struct.pack(">H", len(markers))
+    for mid, position, mname in markers:
+        pstr = bytes([len(mname)]) + mname
+        if (1 + len(mname)) % 2:
+            pstr += b"\x00"
+        payload += struct.pack(">hI", mid, position) + pstr
+    return _aiff_chunk(b"MARK", payload)
+
+
+def _inst(sustain=(1, 1, 2)):
+    mode, begin, end = sustain
+    return _aiff_chunk(b"INST", struct.pack(
+        ">bbBBBBhhhhhhh", 60, 0, 0, 127, 0, 127, 0,
+        mode, begin, end, 0, 0, 0))
+
+
+class TestInspectAiff:
+    def test_comm_decoded(self, tmp_path):
+        path = _aiff(tmp_path, _comm(channels=2, frames=441), _ssnd(441, 2))
+        chunks, warns = inspect_aiff(path, "AIFF")
+        comm = next(c for c in chunks if c["id"] == "COMM")
+        by_name = {f["name"]: f["value"] for f in comm["fields"]}
+        assert by_name["num_channels"] == 2
+        assert by_name["sample_rate"] == 44100
+        assert warns == []
+
+    def test_ssnd_frame_mismatch_flagged(self, tmp_path):
+        # COMM declares 441 frames but SSND only holds 4
+        path = _aiff(tmp_path, _comm(frames=441), _ssnd(frames=4))
+        chunks, _ = inspect_aiff(path, "AIFF")
+        ssnd = next(c for c in chunks if c["id"] == "SSND")
+        assert any("COMM frames" in w for w in ssnd["warnings"])
+
+    def test_markers_and_inst_loops(self, tmp_path):
+        path = _aiff(tmp_path, _comm(),
+                     _mark([(1, 0, b"start"), (2, 4, b"end")]),
+                     _inst(sustain=(1, 1, 2)), _ssnd())
+        chunks, warns = inspect_aiff(path, "AIFF")
+        mark = next(c for c in chunks if c["id"] == "MARK")
+        assert "2 marker(s)" in mark["summary"]
+        assert warns == []
+
+    def test_inst_loop_dangling_marker_flagged(self, tmp_path):
+        path = _aiff(tmp_path, _comm(), _mark([(1, 0, b"a")]),
+                     _inst(sustain=(1, 1, 9)), _ssnd())
+        _, warns = inspect_aiff(path, "AIFF")
+        assert any("marker id 9" in w for w in warns)
+
+
+def _smf(tmp_path, tracks, division=480, ntrks=None, name="t.mid"):
+    hdr = b"MThd" + struct.pack(">IHHH", 6, 1,
+                                ntrks if ntrks is not None else len(tracks),
+                                division)
+    out = hdr
+    for body in tracks:
+        out += b"MTrk" + struct.pack(">I", len(body)) + body
+    p = tmp_path / name
+    p.write_bytes(out)
+    return str(p)
+
+
+_TRACK = (
+    b"\x00\xFF\x03\x04Bass"            # track name
+    b"\x00\xFF\x51\x03\x07\xA1\x20"    # tempo 120
+    b"\x00\x90\x3C\x64"                # note on C4
+    b"\x00\x40\x6E"                    # running status note on E4
+    b"\x00\xFF\x2F\x00"                # end of track
+)
+
+
+class TestInspectMidi:
+    def test_header_and_track_stats(self, tmp_path):
+        path = _smf(tmp_path, [_TRACK])
+        chunks, warns = inspect_midi(path)
+        assert [c["id"] for c in chunks] == ["MThd", "MTrk"]
+        mthd = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+        assert mthd["division"] == 480
+        trk = {f["name"]: f["value"] for f in chunks[1]["fields"]}
+        assert trk["name"] == "Bass"
+        assert trk["notes"] == 2
+        assert warns == []
+
+    def test_smpte_division_decoded(self, tmp_path):
+        path = _smf(tmp_path, [_TRACK], division=0xE728)
+        chunks, _ = inspect_midi(path)
+        div = next(f for f in chunks[0]["fields"] if f["name"] == "division")
+        assert "SMPTE" in div["note"]
+        assert "25" in div["note"]
+
+    def test_missing_eot_flagged(self, tmp_path):
+        path = _smf(tmp_path, [b"\x00\x90\x3C\x64"])
+        chunks, _ = inspect_midi(path)
+        assert any("end-of-track" in w for w in chunks[1]["warnings"])
+
+    def test_declared_tracks_missing_flagged(self, tmp_path):
+        path = _smf(tmp_path, [_TRACK], ntrks=3)
+        _, warns = inspect_midi(path)
+        assert any("declares 3 tracks, found 1" in w for w in warns)
+
+    def test_no_tempo_warns(self, tmp_path):
+        path = _smf(tmp_path, [b"\x00\x90\x3C\x64\x00\xFF\x2F\x00"])
+        _, warns = inspect_midi(path)
+        assert any("120 bpm" in w for w in warns)
 
 
 class TestRunCli:
