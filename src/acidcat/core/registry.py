@@ -195,10 +195,27 @@ def register_library(conn, root, label, db_path, in_tree=False,
         _assert_no_overlap(conn, norm_root)
 
         existing = conn.execute(
-            "SELECT created_at FROM libraries WHERE root_path = ?",
+            "SELECT created_at, db_path, in_tree FROM libraries "
+            "WHERE root_path = ?",
             (norm_root,),
         ).fetchone()
         created_at = existing["created_at"] if existing else now
+        if existing:
+            if bool(existing["in_tree"]) == bool(in_tree):
+                # the library's identity is its root. a re-register may
+                # compute a different central filename (the label-hash
+                # scheme has changed across versions); reuse the stored
+                # db_path so the existing DB and its annotations stay
+                # attached instead of crashing on the root_path UNIQUE
+                # or orphaning the old file.
+                norm_db = existing["db_path"]
+            else:
+                # explicit layout transition (central <-> in-tree):
+                # replace the row so the upsert below can re-key it.
+                conn.execute(
+                    "DELETE FROM libraries WHERE root_path = ?",
+                    (norm_root,),
+                )
 
         conn.execute(
             """
