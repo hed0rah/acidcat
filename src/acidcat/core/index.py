@@ -1,10 +1,11 @@
 """SQLite-backed sample index.
 
-Single global DB at ~/.acidcat/index.db holds metadata for every sample
-the user has pointed `acidcat index` at. Schema groups immutable audio
-facts (samples), per-root bookkeeping (scan_roots), user annotations
-(tags, descriptions), an FTS5 mirror (samples_fts), and optional librosa
-features (features).
+One DB per registered library (central default
+~/.acidcat/libraries/<label>_<hash>.db, or <root>/.acidcat/index.db
+in-tree); the global registry in core/registry.py tracks them all.
+Schema groups immutable audio facts (samples), per-root bookkeeping
+(scan_roots), user annotations (tags, descriptions), an FTS5 mirror
+(samples_fts), and optional librosa features (features).
 
 Everything here is stdlib-only. Connections are opened with foreign_keys
 on and WAL journaling for concurrent readers.
@@ -86,6 +87,16 @@ def fts5_syntax_message(text):
         f"FTS5 special chars (* \" ( ) NOT AND OR) need to be "
         f"quoted as a literal phrase."
     )
+
+
+def escape_like(s):
+    """Escape SQLite LIKE metacharacters in user-supplied fragments.
+
+    LIKE treats `_` as "any single character" and `%` as "any
+    sequence", so `kick_126.wav` would also match `kickX126.wav`.
+    Pair with `ESCAPE '\\'` on the SQL side.
+    """
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class SchemaVersionError(RuntimeError):
@@ -390,10 +401,11 @@ def list_roots(conn):
 
 def remove_root(conn, root):
     """Delete all samples under root and drop the scan_roots entry."""
-    like = root.rstrip("/") + "/%"
+    like = escape_like(root.rstrip("/")) + "/%"
     paths = [
         r["path"] for r in conn.execute(
-            "SELECT path FROM samples WHERE scan_root = ? OR path LIKE ?",
+            "SELECT path FROM samples WHERE scan_root = ? "
+            "OR path LIKE ? ESCAPE '\\'",
             (root, like),
         ).fetchall()
     ]

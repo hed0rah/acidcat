@@ -5,6 +5,41 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.6.0] - 2026-06-11
+
+Hardening release closing the deferred-to-v0.6 list from 0.5.5, plus
+the inspect verb growing AIFF and MIDI walkers.
+
+### Added
+
+- `acidcat index --force`: re-extract metadata even for files whose
+  mtime and size are unchanged. Use after a parser upgrade; preserves
+  tags, descriptions, and features (unlike `--rebuild`, which wipes
+  them). Mirrored as a `force` param on the MCP `reindex` tool.
+- `acidcat inspect` now walks AIFF/AIFC (COMM with the 80-bit rate
+  and AIFC compression, SSND with a COMM-frames cross-check, MARK
+  enumeration, the 20-byte INST with sustain/release loops, text
+  chunks) and Standard MIDI Files (both division forms decoded,
+  per-track stats, lints for length lies, missing end-of-track,
+  missing tempo, declared-vs-found track counts).
+
+### Fixed
+
+- MCP `locate_sample` and `list_tags` LIKE patterns escape user
+  input (`_`/`%` were wildcards); `remove_root`'s legacy LIKE
+  fallback escapes the root path the same way. The escape helper
+  moved to `core/index.py` as `escape_like`.
+- MCP `search_samples` adopts the shared `fts5_syntax_message`
+  wording for FTS5 syntax errors.
+- Scope filters in `query`, the MCP server, and `--discover` compare
+  paths case-insensitively on Windows; `compare_path` now also
+  lowercases on macOS (APFS/HFS+ default case-insensitive).
+- `_extract_for_index` logs the exception class and message for
+  failed files instead of making programming bugs look identical to
+  corrupt files.
+- The index walk commits before `prune_missing`, so a prune failure
+  cannot roll back the trailing batch of upserts.
+
 ## [0.5.9] - 2026-06-11
 
 ### Fixed

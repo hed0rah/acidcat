@@ -44,7 +44,7 @@ class _Args:
             "stats_target": None, "forget": None, "remove": None,
             "refresh_stats": False, "refresh_stats_target": None,
             "discover_root": None, "min_samples": 20, "max_depth": 3,
-            "label_prefix": "", "dry_run": False,
+            "label_prefix": "", "dry_run": False, "force": False,
             "quiet": True, "verbose": False,
         }
         defaults.update(kw)
@@ -899,3 +899,64 @@ class TestRefreshStats:
         # refresh should succeed (return 0) even though the DB is missing
         rc = index_cmd.run(_Args(refresh_stats=True, registry=registry_path))
         assert rc == 0
+
+
+class TestForceReindex:
+    def test_force_reextracts_unchanged_files(self, tmp_path, central_root,
+                                              registry_path, wav_bytes):
+        """parser fixes never reach already-indexed rows on a plain
+        reindex because the mtime+size short-circuit skips unchanged
+        files. --force must bypass the skip and re-extract while
+        preserving user annotations (tags live in a separate table
+        keyed by path; the upsert path never touches it).
+        """
+        lib = _library(tmp_path, wav_bytes)
+        assert index_cmd.run(_Args(target=str(lib))) == 0
+
+        db_path = acidpaths.central_db_path_for(str(lib), "lib")
+        conn = idx.open_db(db_path)
+        path = conn.execute("SELECT path FROM samples LIMIT 1").fetchone()["path"]
+        # simulate a stale value left behind by an older parser
+        conn.execute("UPDATE samples SET bpm = 999 WHERE path = ?", (path,))
+        idx.upsert_tags(conn, path, ["keeper"])
+        conn.commit()
+        conn.close()
+
+        # plain reindex: file unchanged on disk, stale value survives
+        assert index_cmd.run(_Args(target=str(lib))) == 0
+        conn = idx.open_db(db_path)
+        assert conn.execute(
+            "SELECT bpm FROM samples WHERE path = ?", (path,)
+        ).fetchone()["bpm"] == 999
+        conn.close()
+
+        # forced reindex: re-extracted, stale value replaced
+        assert index_cmd.run(_Args(target=str(lib), force=True)) == 0
+        conn = idx.open_db(db_path)
+        assert conn.execute(
+            "SELECT bpm FROM samples WHERE path = ?", (path,)
+        ).fetchone()["bpm"] is None
+        tags = [r["tag"] for r in conn.execute(
+            "SELECT tag FROM tags WHERE path = ?", (path,)
+        )]
+        assert tags == ["keeper"]
+        conn.close()
+
+
+class TestRemoveRootLikeEscape:
+    def test_underscore_root_does_not_over_match(self, tmp_path):
+        """remove_root falls back to a LIKE prefix for legacy rows.
+        an underscore in the root name is a single-char wildcard
+        without escaping, so removing t/my_samples must not delete
+        rows under t/myXsamples.
+        """
+        db = str(tmp_path / "x.db")
+        conn = idx.open_db(db)
+        for p, root in [("t/my_samples/a.wav", "t/my_samples"),
+                        ("t/myXsamples/b.wav", "t/myXsamples")]:
+            idx.upsert_sample(conn, {"path": p, "scan_root": root})
+        conn.commit()
+        idx.remove_root(conn, "t/my_samples")
+        left = [r["path"] for r in conn.execute("SELECT path FROM samples")]
+        assert left == ["t/myXsamples/b.wav"]
+        conn.close()

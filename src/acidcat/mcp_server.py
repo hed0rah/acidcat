@@ -94,8 +94,8 @@ def _scope_libraries(pairs, scope_arg):
                 keep.append((lib, conn))
                 break
             if os.path.exists(s):
-                norm = acidpaths.normalize(s)
-                root = lib["root_path"]
+                norm = acidpaths.compare_path(acidpaths.normalize(s))
+                root = acidpaths.compare_path(lib["root_path"])
                 if root == norm or root.startswith(norm + "/") \
                         or norm.startswith(root + "/"):
                     keep.append((lib, conn))
@@ -285,9 +285,7 @@ def search_samples(args):
                 # catch-all dispatcher.
                 if args.get("text"):
                     raise ToolError(
-                        f"invalid search text: {args.get('text')!r}. "
-                        f"FTS5 special chars (* \" ( ) NOT AND OR) "
-                        f"need to be quoted as a literal phrase."
+                        idx.fts5_syntax_message(args.get("text"))
                     )
                 raise
             for r in rows:
@@ -347,7 +345,7 @@ def locate_sample(args):
     # required `name` to start at a path-component boundary, which silently
     # failed for searches that landed mid-filename (e.g. "Kick_Wet" inside
     # "PL_Hypnotize_03_126_Kick_Wet.wav").
-    like = "%" + name + "%"
+    like = "%" + idx.escape_like(name) + "%"
 
     pairs = _open_all_libraries()
     merged = []
@@ -355,7 +353,8 @@ def locate_sample(args):
         for lib, conn in pairs:
             rows = conn.execute(
                 "SELECT path, scan_root, format, bpm, key, duration "
-                "FROM samples WHERE path LIKE ? ORDER BY path LIMIT ?",
+                "FROM samples WHERE path LIKE ? ESCAPE '\\' "
+                "ORDER BY path LIMIT ?",
                 (like, limit),
             ).fetchall()
             for r in rows:
@@ -398,9 +397,9 @@ def list_tags(args):
     counts = {}
     try:
         if prefix:
-            sql = ("SELECT tag, COUNT(*) AS c FROM tags WHERE tag LIKE ? "
-                   "GROUP BY tag")
-            params = (prefix + "%",)
+            sql = ("SELECT tag, COUNT(*) AS c FROM tags "
+                   "WHERE tag LIKE ? ESCAPE '\\' GROUP BY tag")
+            params = (idx.escape_like(prefix) + "%",)
         else:
             sql = "SELECT tag, COUNT(*) AS c FROM tags GROUP BY tag"
             params = ()
@@ -846,6 +845,7 @@ def reindex(args):
     if not target:
         raise ToolError("path or label is required")
     with_features = bool(args.get("with_features", False))
+    force = bool(args.get("force", False))
 
     rconn = reg.open_registry(_REGISTRY_PATH)
     try:
@@ -872,6 +872,7 @@ def reindex(args):
             do_features=with_features,
             do_deep=False,
             quiet=True,
+            force=force,
         )
         conn.commit()
         sample_count = conn.execute(
@@ -1434,6 +1435,11 @@ def _register_all():
                 "path": {"type": "string",
                          "description": "Library root path (alternative)."},
                 "with_features": {"type": "boolean", "default": False},
+                "force": {"type": "boolean", "default": False,
+                          "description": "Re-extract metadata even for "
+                                         "unchanged files (after parser "
+                                         "upgrades). Preserves tags, "
+                                         "descriptions, and features."},
             },
         },
         reindex,

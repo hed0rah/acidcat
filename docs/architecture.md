@@ -3,8 +3,10 @@
 How acidcat is wired together: the data flow from a file on disk to a query
 result on stdout or over MCP.
 
-Last updated: 2026-05-02 (v0.5.x architecture; previously updated 2026-04-23
-under the v0.4 single-DB layout).
+Last updated: 2026-06-11 for v0.6.0 (per-library layout unchanged since
+v0.5.0; the readelf-style `inspect` verb arrived in v0.5.7 and covers
+WAV, AIFF, and MIDI as of v0.6.0). Previously updated 2026-04-23 under
+the v0.4 single-DB layout.
 
 ---
 
