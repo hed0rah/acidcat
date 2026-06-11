@@ -24,6 +24,21 @@ chunk-based binary format. Everything is little-endian.
 +----------------------------------------------+
 ```
 
+### Byte-Level Map: RIFF Header
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  | 'R'  | 'I'  | 'F'  | 'F'  |  magic
+       +------+------+------+------+
+ 0x04  |      riff_size (u32 LE)   |  file size - 8
+       +---------------------------+
+ 0x08  | 'W'  | 'A'  | 'V'  | 'E'  |  form type
+       +------+------+------+------+
+ 0x0C  |  first chunk begins here  |
+       :                           :
+```
+
 ### Chunk Layout
 
 Every chunk follows the same envelope:
@@ -35,6 +50,20 @@ struct chunk {
     byte     data[size];  // payload
     // if size is odd, one pad byte follows (not counted in size)
 };
+```
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ +0x00 |      chunk id (4cc)       |  "fmt ", "data", "acid", ...
+       +---------------------------+
+ +0x04 |    chunk_size (u32 LE)    |  payload only, pad excluded
+       +---------------------------+
+ +0x08 |          payload          |
+       :       chunk_size bytes    :
+       +---------------------------+
+       | pad byte iff size is odd  |  word alignment, uncounted
+       +---------------------------+
 ```
 
 ### Mental Model
@@ -78,6 +107,19 @@ struct fmt_chunk {
     uint16_t block_align;       // channels * bits_per_sample / 8
     uint16_t bits_per_sample;   // 8, 16, 24, 32
 };
+```
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  | format_tag  |  channels   |  u16 / u16
+       +------+------+------+------+
+ 0x04  |     sample_rate (u32)     |  44100, 48000, ...
+       +---------------------------+
+ 0x08  |  avg_bytes_per_sec (u32)  |  rate * block_align
+       +---------------------------+
+ 0x0C  | block_align | bits/sample |  u16 / u16
+       +------+------+------+------+
 ```
 
 ### Format Tags
@@ -203,6 +245,33 @@ struct acid_chunk {
 };
 ```
 
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  |     type_flags (u32)      |  bit0 one-shot, bit1 root set,
+       +---------------------------+  bit2 stretch, bit3 disk-based
+ 0x04  |  root_note  |  unknown1   |  u16 MIDI note / u16, often 0x8000
+       +------+------+------+------+
+ 0x08  |      unknown2 (f32)       |  observed 0.0 in the wild
+       +---------------------------+
+ 0x0C  |     num_beats (u32)       |  beat count of the loop
+       +---------------------------+
+ 0x10  | meter_denom | meter_numer |  u16 / u16, usually 4 / 4
+       +------+------+------+------+
+ 0x14  |       tempo (f32)         |  BPM
+       +---------------------------+
+```
+
+Layout provenance: there is no official spec (the chunk is Sonic
+Foundry reverse-engineering lore). This field order matches
+libsndfile's `wav_read_acid_chunk` and was hex-verified 2026-06-10
+against ACIDized WAVs from four different sample vendors: the
+`num_beats / duration * 60` cross-check lands on the expected tempo
+in every file. Note `num_beats` sits at offset `0x0C`, after the
+unknown float -- a parser that reads beats at `0x08` gets 0 on every
+conformant file (acidcat itself made exactly that mistake before
+v0.5.7).
+
 ### Type Flags
 
 ```
@@ -265,6 +334,31 @@ struct smpl_chunk {
 };
 ```
 
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  |    manufacturer (u32)     |  MIDI manufacturer id, 0 = none
+       +---------------------------+
+ 0x04  |      product (u32)        |
+       +---------------------------+
+ 0x08  |   sample_period (u32)     |  ns per sample = 1e9 / rate
+       +---------------------------+
+ 0x0C  |  midi_unity_note (u32)    |  root key; 0 = unset sentinel
+       +---------------------------+
+ 0x10  |  midi_pitch_frac (u32)    |  fine tune, fraction of semitone
+       +---------------------------+
+ 0x14  |    smpte_format (u32)     |  0, 24, 25, 29, 30
+       +---------------------------+
+ 0x18  |    smpte_offset (u32)     |
+       +---------------------------+
+ 0x1C  | num_sample_loops (u32)    |
+       +---------------------------+
+ 0x20  |    sampler_data (u32)     |  trailing vendor blob size
+       +---------------------------+
+ 0x24  |  loop entries follow ...  |  24 bytes each
+       :                           :
+```
+
 ### Loop Entry (24 bytes each, follows smpl header)
 
 ```
@@ -276,6 +370,23 @@ struct smpl_loop {
     uint32_t fraction;          // fractional sample position
     uint32_t play_count;        // 0 = infinite loop
 };
+```
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ +0x00 |   cue_point_id (u32)      |  links to cue chunk
+       +---------------------------+
+ +0x04 |       type (u32)          |  0 fwd, 1 ping-pong, 2 reverse
+       +---------------------------+
+ +0x08 |       start (u32)         |  sample frames, not bytes
+       +---------------------------+
+ +0x0C |        end (u32)          |
+       +---------------------------+
+ +0x10 |     fraction (u32)        |
+       +---------------------------+
+ +0x14 |    play_count (u32)       |  0 = loop forever
+       +---------------------------+
 ```
 
 ### Loop Types
@@ -316,6 +427,15 @@ struct inst_chunk {
 };
 ```
 
+```
+         0      1      2      3
+       +------+------+------+------+
+ 0x00  | base | detun| gain | low_n|  i8 / i8 cents / i8 dB / u8
+       +------+------+------+------+
+ 0x04  |high_n| lo_v | hi_v |       |  u8 / u8 / u8 (7 bytes total,
+       +------+------+------+       |  pad byte follows: odd size)
+```
+
 ### Notes
 
 - often duplicates `smpl.midi_unity_note` as `base_note`
@@ -349,6 +469,23 @@ struct cue_point {
     uint32_t block_start;       // byte offset within block (usually 0)
     uint32_t sample_offset;     // actual sample position in audio
 };
+```
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ +0x00 |        id (u32)           |  unique, referenced by LIST/adtl
+       +---------------------------+
+ +0x04 |     position (u32)        |  playlist ordering
+       +------+------+------+------+
+ +0x08 | 'd'  | 'a'  | 't'  | 'a'  |  fcc of the chunk referenced
+       +------+------+------+------+
+ +0x0C |    chunk_start (u32)      |  usually 0
+       +---------------------------+
+ +0x10 |    block_start (u32)      |  usually 0
+       +---------------------------+
+ +0x14 |   sample_offset (u32)     |  the actual marker position
+       +---------------------------+
 ```
 
 Cue labels are stored in a separate `LIST/adtl` chunk, linked by cue ID.
