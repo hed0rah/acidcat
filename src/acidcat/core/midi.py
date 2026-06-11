@@ -93,7 +93,11 @@ def parse_midi(filepath):
             status = trk_data[pos]
 
             if status == 0xFF:
-                # meta event
+                # meta event. per SMF 1.0, meta and sysex events cancel
+                # any running status in effect; a data byte after this
+                # point with no fresh status byte is malformed and must
+                # not decode through the stale status.
+                running_status = 0
                 if pos + 2 >= len(trk_data):
                     break
                 event_type = trk_data[pos + 1]
@@ -141,9 +145,11 @@ def parse_midi(filepath):
                     meta["copyright"] = event_data.decode("ascii", errors="replace").strip()
 
             elif status == 0xF0 or status == 0xF7:
-                # sysex. bound the VLQ length against remaining track
-                # bytes so a malformed file cannot push pos past the
-                # MTrk boundary into the next track's data.
+                # sysex cancels running status, same as meta events.
+                # bound the VLQ length against remaining track bytes so
+                # a malformed file cannot push pos past the MTrk
+                # boundary into the next track's data.
+                running_status = 0
                 sysex_len, pos = _read_vlq(trk_data, pos + 1)
                 if pos + sysex_len > len(trk_data):
                     break
@@ -224,9 +230,22 @@ def parse_midi(filepath):
     # convert channels_used set to sorted list for output
     meta["channels_used"] = sorted(meta["channels_used"])
 
-    # estimate duration in seconds if we have tempo and division
-    if meta["tempo_bpm"] and meta["division"] and meta["division"] > 0:
-        beats = total_ticks / meta["division"]
-        meta["duration_sec"] = round(beats * 60.0 / meta["tempo_bpm"], 2)
+    # estimate duration in seconds
+    division = meta["division"]
+    if division:
+        if division & 0x8000:
+            # smpte division: high byte is a negative two's-complement
+            # frame rate, low byte is ticks per frame. wall time is
+            # ticks / (fps * tpf); tempo does not apply. -29 means
+            # 29.97 drop-frame.
+            fps = -struct.unpack(">b", bytes([(division >> 8) & 0xFF]))[0]
+            tpf = division & 0xFF
+            if fps == 29:
+                fps = 29.97
+            if fps > 0 and tpf > 0:
+                meta["duration_sec"] = round(total_ticks / (fps * tpf), 2)
+        elif meta["tempo_bpm"]:
+            beats = total_ticks / division
+            meta["duration_sec"] = round(beats * 60.0 / meta["tempo_bpm"], 2)
 
     return meta
