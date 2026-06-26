@@ -4,8 +4,9 @@ acidcat inspect -- readelf-style structural dump for audio files.
 Walks the container chunk by chunk and prints a structural table, a
 decoded field breakdown per known chunk (with byte offsets), and any
 spec violations it noticed along the way. `--hex` adds the raw bytes
-next to each decoded field. `-f json` emits the same structure for
-machines.
+next to each decoded field. `--frames` adds a per-element deep dump
+(every MPEG frame for MP3, every event for MIDI). `-f json` emits the
+same structure for machines.
 
 Supports WAV/RIFF, RF64, AIFF/AIFC, Standard MIDI Files, Xfer Serum
 presets, MP3 (ID3v2 + MPEG frames + Xing/LAME), and FLAC.
@@ -25,6 +26,7 @@ from acidcat.core import mp3 as mp3mod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
+_FRAME_LISTING_CAP = 100000  # per-element rows kept for the --frames deep dump
 
 _FORMAT_TAGS = {
     0x0001: "PCM",
@@ -66,6 +68,10 @@ def register(subparsers):
                    help="Output format (default: table).")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Chunk table only, no per-chunk field detail.")
+    p.add_argument("-F", "--frames", action="store_true",
+                   help="Per-element deep dump: every MPEG frame (MP3) or "
+                        "MIDI event. No effect on formats without per-element "
+                        "structure (WAV, AIFF, FLAC).")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=run)
 
@@ -631,10 +637,26 @@ def inspect_aiff(filepath, form_type):
 
 _MIDI_FORMATS = {0: "single track", 1: "multi-track sync", 2: "independent patterns"}
 
+_META_NAMES = {
+    0x00: "sequence number", 0x01: "text", 0x02: "copyright",
+    0x03: "track name", 0x04: "instrument", 0x05: "lyric", 0x06: "marker",
+    0x07: "cue point", 0x08: "program name", 0x09: "device name",
+    0x20: "channel prefix", 0x21: "port", 0x2F: "end of track",
+    0x51: "tempo", 0x54: "smpte offset", 0x58: "time sig", 0x59: "key sig",
+    0x7F: "sequencer-specific",
+}
 
-def _scan_track(trk, ctx):
+_VOICE_NAMES = {
+    0x80: "note off", 0x90: "note on", 0xA0: "poly aftertouch",
+    0xB0: "control change", 0xC0: "program change",
+    0xD0: "channel aftertouch", 0xE0: "pitch bend",
+}
+
+
+def _scan_track(trk, ctx, collect=False):
     """Collect display facts from one MTrk payload. Mirrors the event
-    grammar in core/midi.py but keeps per-track stats."""
+    grammar in core/midi.py but keeps per-track stats. With ``collect``,
+    also returns a per-event row list under the ``events`` key."""
     pos = 0
     running = 0
     ticks = 0
@@ -645,6 +667,11 @@ def _scan_track(trk, ctx):
     names = []
     time_sig = key_sig = None
     has_eot = False
+    events = []
+
+    def emit(name, detail=""):
+        if collect:
+            events.append({"tick": ticks, "event": name, "detail": detail})
 
     while pos < len(trk):
         delta, pos = _read_vlq(trk, pos)
@@ -662,49 +689,61 @@ def _scan_track(trk, ctx):
                 break
             edata = trk[pos:pos + elen]
             pos += elen
+            detail = ""
             if etype == 0x51 and elen == 3:
                 us = (edata[0] << 16) | (edata[1] << 8) | edata[2]
                 if us:
                     tempos.append(round(60_000_000 / us, 2))
+                    detail = f"{round(60_000_000 / us, 2):g} bpm"
             elif etype == 0x58 and elen == 4:
                 time_sig = f"{edata[0]}/{2 ** edata[1]}"
+                detail = time_sig
             elif etype == 0x59 and elen == 2:
                 sf = struct.unpack(">b", edata[0:1])[0]
                 key_sig = f"{sf:+d} {'sharps' if sf >= 0 else 'flats'}" \
                           + (", minor" if edata[1] == 1 else "")
-            elif etype == 0x03:
-                name = edata.decode("ascii", errors="replace").strip()
-                if name:
-                    names.append(name)
+                detail = key_sig
+            elif etype in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07):
+                text = edata.decode("ascii", errors="replace").strip()
+                if etype == 0x03 and text:
+                    names.append(text)
+                detail = text[:48]
             elif etype == 0x2F:
                 has_eot = True
+            emit("meta " + _META_NAMES.get(etype, f"0x{etype:02x}"), detail)
         elif status in (0xF0, 0xF7):
             running = 0
             slen, pos = _read_vlq(trk, pos + 1)
             if pos + slen > len(trk):
                 break
             pos += slen
+            emit("sysex", f"{slen} bytes")
         elif status & 0x80:
             running = status
             pos += 1
             mtype = status & 0xF0
+            ch = status & 0x0F
             if mtype in (0x80, 0x90, 0xA0, 0xB0, 0xE0):
                 if pos + 1 < len(trk):
                     d1, d2 = trk[pos], trk[pos + 1]
                     pos += 2
                     if mtype == 0x90 and d2 > 0:
                         notes += 1
-                        channels.add(status & 0x0F)
+                        channels.add(ch)
                         nmin = d1 if nmin is None else min(nmin, d1)
                         nmax = d1 if nmax is None else max(nmax, d1)
+                    emit(_VOICE_NAMES[mtype], _voice_detail(mtype, d1, d2, ch))
                 else:
                     break
             elif mtype in (0xC0, 0xD0):
+                d1 = trk[pos] if pos < len(trk) else 0
                 pos += 1
+                emit(_VOICE_NAMES[mtype], f"{d1} ch{ch + 1}")
             else:
                 pos += 2
         elif running:
             mtype = running & 0xF0
+            ch = running & 0x0F
             d1 = status
             if mtype in (0x80, 0x90, 0xA0, 0xB0, 0xE0):
                 if pos + 1 < len(trk):
@@ -712,23 +751,41 @@ def _scan_track(trk, ctx):
                     pos += 2
                     if mtype == 0x90 and d2 > 0:
                         notes += 1
-                        channels.add(running & 0x0F)
+                        channels.add(ch)
                         nmin = d1 if nmin is None else min(nmin, d1)
                         nmax = d1 if nmax is None else max(nmax, d1)
+                    emit(_VOICE_NAMES[mtype], _voice_detail(mtype, d1, d2, ch))
                 else:
                     break
             else:
                 pos += 1
+                emit(_VOICE_NAMES.get(mtype, "voice"), f"{d1} ch{ch + 1}")
         else:
             pos += 1
 
     return {"ticks": ticks, "notes": notes, "nmin": nmin, "nmax": nmax,
             "channels": channels, "tempos": tempos, "names": names,
-            "time_sig": time_sig, "key_sig": key_sig, "has_eot": has_eot}
+            "time_sig": time_sig, "key_sig": key_sig, "has_eot": has_eot,
+            "events": events}
 
 
-def inspect_midi(filepath):
-    """Walk a Standard MIDI File and return (chunks, file_warnings)."""
+def _voice_detail(mtype, d1, d2, ch):
+    """Human-readable detail for a channel-voice event."""
+    if mtype in (0x80, 0x90):
+        verb = "off" if (mtype == 0x80 or d2 == 0) else f"v{d2}"
+        return f"{midi_note_to_name(d1)} {verb} ch{ch + 1}"
+    if mtype == 0xA0:
+        return f"{midi_note_to_name(d1)} {d2} ch{ch + 1}"
+    if mtype == 0xB0:
+        return f"cc{d1}={d2} ch{ch + 1}"
+    if mtype == 0xE0:
+        return f"{((d2 << 7) | d1) - 8192:+d} ch{ch + 1}"
+    return f"{d1} {d2} ch{ch + 1}"
+
+
+def inspect_midi(filepath, deep=False):
+    """Walk a Standard MIDI File and return (chunks, file_warnings).
+    With ``deep``, each MTrk carries a per-event listing."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
         data = f.read()
@@ -777,7 +834,13 @@ def inspect_midi(filepath):
             entry["warnings"].append(
                 f"declares {trk_len:,} bytes but only {len(trk):,} remain"
             )
-        st = _scan_track(trk, ctx)
+        st = _scan_track(trk, ctx, collect=deep)
+        if deep:
+            entry["rows"] = st["events"][:_FRAME_LISTING_CAP]
+            if len(st["events"]) > _FRAME_LISTING_CAP:
+                entry["warnings"].append(
+                    f"event listing capped at {_FRAME_LISTING_CAP:,}"
+                )
         flds = entry["fields"]
         if st["names"]:
             flds.append(_f(None, 0, "name", st["names"][0]))
@@ -1281,10 +1344,11 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     return fields, warns, frame_count
 
 
-def inspect_mp3(filepath):
+def inspect_mp3(filepath, deep=False):
     """Walk an MP3: optional ID3v2 tag, the MPEG frame run (with the
     first frame fully decoded and any Xing/LAME header), and an optional
-    ID3v1 trailer."""
+    ID3v1 trailer. With ``deep``, the frame run carries a per-frame
+    listing (offset, bitrate, sample rate, channel mode, size)."""
     file_size = os.path.getsize(filepath)
     chunks = []
     file_warns = []
@@ -1338,12 +1402,26 @@ def inspect_mp3(filepath):
                    "fields": fields, "warnings": xing_warns})
 
     # count frames and derive duration. trust the Xing frame count when
-    # present (accurate for VBR); otherwise walk the stream.
+    # present (accurate for VBR); otherwise walk the stream. with deep,
+    # also record a per-frame row up to the listing cap.
     count = 0
     bitrates = set()
+    rows = []
+    truncated = False
     for off, f2 in mp3mod.iter_frames(filepath, frame_off, audio_end):
         count += 1
         bitrates.add(f2["bitrate"])
+        if deep and len(rows) < _FRAME_LISTING_CAP:
+            rows.append({
+                "#": len(rows),
+                "offset": f"0x{off:08x}",
+                "kbps": f2["bitrate"],
+                "Hz": f2["sample_rate"],
+                "mode": f2["channel_mode_name"],
+                "bytes": f2["frame_length"],
+            })
+        elif deep:
+            truncated = True
     if vbr_frames:
         count = vbr_frames
     spf = fh["samples_per_frame"]
@@ -1353,12 +1431,20 @@ def inspect_mp3(filepath):
                f"{'CBR' if cbr else 'VBR'}")
     if len(bitrates) > 1:
         summary += f", {min(bitrates)}-{max(bitrates)} kbps"
-    chunks.append({"id": "frames", "offset": frame_off,
-                   "size": audio_end - frame_off, "summary": summary,
-                   "fields": [_f(None, 0, "frame_count", f"{count:,}"),
-                              _f(None, 0, "duration", f"{duration:.3f} s"),
-                              _f(None, 0, "vbr", not cbr)],
-                   "warnings": []})
+    frames_entry = {"id": "frames", "offset": frame_off,
+                    "size": audio_end - frame_off, "summary": summary,
+                    "fields": [_f(None, 0, "frame_count", f"{count:,}"),
+                               _f(None, 0, "duration", f"{duration:.3f} s"),
+                               _f(None, 0, "vbr", not cbr)],
+                    "warnings": []}
+    if deep:
+        frames_entry["rows"] = rows
+        if truncated:
+            frames_entry["warnings"].append(
+                f"frame listing capped at {_FRAME_LISTING_CAP:,}; "
+                f"{count:,} frames total"
+            )
+    chunks.append(frames_entry)
 
     if id3v1_off is not None:
         with open(filepath, "rb") as f:
@@ -1385,6 +1471,18 @@ def _hex_bytes(filepath, offset, length, cap=8):
     return s + " .." if length > cap else s
 
 
+def _render_rows(rows):
+    """Print a per-element listing as a compact dynamic-column table."""
+    if not rows:
+        return
+    cols = list(rows[0].keys())
+    widths = {c: max(len(c), max(len(str(r.get(c, ""))) for r in rows)) for c in cols}
+    header = "    " + "  ".join(f"{c:<{widths[c]}}" for c in cols)
+    print(header)
+    for r in rows:
+        print("    " + "  ".join(f"{str(r.get(c, '')):<{widths[c]}}" for c in cols))
+
+
 def _render_table(filepath, fmt_label, chunks, file_warns, args):
     file_size = os.path.getsize(filepath)
     print(f"{os.path.basename(filepath)}: {fmt_label}, {file_size:,} bytes, "
@@ -1397,7 +1495,7 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args):
 
     if not args.quiet:
         for c in chunks:
-            if not c["fields"]:
+            if not c["fields"] and not c.get("rows"):
                 continue
             print()
             print(f"{c['id'].strip()} @ 0x{c['offset']:08x} ({c['size']} bytes)")
@@ -1412,6 +1510,12 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args):
                 else:
                     print(f"  {off_col}  {fl['name']:<22} "
                           f"{fl['value']!s:<14}{note}")
+            if c.get("rows"):
+                _render_rows(c["rows"])
+
+    if getattr(args, "frames", False) and not any(c.get("rows") for c in chunks):
+        print()
+        print(f"  (--frames: {fmt_label} has no per-element structure to dump)")
 
     all_warns = list(file_warns)
     all_warns += [f"{c['id'].strip()}: {w}" for c in chunks for w in c["warnings"]]
@@ -1428,6 +1532,7 @@ def run(args):
     if not os.path.isfile(filepath):
         print(f"acidcat inspect: {filepath}: No such file", file=sys.stderr)
         return 1
+    deep = getattr(args, "frames", False)
     with open(filepath, "rb") as f:
         magic = f.read(14)
     if len(magic) >= 12 and magic[:4] == b"RIFF" and magic[8:12] == b"WAVE":
@@ -1440,7 +1545,7 @@ def run(args):
         chunks, file_warns = inspect_aiff(filepath, form_type)
     elif len(magic) >= 14 and magic[:4] == b"MThd":
         fmt_label = "Standard MIDI File"
-        chunks, file_warns = inspect_midi(filepath)
+        chunks, file_warns = inspect_midi(filepath, deep=deep)
     elif len(magic) >= 12 and magic[:4] == b"RF64" and magic[8:12] == b"WAVE":
         fmt_label = "RF64/WAVE"
         chunks, file_warns = inspect_rf64(filepath)
@@ -1453,7 +1558,7 @@ def run(args):
     elif magic[:3] == b"ID3" or (len(magic) >= 2 and magic[0] == 0xFF
                                  and (magic[1] & 0xE0) == 0xE0):
         fmt_label = "MP3/MPEG audio"
-        chunks, file_warns = inspect_mp3(filepath)
+        chunks, file_warns = inspect_mp3(filepath, deep=deep)
     else:
         print("acidcat inspect: not a WAV, RF64, AIFF, MIDI, Serum "
               "preset, MP3, or FLAC", file=sys.stderr)
