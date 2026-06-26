@@ -5,6 +5,21 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [Unreleased]
+
+### Added
+
+- `inspect --frames` (`-F`): a per-element deep dump for formats whose
+  elements carry their own structure. For MP3 it lists every MPEG frame
+  (offset, bitrate, sample rate, channel mode, size), surfacing the
+  per-frame bitrate switching that the default summary collapses to a
+  range. For MIDI it lists every event (tick, type, decoded detail:
+  note names with velocity and channel, tempo/meter/key meta, control
+  changes, pitch bend). WAV/AIFF/FLAC carry no per-element structure
+  (uniform headerless PCM or opaque codec frames), so the flag is a
+  no-op there and says so. Listings are emitted in both table and JSON
+  output and capped defensively at 100k rows.
+
 ## [0.8.0] - 2026-06-26
 
 ### Added
