@@ -277,6 +277,127 @@ class TestInspectSerum:
         assert any("JSON" in w for w in warns)
 
 
+def _flac_block(btype, payload, last=False):
+    head = bytes([(0x80 if last else 0) | btype]) + struct.pack(">I", len(payload))[1:]
+    return head + payload
+
+
+def _streaminfo(rate=44100, channels=2, bits=16, total=441):
+    packed = (rate << 44) | ((channels - 1) << 41) | ((bits - 1) << 36) | total
+    return struct.pack(">HH", 4096, 4096) + b"\x00\x00\x0e" + b"\x00\x33\xa8" \
+        + struct.pack(">Q", packed) + b"\xab" * 16
+
+
+def _vorbis_comment(vendor=b"acidcat-test", comments=(b"ARTIST=u", b"TITLE=t")):
+    out = struct.pack("<I", len(vendor)) + vendor + struct.pack("<I", len(comments))
+    for c in comments:
+        out += struct.pack("<I", len(c)) + c
+    return out
+
+
+def _flac(tmp_path, *blocks, name="t.flac"):
+    p = tmp_path / name
+    p.write_bytes(b"fLaC" + b"".join(blocks))
+    return str(p)
+
+
+class TestInspectFlac:
+    def test_streaminfo_and_comments(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        path = _flac(tmp_path,
+                     _flac_block(0, _streaminfo(channels=2, total=88200)),
+                     _flac_block(4, _vorbis_comment(), last=True),
+                     b"\xff" * 100)  # opaque audio frames
+        chunks, warns = inspect_flac(path)
+        ids = [c["id"] for c in chunks]
+        assert ids == ["fLaC", "STREAMINFO", "VORBIS_COMMENT", "frames"]
+        si = {f["name"]: f["value"] for f in chunks[1]["fields"]}
+        assert si["sample_rate"] == 44100
+        assert si["channels"] == 2
+        assert si["total_samples"] == 88200
+        vc = {f["name"]: f["value"] for f in chunks[2]["fields"]}
+        assert vc["ARTIST"] == "u"
+        assert vc["TITLE"] == "t"
+        assert warns == []
+
+    def test_first_block_not_streaminfo_flagged(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        path = _flac(tmp_path, _flac_block(4, _vorbis_comment(), last=True))
+        _, warns = inspect_flac(path)
+        assert any("not STREAMINFO" in w for w in warns)
+
+    def test_missing_last_flag_flagged(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()))
+        _, warns = inspect_flac(path)
+        assert any("last-metadata-block" in w for w in warns)
+
+
+# MPEG 1 Layer III, 128 kbps, 44100 Hz, mono: 417-byte frames
+_MP3_FRAME = b"\xff\xfb\x90\xc0" + b"\x00" * 413
+
+
+def _id3v2(*frames, major=3):
+    body = b"".join(frames)
+    # synchsafe size
+    n = len(body)
+    size = bytes([(n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F])
+    return b"ID3" + bytes([major, 0, 0]) + size + body
+
+
+def _id3_text_frame(fid, text):
+    payload = b"\x00" + text.encode("latin-1")
+    return fid + struct.pack(">I", len(payload)) + b"\x00\x00" + payload
+
+
+class TestInspectMp3:
+    def test_frames_counted_cbr(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_MP3_FRAME * 3)
+        chunks, warns = inspect_mp3(str(p))
+        ids = [c["id"] for c in chunks]
+        assert ids == ["frame0", "frames"]
+        f0 = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+        assert f0["bitrate"] == 128
+        assert f0["sample_rate"] == 44100
+        frames = next(c for c in chunks if c["id"] == "frames")
+        fc = {f["name"]: f["value"] for f in frames["fields"]}
+        assert fc["frame_count"] == "3"
+        assert "CBR" in frames["summary"]
+        assert warns == []
+
+    def test_id3v2_frames_decoded(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        tag = _id3v2(_id3_text_frame(b"TIT2", "My Title"),
+                     _id3_text_frame(b"TPE1", "Some Artist"))
+        p = tmp_path / "t.mp3"
+        p.write_bytes(tag + _MP3_FRAME * 2)
+        chunks, warns = inspect_mp3(str(p))
+        assert chunks[0]["id"] == "ID3v2"
+        by_name = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+        assert by_name["TIT2"] == "My Title"
+        assert by_name["TPE1"] == "Some Artist"
+        assert warns == []
+
+    def test_id3v1_trailer_detected(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        v1 = b"TAG" + b"My Title".ljust(30, b"\x00") \
+            + b"My Artist".ljust(30, b"\x00") + b"\x00" * 65
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_MP3_FRAME * 2 + v1)
+        chunks, _ = inspect_mp3(str(p))
+        assert chunks[-1]["id"] == "ID3v1"
+        assert "My Title" in chunks[-1]["summary"]
+
+    def test_no_frame_flagged(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_id3v2(_id3_text_frame(b"TIT2", "x")) + b"\x00" * 200)
+        _, warns = inspect_mp3(str(p))
+        assert any("no valid MPEG" in w for w in warns)
+
+
 class TestRunCli:
     def _args(self, target, **kw):
         base = dict(target=target, show_hex=False, format="table",
@@ -305,6 +426,20 @@ class TestRunCli:
         doc = json.loads(capsys.readouterr().out)
         assert doc["format"] == "RIFF/WAVE"
         assert [c["id"] for c in doc["chunks"]] == ["fmt ", "data"]
+
+    def test_flac_dispatch(self, tmp_path, capsys):
+        path = _flac(tmp_path, _flac_block(0, _streaminfo(), last=True))
+        assert run(self._args(path)) == 0
+        out = capsys.readouterr().out
+        assert "FLAC" in out
+        assert "STREAMINFO" in out
+
+    def test_mp3_dispatch(self, tmp_path, capsys):
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_MP3_FRAME * 2)
+        assert run(self._args(str(p))) == 0
+        out = capsys.readouterr().out
+        assert "MP3/MPEG audio" in out
 
     def test_not_riff_exits_1(self, tmp_path, capsys):
         p = tmp_path / "x.bin"
