@@ -5,7 +5,7 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
-## [Unreleased]
+## [0.8.0] - 2026-06-26
 
 ### Added
 
