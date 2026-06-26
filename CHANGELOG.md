@@ -5,6 +5,22 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [Unreleased]
+
+### Added
+
+- `inspect` now walks **MP3** and **FLAC**, decoded by hand with no
+  mutagen dependency so the dump shows real byte offsets and flags any
+  spec violations the tag libraries would paper over. MP3 reports the
+  ID3v2 header and frame list, the first MPEG frame fully decoded
+  (version/layer/bitrate/sample rate/channel mode/CRC), the Xing/Info
+  VBR header with the LAME extension (encoder, VBR method, lowpass,
+  gapless delay/padding), a CBR-vs-VBR frame-run summary, and an ID3v1
+  trailer when present. FLAC walks the metadata blocks (STREAMINFO,
+  VORBIS_COMMENT, PICTURE, SEEKTABLE, APPLICATION, PADDING) plus the
+  audio-frame extent, linting the STREAMINFO-first and last-block-flag
+  rules.
+
 ## [0.7.1] - 2026-06-11
 
 ### Fixed
