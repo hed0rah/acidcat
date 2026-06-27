@@ -147,20 +147,30 @@ def _parse_fmt(b, ctx):
     return summary, fields, warns
 
 
-def _parse_data(b, ctx, size):
+def _parse_data(b, ctx, size, avail=None):
     fields, warns = [], []
-    frames = None
     align = ctx.get("block_align")
     rate = ctx.get("sample_rate")
+    # a declared size larger than the bytes actually present is a lie we
+    # already lint at the file level; never derive frames/duration from it.
+    overrun = avail is not None and size > avail
+    eff = avail if overrun else size
+    frames = None
     if align:
-        frames = size // align
+        frames = eff // align
         ctx["frames"] = frames
-    summary = f"audio payload, {size:,} bytes"
+    if overrun:
+        summary = f"audio payload, {size:,} bytes declared, only {avail:,} present"
+    else:
+        summary = f"audio payload, {size:,} bytes"
     if frames is not None and rate:
         dur = frames / rate
         ctx["duration"] = dur
+        note = f"{dur:.3f} s at {rate} Hz"
+        if overrun:
+            note += ", from bytes present (chunk overruns)"
         summary += f", {dur:.3f} s"
-        fields.append(_f(0x00, size, "frames", frames, f"{dur:.3f} s at {rate} Hz"))
+        fields.append(_f(0x00, eff, "frames", frames, note))
     if size == 0:
         warns.append("data chunk is empty")
     return summary, fields, warns
@@ -369,10 +379,11 @@ def inspect_wav(filepath):
 
         for cid, offset, size in iter_chunks(filepath):
             seen.append(cid)
-            if offset + 8 + size > file_size:
+            avail = max(0, file_size - offset - 8)
+            if size > avail:
                 file_warns.append(
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
-                    f"but only {file_size - offset - 8:,} remain"
+                    f"but only {avail:,} remain"
                 )
             f.seek(offset + 8)
             payload = f.read(min(size, _PAYLOAD_CAP))
@@ -382,7 +393,7 @@ def inspect_wav(filepath):
             parser = _PARSERS.get(cid)
             if cid == "data":
                 entry["summary"], entry["fields"], entry["warnings"] = \
-                    _parse_data(payload, ctx, size)
+                    _parse_data(payload, ctx, size, avail)
             elif parser:
                 try:
                     entry["summary"], entry["fields"], entry["warnings"] = \
@@ -956,7 +967,8 @@ def inspect_rf64(filepath):
                         _parse_ds64(payload, ctx)
                 elif cid == "data":
                     entry["summary"], entry["fields"], entry["warnings"] = \
-                        _parse_data(payload, ctx, real_size)
+                        _parse_data(payload, ctx, real_size,
+                                    max(0, file_size - pos - 8))
                 elif cid in _PARSERS:
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _PARSERS[cid](payload, ctx)
