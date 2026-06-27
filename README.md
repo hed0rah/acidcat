@@ -82,13 +82,17 @@ full-text.
 
 ## Global Flags
 
-    -f, --format {table,json,csv}   Output format (default: table)
+    -f, --format FMT                Output format (default varies by command)
     -o, --output FILE               Write output to file
     -q, --quiet                     Suppress progress output
     -v, --verbose                   Extra detail
     -n, --num N                     Max files to scan (default: 500)
     --has CHUNKS                    Filter by chunk IDs (comma-separated)
     --deep                          Include librosa analysis
+
+Most commands accept `table`, `json`, and `csv` (default `table`, but
+`scan` and `features` default to `csv`). Two differ: `inspect` is
+`table`/`json`, and `dump` is `hex`/`json`.
 
 ## Dependency Groups
 
