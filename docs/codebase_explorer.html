@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>acidcat codebase explorer / v0.5.6</title>
-<meta name="description" content="Source-level reference for acidcat: format parsers, DSP internals, per-library SQLite storage, and the MCP server surface." />
-<meta property="og:title" content="acidcat codebase explorer / v0.5.6" />
+<title>acidcat codebase explorer / v0.9.0</title>
+<meta name="description" content="Source-level reference for acidcat: format parsers, the inspect structural walkers, DSP internals, per-library SQLite storage, and the MCP server surface." />
+<meta property="og:title" content="acidcat codebase explorer / v0.9.0" />
 <meta property="og:type" content="article" />
 <style>
 /* theme: amp-orange (see skill themes/ for presets) */
@@ -139,18 +139,18 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
   <p class="eyebrow">Engineering Reference / acidcat audio metadata library</p>
   <h1>acidcat: format parsing, audio analysis, and a queryable sample index</h1>
   <p class="lede">
-    <span class="spec-line">v0.5.6</span>
+    <span class="spec-line">v0.9.0</span>
     <span class="spec-line">python &gt;= 3.9</span>
     <span class="spec-line">sqlite WAL + FTS5</span>
-    A command-line metadata explorer for audio sample libraries, in the spirit of exiftool. Parses WAV, AIFF, MIDI, Serum presets, and tagged formats at the byte level; estimates BPM and key with librosa when metadata is missing; indexes everything into per-library SQLite databases queryable from the CLI or from an LLM through a 19-tool MCP server.
+    A command-line metadata explorer for audio sample libraries, in the spirit of exiftool. Parses WAV, RF64, AIFF, MIDI, Serum presets, MP3, FLAC, and other tagged formats at the byte level; <span class="term" data-term="inspect-cmd">inspect</span> adds a readelf-style structural dump with lint warnings; estimates BPM and key with librosa when metadata is missing; indexes everything into per-library SQLite databases queryable from the CLI or from an LLM through a 19-tool MCP server.
     <a class="repo-link" href="https://github.com/hed0rah/acidcat" target="_blank" rel="noopener">view on github</a>
   </p>
 
   <div class="stat-grid">
-    <div class="stat"><div class="num">11</div><div class="lbl">CLI verbs</div></div>
+    <div class="stat"><div class="num">12</div><div class="lbl">CLI verbs</div></div>
     <div class="stat"><div class="num">19</div><div class="lbl">MCP tools</div></div>
-    <div class="stat"><div class="num">8</div><div class="lbl">formats parsed</div></div>
-    <div class="stat"><div class="num">263</div><div class="lbl">tests passing</div></div>
+    <div class="stat"><div class="num">10</div><div class="lbl">formats parsed</div></div>
+    <div class="stat"><div class="num">328</div><div class="lbl">tests passing</div></div>
   </div>
 
   <h2>Source tree</h2>
@@ -161,11 +161,14 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
   commands/              <span class="dim">one module per verb, register/run pattern</span>
     info scan chunks survey detect features
     similar search dump <span class="term" data-term="cmd-index">index</span> <span class="term" data-term="cmd-query">query</span>
+    <span class="term" data-term="inspect-cmd">inspect</span>                <span class="dim">readelf-style structural dump, 7 walkers</span>
   core/
     <span class="term" data-term="riff-py">riff.py</span>              <span class="dim">RIFF/WAVE chunk walker, stdlib only</span>
     <span class="term" data-term="aiff-py">aiff.py</span>              <span class="dim">AIFF/AIFC big-endian parser, 80-bit floats</span>
     <span class="term" data-term="midi-py">midi.py</span>              <span class="dim">SMF parser: tempo, key sig, note stats</span>
     <span class="term" data-term="serum-py">serum.py</span>             <span class="dim">Xfer Serum preset JSON block</span>
+    <span class="term" data-term="mp3-py">mp3.py</span>               <span class="dim">MPEG frame headers, ID3v2, Xing/LAME</span>
+    <span class="term" data-term="flac-py">flac.py</span>              <span class="dim">FLAC metadata-block iterator, stdlib only</span>
     <span class="term" data-term="tagged-py">tagged.py</span>            <span class="dim">mutagen wrapper: mp3 / flac / ogg / m4a</span>
     <span class="term" data-term="detect-py">detect.py</span>            <span class="dim">BPM + key: filename heuristics + librosa</span>
     <span class="term" data-term="features-py">features.py</span>          <span class="dim">51-dim librosa feature extractor</span>
@@ -267,12 +270,15 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
       <tr data-mod="surface"><td><span class="term" data-term="mcp-server">mcp_server.py</span></td><td>stdio MCP server</td><td>19 tools, cost-prefixed descriptions, <span class="term" data-term="fan-out">fan-out</span> reads</td></tr>
       <tr data-mod="commands"><td><span class="term" data-term="cmd-index">commands/index.py</span></td><td>walker + upserter</td><td><span class="term" data-term="sniff">magic-byte sniff</span>, <span class="term" data-term="commit-batch">batched commits</span>, prune of vanished files</td></tr>
       <tr data-mod="commands"><td><span class="term" data-term="cmd-query">commands/query.py</span></td><td>index reads</td><td>bpm/key/duration/format/tag filters, FTS5 <code>--text</code>, scoped <code>--root</code></td></tr>
+      <tr data-mod="commands"><td><span class="term" data-term="inspect-cmd">commands/inspect.py</span></td><td>structural dump</td><td>7 walkers, decoded fields with offsets, <span class="term" data-term="inspect-lint">spec lint</span>, <span class="term" data-term="inspect-frames">--frames</span> deep mode</td></tr>
       <tr data-mod="commands"><td>commands/info, scan, chunks, survey, dump</td><td>metadata surface</td><td>single file, batch CSV, chunk walk, chunk census, hex dump</td></tr>
       <tr data-mod="commands"><td>commands/detect, features, similar, search</td><td>analysis surface</td><td>librosa verbs; gated behind <code>pip install acidcat[analysis]</code></td></tr>
       <tr data-mod="core"><td><span class="term" data-term="riff-py">core/riff.py</span></td><td>WAV chunk parser</td><td><span class="term" data-term="acid-chunk">acid</span>, <span class="term" data-term="smpl-chunk">smpl</span>, <span class="term" data-term="cue-chunk">cue</span>, inst, fmt, bext, LIST/INFO</td></tr>
       <tr data-mod="core"><td><span class="term" data-term="aiff-py">core/aiff.py</span></td><td>AIFF/AIFC parser</td><td>big-endian, sample rate is an <span class="term" data-term="ieee-extended">80-bit extended float</span></td></tr>
       <tr data-mod="core"><td><span class="term" data-term="midi-py">core/midi.py</span></td><td>SMF parser</td><td><span class="term" data-term="vlq">VLQ deltas</span>, <span class="term" data-term="running-status">running status</span>, <span class="term" data-term="tempo-meta">tempo meta events</span></td></tr>
       <tr data-mod="core"><td><span class="term" data-term="serum-py">core/serum.py</span></td><td>Serum presets</td><td><span class="term" data-term="xferjson">XferJson header</span> + single-pass <code>raw_decode</code></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="mp3-py">core/mp3.py</span></td><td>MPEG audio primitives</td><td><span class="term" data-term="mpeg-frame">frame-header decode</span>, <span class="term" data-term="id3v2">synchsafe ID3v2</span>, <span class="term" data-term="xing-lame">Xing/LAME</span></td></tr>
+      <tr data-mod="core"><td><span class="term" data-term="flac-py">core/flac.py</span></td><td>FLAC blocks</td><td><span class="term" data-term="flac-blocks">metadata-block iterator</span>, last-block flag, stdlib only</td></tr>
       <tr data-mod="core"><td><span class="term" data-term="tagged-py">core/tagged.py</span></td><td>tag containers</td><td><span class="term" data-term="mutagen-map">ID3 / Vorbis / MP4 atom</span> field mapping, BOM strip</td></tr>
       <tr data-mod="core"><td><span class="term" data-term="detect-py">core/detect.py</span></td><td>BPM + key</td><td><span class="term" data-term="bpm-filename">filename heuristics</span>, <span class="term" data-term="tempo-est">librosa tempo</span>, <span class="term" data-term="bpm-validate">cross-validation</span></td></tr>
       <tr data-mod="core"><td><span class="term" data-term="features-py">core/features.py</span></td><td>feature vector</td><td>51 features: <span class="term" data-term="mfcc">MFCCs</span>, <span class="term" data-term="spectral-shape">spectral shape</span>, <span class="term" data-term="tonnetz">tonnetz</span>, rhythm</td></tr>
@@ -319,6 +325,7 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
   </ul>
 
   <h2>File format internals</h2>
+  <p>Parsing for the index is one job; <span class="term" data-term="inspect-cmd">acidcat inspect</span> is the other. It is a readelf for audio: seven walkers (WAV, RF64, AIFF/AIFC, MIDI, Serum, MP3, FLAC) that print a chunk table, decode every known field with its byte offset, and emit <span class="term" data-term="inspect-lint">lint warnings</span> when a file contradicts its own spec. The format walkers below are shared between the indexer and the inspector; the MP3 and FLAC ones are hand-rolled with no mutagen so the dump shows real offsets and catches what the tag libraries paper over.</p>
 
   <h3>RIFF / WAV</h3>
   <ul class="bul">
@@ -339,6 +346,22 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
     <li>Delta times and meta lengths are <span class="term" data-term="vlq">variable-length quantities</span>: 7 bits of payload per byte, high bit set means continue.</li>
     <li><span class="term" data-term="running-status">Running status</span> lets consecutive events omit a repeated status byte. Every mainstream DAW exports this way, and the parser's bookkeeping here is exactly where v0.5.5 fixed a one-byte desynch that corrupted note counts.</li>
     <li>Tempo lives in <span class="term" data-term="tempo-meta">FF 51 meta events</span> as microseconds per quarter note; key signature in FF 59 as a count of sharps or flats plus a minor flag.</li>
+  </ul>
+
+  <h3>MP3 / MPEG audio</h3>
+  <ul class="bul">
+    <li>MP3 is not a container: it is an optional ID3v2 tag, a run of self-describing MPEG frames, and an optional ID3v1 trailer. There is no index, so the walker finds the first frame sync and steps frame to frame.</li>
+    <li>Each <span class="term" data-term="mpeg-frame">MPEG frame header</span> is 4 big-endian bytes of packed bitfields. Version and layer pick a bitrate table; bitrate and sample rate plus a padding bit give the frame length, which is the stride to the next sync. Free-format and reserved values are rejected so a false sync cannot derail the walk.</li>
+    <li>The <span class="term" data-term="id3v2">ID3v2 tag</span> size is synchsafe: seven bits per byte, so the length itself can never contain a phantom 0xFF sync. Text frames carry an encoding byte; the walker enumerates every frame id and decodes the common ones.</li>
+    <li>VBR files write a <span class="term" data-term="xing-lame">Xing/Info header</span> into the first frame with the true frame and byte counts, followed by a LAME extension carrying encoder, lowpass, and the gapless delay/padding. That is the only cheap way to an exact duration without walking every frame.</li>
+    <li><span class="term" data-term="inspect-frames">inspect --frames</span> dumps every frame's offset, bitrate, sample rate, and mode, which exposes the per-frame bitrate switching a VBR stream hides behind a single average.</li>
+  </ul>
+
+  <h3>FLAC</h3>
+  <ul class="bul">
+    <li>FLAC is a clean chunked container: the <code>fLaC</code> marker, then a run of <span class="term" data-term="flac-blocks">metadata blocks</span> each with a 4-byte header (last-block flag, 7-bit type, 24-bit length), then the audio frames. The walker stops at the block whose last-block flag is set.</li>
+    <li><span class="term" data-term="flac-streaminfo">STREAMINFO</span> packs sample rate, channels, and bit depth into a bit-aligned 64-bit field, plus the total sample count and an MD5 of the unencoded audio. Duration is <code>total_samples / sample_rate</code>, no frame walk needed.</li>
+    <li>The one trap: FLAC is big-endian everywhere except the <span class="term" data-term="vorbis-le">VORBIS_COMMENT</span> block, whose string lengths are little-endian because the block was lifted wholesale from OGG Vorbis. A parser that assumes one endianness for the whole format misreads the tags.</li>
   </ul>
 
   <h3>Serum presets and tagged formats</h3>
@@ -396,7 +419,7 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
     <div class="ref-row"><span class="key">internal</span><span class="val">docs/architecture.md, docs/format_internals.md, docs/dsp/<span class="desc">deeper dives per topic, same repo</span></span></div>
   </div>
 
-  <div class="footer"><span class="signoff">acidcat codebase explorer</span> &middot; v0.5.6 &middot; 2026-06-10 &middot; hover any dotted term for source detail</div>
+  <div class="footer"><span class="signoff">acidcat codebase explorer</span> &middot; v0.9.0 &middot; 2026-06-27 &middot; hover any dotted term for source detail</div>
 </article>
 
 <aside class="margin">
@@ -471,7 +494,18 @@ code{font-family:"SFMono-Regular","SF Mono",Menlo,Consolas,monospace;font-size:0
 "fan-out":{"title":"fan-out reads","code":"open all, dedup by path","body":"Every read enumerates registered libraries, opens each DB, runs the same SQL, merges rows, dedups by path, sorts, and applies the final LIMIT. Missing DB files (orphans) are skipped rather than fatal.","meta":{"dedup":"by path","scope":"--root LABEL_OR_PATH"},"rel":["cmd-query","mcp-server","longest-prefix"],"notes":["per-library LIMIT plus final cap keeps memory bounded","dedup also masks accidental duplicate registrations"]},
 "schema-version":{"title":"schema version gate","code":"refuse-on-newer","body":"Both DB kinds store schema_version in a meta table. Opening a DB written by a newer acidcat raises a clean SchemaVersionError telling the user to upgrade, instead of running old SQL against a new schema and corrupting silently.","meta":{"current":"1","forward":"refuse","backward":"migration registry slot"},"rel":["db-schema","registry-py"],"notes":["the downgrade path is an explicit error until a migration registry exists"]},
 "storage-layout":{"title":"central vs in-tree layout","code":"paths.central_db_path_for","body":"Central mode keeps all library DBs under ~/.acidcat/libraries named label_hash12.db, where the hash digests the root path. In-tree mode drops index.db inside the library so a portable drive carries its own index.","meta":{"central":"~/.acidcat/libraries/","in-tree":"root/.acidcat/index.db"},"rel":["paths-py","registry-py"],"notes":["hash in the filename prevents label collisions across drives","legacy v0.4 ~/.acidcat/index.db is detected and warned about"]},
-"cost-prefix":{"title":"cost-prefix scheme","code":"Fast. / SLOW. / VERY SLOW.","body":"Every MCP tool description leads with a cost budget so the model ranks cheap reads above expensive analysis without special prompting. Mutating tools state what they modify up front.","meta":{"fast":"SQL reads","slow":"librosa calls","very slow":"library walks"},"rel":["mcp-server"],"notes":["analyze_sample's description warns about the 30-60s numba cold start","discover_libraries defaults to dry_run=true so a forgetful call previews instead of mutating"]}
+"cost-prefix":{"title":"cost-prefix scheme","code":"Fast. / SLOW. / VERY SLOW.","body":"Every MCP tool description leads with a cost budget so the model ranks cheap reads above expensive analysis without special prompting. Mutating tools state what they modify up front.","meta":{"fast":"SQL reads","slow":"librosa calls","very slow":"library walks"},"rel":["mcp-server"],"notes":["analyze_sample's description warns about the 30-60s numba cold start","discover_libraries defaults to dry_run=true so a forgetful call previews instead of mutating"]},
+"inspect-cmd":{"title":"acidcat inspect","code":"commands/inspect.py","body":"A readelf for audio. Seven walkers print a chunk table, decode every known field with its byte offset, and flag spec violations. The -f json mode emits the same structure for machines; reads are bounded so a malformed size never allocates gigabytes.","meta":{"walkers":"7","formats":"wav rf64 aiff midi serum mp3 flac","output":"table / json"},"rel":["inspect-lint","inspect-frames","riff-walk"],"notes":["dispatch is on magic bytes, not the extension","the mp3 and flac walkers are hand-rolled, no mutagen"],"snippet":"if magic[:4]==b'RIFF':\n    inspect_wav(p)\nelif magic[:4]==b'fLaC':\n    inspect_flac(p)"},
+"inspect-lint":{"title":"spec lint warnings","code":"per-walker file_warnings","body":"Each walker accumulates warnings when a file contradicts its own spec: a riff_size that disagrees with the file length, a chunk that overruns its payload, fmt appearing after data, a loop past the last frame, or a FLAC stream whose first block is not STREAMINFO.","meta":{"surfaced":"end of the dump","kinds":"size, ordering, range"},"rel":["inspect-cmd","cue-chunk"],"notes":["warnings annotate the walk, they never abort it","reporting the broken, not just the readable, is the point"]},
+"inspect-frames":{"title":"inspect --frames","code":"per-element deep dump","body":"For formats whose elements carry structure: every MPEG frame for MP3 (offset, bitrate, sample rate, mode, size) and every event for MIDI (tick, type, decoded detail). The MP3 listing exposes the per-frame bitrate switching a VBR average hides. WAV, AIFF, and FLAC have no per-element metadata, so the flag is a no-op there.","meta":{"mp3":"per frame","midi":"per event","cap":"100k rows"},"rel":["inspect-cmd","mpeg-frame"],"notes":["the default summary collapses VBR to a min-max range","capped defensively, the summary count is unaffected"],"snippet":"rows.append({'offset': off,\n  'kbps': fh['bitrate'],\n  'Hz': fh['sample_rate']})"},
+"mp3-py":{"title":"core/mp3.py","code":"MPEG audio primitives","body":"The frame-header decoder, the synchsafe ID3v2 size reader, and a frame walker that re-syncs byte by byte when a stray tag interrupts the stream. Stdlib only; the inspect command shapes these into its chunk model.","meta":{"loc":"182","deps":"stdlib only","tables":"bitrate, sample rate"},"rel":["mpeg-frame","id3v2","xing-lame"],"notes":["a false 0xFFE sync is rejected by validating the whole header","frame length is the stride to the next frame"]},
+"flac-py":{"title":"core/flac.py","code":"FLAC block iterator","body":"Yields (type, name, offset, length, is_last) for each metadata block after the fLaC marker, stopping at the block whose last-block flag is set. Field decoding lives in the inspect command, mirroring the riff/aiff split.","meta":{"loc":"61","deps":"stdlib only","header":"4 bytes"},"rel":["flac-blocks","flac-streaminfo"],"notes":["audio frames begin right after the last block","length is a 24-bit big-endian field"]},
+"mpeg-frame":{"title":"MPEG frame header","code":"mp3.decode_frame_header","body":"Four big-endian bytes of packed bitfields. Version and layer select a bitrate table; bitrate, sample rate, and the padding bit give the frame length, which is the stride to the next sync. Free-format and reserved combinations are rejected.","meta":{"width":"4 bytes","layers":"I / II / III","stride":"frame_length"},"rel":["mp3-py","xing-lame"],"notes":["samples per frame is 1152 for mpeg1 layer III, 576 for mpeg2","an 11-bit sync gives false positives, so validate before trusting"],"snippet":"# mpeg1 layer III\nframe_len = (samples//8 * bitrate\n    // sample_rate) + padding"},
+"id3v2":{"title":"ID3v2 synchsafe size","code":"mp3.synchsafe","body":"The tag size uses seven bits per byte, so the length field can never contain a phantom 0xFF frame sync. Total tag size is 10 + size and the audio begins right after. Frames carry a four-char id, a size, and an encoding byte for text.","meta":{"bits":"7 per byte","versions":"2.2 / 2.3 / 2.4"},"rel":["mp3-py","mutagen-map"],"notes":["v2.4 frame sizes are synchsafe too, v2.3 are plain uint32","text encoding byte: latin-1, utf-16, or utf-8"],"snippet":"(b[0]<<21)|(b[1]<<14)\n  |(b[2]<<7)|b[3]"},
+"xing-lame":{"title":"Xing/Info + LAME tag","code":"inspect._parse_xing_lame","body":"VBR files write a header into the first frame, at a version- and channel-dependent offset, with the true frame and byte counts. A LAME extension follows carrying the encoder string, lowpass, and the gapless delay/padding pair players use to trim priming samples.","meta":{"Xing":"VBR","Info":"CBR by LAME","offset":"21/36 mpeg1"},"rel":["mpeg-frame","inspect-frames"],"notes":["the frame count gives an exact duration without a full walk","delay and padding are 12 bits each, packed into 3 bytes"],"snippet":"delay = (b[21]<<4)|(b[22]>>4)\npad = ((b[22]&0x0F)<<8)|b[23]"},
+"flac-blocks":{"title":"FLAC metadata blocks","code":"flac.iter_metadata_blocks","body":"After the fLaC marker, a run of blocks each headed by one flag-plus-type byte and a 24-bit length. The high bit is the last-block flag; the low seven bits are the type (STREAMINFO, VORBIS_COMMENT, PICTURE, SEEKTABLE, PADDING). The walk stops at the last block.","meta":{"types":"0..6","length":"24-bit big-endian"},"rel":["flac-py","flac-streaminfo","vorbis-le"],"notes":["STREAMINFO must be first and present","an unset last-block flag is a lint warning"],"snippet":"is_last = first & 0x80\nblock_type = first & 0x7F\nlength = (h[1]<<16)|(h[2]<<8)|h[3]"},
+"flac-streaminfo":{"title":"STREAMINFO bit layout","code":"inspect._flac_streaminfo","body":"Sample rate, channels, and bit depth are packed bit-aligned into a 64-bit field: rate in the top 20 bits, then 3 bits of channels-1, 5 bits of bits-1, and a 36-bit total sample count. Duration is total_samples over sample_rate, no frame walk required.","meta":{"rate":"20 bits","total":"36 bits","md5":"of raw audio"},"rel":["flac-blocks","ieee-extended"],"notes":["channels and bits are stored minus one","the md5 lets a decoder verify a bit-exact round trip"],"snippet":"rate  = (packed>>44) & 0xFFFFF\nch    = ((packed>>41)&7)+1\ntotal = packed & 0xFFFFFFFFF"},
+"vorbis-le":{"title":"the little-endian Vorbis trap","code":"VORBIS_COMMENT lengths","body":"FLAC is big-endian everywhere except this one block, whose vendor and comment lengths are little-endian because the block was lifted wholesale from the OGG Vorbis spec. A parser that assumes one endianness for the whole format misreads every tag.","meta":{"block":"VORBIS_COMMENT","lengths":"little-endian","text":"UTF-8 FIELD=value"},"rel":["flac-blocks","mutagen-map"],"notes":["multiple values for one field are allowed","same tag vocabulary as OGG Vorbis"],"snippet":"# little-endian here only\nvlen = b[0]|b[1]<<8|b[2]<<16|b[3]<<24"}
 }
 </script>
 
