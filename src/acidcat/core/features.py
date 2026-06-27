@@ -7,7 +7,7 @@ using librosa.
 
 def extract_audio_features(filepath):
     """
-    Extract comprehensive audio features for ML analysis.
+    Extract audio features for ML analysis.
 
     Returns dict with 50+ features (spectral, timbral, rhythmic),
     or None if the file is too short or unreadable.
