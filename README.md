@@ -95,8 +95,10 @@ full-text.
 | Group | What it adds | Commands enabled |
 |-------|-------------|-----------------|
 | (none) | mutagen (base) | info, scan, chunks, survey, dump for WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A |
-| `[analysis]` | librosa, numpy, scipy | detect, info --deep |
+| `[analysis]` | librosa, numpy, scipy, soundfile | detect, info --deep |
 | `[ml]` | + pandas, scikit-learn | features, similar, search |
+| `[viz]` | + matplotlib, seaborn | optional plotting |
+| `[notebook]` | + jupyter, ipykernel | optional notebook env |
 | `[mcp]` | mcp SDK | `acidcat-mcp` stdio server |
 | `[all]` | everything | all commands, all formats |
 
