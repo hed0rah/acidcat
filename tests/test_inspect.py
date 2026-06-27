@@ -217,6 +217,24 @@ class TestInspectMidi:
         _, warns = inspect_midi(path)
         assert any("120 bpm" in w for w in warns)
 
+    def test_deep_event_listing(self, tmp_path):
+        path = _smf(tmp_path, [_TRACK])
+        chunks, _ = inspect_midi(path, deep=True)
+        trk = next(c for c in chunks if c["id"] == "MTrk")
+        assert "rows" in trk
+        kinds = [r["event"] for r in trk["rows"]]
+        assert "meta track name" in kinds
+        assert "meta tempo" in kinds
+        assert "note on" in kinds
+        assert "meta end of track" in kinds
+        note_on = next(r for r in trk["rows"] if r["event"] == "note on")
+        assert "C4" in note_on["detail"]
+
+    def test_default_midi_has_no_rows(self, tmp_path):
+        path = _smf(tmp_path, [_TRACK])
+        chunks, _ = inspect_midi(path)
+        assert all("rows" not in c for c in chunks)
+
 
 class TestInspectRf64:
     def _rf64(self, tmp_path, data_bytes=8, sentinel_ok=True):
@@ -397,6 +415,24 @@ class TestInspectMp3:
         _, warns = inspect_mp3(str(p))
         assert any("no valid MPEG" in w for w in warns)
 
+    def test_deep_frame_listing(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_MP3_FRAME * 3)
+        chunks, _ = inspect_mp3(str(p), deep=True)
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert "rows" in frames
+        assert len(frames["rows"]) == 3
+        assert frames["rows"][0]["kbps"] == 128
+        assert frames["rows"][0]["offset"] == "0x00000000"
+
+    def test_default_has_no_rows(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_MP3_FRAME * 2)
+        chunks, _ = inspect_mp3(str(p))
+        assert all("rows" not in c for c in chunks)
+
 
 class TestRunCli:
     def _args(self, target, **kw):
@@ -440,6 +476,19 @@ class TestRunCli:
         assert run(self._args(str(p))) == 0
         out = capsys.readouterr().out
         assert "MP3/MPEG audio" in out
+
+    def test_frames_flag_renders_rows(self, tmp_path, capsys):
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_MP3_FRAME * 3)
+        assert run(self._args(str(p), frames=True)) == 0
+        out = capsys.readouterr().out
+        assert "kbps" in out and "mode" in out  # per-frame column header
+
+    def test_frames_noop_note_on_wav(self, tmp_path, capsys):
+        path = _wav(tmp_path, _fmt(), _data())
+        assert run(self._args(path, frames=True)) == 0
+        out = capsys.readouterr().out
+        assert "no per-element structure" in out
 
     def test_not_riff_exits_1(self, tmp_path, capsys):
         p = tmp_path / "x.bin"
