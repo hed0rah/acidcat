@@ -76,7 +76,7 @@ full-text.
 | `acidcat similar CSV cluster` | Cluster samples by audio characteristics |
 | `acidcat search CSV query TEXT` | Text-based sample search (legacy CSV) |
 | `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
-| `acidcat inspect FILE [--hex]` | readelf-style structural dump (WAV/AIFF/MIDI) with lint warnings |
+| `acidcat inspect FILE [--hex] [--frames]` | readelf-style structural dump (WAV, RF64, AIFF, MIDI, Serum, MP3, FLAC) with lint warnings; `--frames` for a per-frame/event dump |
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
 
@@ -230,8 +230,8 @@ search across them by metadata, find compatible keys via Camelot, or
 (with `[analysis]` installed) find similar samples by librosa feature
 cosine.
 
-    pip install -e .[tags,mcp]            # minimum for discovery + writes
-    pip install -e .[tags,analysis,mcp]   # unlock find_similar / analyze_*
+    pip install -e .[mcp]            # minimum for discovery + writes
+    pip install -e .[analysis,mcp]   # unlock find_similar / analyze_*
 
 Claude Desktop / Claude Code config:
 

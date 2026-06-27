@@ -1,4 +1,4 @@
-# Audio File Formats - Comprehensive Reference
+# Audio File Formats Reference
 
 ## 1. Raw / Headerless Audio
 
