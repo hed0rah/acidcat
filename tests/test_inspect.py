@@ -85,6 +85,19 @@ class TestInspectWav:
         _, warns = inspect_wav(path)
         assert any("no fmt chunk" in w for w in warns)
 
+    def test_overrun_data_size_not_trusted(self, tmp_path):
+        # ANI bug class (CVE-2007-0038): a chunk declares far more than the
+        # file holds. inspect must lint the overrun AND derive frames/duration
+        # from the bytes actually present, never from the lying size field.
+        big_data = b"data" + struct.pack("<I", 0x7FFFFFFF) + b"\x00" * 8
+        path = _wav(tmp_path, _fmt(), big_data)
+        chunks, warns = inspect_wav(path)
+        assert any("only 8 remain" in w for w in warns)
+        data = next(c for c in chunks if c["id"] == "data")
+        assert "declared" in data["summary"]
+        frames = next(f for f in data["fields"] if f["name"] == "frames")
+        assert frames["value"] == 4  # 8 bytes present / 2-byte align, not ~1e9
+
 
 RATE_44100 = bytes.fromhex("400eac440000000000000000")[:10]
 
