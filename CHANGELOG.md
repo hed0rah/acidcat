@@ -5,6 +5,17 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.9.2] - 2026-06-28
+
+### Added
+
+- `acidcat inspect --color {auto,always,never}` syntax-highlights the table
+  dump. Default `auto` colors only when stdout is a TTY and honors the
+  `NO_COLOR` env var; explicit `always`/`never` override both. The palette
+  encodes role like syntax highlighting: cyan for structure (chunk ids,
+  format label), green for decoded values, dim for offsets/sizes/notes, red
+  for warnings. JSON output is unaffected.
+
 ## [0.9.1] - 2026-06-28
 
 ### Fixed
