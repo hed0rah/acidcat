@@ -15,7 +15,7 @@ Last updated: 2026-05-02
 |--------|------|--------|-----------------------|
 | [RIFF / WAV](formats/riff_wav.md) ([anatomy](formats/wav-anatomy.html)) | `.wav` | Full support | BPM, key, loops, beats, duration, format, chunks, LIST/INFO metadata |
 | [AIFF / IFF](formats/aiff.md) ([anatomy](formats/aiff-anatomy.html)) | `.aif`, `.aiff` | Full support | Duration, format, name, author, copyright, instrument tuning |
-| [MIDI](formats/midi.md) | `.mid`, `.midi` | Full support | BPM, key sig, time sig, tracks, note count/range, channels, duration |
+| [MIDI](formats/midi.md) ([anatomy](formats/midi-anatomy.html)) | `.mid`, `.midi` | Full support | BPM, key sig, time sig, tracks, note count/range, channels, duration |
 
 ### Synth Presets (acidcat parses these)
 
