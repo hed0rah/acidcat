@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / aiff anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* aiff palette: teal value, ochre flag, slate anchor */
+  --enum:#3C6E6A;  --enum-soft:#D2E0DE;
+  --flag:#9A7B3F;  --flag-soft:#E7DECA;
+  --rsv:#979889;   --rsv-soft:rgba(30,32,29,0.03);
+  --sync:#585563;  --sync-soft:#DBD9DE;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.7rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500} .region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px}
+.region.req .rname::after{content:"req";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--enum);border:1px solid var(--enum);padding:1px 4px}
+.region .rbody{padding:0.6rem 1rem 1.1rem 3rem;border-top:1px solid var(--hair)}
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.3rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.body2{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:start}
+@media(max-width:820px){.body2{grid-template-columns:1fr}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field[data-branch]{cursor:pointer}
+.field:hover,.field.active{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:5rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:sticky;top:1.4rem;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;min-height:180px}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>AIFF Anatomy</h1></div>
+      <div class="stamp"><b>Audio IFF / AIFC</b>Apple, big-endian<br>rev 2026.06</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"FORM"</b></div><div>endian <b>big</b></div>
+      <div>container <b>IFF chunks</b></div><div>form <b>AIFF / AIFC</b></div>
+    </div>
+  </div>
+
+  <p class="lede">AIFF is Apple's IFF container: a <b>FORM</b> header, a form type (AIFF or compressed AIFC), then chunks, all big-endian. It mirrors RIFF with the bytes flipped and COMM in place of fmt. The standout is the sample rate, stored as an <b>80-bit IEEE-754 extended float</b> that Python's struct cannot unpack, reassembled by hand. <b>Hover</b> a field to light its bytes, <b>click</b> a <span class="k-en">+</span> for its table. Colour marks kind: <span class="k-en">teal</span> a decoded value, <span class="k-fl">ochre</span> a flag, faint reserved.</p>
+
+  <div class="sec">chunk regions</div>
+  <p class="note">FORM wraps the lot; COMM and SSND are required, the rest optional. Big-endian sizes, word-aligned with a pad byte on odd lengths.</p>
+  <div>
+    <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">FORM</span><span class="rspan">0x00 . 12 bytes</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">magic</span><span class="v">"FORM"</span></div>
+        <div><span class="k">size</span><span class="v">u32 BIG-endian = file size - 8</span></div>
+        <div><span class="k">form type</span><span class="v">"AIFF" (PCM) or "AIFC" (compressed)</span></div>
+      </div></div></details>
+    <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">COMM</span><span class="rspan">common . drawn below</span></summary>
+      <div class="rbody"><p class="note">Channels, frame count, bit depth, and the 80-bit sample rate. AIFC adds a 4-char compression type and a pascal-string name after the rate. See the byte map below.</p></div></details>
+    <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">SSND</span><span class="rspan">sound data</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">offset</span><span class="v">u32, bytes to the first frame (usually 0)</span></div>
+        <div><span class="k">block_size</span><span class="v">u32, block alignment (usually 0)</span></div>
+        <div><span class="k">audio</span><span class="v">size - 8 - offset bytes; acidcat clamps to bytes present</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">MARK / INST</span><span class="rspan">markers, instrument</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">MARK</span><span class="v">u16 count, then id + position + pascal-string name</span></div>
+        <div><span class="k">INST</span><span class="v">base note, detune, gain, key/velocity range, sustain/release loops referencing marker ids</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">basc</span><span class="rspan">apple loops tempo</span></summary>
+      <div class="rbody"><p class="note">Apple Loops metadata: version, beat count, root key, scale, time signature. No official spec; layout field-verified against indexed loops. acidcat derives bpm = beats / (frames / rate) * 60, which matched the filename bpm on every test file.</p></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">NAME / AUTH / (c) / ANNO / ID3</span><span class="rspan">text + embedded tag</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">NAME / AUTH</span><span class="v">plain text: title, author</span></div>
+        <div><span class="k">(c) / ANNO</span><span class="v">copyright, annotation</span></div>
+        <div><span class="k">ID3</span><span class="v">an embedded ID3v2 tag, same as MP3 carries</span></div>
+      </div></div></details>
+  </div>
+
+  <div class="sec">COMM chunk</div>
+  <p class="note">18 bytes for AIFF. Example: 2 channels, 88200 frames, 16-bit, 44100 Hz.</p>
+  <div id="block-comm"></div>
+
+  <footer><span>acidcat / aiff anatomy</span><span>form/aiff . 2ch 16-bit 44100 . 80-bit extended rate</span></footer>
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var owner=new Array(bytes.length);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div"); diagram.className="dbytes";
+    bytes.forEach(function(b,i){
+      var f=fields[owner[i]];
+      var col=document.createElement("div"); col.className="bcol";
+      var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+      var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+      if(i===f.r[0]) cell.classList.add("fstart");
+      cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+    });
+    var body=document.createElement("div"); body.className="body2";
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field</h3><div class='dc'>"+bytes.length+" bytes</div>"+
+      "<p>Move over a row to light its bytes and read the decode. Click a row marked + for its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clear(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function show(f){det.t.textContent=f.label;
+      det.c.textContent="bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):"")+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    fields.forEach(function(f){
+      var row=document.createElement("div"); row.className="field"; if(f.branch) row.dataset.branch="1";
+      var lab="0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):"");
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){light(f.r[0],f.r[1]);show(f);});
+      row.addEventListener("click",function(){ if(!f.branch)return;
+        var was=row.classList.contains("active");
+        list.querySelectorAll(".field.active").forEach(function(r){r.classList.remove("active");});
+        if(!was){row.classList.add("active");light(f.r[0],f.r[1]);show(f);}});
+      list.appendChild(row);
+    });
+    list.addEventListener("mouseleave",function(){if(!list.querySelector(".field.active"))clear();});
+    body.appendChild(list); body.appendChild(aside);
+    mount.appendChild(diagram); mount.appendChild(body);
+  }
+
+  // COMM, verified: 2ch, 88200 frames, 16-bit, 44100 Hz (80-bit extended)
+  build("block-comm",
+    [0x00,0x02, 0x00,0x01,0x58,0x88, 0x00,0x10, 0x40,0x0E,0xAC,0x44,0x00,0x00,0x00,0x00,0x00,0x00],
+    [
+      {label:"num_channels",k:"enum",r:[0,1],val:"2",body:"Channel count, i16 big-endian. Samples in SSND are interleaved by channel."},
+      {label:"num_sample_frames",k:"enum",r:[2,5],val:"88200",body:"Frames per channel, u32 big-endian. duration = frames / sample_rate.",note:"this is the authoritative length, unlike WAV where you divide the data size."},
+      {label:"bits_per_sample",k:"enum",r:[6,7],val:"16",body:"Bit depth per sample, i16 big-endian."},
+      {label:"sample_rate",k:"enum",r:[8,17],val:"44100 Hz",sel:3,branch:[
+        ["sign","1 bit"],["exponent","15 bits, bias 16383"],["mantissa","64 bits, explicit leading 1"],
+        ["value","2^(exp-16383) * mantissa / 2^63"]],
+        body:"An 80-bit IEEE-754 extended-precision float, a 68k-era Apple format. Python's struct has no code for it, so acidcat reassembles it by hand from the exponent and the explicit 64-bit mantissa.",
+        note:"40 0E AC 44 00.. : exponent 0x400E = 16398, so 2^15 * 1.3454.. = 44100. an explicit leading mantissa bit, unlike float64."}
+    ]);
+})();
+</script>
+</body>
+</html>
