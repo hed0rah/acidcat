@@ -85,6 +85,19 @@ class TestInspectWav:
         _, warns = inspect_wav(path)
         assert any("no fmt chunk" in w for w in warns)
 
+    def test_overrun_data_size_not_trusted(self, tmp_path):
+        # ANI bug class (CVE-2007-0038): a chunk declares far more than the
+        # file holds. inspect must lint the overrun AND derive frames/duration
+        # from the bytes actually present, never from the lying size field.
+        big_data = b"data" + struct.pack("<I", 0x7FFFFFFF) + b"\x00" * 8
+        path = _wav(tmp_path, _fmt(), big_data)
+        chunks, warns = inspect_wav(path)
+        assert any("only 8 remain" in w for w in warns)
+        data = next(c for c in chunks if c["id"] == "data")
+        assert "declared" in data["summary"]
+        frames = next(f for f in data["fields"] if f["name"] == "frames")
+        assert frames["value"] == 4  # 8 bytes present / 2-byte align, not ~1e9
+
 
 RATE_44100 = bytes.fromhex("400eac440000000000000000")[:10]
 
@@ -160,6 +173,18 @@ class TestInspectAiff:
                      _inst(sustain=(1, 1, 9)), _ssnd())
         _, warns = inspect_aiff(path, "AIFF")
         assert any("marker id 9" in w for w in warns)
+
+    def test_overrun_ssnd_size_not_trusted(self, tmp_path):
+        # SSND declares 0x7fffffff bytes; the file holds 8. payload size must
+        # be derived from the bytes present, not the lying chunk size.
+        big_ssnd = (b"SSND" + struct.pack(">I", 0x7FFFFFFF)
+                    + struct.pack(">II", 0, 0) + b"\x00" * 8)
+        path = _aiff(tmp_path, _comm(frames=4), big_ssnd)
+        chunks, warns = inspect_aiff(path, "AIFF")
+        assert any("remain" in w for w in warns)
+        ssnd = next(c for c in chunks if c["id"] == "SSND")
+        assert "overruns" in ssnd["summary"]
+        assert "2,147,483" not in ssnd["summary"]  # not the declared 2GB
 
 
 def _smf(tmp_path, tracks, division=480, ntrks=None, name="t.mid"):
