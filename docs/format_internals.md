@@ -13,9 +13,9 @@ Last updated: 2026-05-02
 
 | Format | File | Status | What acidcat extracts |
 |--------|------|--------|-----------------------|
-| [RIFF / WAV](formats/riff_wav.md) | `.wav` | Full support | BPM, key, loops, beats, duration, format, chunks, LIST/INFO metadata |
-| [AIFF / IFF](formats/aiff.md) | `.aif`, `.aiff` | Full support | Duration, format, name, author, copyright, instrument tuning |
-| [MIDI](formats/midi.md) | `.mid`, `.midi` | Full support | BPM, key sig, time sig, tracks, note count/range, channels, duration |
+| [RIFF / WAV](formats/riff_wav.md) ([anatomy](formats/wav-anatomy.html)) | `.wav` | Full support | BPM, key, loops, beats, duration, format, chunks, LIST/INFO metadata |
+| [AIFF / IFF](formats/aiff.md) ([anatomy](formats/aiff-anatomy.html)) | `.aif`, `.aiff` | Full support | Duration, format, name, author, copyright, instrument tuning |
+| [MIDI](formats/midi.md) ([anatomy](formats/midi-anatomy.html)) | `.mid`, `.midi` | Full support | BPM, key sig, time sig, tracks, note count/range, channels, duration |
 
 ### Synth Presets (acidcat parses these)
 
@@ -28,8 +28,8 @@ Last updated: 2026-05-02
 
 | Format | File | Status | What acidcat extracts |
 |--------|------|--------|-----------------------|
-| [MP3](formats/mp3.md) | `.mp3` | Full support | BPM, key, title, artist, album, genre, comment (ID3v2) |
-| [FLAC](formats/flac.md) | `.flac` | Full support | BPM, key, title, artist, album, genre (Vorbis Comment) |
+| [MP3](formats/mp3.md) ([anatomy](formats/mp3-anatomy.html)) | `.mp3` | Full support | BPM, key, title, artist, album, genre, comment (ID3v2) |
+| [FLAC](formats/flac.md) ([anatomy](formats/flac-anatomy.html)) | `.flac` | Full support | BPM, key, title, artist, album, genre (Vorbis Comment) |
 | [OGG](formats/ogg.md) | `.ogg`, `.oga` | Full support | BPM, key, title, artist (Vorbis Comment) |
 | [Opus](formats/ogg.md) | `.opus` | Full support | BPM, key, title, artist (Vorbis Comment) |
 | [MP4 / M4A](formats/mp4_m4a.md) | `.m4a`, `.mp4` | Full support | BPM (tmpo), key, title, artist, album (iTunes atoms) |
