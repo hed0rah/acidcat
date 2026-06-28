@@ -5,8 +5,9 @@ Walks the container chunk by chunk and prints a structural table, a
 decoded field breakdown per known chunk (with byte offsets), and any
 spec violations it noticed along the way. `--hex` adds the raw bytes
 next to each decoded field. `--frames` adds a per-element deep dump
-(every MPEG frame for MP3, every event for MIDI). `-f json` emits the
-same structure for machines.
+(every MPEG frame for MP3, every event for MIDI). `--color` syntax-
+highlights the table (auto/always/never, respects NO_COLOR). `-f json`
+emits the same structure for machines.
 
 Supports WAV/RIFF, RF64, AIFF/AIFC, Standard MIDI Files, Xfer Serum
 presets, MP3 (ID3v2 + MPEG frames + Xing/LAME), and FLAC.
@@ -72,6 +73,9 @@ def register(subparsers):
                    help="Per-element deep dump: every MPEG frame (MP3) or "
                         "MIDI event. No effect on formats without per-element "
                         "structure (WAV, AIFF, FLAC).")
+    p.add_argument("--color", choices=["auto", "always", "never"], default="auto",
+                   help="Colorize table output: auto (default, when stdout is a "
+                        "TTY), always, or never. Respects the NO_COLOR env var.")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=run)
 
@@ -1490,59 +1494,100 @@ def _hex_bytes(filepath, offset, length, cap=8):
     return s + " .." if length > cap else s
 
 
-def _render_rows(rows):
+# ── color ──────────────────────────────────────────────────────────
+# small, meaningful palette: structure (cyan), value (green), positional
+# metadata (dim), warning (red). codes are zero-width, so callers pad to
+# the column width first and paint the padded string.
+
+_ANSI = {
+    "dim": "\033[2m",
+    "id": "\033[1;36m",     # bold cyan: chunk ids, format label, anchors
+    "val": "\033[32m",      # green: decoded field values
+    "warn": "\033[1;31m",   # bold red: warnings
+}
+_RESET = "\033[0m"
+
+
+def _color_enabled(args):
+    # explicit always/never win; NO_COLOR governs auto only.
+    mode = getattr(args, "color", "auto")
+    if mode == "never":
+        return False
+    if mode == "always":
+        return True
+    if os.environ.get("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+
+class _Paint:
+    def __init__(self, on):
+        self.on = on
+
+    def __call__(self, role, text):
+        text = str(text)
+        return f"{_ANSI[role]}{text}{_RESET}" if self.on else text
+
+
+def _render_rows(rows, paint):
     """Print a per-element listing as a compact dynamic-column table."""
     if not rows:
         return
     cols = list(rows[0].keys())
     widths = {c: max(len(c), max(len(str(r.get(c, ""))) for r in rows)) for c in cols}
     header = "    " + "  ".join(f"{c:<{widths[c]}}" for c in cols)
-    print(header)
+    print(paint("dim", header))
     for r in rows:
         print("    " + "  ".join(f"{str(r.get(c, '')):<{widths[c]}}" for c in cols))
 
 
 def _render_table(filepath, fmt_label, chunks, file_warns, args):
     file_size = os.path.getsize(filepath)
-    print(f"{os.path.basename(filepath)}: {fmt_label}, {file_size:,} bytes, "
+    p = _Paint(_color_enabled(args))
+    print(f"{os.path.basename(filepath)}: {p('id', fmt_label)}, {file_size:,} bytes, "
           f"{len(chunks)} chunks")
     print()
-    print(f"  {'idx':<5} {'id':<5} {'offset':<11} {'size':<11} summary")
+    print(p("dim", f"  {'idx':<5} {'id':<5} {'offset':<11} {'size':<11} summary"))
     for i, c in enumerate(chunks):
-        print(f"  [{i:>2}]  {c['id']:<5} 0x{c['offset']:08x}  "
-              f"{c['size']:<11,} {c['summary']}")
+        idx = p("dim", f"[{i:>2}]")
+        cid = p("id", f"{c['id']:<5}")
+        off = p("dim", f"0x{c['offset']:08x}")
+        print(f"  {idx}  {cid} {off}  {c['size']:<11,} {c['summary']}")
 
     if not args.quiet:
         for c in chunks:
             if not c["fields"] and not c.get("rows"):
                 continue
             print()
-            print(f"{c['id'].strip()} @ 0x{c['offset']:08x} ({c['size']} bytes)")
+            hdr_id = p("id", c["id"].strip())
+            hdr_meta = p("dim", f"@ 0x{c['offset']:08x} ({c['size']} bytes)")
+            print(f"{hdr_id} {hdr_meta}")
             for fl in c["fields"]:
-                note = f"  {fl['note']}" if fl["note"] else ""
+                note = p("dim", f"  {fl['note']}") if fl["note"] else ""
                 # derived stats (midi track facts) carry no byte offset
                 off_col = f"+0x{fl['off']:04x}" if fl["off"] is not None else "      "
+                off_col = p("dim", off_col)
+                val = p("val", f"{fl['value']!s:<14}")
                 if args.show_hex and fl["off"] is not None:
                     hx = _hex_bytes(filepath, c["offset"] + 8 + fl["off"], fl["len"])
-                    print(f"  {off_col}  {hx:<26} "
-                          f"{fl['name']:<22} {fl['value']!s:<14}{note}")
+                    print(f"  {off_col}  {p('dim', f'{hx:<26}')} "
+                          f"{fl['name']:<22} {val}{note}")
                 else:
-                    print(f"  {off_col}  {fl['name']:<22} "
-                          f"{fl['value']!s:<14}{note}")
+                    print(f"  {off_col}  {fl['name']:<22} {val}{note}")
             if c.get("rows"):
-                _render_rows(c["rows"])
+                _render_rows(c["rows"], p)
 
     if getattr(args, "frames", False) and not any(c.get("rows") for c in chunks):
         print()
-        print(f"  (--frames: {fmt_label} has no per-element structure to dump)")
+        print(p("dim", f"  (--frames: {fmt_label} has no per-element structure to dump)"))
 
     all_warns = list(file_warns)
     all_warns += [f"{c['id'].strip()}: {w}" for c in chunks for w in c["warnings"]]
     if all_warns:
         print()
-        print("warnings:")
+        print(p("warn", "warnings:"))
         for w in all_warns:
-            print(f"  ! {w}")
+            print(p("warn", f"  ! {w}"))
     return 0
 
 

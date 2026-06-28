@@ -522,3 +522,15 @@ class TestRunCli:
 
     def test_missing_file_exits_1(self):
         assert run(self._args("does/not/exist.wav")) == 1
+
+    def test_color_always_emits_ansi(self, tmp_path, capsys):
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_MP3_FRAME * 2)
+        assert run(self._args(str(p), color="always")) == 0
+        assert "\x1b[" in capsys.readouterr().out
+
+    def test_color_never_is_plain(self, tmp_path, capsys):
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_MP3_FRAME * 2)
+        assert run(self._args(str(p), color="never")) == 0
+        assert "\x1b[" not in capsys.readouterr().out
