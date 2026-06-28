@@ -5,6 +5,25 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.9.1] - 2026-06-28
+
+### Fixed
+
+- `inspect` no longer derives metrics from a chunk size larger than the
+  file. A WAV `data` or AIFF `SSND` chunk that overruns the file is linted
+  as before, but frames/duration and the reported payload now come from the
+  bytes actually present, not the declared size. A 52-byte WAV claiming a
+  2 GB `data` chunk previously reported a 24347-second duration.
+
+### Added
+
+- `docs/formats/riff_wav.md` gains edge-case and robustness sections.
+- Interactive single-file format references under `docs/formats/`:
+  `mp3-anatomy.html`, `wav-anatomy.html`, `flac-anatomy.html`,
+  `aiff-anatomy.html`, `midi-anatomy.html`. Hover a field to highlight its
+  bytes or bits and read the decode; click to open lookup tables. Byte
+  content is verified against acidcat's own parsers.
+
 ## [0.9.0] - 2026-06-27
 
 ### Added
