@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / flac anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E7E5E1; --panel:#ECEAE6; --ink:#1F1E1C; --soft:#69675F;
+  --faint:#9A9789; --line:#CCCABF; --hair:#D8D6CC;
+  /* flac palette: indigo value, clay flag, green anchor */
+  --enum:#565A86;  --enum-soft:#DAD9E6;
+  --flag:#9A6E3F;  --flag-soft:#E7DCCB;
+  --rsv:#9A9789;   --rsv-soft:rgba(31,30,28,0.03);
+  --sync:#4E6157;  --sync-soft:#D7DFD8;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.7rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500} .region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px}
+.region.req .rname::after{content:"req";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--enum);border:1px solid var(--enum);padding:1px 4px}
+.region .rbody{padding:0.6rem 1rem 1.1rem 3rem;border-top:1px solid var(--hair)}
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.3rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+/* bit diagram (byte groups) */
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+/* byte diagram */
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+
+.body2{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:start}
+@media(max-width:820px){.body2{grid-template-columns:1fr}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field[data-branch]{cursor:pointer}
+.field:hover,.field.active{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:26rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:sticky;top:1.4rem;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;min-height:180px}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>FLAC Anatomy</h1></div>
+      <div class="stamp"><b>Free Lossless Audio</b>native stream<br>rev 2026.06</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"fLaC"</b></div><div>endian <b>big *</b></div>
+      <div>container <b>metadata blocks</b></div><div>lossless <b>yes</b></div>
+    </div>
+  </div>
+
+  <p class="lede">A FLAC is the <b>fLaC</b> marker, a run of metadata blocks, then audio frames. Each block opens with a 4-byte header: a last-block flag, a 7-bit type, and a 24-bit length. STREAMINFO is first and required. <b>Hover</b> a field to light its bits or bytes, <b>click</b> a <span class="k-en">+</span> for its table. Colour marks kind: <span class="k-en">indigo</span> a decoded value, <span class="k-fl">clay</span> a flag, faint reserved. <b>* the one trap:</b> FLAC is big-endian everywhere except the VORBIS_COMMENT block, whose lengths are little-endian.</p>
+
+  <div class="sec">block regions</div>
+  <p class="note">Walked in order until the block whose last-block flag is set; the audio frames begin right after.</p>
+  <div>
+    <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">fLaC</span><span class="rspan">0x00 . 4 bytes</span></summary>
+      <div class="rbody"><div class="kv"><div><span class="k">magic</span><span class="v">"fLaC" (0x66 4C 61 43)</span></div></div></div></details>
+    <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">STREAMINFO</span><span class="rspan">type 0 . first . drawn below</span></summary>
+      <div class="rbody"><p class="note">Sample rate, channels, bit depth, total samples, and an MD5 of the unencoded audio. Must be the first block. See the byte map below.</p></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">VORBIS_COMMENT</span><span class="rspan">type 4 . the metadata</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">lengths</span><span class="v">LITTLE-endian here, unlike the rest of FLAC</span></div>
+        <div><span class="k">vendor</span><span class="v">e.g. "reference libFLAC 1.3.2"</span></div>
+        <div><span class="k">comments</span><span class="v">UTF-8 "FIELD=value": TITLE, ARTIST, BPM, KEY</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">PICTURE</span><span class="rspan">type 6 . cover art</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">fields</span><span class="v">picture type, MIME, description, w/h/depth, data</span></div>
+        <div><span class="k">note</span><span class="v">same shape as the ID3v2 APIC frame</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">SEEKTABLE / PADDING / APPLICATION / CUESHEET</span><span class="rspan">types 3 / 1 / 2 / 5</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">SEEKTABLE</span><span class="v">18-byte seek points (0xFFFF.. = placeholder)</span></div>
+        <div><span class="k">PADDING</span><span class="v">zeroed slack for later in-place edits</span></div>
+        <div><span class="k">APPLICATION</span><span class="v">4-byte app id + opaque data</span></div>
+      </div></div></details>
+    <details class="region"><summary><span class="chev">&#9656;</span><span class="rname">audio frames</span><span class="rspan">after the last block</span></summary>
+      <div class="rbody"><p class="note">Encoded audio. Opaque for metadata; STREAMINFO already gives duration = total_samples / sample_rate.</p></div></details>
+  </div>
+
+  <div class="sec">metadata block header</div>
+  <p class="note">4 bytes before every block. Example: a final VORBIS_COMMENT block, 304 bytes long.</p>
+  <div id="block-hdr"></div>
+
+  <div class="sec">STREAMINFO body</div>
+  <p class="note">34 bytes. Example: 44100 Hz, 2 channels, 16-bit, 88200 samples.</p>
+  <div id="block-si"></div>
+
+  <footer><span>acidcat / flac anatomy</span><span>fLaC . streaminfo 44100/2/16 . 88200 samples</span></footer>
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+
+    var body=document.createElement("div"); body.className="body2";
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Move over a row to light it and read the decode. Click a row marked + for its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clear(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rangeLabel(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rangeLabel(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+
+    fields.forEach(function(f){
+      var row=document.createElement("div"); row.className="field"; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){light(f.r[0],f.r[1]);show(f);});
+      row.addEventListener("click",function(){ if(!f.branch)return;
+        var was=row.classList.contains("active");
+        list.querySelectorAll(".field.active").forEach(function(r){r.classList.remove("active");});
+        if(!was){row.classList.add("active");light(f.r[0],f.r[1]);show(f);}});
+      list.appendChild(row);
+    });
+    list.addEventListener("mouseleave",function(){if(!list.querySelector(".field.active"))clear();});
+    body.appendChild(list); body.appendChild(aside);
+    mount.appendChild(diagram); mount.appendChild(body);
+  }
+
+  // metadata block header: final VORBIS_COMMENT, length 304  ->  84 00 01 30
+  build("block-hdr","bit",[0x84,0x00,0x01,0x30],[
+    {label:"last-block flag",k:"flag",r:[0,0],val:"1 (last)",sel:1,branch:[["0","more blocks follow"],["1","final metadata block"]],
+      body:"The high bit of byte 0. When set, the audio frames begin right after this block.",note:"a walk that never sees this set is malformed; acidcat lints it."},
+    {label:"block type",k:"enum",r:[1,7],val:"4 = VORBIS_COMMENT",sel:4,branch:[
+      ["0","STREAMINFO"],["1","PADDING"],["2","APPLICATION"],["3","SEEKTABLE"],
+      ["4","VORBIS_COMMENT"],["5","CUESHEET"],["6","PICTURE"],["127","invalid"]],
+      body:"Seven bits naming the block. STREAMINFO (0) must come first; this one is the tag block."},
+    {label:"length",k:"enum",r:[8,31],val:"304 bytes",
+      body:"24-bit big-endian payload size that follows this 4-byte header. 0x000130 = 304.",
+      note:"checked against the bytes that remain; an overrun is linted, not trusted."}
+  ]);
+
+  // streaminfo body, verified bytes (44100 / 2ch / 16-bit / 88200 samples)
+  build("block-si","byte",
+    [0x10,0x00,0x10,0x00,0x00,0x00,0x0E,0x00,0x20,0x00,0x0A,0xC4,0x42,0xF0,0x00,0x01,0x58,0x88,
+     0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7,0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF],
+    [
+      {label:"min_block_size",k:"enum",r:[0,1],val:"4096",body:"Smallest block size in samples, u16 big-endian."},
+      {label:"max_block_size",k:"enum",r:[2,3],val:"4096",body:"Largest block size. Equal to min for fixed-block streams."},
+      {label:"min_frame_size",k:"enum",r:[4,6],val:"14 bytes",body:"Smallest frame in bytes, u24. 0 means unknown."},
+      {label:"max_frame_size",k:"enum",r:[7,9],val:"8192 bytes",body:"Largest frame in bytes, u24."},
+      {label:"packed",k:"enum",r:[10,17],val:"44100 / 2ch / 16-bit / 88200",sel:0,branch:[
+        ["20 bits","sample rate = 44100 Hz"],["3 bits","channels - 1 = 1  ->  2"],
+        ["5 bits","bits/sample - 1 = 15  ->  16"],["36 bits","total samples = 88200"]],
+        body:"A bit-packed 64-bit field, not byte-aligned: rate, channels-1, bits-1, then a 36-bit total sample count.",
+        note:"duration = total_samples / sample_rate, no frame walk needed. channels and bits store minus one."},
+      {label:"md5_signature",k:"rsv",r:[18,33],val:"16-byte MD5",body:"MD5 of the unencoded audio, so a decoder can verify a bit-exact round trip. 0 = unset."}
+    ]);
+})();
+</script>
+</body>
+</html>

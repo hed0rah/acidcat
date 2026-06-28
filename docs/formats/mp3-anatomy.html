@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / mp3 anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E8E5DD; --panel:#EDEAE3; --ink:#22201B; --soft:#6C685E;
+  --faint:#9C9889; --line:#CFCABE; --hair:#DAD6CB;
+  /* the small meaningful palette. each hue marks a field kind. */
+  --enum:#4E6157;  --enum-soft:#D7DFD8;   /* table-backed value  (green) */
+  --flag:#9A6E3F;  --flag-soft:#E7DCCB;   /* boolean switch      (clay)  */
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03); /* reserved / ignored */
+  --sync:#3A4A55;  --sync-soft:#D6DCE0;   /* structural anchor   (slate) */
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.75rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500;letter-spacing:0.02em}
+.region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px;vertical-align:middle}
+.region .rbody{padding:0.6rem 1rem 1.2rem 3rem;border-top:1px solid var(--hair)}
+
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.32rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+/* register diagram, full width */
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.4rem 0 1.6rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .row{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s}
+.bit:last-child{border-right:none}
+.bit.k-sync{background:var(--sync-soft)} .bit.k-enum{background:var(--enum-soft)}
+.bit.k-flag{background:var(--flag-soft)} .bit.k-rsv{background:var(--rsv-soft)}
+.bit.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.bit.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bit.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bit.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bit.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+
+.body2{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:start}
+@media(max-width:820px){.body2{grid-template-columns:1fr}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:3.6rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field[data-branch]{cursor:pointer}
+.field:hover,.field.active{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)}
+.field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)}
+.fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 4.4rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:24rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)}
+.branch td.k{color:var(--faint);width:2.6rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+
+.detail{position:sticky;top:1.4rem;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;min-height:180px}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
+.detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title">
+        <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
+        <h1>MP3 Anatomy</h1>
+      </div>
+      <div class="stamp"><b>MPEG-1/2 Audio</b>Layer III<br>rev 2026.06</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>none</b></div>
+      <div>endian <b>big (frames)</b></div>
+      <div>container <b>no</b></div>
+      <div>sample <b>FF FB 90 C0</b></div>
+    </div>
+  </div>
+
+  <p class="lede">An MP3 is not a container. It is an optional ID3v2 tag, a run of self-describing MPEG audio frames, and an optional ID3v1 trailer. Regions below expand; the MPEG frame header is drawn as a register map. <b>Hover</b> any field to light its exact bits and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its lookup table. Colour marks kind, the way syntax highlighting does: <span class="k-en">green</span> is a value read from a table, <span class="k-fl">clay</span> is a flag bit, faint is reserved. Example: <b>FF FB 90 C0</b>, a real MPEG-1 Layer III frame at 128 kbps, 44100 Hz, mono.</p>
+
+  <div class="sec">file regions</div>
+  <p class="note">Top to bottom, what a reader walks. Only the frames are required.</p>
+  <div>
+    <details class="region opt">
+      <summary><span class="chev">&#9656;</span><span class="rname">ID3v2 tag</span><span class="rspan">0x00 . variable</span></summary>
+      <div class="rbody">
+        <p class="note">Prepended metadata. A 10-byte header, then frames, until padding. The size is synchsafe (7 bits per byte) so the length can never contain a false 0xFF sync.</p>
+        <div class="kv">
+          <div><span class="k">magic</span><span class="v">"ID3"</span></div>
+          <div><span class="k">version</span><span class="v">major . revision  (2.3 / 2.4)</span></div>
+          <div><span class="k">flags</span><span class="v">unsync, extended header, footer</span></div>
+          <div><span class="k">size</span><span class="v">(b0&lt;&lt;21)|(b1&lt;&lt;14)|(b2&lt;&lt;7)|b3</span></div>
+          <div><span class="k">frames</span><span class="v">TIT2 . TPE1 . TALB . TBPM . APIC</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">MPEG audio frames</span><span class="rspan">required . self-describing</span></summary>
+      <div class="rbody">
+        <p class="note">Each frame opens with the 4-byte header drawn below; it carries everything needed to compute the frame length and step to the next sync.</p>
+        <div class="diagram" id="diagram"></div>
+        <div class="body2">
+          <div class="fields" id="fields"></div>
+          <aside class="detail" id="detail">
+            <div class="dl"><span>field detail</span><span class="kind" id="d-kind"></span></div>
+            <h3 id="d-title">Hover a field</h3>
+            <div class="dc" id="d-code">32-bit frame header</div>
+            <p id="d-body">Move over a row to light its bits and read what they mean. Click a row marked + to open its lookup table.</p>
+            <div class="dn" id="d-note"></div>
+          </aside>
+        </div>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">Xing / Info + LAME</span><span class="rspan">inside frame 0 . vbr header</span></summary>
+      <div class="rbody">
+        <p class="note">VBR cannot be sized from one bitrate, so the encoder writes a header into the first frame after the side-info block. "Xing" is true VBR, "Info" is CBR by LAME. Offset from frame start: 36 (MPEG-1 stereo), 21 (MPEG-1 mono or MPEG-2 stereo), 13 (MPEG-2 mono).</p>
+        <div class="kv">
+          <div><span class="k">id</span><span class="v">"Xing" | "Info"</span></div>
+          <div><span class="k">flags</span><span class="v">b0 frames . b1 bytes . b2 TOC . b3 quality</span></div>
+          <div><span class="k">frame_count</span><span class="v">exact total, gives duration with no walk</span></div>
+          <div><span class="k">LAME</span><span class="v">9-byte encoder string, VBR method, lowpass</span></div>
+          <div><span class="k">gapless</span><span class="v">delay + padding, 12 bits each at LAME+21</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region opt">
+      <summary><span class="chev">&#9656;</span><span class="rname">ID3v1 trailer</span><span class="rspan">last 128 bytes</span></summary>
+      <div class="rbody">
+        <p class="note">The original tag: a fixed 128-byte block at the very end. Superseded by ID3v2, but many files carry both.</p>
+        <div class="kv">
+          <div><span class="k">magic</span><span class="v">"TAG"</span></div>
+          <div><span class="k">title / artist / album</span><span class="v">30 bytes each, latin-1</span></div>
+          <div><span class="k">year</span><span class="v">4 bytes</span></div>
+          <div><span class="k">comment</span><span class="v">30 bytes (last 2 may be track no.)</span></div>
+          <div><span class="k">genre</span><span class="v">1 byte, index into a fixed table</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <footer>
+    <span>acidcat / mp3 anatomy</span>
+    <span>FF FB 90 C0 . mpeg-1 layer III . 128k . 44100 . mono</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  var BYTES = [0xFF, 0xFB, 0x90, 0xC0];
+  var KINDS = {sync:"structural", enum:"enumerated", flag:"flag", rsv:"reserved"};
+  var FIELDS = [
+    {id:"sync", k:"sync", label:"frame sync",    bits:[0,10], val:"0x7FF",
+     body:"Eleven set bits open every frame. Only 11 bits, so false positives happen; the whole header must validate before a sync is trusted.",
+     note:"on a sync loss acidcat scans forward for the next valid header."},
+    {id:"ver", k:"enum", label:"MPEG version",  bits:[11,12], val:"MPEG 1", sel:3, branch:[
+        ["00","MPEG 2.5"],["01","reserved"],["10","MPEG 2"],["11","MPEG 1"]],
+     body:"Selects the bitrate and rate tables and the samples-per-frame: 1152 for MPEG-1 layer III, 576 for MPEG-2/2.5.",
+     note:"version 01 is reserved; acidcat rejects it as not a frame."},
+    {id:"layer", k:"enum", label:"layer",         bits:[13,14], val:"Layer III", sel:1, branch:[
+        ["00","reserved"],["01","Layer III"],["10","Layer II"],["11","Layer I"]],
+     body:"Layer I/II/III select the frame-length formula. Layer III is the MP3."},
+    {id:"prot", k:"flag", label:"protection",    bits:[15,15], val:"no CRC", sel:1, branch:[
+        ["0","16-bit CRC after the header"],["1","no CRC"]],
+     body:"When 0, a 2-byte CRC sits immediately after the 4-byte header."},
+    {id:"br", k:"enum", label:"bitrate index", bits:[16,19], val:"128 kbps", sel:9, branch:[
+        ["0","free"],["1","32"],["2","40"],["3","48"],["4","56"],["5","64"],["6","80"],
+        ["7","96"],["8","112"],["9","128"],["10","160"],["11","192"],["12","224"],
+        ["13","256"],["14","320"],["15","bad"]],
+     body:"Index into the bitrate table for this version+layer (shown: MPEG-1 layer III, kbps). 0 is free-format, 15 invalid; acidcat rejects both.",
+     note:"frame_len = (samples/8) * bitrate / sample_rate + padding."},
+    {id:"sr", k:"enum", label:"sample rate",   bits:[20,21], val:"44100 Hz", sel:0, branch:[
+        ["0","44100"],["1","48000"],["2","32000"],["3","reserved"]],
+     body:"Index into the MPEG-1 rate table (Hz). MPEG-2 is half, MPEG-2.5 a quarter.",
+     note:"an 8000 Hz file forces MPEG 2.5 and 576 samples/frame."},
+    {id:"pad", k:"flag", label:"padding",       bits:[22,22], val:"0", sel:0, branch:[
+        ["0","none"],["1","+1 byte (+4 for layer I)"]],
+     body:"A slack byte that keeps the average bitrate exact across frames."},
+    {id:"priv", k:"rsv", label:"private",       bits:[23,23], val:"0",
+     body:"Application-defined, ignored by decoders."},
+    {id:"chan", k:"enum", label:"channel mode",  bits:[24,25], val:"mono", sel:3, branch:[
+        ["00","stereo"],["01","joint stereo"],["10","dual channel"],["11","mono"]],
+     body:"Mono here. The channel mode also sets the side-info size, which fixes where the Xing/Info header sits."},
+    {id:"mext", k:"rsv", label:"mode extension",bits:[26,27], val:"0",
+     body:"Joint-stereo parameters; meaningful only when the mode is joint stereo."},
+    {id:"copy", k:"flag", label:"copyright",     bits:[28,28], val:"0",
+     body:"Copyright bit, informational."},
+    {id:"orig", k:"flag", label:"original",      bits:[29,29], val:"0",
+     body:"Original-media bit, informational."},
+    {id:"emph", k:"enum", label:"emphasis",      bits:[30,31], val:"none", sel:0, branch:[
+        ["00","none"],["01","50/15 ms"],["10","reserved"],["11","CCITT J.17"]],
+     body:"Legacy de-emphasis curve; almost always none."}
+  ];
+
+  var bitField = new Array(32);
+  FIELDS.forEach(function(f, fi){ for(var b=f.bits[0]; b<=f.bits[1]; b++) bitField[b]=fi; });
+
+  var diagram = document.getElementById("diagram");
+  for(var bi=0; bi<4; bi++){
+    var grp=document.createElement("div"); grp.className="bytegrp";
+    var ticks=document.createElement("div"); ticks.className="ticks";
+    var row=document.createElement("div"); row.className="row";
+    for(var k=0;k<8;k++){
+      var idx=bi*8+k, f=FIELDS[bitField[idx]];
+      var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+      var cell=document.createElement("span");
+      cell.className="bit k-"+f.k;
+      cell.dataset.idx=idx;
+      if(idx===f.bits[0]) cell.classList.add("fstart");
+      cell.textContent=(BYTES[bi]>>(7-k))&1;
+      row.appendChild(cell);
+    }
+    var hex=document.createElement("div"); hex.className="hex";
+    hex.textContent="0x"+BYTES[bi].toString(16).toUpperCase().padStart(2,"0");
+    grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex);
+    diagram.appendChild(grp);
+  }
+  var cells=[].slice.call(diagram.querySelectorAll(".bit"));
+
+  var det={t:document.getElementById("d-title"),c:document.getElementById("d-code"),
+           b:document.getElementById("d-body"),n:document.getElementById("d-note"),
+           kind:document.getElementById("d-kind")};
+  function light(a,b){ cells.forEach(function(c){ var i=+c.dataset.idx; c.classList.toggle("hi", i>=a&&i<=b); }); }
+  function clear(){ cells.forEach(function(c){ c.classList.remove("hi"); }); }
+  function show(f){
+    det.t.textContent=f.label;
+    det.c.textContent="bits "+f.bits[0]+(f.bits[1]>f.bits[0]?"-"+f.bits[1]:"")+"  =  "+f.val;
+    det.b.textContent=f.body; det.n.textContent=f.note||"";
+    det.kind.textContent=KINDS[f.k];
+  }
+
+  var list=document.getElementById("fields");
+  FIELDS.forEach(function(f){
+    var row=document.createElement("div");
+    row.className="field";
+    if(f.branch) row.dataset.branch="1";
+    var bspan=(f.bits[1]>f.bits[0])?"b"+f.bits[0]+"-"+f.bits[1]:"b"+f.bits[0];
+    row.innerHTML="<span class='fb'>"+bspan+"</span>"+
+      "<span class='fn'>"+f.label+"</span>"+
+      "<span class='fv k-"+f.k+"'>"+f.val+"</span>";
+    if(f.branch){
+      var bwrap=document.createElement("div"); bwrap.className="branch";
+      var rows=f.branch.map(function(p,i){ return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>"; }).join("");
+      bwrap.innerHTML="<table>"+rows+"</table>";
+      row.appendChild(bwrap);
+    }
+    row.addEventListener("mouseenter", function(){ light(f.bits[0],f.bits[1]); show(f); });
+    row.addEventListener("click", function(){
+      if(!f.branch) return;
+      var was=row.classList.contains("active");
+      list.querySelectorAll(".field.active").forEach(function(r){ r.classList.remove("active"); });
+      if(!was){ row.classList.add("active"); light(f.bits[0],f.bits[1]); show(f); }
+    });
+    list.appendChild(row);
+  });
+  list.addEventListener("mouseleave", function(){ if(!list.querySelector(".field.active")) clear(); });
+})();
+</script>
+</body>
+</html>
