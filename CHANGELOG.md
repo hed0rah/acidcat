@@ -5,6 +5,22 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.9.4] - 2026-06-29
+
+### Fixed
+
+- `inspect` derives WAV duration from the `fact` chunk's sample count for
+  non-PCM audio instead of `bytes / block_align`. ADPCM packs many samples
+  per block, so a data chunk previously reported ~0.000 s; it now reports the
+  true duration. The PCM and overrun paths are unchanged.
+- `inspect` labels AIFC compressed duration as approximate. `num_sample_frames`
+  counts packets, not sample frames, for compressed codecs (e.g. ima4), so a
+  `frames / rate` figure is only a lower bound; it now shows `~N s (approx)`
+  with a warning. Uncompressed AIFC (NONE/sowt/twos/float) stays exact.
+- `inspect` sanity-checks the MP3 Xing/VBRI `frame_count` against the frames
+  actually walked and warns on a wild divergence; a bogus VBR count otherwise
+  yields a wrong duration silently.
+
 ## [0.9.3] - 2026-06-28
 
 ### Fixed
