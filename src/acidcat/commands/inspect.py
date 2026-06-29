@@ -1646,6 +1646,19 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args):
     return 0
 
 
+def _id3_tagged_mp3(filepath):
+    """A file starting with an ID3v2 tag is MP3 only if the tag does not
+    merely wrap a different known container. Some tools prepend an ID3 tag
+    to a WAV/AIFF/FLAC; that is not an MP3 and must not be claimed as one."""
+    hdr = mp3mod.read_id3v2(filepath)
+    if not hdr:
+        return True  # "ID3" magic but an unreadable header; treat as an MP3 attempt
+    with open(filepath, "rb") as f:
+        f.seek(hdr["total"])
+        nxt = f.read(4)
+    return nxt not in (b"RIFF", b"RF64", b"FORM", b"fLaC", b"MThd")
+
+
 def run(args):
     filepath = args.target
     if not os.path.isfile(filepath):
@@ -1674,6 +1687,10 @@ def run(args):
     elif magic[:4] == b"fLaC":
         fmt_label = "FLAC"
         chunks, file_warns = inspect_flac(filepath)
+    elif magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
+        print("acidcat inspect: ID3 tag wraps a non-MP3 container; not "
+              "supported", file=sys.stderr)
+        return 1
     elif magic[:3] == b"ID3" or (len(magic) >= 4
                                  and mp3mod.decode_frame_header(magic[:4]) is not None):
         fmt_label = "MP3/MPEG audio"

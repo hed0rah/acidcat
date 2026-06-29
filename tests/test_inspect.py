@@ -587,6 +587,15 @@ class TestRunCli:
         out = capsys.readouterr().out
         assert "MP3/MPEG audio" in out
 
+    def test_id3_wrapped_wav_not_dispatched_as_mp3(self, tmp_path, capsys):
+        # an ID3v2 tag prepended to a RIFF/WAVE must not be claimed as MP3.
+        wav = b"RIFF" + struct.pack("<I", 4 + len(_fmt()) + len(_data(4))) \
+            + b"WAVE" + _fmt() + _data(4)
+        p = tmp_path / "x.wav"
+        p.write_bytes(_id3v2(_id3_text_frame(b"TIT2", "x")) + wav)
+        assert run(self._args(str(p))) == 1
+        assert "not" in capsys.readouterr().err.lower()
+
     def test_adts_aac_not_dispatched_as_mp3(self, tmp_path, capsys):
         # raw ADTS AAC: sync 0xFFF but layer bits 00. the old 11-bit-sync
         # gate misread it as MP3; now it must be cleanly rejected.
