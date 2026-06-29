@@ -444,6 +444,13 @@ def _bu32(b, off):
     return struct.unpack_from(">I", b, off)[0]
 
 
+# AIFC compression types that store real PCM sample frames (so frames/rate
+# is an exact duration). Everything else is block/packet-coded, where
+# num_sample_frames is a packet count and the duration is only approximate.
+_AIFC_UNCOMPRESSED = ("NONE", "sowt", "twos", "raw ", "fl32", "fl64",
+                      "FL32", "FL64", "in24", "in32", "23ni", "42ni")
+
+
 def _aiff_comm(b, ctx, form_type):
     fields, warns = [], []
     if len(b) < 18:
@@ -460,10 +467,13 @@ def _aiff_comm(b, ctx, form_type):
         warns.append("sample rate decodes to 0")
 
     comp = "PCM"
+    uncompressed = True
     if form_type == "AIFC":
+        uncompressed = False
         if len(b) >= 22:
             comp4 = b[18:22].decode("ascii", errors="replace")
             comp = comp4.strip() or "none"
+            uncompressed = comp4 in _AIFC_UNCOMPRESSED
             known = "" if comp4 in _AIFC_KNOWN_COMPRESSION else "unknown type"
             fields.append(_f(0x12, 4, "compression_type", comp4, known))
             if known:
@@ -477,7 +487,16 @@ def _aiff_comm(b, ctx, form_type):
             ctx["compression"] = comp4
         else:
             warns.append("AIFC COMM missing the compression type")
-    dur = f", {frames / rate:.3f} s" if rate else ""
+    if not rate:
+        dur = ""
+    elif uncompressed:
+        dur = f", {frames / rate:.3f} s"
+    else:
+        # num_sample_frames counts packets for compressed codecs, not sample
+        # frames, so frames/rate is only a lower bound; label it approximate.
+        dur = f", ~{frames / rate:.3f} s (approx)"
+        warns.append("AIFC duration is approximate: num_sample_frames counts "
+                     "packets, not sample frames, for compressed audio")
     summary = f"{comp} {bits}-bit {ch}ch {int(rate)} Hz{dur}"
     return summary, fields, warns
 
@@ -1464,6 +1483,7 @@ def inspect_mp3(filepath, deep=False):
             })
         elif deep:
             truncated = True
+    walked = count
     if vbr_frames:
         count = vbr_frames
     spf = fh["samples_per_frame"]
@@ -1479,6 +1499,10 @@ def inspect_mp3(filepath, deep=False):
                                _f(None, 0, "duration", f"{duration:.3f} s"),
                                _f(None, 0, "vbr", not cbr)],
                     "warnings": []}
+    if vbr_frames and walked and abs(vbr_frames - walked) > max(2, walked // 20):
+        frames_entry["warnings"].append(
+            f"Xing/VBRI frame_count {vbr_frames:,} diverges from {walked:,} "
+            f"frames walked; VBR duration may be wrong")
     if deep:
         frames_entry["rows"] = rows
         if truncated:
