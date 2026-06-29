@@ -100,7 +100,7 @@ Common frames acidcat surfaces:
 Every audio frame starts with a 4-byte header:
 
 ```
- syncword          11 bits   always set (0xFFE)
+ syncword          11 bits   all ones (0x7FF; first 12 bits read 0xFFF)
  version            2 bits   00=MPEG2.5 01=reserved 10=MPEG2 11=MPEG1
  layer              2 bits   00=reserved 01=Layer III 10=Layer II 11=Layer I
  protection         1 bit    0 = 16-bit CRC follows the header
@@ -180,7 +180,8 @@ struct xing {
 ```
 
 `Xing` means true VBR; `Info` means CBR written by LAME. VBRI is a
-Fraunhofer-encoder variant at a fixed offset of 32 bytes; less common.
+Fraunhofer-encoder variant at offset 36 from the frame start (32 bytes
+after the 4-byte header); less common.
 
 ### LAME Tag
 
