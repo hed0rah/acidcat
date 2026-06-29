@@ -309,10 +309,10 @@ Common flag values:
 ### Hex Example (24 bytes)
 
 ```
-00000000  06 00 00 00  3C 00 00 00  00 00 00 00  00 00 00 00
-          ^^^^flags    ^^^^root=C4
-00000010  08 00 00 00  04 00 04 00  00 00 BE 42
-          ^^^^beats=8  ^^^^meter    ^^^^tempo=95.0
+00000000  06 00 00 00  3C 00 00 00  00 00 00 00  08 00 00 00
+          ^^^^flags    ^^^^root=C4               ^^^^beats=8
+00000010  04 00 04 00  00 00 BE 42
+          ^^^^meter    ^^^^tempo=95.0
 ```
 
 ---
@@ -565,8 +565,8 @@ struct bext_chunk {
     char     originator_reference[32];  // unique reference
     char     origination_date[10];      // "YYYY-MM-DD"
     char     origination_time[8];       // "HH:MM:SS"
-    uint64_t time_reference_low;        // sample count since midnight
-    uint64_t time_reference_high;       // (low + high<<32 = total)
+    uint32_t time_reference_low;        // low 32 bits, sample count since midnight
+    uint32_t time_reference_high;       // high 32 bits (low + high<<32 = total)
     uint16_t version;                   // BWF version (0, 1, or 2)
     uint8_t  umid[64];                  // SMPTE UMID (v1+)
     int16_t  loudness_value;            // EBU R128 (v2+)
@@ -686,8 +686,8 @@ permissive, so a real-world walker meets all of these.
 - **stale `riff_size`**: the header's size field is widely left wrong by
   writers and ignored by players. acidcat does not trust it for parsing, only
   lints the mismatch against the real file length.
-- **root note 0**: in both `acid` and `smpl`, a root note of 0 is the documented
-  "unset" sentinel, not MIDI note C-1. Treat 0 as absent.
+- **root note 0**: in both `acid` and `smpl`, a root note of 0 is conventionally
+  treated as an "unset" sentinel, not MIDI note C-1. Treat 0 as absent.
 - **one-shot flag lies**: the `acid` one-shot bit is set on real loops by some
   batch taggers, and boilerplate 8-beat / 120-bpm values are left in true
   one-shots. acidcat only trusts `num_beats` when the one-shot bit is clear, or

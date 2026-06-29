@@ -131,7 +131,7 @@ def _parse_fmt(b, ctx):
 
     if tag == 1 and ch and bits and align != ch * bits // 8:
         warns.append(f"block_align {align} != channels*bits/8 = {ch * bits // 8}")
-    if rate and align and avg != rate * align:
+    if tag == 1 and rate and align and avg != rate * align:
         warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
 
     if tag == 0xFFFE and len(b) >= 40:
@@ -1211,6 +1211,11 @@ def inspect_flac(filepath):
                 entry["summary"] = f"reserved block type {btype}, {length:,} bytes"
         except Exception as e:
             entry["warnings"] = [f"parse error: {e.__class__.__name__}: {e}"]
+        if last_end > file_size:
+            entry["warnings"].append(
+                f"declared length {length:,} overruns the file by "
+                f"{last_end - file_size:,} bytes "
+                f"(only {max(0, file_size - off - 4):,} present)")
         chunks.append(entry)
         if is_last:
             saw_last = True
@@ -1405,7 +1410,7 @@ def inspect_mp3(filepath, deep=False):
             f"first frame sync"
         )
     fields = [
-        _f(0x00, 4, "sync", "0xffe", f"{fh['version']}, {fh['layer']}"),
+        _f(0x00, 4, "sync", "0x7ff", f"{fh['version']}, {fh['layer']}"),
         _f(None, 0, "bitrate", fh["bitrate"], "kbps (first frame)"),
         _f(None, 0, "sample_rate", fh["sample_rate"], "Hz"),
         _f(None, 0, "channel_mode", fh["channel_mode_name"]),
@@ -1619,8 +1624,8 @@ def run(args):
     elif magic[:4] == b"fLaC":
         fmt_label = "FLAC"
         chunks, file_warns = inspect_flac(filepath)
-    elif magic[:3] == b"ID3" or (len(magic) >= 2 and magic[0] == 0xFF
-                                 and (magic[1] & 0xE0) == 0xE0):
+    elif magic[:3] == b"ID3" or (len(magic) >= 4
+                                 and mp3mod.decode_frame_header(magic[:4]) is not None):
         fmt_label = "MP3/MPEG audio"
         chunks, file_warns = inspect_mp3(filepath, deep=deep)
     else:

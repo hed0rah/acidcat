@@ -67,7 +67,7 @@ The format descriptor. Required. Equivalent to WAV's `fmt ` chunk.
 
 ```
 "COMM"
-uint32_t size       // 18 for AIFF, 22+ for AIFC
+uint32_t size       // 18 for AIFF, 24 min for AIFC (22 + padded name)
 
 struct comm_chunk {
     int16_t  num_channels;       // 1=mono, 2=stereo
@@ -133,7 +133,7 @@ mantissa = bytes 2..9 as uint64 big-endian
 
 if exponent == 0 and mantissa == 0:  value = 0.0
 if exponent == 0x7FFF:               value = infinity
-else: value = sign * (mantissa / 2^63) * 2^(exponent - 16383)
+else: value = (-1)^sign * (mantissa / 2^63) * 2^(exponent - 16383)
 ```
 
 ```
@@ -146,7 +146,7 @@ bit-level map (10 bytes):
   ^ sign          15-bit exponent   explicit-1 mantissa, BE
                   bias 16383        (no hidden bit, unlike f32/f64)
 
-value = sign * (mantissa / 2^63) * 2^(exponent - 16383)
+value = (-1)^sign * (mantissa / 2^63) * 2^(exponent - 16383)
 ```
 
 Common values (hand-verified; note the top mantissa word of 44100
