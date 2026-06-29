@@ -98,6 +98,21 @@ class TestInspectWav:
         frames = next(f for f in data["fields"] if f["name"] == "frames")
         assert frames["value"] == 4  # 8 bytes present / 2-byte align, not ~1e9
 
+    def test_adpcm_duration_uses_fact_not_block_align(self, tmp_path):
+        # ADPCM block_align is a block size (many samples/block), so
+        # bytes/align gives a near-zero bogus duration; the fact chunk's
+        # sample count is authoritative and must win.
+        fmt = _chunk(b"fmt ", struct.pack(
+            "<HHIIHH", 0x0011, 1, 44100, 11100, 1024, 4))
+        fact = _chunk(b"fact", struct.pack("<I", 44100))  # 1.0 s of samples
+        data = _chunk(b"data", b"\x00" * 2048)            # only 2 blocks
+        path = _wav(tmp_path, fmt, fact, data)
+        chunks, _ = inspect_wav(path)
+        d = next(c for c in chunks if c["id"] == "data")
+        frames = next(f for f in d["fields"] if f["name"] == "frames")
+        assert frames["value"] == 44100
+        assert "1.000 s" in d["summary"]
+
     def test_adpcm_avg_bytes_not_linted(self, tmp_path):
         # avg_bytes_per_sec == sample_rate*block_align is a PCM-only identity.
         # ADPCM (tag 0x0011) legitimately breaks it; the lint must stay quiet.
