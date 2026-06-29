@@ -30,9 +30,9 @@ Last updated: 2026-05-02
 |--------|------|--------|-----------------------|
 | [MP3](formats/mp3.md) ([anatomy](formats/mp3-anatomy.html)) | `.mp3` | Full support | BPM, key, title, artist, album, genre, comment (ID3v2) |
 | [FLAC](formats/flac.md) ([anatomy](formats/flac-anatomy.html)) | `.flac` | Full support | BPM, key, title, artist, album, genre (Vorbis Comment) |
-| [OGG](formats/ogg.md) | `.ogg`, `.oga` | Full support | BPM, key, title, artist (Vorbis Comment) |
+| [OGG](formats/ogg.md) ([anatomy](formats/ogg-anatomy.html)) | `.ogg`, `.oga` | Full support | BPM, key, title, artist (Vorbis Comment) |
 | [Opus](formats/ogg.md) | `.opus` | Full support | BPM, key, title, artist (Vorbis Comment) |
-| [MP4 / M4A](formats/mp4_m4a.md) | `.m4a`, `.mp4` | Full support | BPM (tmpo), key, title, artist, album (iTunes atoms) |
+| [MP4 / M4A](formats/mp4_m4a.md) ([anatomy](formats/mp4-anatomy.html)) | `.m4a`, `.mp4` | Full support | BPM (tmpo), key, title, artist, album (iTunes atoms) |
 
 ### Proprietary Instruments (partial reverse-engineering)
 

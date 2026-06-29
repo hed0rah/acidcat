@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / mp4 anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E7E5E1; --panel:#ECEAE6; --ink:#1F1E1C; --soft:#69675F;
+  --faint:#9A9789; --line:#CCCABF; --hair:#D8D6CC;
+  /* mp4 palette: clay/rust value, clay flag */
+  --enum:#8A5A3C;  --enum-soft:#E7DBCF;
+  --flag:#9A6E3F;  --flag-soft:#E7DCCB;
+  --rsv:#9A9789;   --rsv-soft:rgba(31,30,28,0.03);
+  --sync:#6E5142;  --sync-soft:#E3D8CF;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.7rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500} .region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px}
+.region.req .rname::after{content:"req";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--enum);border:1px solid var(--enum);padding:1px 4px}
+.region .rbody{padding:0.6rem 1rem 1.1rem 3rem;border-top:1px solid var(--hair)}
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.3rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+/* bit diagram (byte groups) */
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+/* byte diagram */
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:26rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>MP4 / M4A</h1></div>
+      <div class="stamp"><b>ISO Base Media</b>container . big-endian<br>rev 2026.06</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"ftyp" @ 4</b></div><div>endian <b>big</b></div>
+      <div>container <b>nested boxes</b></div><div>codec <b>AAC / ALAC</b></div>
+    </div>
+  </div>
+
+  <p class="lede">An <b>MP4 / M4A</b> is a tree of nested boxes (atoms): every box opens with a big-endian u32 size and a four-character type code, then holds either more boxes or a typed payload. Defined by <b>ISO/IEC 14496-12</b> (ISO Base Media File Format), originally derived from QuickTime. <b>Hover</b> a field to light its bytes, <b>click</b> a <span class="k-en">+</span> for its lookup table. Colour marks kind: <span class="k-en">rust</span> a decoded value, <span class="k-fl">clay</span> a flag, faint reserved or length.</p>
+
+  <div class="sec">box regions</div>
+  <p class="note">Every MP4 is a flat sequence of top-level boxes; moov holds the entire metadata tree.</p>
+  <div>
+    <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">ftyp</span><span class="rspan">first box . brand declaration</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">major_brand</span><span class="v">4cc identifying the primary spec, e.g. "M4A " for Apple AAC audio</span></div>
+        <div><span class="k">minor_version</span><span class="v">informational; parsers must not gate playback on this value</span></div>
+        <div><span class="k">compatible_brands</span><span class="v">array of 4cc to end of box; any match is sufficient for a reader</span></div>
+      </div></div></details>
+    <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">moov</span><span class="rspan">movie container . entire metadata tree</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">mvhd</span><span class="v">timescale, duration, creation and modification times</span></div>
+        <div><span class="k">trak</span><span class="v">one per track; audio track contains mdia &gt; minf &gt; stbl &gt; stsd</span></div>
+        <div><span class="k">stsd</span><span class="v">sample description: "mp4a" = AAC, "alac" = Apple Lossless</span></div>
+        <div><span class="k">udta / ilst</span><span class="v">iTunes tag atoms nested under moov &gt; udta &gt; meta &gt; ilst</span></div>
+      </div></div></details>
+    <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">mdat</span><span class="rspan">media data . raw encoded samples</span></summary>
+      <div class="rbody"><p class="note">Raw encoded audio frames with no intrinsic framing. May appear before moov (streaming layout) or after it. The stco/co64 box inside stbl holds absolute file offsets into mdat; duration = stts sample count / mvhd timescale.</p></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">free / skip</span><span class="rspan">padding . in-place edit slack</span></summary>
+      <div class="rbody"><p class="note">Payload is zeroed or arbitrary. Sized to let moov be rewritten in place without moving stco sample offsets into mdat.</p></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">udta / meta / ilst</span><span class="rspan">iTunes tags</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">path</span><span class="v">moov &gt; udta &gt; meta &gt; ilst &gt; &#169;nam, &#169;ART, &#169;day, aART, trkn, covr</span></div>
+        <div><span class="k">covr</span><span class="v">artwork: nested data atom, type flag 0x0D = JPEG, 0x0E = PNG</span></div>
+        <div><span class="k">note</span><span class="v">meta is a FullBox (version + 3-byte flags precede its children)</span></div>
+      </div></div></details>
+  </div>
+
+  <div class="sec">box header</div>
+  <p class="note">8 bytes before every box. Example: 00 00 00 18 66 74 79 70 = size 24, type "ftyp".</p>
+  <div id="box-hdr"></div>
+
+  <div class="sec">ftyp box payload</div>
+  <p class="note">16-byte payload after the 8-byte header (total box = 24 bytes). major_brand "M4A ", minor_version 0, compatible_brands "M4A " + "mp42".</p>
+  <div id="ftyp-pay"></div>
+
+  <div class="sec">the box tree</div>
+  <p class="note">Typical top-level layout for an M4A audio file. All timing, codec, and tag metadata lives inside moov; raw samples live in mdat.</p>
+  <pre style="font-size:0.8rem;color:var(--soft);line-height:2;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem">ftyp              brand declaration (first box in file)
+moov              movie container
+  mvhd            timescale + duration  (real playback length = duration / timescale)
+  trak            audio track
+    mdia
+      minf
+        stbl
+          stsd    codec description ("mp4a" = AAC, "alac" = ALAC)
+          stts    time-to-sample table
+          stsc    sample-to-chunk mapping
+          stsz    per-sample byte sizes
+          stco    chunk offsets (absolute byte positions into mdat)
+  udta            user data
+    meta          metadata container (FullBox)
+      ilst         iTunes tag atoms (title, artist, artwork, BPM ...)
+mdat              raw encoded audio samples</pre>
+
+  <footer><span>acidcat / mp4 anatomy</span><span>ISO-BMFF . ftyp M4A  . box header + ftyp payload</span></footer>
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // box header: 00 00 00 18 66 74 79 70 = size 24, type "ftyp"
+  build("box-hdr","byte",[0x00,0x00,0x00,0x18,0x66,0x74,0x79,0x70],[
+    {label:"size",k:"sync",r:[0,3],val:"24 (0x00000018)",
+      body:"Big-endian u32 giving the total byte count of this box, header included. 0x00000018 = 24. Special values: 0 means box extends to EOF; 1 means a 64-bit largesize u64 follows the type field at bytes 8-15, making the header 16 bytes total.",
+      note:"A FullBox variant (mvhd, meta, stsd, etc.) appends a 1-byte version and 3-byte flags immediately after this 8-byte base header.",
+      branch:[["0","box extends to end of file"],["1","64-bit largesize u64 follows at bytes 8-15"],["24 (0x18)","this box is 24 bytes total"]],sel:2},
+    {label:"type (fourCC)",k:"sync",r:[4,7],val:'"ftyp"',
+      body:'Four-character code identifying the box kind. 0x66747970 = "ftyp" in ASCII. The type drives how the payload is interpreted; unknown box types must be skipped using the size field, never aborted on.',
+      note:"fourCC values containing lower-case letters are user-space extension boxes by convention.",
+      branch:[["ftyp","file type brand declaration"],["moov","movie container (metadata tree)"],["trak","track container (audio or video)"],["mdia","media information container"],["minf","media handler information"],["stbl","sample table (offsets, sizes, timestamps)"],["stsd","sample description / codec"],["mdat","media data (raw encoded samples)"],["mvhd","movie header: timescale and duration"],["free","free space (skip over payload)"],["udta","user data (iTunes tags)"],["meta","metadata container (FullBox)"]],sel:0}
+  ]);
+
+  // ftyp payload: major_brand "M4A ", minor_version 0, compat "M4A " + "mp42"
+  build("ftyp-pay","byte",
+    [0x4D,0x34,0x41,0x20, 0x00,0x00,0x00,0x00, 0x4D,0x34,0x41,0x20, 0x6D,0x70,0x34,0x32],
+    [
+      {label:"major_brand",k:"sync",r:[0,3],val:'"M4A "',
+        body:'Primary specification for this file. 0x4D344120 = "M4A " -- note the trailing space, all four bytes are significant. Identifies the Apple/iTunes AAC audio profile.',
+        note:'The ftyp box must be the first box in the file; its position implies no prior seek is needed to determine the file type.',
+        branch:[["M4A ","Apple AAC audio profile (iTunes)"],["mp42","MPEG-4 Part 2"],["isom","ISO Base Media File Format v1"],["iso2","ISO Base Media File Format v2"],["qt  ","QuickTime (.mov)"],["dash","MPEG-DASH streaming"],["M4V ","iTunes video"],["m4b ","iTunes audiobook"]],sel:0},
+      {label:"minor_version",k:"rsv",r:[4,7],val:"0",
+        body:"Big-endian u32 informational minor version of the major brand specification. Typically 0 for M4A. Parsers must not use this to gate playback compatibility."},
+      {label:"compatible_brands[0]",k:"enum",r:[8,11],val:'"M4A "',
+        body:'First entry in the compatible brands list. A reader may play the file if it recognises any brand in this list. "M4A " here asserts the file fully satisfies the M4A profile.',
+        note:"The list repeats to end of the ftyp box; each entry is exactly 4 bytes."},
+      {label:"compatible_brands[1]",k:"enum",r:[12,15],val:'"mp42"',
+        body:'Second compatible brand: MPEG-4 Part 2. A reader that implements mp42 can decode this file even without explicit M4A support. More brands may follow in larger ftyp boxes.'}
+    ]);
+})();
+</script>
+</body>
+</html>
