@@ -64,7 +64,7 @@ struct mthd {
 |-------|------------------|-----------------------------------------|
 | 0     | Single track     | everything in one MTrk                  |
 | 1     | Multi-track sync | track 0 = tempo map, tracks 1+ = parts  |
-| 2     | Multi-track async| independent sequences (rare)            |
+| 2     | Multi-track async| independent patterns (rare)             |
 
 Format 0 is common in sample pack MIDIs (simple, one-track files).
 Format 1 is standard for DAW exports and complex arrangements.
@@ -80,7 +80,8 @@ if bit 15 == 0:
 
 if bit 15 == 1:
     // SMPTE-based timing (rare in music production)
-    smpte_format = -(division >> 8)   // -24, -25, -29, -30
+    hi = division >> 8                          // reinterpret high byte
+    smpte_format = hi - 256 if hi >= 128 else hi // signed int8: -24,-25,-29,-30
     ticks_per_frame = division & 0xFF
 ```
 
@@ -322,7 +323,7 @@ Common values:
 | 140 | 428571    | `06 8A 1B`   |
 | 100 | 600000    | `09 27 C0`   |
 | 90  | 666667    | `0A 2C 2B`   |
-| 172 | 348837    | `05 53 A5`   |
+| 172 | 348837    | `05 52 A5`   |
 
 Multiple tempo events create tempo changes. Track 0 should contain
 the tempo map in format 1 files.

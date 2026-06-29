@@ -61,14 +61,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
 .bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
 .bytegrp .brow{display:flex}
-.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
 .bit:last-child{border-right:none}
 .bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
 /* byte diagram */
 .dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
 .bcol{display:flex;flex-direction:column;align-items:center}
 .bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
-.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
 .fstart{box-shadow:inset 2px 0 0 var(--line)}
 .k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
 .k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
@@ -77,12 +77,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .hi.k-flag{background:var(--flag);color:var(--paper)}
 .hi.k-rsv{background:var(--faint);color:var(--paper)}
 
-.body2{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:start}
-@media(max-width:820px){.body2{grid-template-columns:1fr}}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
 .fields{border-top:1px solid var(--line)}
 .field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
-.field[data-branch]{cursor:pointer}
-.field:hover,.field.active{background:var(--panel)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
 .field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
 .field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
 .field.active[data-branch] .fn::after{content:"\2212"}
@@ -93,7 +95,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:26rem}
 .branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:4rem;text-align:right}
 .branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
-.detail{position:sticky;top:1.4rem;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;min-height:180px}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
 .detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
 .detail .dl .kind{color:var(--soft)}
 .detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
@@ -197,24 +200,27 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       });
     }
 
-    var body=document.createElement("div"); body.className="body2";
     var list=document.createElement("div"); list.className="fields";
     var aside=document.createElement("aside"); aside.className="detail";
     aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
-      "<h3>Hover a field</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
-      "<p>Move over a row to light it and read the decode. Click a row marked + for its table.</p><div class='dn'></div>";
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
     var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
     var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
     function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
-    function clear(){cells.forEach(function(c){c.classList.remove("hi");});}
-    function rangeLabel(f){ return unit==="bit"
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
       ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
       : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
-    function show(f){det.t.textContent=f.label;det.c.textContent=rangeLabel(f)+"  =  "+f.val;
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
       det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
-
-    fields.forEach(function(f){
-      var row=document.createElement("div"); row.className="field"; if(f.branch) row.dataset.branch="1";
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
       var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
       row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
       if(f.branch){
@@ -222,16 +228,33 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
         row.appendChild(bw);
       }
-      row.addEventListener("mouseenter",function(){light(f.r[0],f.r[1]);show(f);});
-      row.addEventListener("click",function(){ if(!f.branch)return;
-        var was=row.classList.contains("active");
-        list.querySelectorAll(".field.active").forEach(function(r){r.classList.remove("active");});
-        if(!was){row.classList.add("active");light(f.r[0],f.r[1]);show(f);}});
-      list.appendChild(row);
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
     });
-    list.addEventListener("mouseleave",function(){if(!list.querySelector(".field.active"))clear();});
-    body.appendChild(list); body.appendChild(aside);
-    mount.appendChild(diagram); mount.appendChild(body);
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
   }
 
   // metadata block header: final VORBIS_COMMENT, length 304  ->  84 00 01 30
