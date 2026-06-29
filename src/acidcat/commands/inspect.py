@@ -159,9 +159,20 @@ def _parse_data(b, ctx, size, avail=None):
     # already lint at the file level; never derive frames/duration from it.
     overrun = avail is not None and size > avail
     eff = avail if overrun else size
+    fact = ctx.get("fact_samples")
+    # bytes / block_align is the frame count only for uncompressed audio.
+    # block-compressed formats (ADPCM) pack many samples per block, so trust
+    # the fact chunk's sample count when present. on an overrun we still
+    # derive from the bytes actually present, never a declared count.
     frames = None
-    if align:
+    if overrun:
+        if align:
+            frames = eff // align
+    elif fact is not None:
+        frames = fact
+    elif align:
         frames = eff // align
+    if frames is not None:
         ctx["frames"] = frames
     if overrun:
         summary = f"audio payload, {size:,} bytes declared, only {avail:,} present"
@@ -173,6 +184,8 @@ def _parse_data(b, ctx, size, avail=None):
         note = f"{dur:.3f} s at {rate} Hz"
         if overrun:
             note += ", from bytes present (chunk overruns)"
+        elif fact is not None:
+            note += ", from fact chunk"
         summary += f", {dur:.3f} s"
         fields.append(_f(0x00, eff, "frames", frames, note))
     if size == 0:
@@ -186,6 +199,7 @@ def _parse_fact(b, ctx):
     n = _u32(b, 0)
     rate = ctx.get("sample_rate")
     note = f"{n / rate:.3f} s" if rate and n else ""
+    ctx["fact_samples"] = n
     ctx.setdefault("frames", n)
     return f"{n:,} samples/channel", [_f(0x00, 4, "sample_length", n, note)], []
 
