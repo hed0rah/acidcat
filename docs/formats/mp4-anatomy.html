@@ -35,6 +35,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .head .strip b{color:var(--ink);font-weight:500}
 .lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
 .lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
+.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
 .k-en{color:var(--enum)} .k-fl{color:var(--flag)}
 .sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
 .sec::after{content:"";flex:1;height:1px;background:var(--line)}
@@ -119,7 +127,10 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     </div>
   </div>
 
+  <div class="intro">
   <p class="lede">An <b>MP4 / M4A</b> is a tree of nested boxes (atoms): every box opens with a big-endian u32 size and a four-character type code, then holds either more boxes or a typed payload. Defined by <b>ISO/IEC 14496-12</b> (ISO Base Media File Format), originally derived from QuickTime. <b>Hover</b> a field to light its bytes, <b>click</b> a <span class="k-en">+</span> for its lookup table. Colour marks kind: <span class="k-en">rust</span> a decoded value, <span class="k-fl">clay</span> a flag, faint reserved or length.</p>
+  <aside class="sig" aria-hidden="true"></aside>
+  </div>
 
   <div class="sec">box regions</div>
   <p class="note">Every MP4 is a flat sequence of top-level boxes; moov holds the entire metadata tree.</p>
@@ -159,24 +170,20 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
 
   <div class="sec">the box tree</div>
   <p class="note">Typical top-level layout for an M4A audio file. All timing, codec, and tag metadata lives inside moov; raw samples live in mdat.</p>
-  <pre style="font-size:0.8rem;color:var(--soft);line-height:2;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem">ftyp              brand declaration (first box in file)
-moov              movie container
-  mvhd            timescale + duration  (real playback length = duration / timescale)
-  trak            audio track
-    mdia
-      minf
-        stbl
-          stsd    codec description ("mp4a" = AAC, "alac" = ALAC)
-          stts    time-to-sample table
-          stsc    sample-to-chunk mapping
-          stsz    per-sample byte sizes
-          stco    chunk offsets (absolute byte positions into mdat)
-  udta            user data
-    meta          metadata container (FullBox)
-      ilst         iTunes tag atoms (title, artist, artwork, BPM ...)
-mdat              raw encoded audio samples</pre>
+  <pre class="tree"><b>ftyp</b>  brand declaration (first box in file)
+<b>moov</b>  movie container
+├─ <b>mvhd</b>  timescale + duration  (length = duration / timescale)
+├─ <b>trak</b>  audio track
+│   └─ <b>mdia</b> › <b>minf</b> › <b>stbl</b>  sample tables
+│        ├─ <b>stsd</b>  codec  ("mp4a" = AAC, "alac" = ALAC)
+│        ├─ <b>stts</b>  time-to-sample table
+│        ├─ <b>stsc</b>  sample-to-chunk mapping
+│        ├─ <b>stsz</b>  per-sample byte sizes
+│        └─ <b>stco</b>  chunk offsets into mdat
+└─ <b>udta</b> › <b>meta</b> › <b>ilst</b>  iTunes tags (title, artist, artwork, BPM ...)
+<b>mdat</b>  raw encoded audio samples</pre>
 
-  <footer><span>acidcat / mp4 anatomy</span><span>ISO-BMFF . ftyp M4A  . box header + ftyp payload</span></footer>
+  <footer><span>acidcat / mp4 anatomy</span><span>ISO-BMFF . ftyp M4A  . box header + ftyp payload</span><span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
 </div>
 
 <script>

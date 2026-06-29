@@ -35,6 +35,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .head .strip b{color:var(--ink);font-weight:500}
 .lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
 .lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
+.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
 .k-en{color:var(--enum)} .k-fl{color:var(--flag)}
 .sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
 .sec::after{content:"";flex:1;height:1px;background:var(--line)}
@@ -119,7 +127,10 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     </div>
   </div>
 
+  <div class="intro">
   <p class="lede">A FLAC is the <b>fLaC</b> marker, a run of metadata blocks, then audio frames. Each block opens with a 4-byte header: a last-block flag, a 7-bit type, and a 24-bit length. STREAMINFO is first and required. <b>Hover</b> a field to light its bits or bytes, <b>click</b> a <span class="k-en">+</span> for its table. Colour marks kind: <span class="k-en">indigo</span> a decoded value, <span class="k-fl">clay</span> a flag, faint reserved. <b>* the one trap:</b> FLAC is big-endian everywhere except the VORBIS_COMMENT block, whose lengths are little-endian.</p>
+  <aside class="sig" aria-hidden="true"></aside>
+  </div>
 
   <div class="sec">block regions</div>
   <p class="note">Walked in order until the block whose last-block flag is set; the audio frames begin right after.</p>
@@ -157,7 +168,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   <p class="note">34 bytes. Example: 44100 Hz, 2 channels, 16-bit, 88200 samples.</p>
   <div id="block-si"></div>
 
-  <footer><span>acidcat / flac anatomy</span><span>fLaC . streaminfo 44100/2/16 . 88200 samples</span></footer>
+  <footer><span>acidcat / flac anatomy</span><span>fLaC . streaminfo 44100/2/16 . 88200 samples</span><span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
 </div>
 
 <script>
