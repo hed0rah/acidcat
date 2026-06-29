@@ -35,6 +35,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .head .strip b{color:var(--ink);font-weight:500}
 .lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
 .lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
+.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
 .k-en{color:var(--enum)} .k-fl{color:var(--flag)}
 .sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
 .sec::after{content:"";flex:1;height:1px;background:var(--line)}
@@ -107,7 +115,10 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     </div>
   </div>
 
+  <div class="intro">
   <p class="lede">AIFF is Apple's IFF container: a <b>FORM</b> header, a form type (AIFF or compressed AIFC), then chunks, all big-endian. It mirrors RIFF with the bytes flipped and COMM in place of fmt. The standout is the sample rate, stored as an <b>80-bit IEEE-754 extended float</b> that Python's struct cannot unpack, reassembled by hand. <b>Hover</b> a field to light its bytes, <b>click</b> a <span class="k-en">+</span> for its table. Colour marks kind: <span class="k-en">teal</span> a decoded value, <span class="k-fl">ochre</span> a flag, faint reserved.</p>
+  <aside class="sig" aria-hidden="true"></aside>
+  </div>
 
   <div class="sec">chunk regions</div>
   <p class="note">FORM wraps the lot; COMM and SSND are required, the rest optional. Big-endian sizes, word-aligned with a pad byte on odd lengths.</p>
@@ -145,7 +156,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   <p class="note">18 bytes for AIFF. Example: 2 channels, 88200 frames, 16-bit, 44100 Hz.</p>
   <div id="block-comm"></div>
 
-  <footer><span>acidcat / aiff anatomy</span><span>form/aiff . 2ch 16-bit 44100 . 80-bit extended rate</span></footer>
+  <footer><span>acidcat / aiff anatomy</span><span>form/aiff . 2ch 16-bit 44100 . 80-bit extended rate</span><span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
 </div>
 
 <script>
