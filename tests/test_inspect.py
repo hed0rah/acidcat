@@ -98,6 +98,15 @@ class TestInspectWav:
         frames = next(f for f in data["fields"] if f["name"] == "frames")
         assert frames["value"] == 4  # 8 bytes present / 2-byte align, not ~1e9
 
+    def test_adpcm_avg_bytes_not_linted(self, tmp_path):
+        # avg_bytes_per_sec == sample_rate*block_align is a PCM-only identity.
+        # ADPCM (tag 0x0011) legitimately breaks it; the lint must stay quiet.
+        fmt = _chunk(b"fmt ", struct.pack(
+            "<HHIIHH", 0x0011, 2, 44100, 11100, 1024, 4))
+        path = _wav(tmp_path, fmt, _data())
+        _, warns = inspect_wav(path)
+        assert not any("avg_bytes_per_sec" in w for w in warns)
+
 
 RATE_44100 = bytes.fromhex("400eac440000000000000000")[:10]
 
@@ -375,6 +384,15 @@ class TestInspectFlac:
         _, warns = inspect_flac(path)
         assert any("last-metadata-block" in w for w in warns)
 
+    def test_metadata_block_overrun_flagged(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        # a PADDING block declares 8192 bytes but only 8 are present.
+        bogus = bytes([0x80 | 1]) + struct.pack(">I", 8192)[1:] + b"\x00" * 8
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()), bogus)
+        chunks, _ = inspect_flac(path)
+        pad = next(c for c in chunks if c["id"] == "PADDING")
+        assert any("overruns the file" in w for w in pad["warnings"])
+
 
 # MPEG 1 Layer III, 128 kbps, 44100 Hz, mono: 417-byte frames
 _MP3_FRAME = b"\xff\xfb\x90\xc0" + b"\x00" * 413
@@ -501,6 +519,15 @@ class TestRunCli:
         assert run(self._args(str(p))) == 0
         out = capsys.readouterr().out
         assert "MP3/MPEG audio" in out
+
+    def test_adts_aac_not_dispatched_as_mp3(self, tmp_path, capsys):
+        # raw ADTS AAC: sync 0xFFF but layer bits 00. the old 11-bit-sync
+        # gate misread it as MP3; now it must be cleanly rejected.
+        aac = b"\xff\xf1\x50\x80" + b"\x00" * 380
+        p = tmp_path / "t.aac"
+        p.write_bytes(aac * 4)
+        assert run(self._args(str(p))) == 1
+        assert "not a" in capsys.readouterr().err
 
     def test_frames_flag_renders_rows(self, tmp_path, capsys):
         p = tmp_path / "t.mp3"
