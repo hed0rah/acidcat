@@ -115,7 +115,8 @@ uint32_t width; uint32_t height; uint32_t depth; uint32_t colors;
 uint32_t data_length;  uint8_t data[data_length];
 ```
 
-All big-endian. Same structure as the ID3v2 `APIC` frame.
+All big-endian. The same fields as the ID3v2 `APIC` frame, but FLAC length-prefixes
+the MIME and description strings (32-bit) instead of null-terminating them.
 
 ### SEEKTABLE (type 3)
 

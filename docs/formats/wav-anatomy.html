@@ -56,10 +56,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
 
 /* byte diagram */
-.diagram{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
 .bcol{display:flex;flex-direction:column;align-items:center}
 .bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px;letter-spacing:0.02em}
-.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
 .bcell.k-sync{background:var(--sync-soft)} .bcell.k-enum{background:var(--enum-soft)}
 .bcell.k-flag{background:var(--flag-soft)} .bcell.k-rsv{background:var(--rsv-soft)}
 .bcell.fstart{border-left:2px solid var(--line)}
@@ -68,12 +68,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .bcell.hi.k-flag{background:var(--flag);color:var(--paper)}
 .bcell.hi.k-rsv{background:var(--faint);color:var(--paper)}
 
-.body2{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:start}
-@media(max-width:820px){.body2{grid-template-columns:1fr}}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
 .fields{border-top:1px solid var(--line)}
 .field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
-.field[data-branch]{cursor:pointer}
-.field:hover,.field.active{background:var(--panel)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
 .field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
 .field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
 .field.active[data-branch] .fn::after{content:"\2212"}
@@ -84,7 +86,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:26rem}
 .branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
 .branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
-.detail{position:sticky;top:1.4rem;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;min-height:180px}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
 .detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
 .detail .dl .kind{color:var(--soft)}
 .detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
@@ -151,87 +154,127 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
 <script>
 (function(){
   var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
-  function hex(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
 
-  function build(mountId, bytes, fields){
+  function build(mountId, unit, bytes, fields){
     var mount=document.getElementById(mountId);
-    var unitField=new Array(bytes.length);
-    fields.forEach(function(f,fi){ for(var i=f.bytes[0];i<=f.bytes[1];i++) unitField[i]=fi; });
-
-    var diagram=document.createElement("div"); diagram.className="diagram";
-    bytes.forEach(function(b,i){
-      var f=fields[unitField[i]];
-      var col=document.createElement("div"); col.className="bcol";
-      var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hex(i); col.appendChild(off);
-      var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
-      if(i===f.bytes[0]) cell.classList.add("fstart");
-      cell.textContent=hex(b); col.appendChild(cell); diagram.appendChild(col);
-    });
-
-    var body=document.createElement("div"); body.className="body2";
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
     var list=document.createElement("div"); list.className="fields";
     var aside=document.createElement("aside"); aside.className="detail";
     aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
-      "<h3>Hover a field</h3><div class='dc'>"+bytes.length+" bytes</div>"+
-      "<p>Move over a row to light its bytes and read the decode. Click a row marked + for its table.</p><div class='dn'></div>";
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
     var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
-    var cells=[].slice.call(diagram.querySelectorAll(".bcell"));
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
     function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
-    function clear(){cells.forEach(function(c){c.classList.remove("hi");});}
-    function show(f){det.t.textContent=f.label;
-      det.c.textContent="bytes 0x"+hex(f.bytes[0])+(f.bytes[1]>f.bytes[0]?"-0x"+hex(f.bytes[1]):"")+"  =  "+f.val;
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
       det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
-
-    fields.forEach(function(f){
-      var row=document.createElement("div"); row.className="field"; if(f.branch) row.dataset.branch="1";
-      var span=(f.bytes[1]>f.bytes[0])?"0x"+hex(f.bytes[0])+"-"+hex(f.bytes[1]):"0x"+hex(f.bytes[0]);
-      row.innerHTML="<span class='fb'>"+span+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
       if(f.branch){
         var bw=document.createElement("div"); bw.className="branch";
         bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
         row.appendChild(bw);
       }
-      row.addEventListener("mouseenter",function(){light(f.bytes[0],f.bytes[1]);show(f);});
-      row.addEventListener("click",function(){ if(!f.branch)return;
-        var was=row.classList.contains("active");
-        list.querySelectorAll(".field.active").forEach(function(r){r.classList.remove("active");});
-        if(!was){row.classList.add("active");light(f.bytes[0],f.bytes[1]);show(f);}});
-      list.appendChild(row);
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
     });
-    list.addEventListener("mouseleave",function(){if(!list.querySelector(".field.active"))clear();});
-    body.appendChild(list); body.appendChild(aside);
-    mount.appendChild(diagram); mount.appendChild(body);
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
   }
 
-  build("block-fmt",
+  build("block-fmt", 'byte',
     [0x01,0x00, 0x02,0x00, 0x44,0xAC,0x00,0x00, 0x10,0xB1,0x02,0x00, 0x04,0x00, 0x10,0x00],
     [
-      {label:"format_tag",k:"enum",bytes:[0,1],val:"PCM (0x0001)",sel:0,branch:[
-        ["0x0001","PCM"],["0x0003","IEEE float"],["0x0006","A-law"],["0x0007","mu-law"],
+      {label:"format_tag",k:"enum",r:[0,1],val:"PCM (0x0001)",sel:0,branch:[
+        ["0x0001","PCM"],["0x0002","MS ADPCM"],["0x0003","IEEE float"],["0x0006","A-law"],["0x0007","mu-law"],
         ["0x0011","IMA ADPCM"],["0x0055","MPEG layer III"],["0xFFFE","extensible (GUID)"]],
         body:"The codec. PCM here. 0xFFFE extends the chunk with a sub-format GUID.",
         note:"acidcat reads tag, channels, rate, bits; non-PCM uses the fact chunk for sample count."},
-      {label:"channels",k:"enum",bytes:[2,3],val:"2",body:"Channel count. Samples are interleaved L,R,L,R."},
-      {label:"sample_rate",k:"enum",bytes:[4,7],val:"44100 Hz",body:"Frames per second, u32 little-endian. 0xAC44 = 44100."},
-      {label:"avg_bytes_per_sec",k:"enum",bytes:[8,11],val:"176400",body:"sample_rate * block_align. A decoder hint; acidcat lints it against the computed value.",note:"44100 * 4 = 176400."},
-      {label:"block_align",k:"enum",bytes:[12,13],val:"4",body:"Bytes per sample frame = channels * bits/8. One L+R pair is 4 bytes here."},
-      {label:"bits_per_sample",k:"enum",bytes:[14,15],val:"16",body:"Bit depth per sample. 8 unsigned, 16/24/32 signed LE, or 32/64 float when tag is 3."}
+      {label:"channels",k:"enum",r:[2,3],val:"2",body:"Channel count. Samples are interleaved L,R,L,R."},
+      {label:"sample_rate",k:"enum",r:[4,7],val:"44100 Hz",body:"Frames per second, u32 little-endian. 0xAC44 = 44100."},
+      {label:"avg_bytes_per_sec",k:"enum",r:[8,11],val:"176400",body:"sample_rate * block_align. A decoder hint; acidcat lints it against the computed value.",note:"44100 * 4 = 176400."},
+      {label:"block_align",k:"enum",r:[12,13],val:"4",body:"Bytes per sample frame = channels * bits/8. One L+R pair is 4 bytes here."},
+      {label:"bits_per_sample",k:"enum",r:[14,15],val:"16",body:"Bit depth per sample. 8 unsigned, 16/24/32 signed LE, or 32/64 float when tag is 3."}
     ]);
 
-  build("block-acid",
+  build("block-acid", 'byte',
     [0x02,0x00,0x00,0x00, 0x3C,0x00, 0x00,0x80, 0x00,0x00,0x00,0x00, 0x08,0x00,0x00,0x00, 0x04,0x00, 0x04,0x00, 0x00,0x00,0xF0,0x42],
     [
-      {label:"type_flags",k:"flag",bytes:[0,3],val:"root set (0x02)",sel:1,branch:[
+      {label:"type_flags",k:"flag",r:[0,3],val:"root set (0x02)",sel:1,branch:[
         ["0x01","one-shot (not a loop)"],["0x02","root note valid"],["0x04","tempo stretch"],["0x08","disk-based"]],
         body:"Bitmask. 0x02 here: this is a loop with a valid root note. The one-shot bit, when set, is unreliable in the wild.",
         note:"acidcat trusts num_beats only when one-shot is clear, or when beats reconcile with duration."},
-      {label:"root_note",k:"enum",bytes:[4,5],val:"60 = C4",body:"MIDI root note of the loop. 60 is middle C. 0 is treated as unset."},
-      {label:"unknown1",k:"rsv",bytes:[6,7],val:"0x8000",body:"Reserved/observed constant. Not interpreted."},
-      {label:"unknown2",k:"rsv",bytes:[8,11],val:"0.0 (f32)",body:"Reserved float, observed 0.0 across vendors."},
-      {label:"num_beats",k:"enum",bytes:[12,15],val:"8",body:"Beat count of the loop. With tempo gives expected duration: beats / tempo * 60.",note:"the field sits at 0x0C, after the unknown float; reading beats at 0x08 yields 0."},
-      {label:"meter_denominator",k:"enum",bytes:[16,17],val:"4",body:"Lower number of the time signature (the 4 in 4/4)."},
-      {label:"meter_numerator",k:"enum",bytes:[18,19],val:"4",body:"Upper number of the time signature."},
-      {label:"tempo",k:"enum",bytes:[20,23],val:"120.0 BPM",body:"Original tempo as an IEEE-754 float. 0x42F00000 = 120.0.",note:"acidcat warns if tempo is outside 40-300 or disagrees with beats and duration."}
+      {label:"root_note",k:"enum",r:[4,5],val:"60 = C4",body:"MIDI root note of the loop. 60 is middle C. 0 is treated as unset."},
+      {label:"unknown1",k:"rsv",r:[6,7],val:"0x8000",body:"Reserved/observed constant. Not interpreted."},
+      {label:"unknown2",k:"rsv",r:[8,11],val:"0.0 (f32)",body:"Reserved float, observed 0.0 across vendors."},
+      {label:"num_beats",k:"enum",r:[12,15],val:"8",body:"Beat count of the loop. With tempo gives expected duration: beats / tempo * 60.",note:"the field sits at 0x0C, after the unknown float; reading beats at 0x08 yields 0."},
+      {label:"meter_denominator",k:"enum",r:[16,17],val:"4",body:"Lower number of the time signature (the 4 in 4/4)."},
+      {label:"meter_numerator",k:"enum",r:[18,19],val:"4",body:"Upper number of the time signature."},
+      {label:"tempo",k:"enum",r:[20,23],val:"120.0 BPM",body:"Original tempo as an IEEE-754 float. 0x42F00000 = 120.0.",note:"acidcat warns if tempo is outside 40-300 or disagrees with beats and duration."}
     ]);
 })();
 </script>

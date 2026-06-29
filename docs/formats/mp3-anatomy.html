@@ -60,44 +60,45 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .kv div:last-child{border-bottom:none}
 .kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
 
-/* register diagram, full width */
-.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.4rem 0 1.6rem}
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
 .bytegrp{border:1px solid var(--line);background:var(--panel)}
 .bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
 .bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
-.bytegrp .row{display:flex}
-.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
 .bit:last-child{border-right:none}
-.bit.k-sync{background:var(--sync-soft)} .bit.k-enum{background:var(--enum-soft)}
-.bit.k-flag{background:var(--flag-soft)} .bit.k-rsv{background:var(--rsv-soft)}
-.bit.fstart{box-shadow:inset 2px 0 0 var(--line)}
-.bit.hi.k-sync{background:var(--sync);color:var(--paper)}
-.bit.hi.k-enum{background:var(--enum);color:var(--paper)}
-.bit.hi.k-flag{background:var(--flag);color:var(--paper)}
-.bit.hi.k-rsv{background:var(--faint);color:var(--paper)}
 .bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
-
-.body2{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:start}
-@media(max-width:820px){.body2{grid-template-columns:1fr}}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
 .fields{border-top:1px solid var(--line)}
-.field{display:grid;grid-template-columns:3.6rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
-.field[data-branch]{cursor:pointer}
-.field:hover,.field.active{background:var(--panel)}
-.field .fb{font-size:0.6rem;color:var(--faint)}
-.field .fn{font-size:0.82rem;color:var(--ink)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
 .field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
 .field.active[data-branch] .fn::after{content:"\2212"}
 .fv{font-size:0.76rem;text-align:right}
-.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)}
-.fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
-.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 4.4rem}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
 .field.active .branch{display:block}
-.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:24rem}
-.branch td{padding:1px 10px 1px 0;color:var(--soft)}
-.branch td.k{color:var(--faint);width:2.6rem;text-align:right}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
 .branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
-
-.detail{position:sticky;top:1.4rem;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;min-height:180px}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
 .detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
 .detail .dl .kind{color:var(--soft)}
 .detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
@@ -150,17 +151,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       <summary><span class="chev">&#9656;</span><span class="rname">MPEG audio frames</span><span class="rspan">required . self-describing</span></summary>
       <div class="rbody">
         <p class="note">Each frame opens with the 4-byte header drawn below; it carries everything needed to compute the frame length and step to the next sync.</p>
-        <div class="diagram" id="diagram"></div>
-        <div class="body2">
-          <div class="fields" id="fields"></div>
-          <aside class="detail" id="detail">
-            <div class="dl"><span>field detail</span><span class="kind" id="d-kind"></span></div>
-            <h3 id="d-title">Hover a field</h3>
-            <div class="dc" id="d-code">32-bit frame header</div>
-            <p id="d-body">Move over a row to light its bits and read what they mean. Click a row marked + to open its lookup table.</p>
-            <div class="dn" id="d-note"></div>
-          </aside>
-        </div>
+        <div id="block-frame"></div>
       </div>
     </details>
 
@@ -202,113 +193,143 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
 
 <script>
 (function(){
-  var BYTES = [0xFF, 0xFB, 0x90, 0xC0];
-  var KINDS = {sync:"structural", enum:"enumerated", flag:"flag", rsv:"reserved"};
-  var FIELDS = [
-    {id:"sync", k:"sync", label:"frame sync",    bits:[0,10], val:"0x7FF",
-     body:"Eleven set bits open every frame. Only 11 bits, so false positives happen; the whole header must validate before a sync is trusted.",
-     note:"on a sync loss acidcat scans forward for the next valid header."},
-    {id:"ver", k:"enum", label:"MPEG version",  bits:[11,12], val:"MPEG 1", sel:3, branch:[
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // MPEG-1 Layer III frame header: FF FB 90 C0 = 128 kbps, 44100 Hz, mono
+  build("block-frame","bit",
+    [0xFF,0xFB,0x90,0xC0],
+    [
+      {label:"frame sync",k:"sync",r:[0,10],val:"0x7FF",
+       body:"Eleven set bits open every frame. Only 11 bits, so false positives happen; the whole header must validate before a sync is trusted.",
+       note:"on a sync loss acidcat scans forward for the next valid header."},
+      {label:"MPEG version",k:"enum",r:[11,12],val:"MPEG 1",sel:3,branch:[
         ["00","MPEG 2.5"],["01","reserved"],["10","MPEG 2"],["11","MPEG 1"]],
-     body:"Selects the bitrate and rate tables and the samples-per-frame: 1152 for MPEG-1 layer III, 576 for MPEG-2/2.5.",
-     note:"version 01 is reserved; acidcat rejects it as not a frame."},
-    {id:"layer", k:"enum", label:"layer",         bits:[13,14], val:"Layer III", sel:1, branch:[
+       body:"Selects the bitrate and rate tables and the samples-per-frame: 1152 for MPEG-1 layer III, 576 for MPEG-2/2.5.",
+       note:"version 01 is reserved; acidcat rejects it as not a frame."},
+      {label:"layer",k:"enum",r:[13,14],val:"Layer III",sel:1,branch:[
         ["00","reserved"],["01","Layer III"],["10","Layer II"],["11","Layer I"]],
-     body:"Layer I/II/III select the frame-length formula. Layer III is the MP3."},
-    {id:"prot", k:"flag", label:"protection",    bits:[15,15], val:"no CRC", sel:1, branch:[
+       body:"Layer I/II/III select the frame-length formula. Layer III is the MP3."},
+      {label:"protection",k:"flag",r:[15,15],val:"no CRC",sel:1,branch:[
         ["0","16-bit CRC after the header"],["1","no CRC"]],
-     body:"When 0, a 2-byte CRC sits immediately after the 4-byte header."},
-    {id:"br", k:"enum", label:"bitrate index", bits:[16,19], val:"128 kbps", sel:9, branch:[
+       body:"When 0, a 2-byte CRC sits immediately after the 4-byte header."},
+      {label:"bitrate index",k:"enum",r:[16,19],val:"128 kbps",sel:9,branch:[
         ["0","free"],["1","32"],["2","40"],["3","48"],["4","56"],["5","64"],["6","80"],
         ["7","96"],["8","112"],["9","128"],["10","160"],["11","192"],["12","224"],
         ["13","256"],["14","320"],["15","bad"]],
-     body:"Index into the bitrate table for this version+layer (shown: MPEG-1 layer III, kbps). 0 is free-format, 15 invalid; acidcat rejects both.",
-     note:"frame_len = (samples/8) * bitrate / sample_rate + padding."},
-    {id:"sr", k:"enum", label:"sample rate",   bits:[20,21], val:"44100 Hz", sel:0, branch:[
+       body:"Index into the bitrate table for this version+layer (shown: MPEG-1 layer III, kbps). 0 is free-format, 15 invalid; acidcat rejects both.",
+       note:"frame_len = (samples/8) * bitrate / sample_rate + padding."},
+      {label:"sample rate",k:"enum",r:[20,21],val:"44100 Hz",sel:0,branch:[
         ["0","44100"],["1","48000"],["2","32000"],["3","reserved"]],
-     body:"Index into the MPEG-1 rate table (Hz). MPEG-2 is half, MPEG-2.5 a quarter.",
-     note:"an 8000 Hz file forces MPEG 2.5 and 576 samples/frame."},
-    {id:"pad", k:"flag", label:"padding",       bits:[22,22], val:"0", sel:0, branch:[
+       body:"Index into the MPEG-1 rate table (Hz). MPEG-2 is half, MPEG-2.5 a quarter.",
+       note:"an 8000 Hz file forces MPEG 2.5 and 576 samples/frame."},
+      {label:"padding",k:"flag",r:[22,22],val:"0",sel:0,branch:[
         ["0","none"],["1","+1 byte (+4 for layer I)"]],
-     body:"A slack byte that keeps the average bitrate exact across frames."},
-    {id:"priv", k:"rsv", label:"private",       bits:[23,23], val:"0",
-     body:"Application-defined, ignored by decoders."},
-    {id:"chan", k:"enum", label:"channel mode",  bits:[24,25], val:"mono", sel:3, branch:[
+       body:"A slack byte that keeps the average bitrate exact across frames."},
+      {label:"private",k:"rsv",r:[23,23],val:"0",
+       body:"Application-defined, ignored by decoders."},
+      {label:"channel mode",k:"enum",r:[24,25],val:"mono",sel:3,branch:[
         ["00","stereo"],["01","joint stereo"],["10","dual channel"],["11","mono"]],
-     body:"Mono here. The channel mode also sets the side-info size, which fixes where the Xing/Info header sits."},
-    {id:"mext", k:"rsv", label:"mode extension",bits:[26,27], val:"0",
-     body:"Joint-stereo parameters; meaningful only when the mode is joint stereo."},
-    {id:"copy", k:"flag", label:"copyright",     bits:[28,28], val:"0",
-     body:"Copyright bit, informational."},
-    {id:"orig", k:"flag", label:"original",      bits:[29,29], val:"0",
-     body:"Original-media bit, informational."},
-    {id:"emph", k:"enum", label:"emphasis",      bits:[30,31], val:"none", sel:0, branch:[
+       body:"Mono here. The channel mode also sets the side-info size, which fixes where the Xing/Info header sits."},
+      {label:"mode extension",k:"rsv",r:[26,27],val:"0",
+       body:"Joint-stereo parameters; meaningful only when the mode is joint stereo."},
+      {label:"copyright",k:"flag",r:[28,28],val:"0",
+       body:"Copyright bit, informational."},
+      {label:"original",k:"flag",r:[29,29],val:"0",
+       body:"Original-media bit, informational."},
+      {label:"emphasis",k:"enum",r:[30,31],val:"none",sel:0,branch:[
         ["00","none"],["01","50/15 ms"],["10","reserved"],["11","CCITT J.17"]],
-     body:"Legacy de-emphasis curve; almost always none."}
-  ];
-
-  var bitField = new Array(32);
-  FIELDS.forEach(function(f, fi){ for(var b=f.bits[0]; b<=f.bits[1]; b++) bitField[b]=fi; });
-
-  var diagram = document.getElementById("diagram");
-  for(var bi=0; bi<4; bi++){
-    var grp=document.createElement("div"); grp.className="bytegrp";
-    var ticks=document.createElement("div"); ticks.className="ticks";
-    var row=document.createElement("div"); row.className="row";
-    for(var k=0;k<8;k++){
-      var idx=bi*8+k, f=FIELDS[bitField[idx]];
-      var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
-      var cell=document.createElement("span");
-      cell.className="bit k-"+f.k;
-      cell.dataset.idx=idx;
-      if(idx===f.bits[0]) cell.classList.add("fstart");
-      cell.textContent=(BYTES[bi]>>(7-k))&1;
-      row.appendChild(cell);
-    }
-    var hex=document.createElement("div"); hex.className="hex";
-    hex.textContent="0x"+BYTES[bi].toString(16).toUpperCase().padStart(2,"0");
-    grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex);
-    diagram.appendChild(grp);
-  }
-  var cells=[].slice.call(diagram.querySelectorAll(".bit"));
-
-  var det={t:document.getElementById("d-title"),c:document.getElementById("d-code"),
-           b:document.getElementById("d-body"),n:document.getElementById("d-note"),
-           kind:document.getElementById("d-kind")};
-  function light(a,b){ cells.forEach(function(c){ var i=+c.dataset.idx; c.classList.toggle("hi", i>=a&&i<=b); }); }
-  function clear(){ cells.forEach(function(c){ c.classList.remove("hi"); }); }
-  function show(f){
-    det.t.textContent=f.label;
-    det.c.textContent="bits "+f.bits[0]+(f.bits[1]>f.bits[0]?"-"+f.bits[1]:"")+"  =  "+f.val;
-    det.b.textContent=f.body; det.n.textContent=f.note||"";
-    det.kind.textContent=KINDS[f.k];
-  }
-
-  var list=document.getElementById("fields");
-  FIELDS.forEach(function(f){
-    var row=document.createElement("div");
-    row.className="field";
-    if(f.branch) row.dataset.branch="1";
-    var bspan=(f.bits[1]>f.bits[0])?"b"+f.bits[0]+"-"+f.bits[1]:"b"+f.bits[0];
-    row.innerHTML="<span class='fb'>"+bspan+"</span>"+
-      "<span class='fn'>"+f.label+"</span>"+
-      "<span class='fv k-"+f.k+"'>"+f.val+"</span>";
-    if(f.branch){
-      var bwrap=document.createElement("div"); bwrap.className="branch";
-      var rows=f.branch.map(function(p,i){ return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>"; }).join("");
-      bwrap.innerHTML="<table>"+rows+"</table>";
-      row.appendChild(bwrap);
-    }
-    row.addEventListener("mouseenter", function(){ light(f.bits[0],f.bits[1]); show(f); });
-    row.addEventListener("click", function(){
-      if(!f.branch) return;
-      var was=row.classList.contains("active");
-      list.querySelectorAll(".field.active").forEach(function(r){ r.classList.remove("active"); });
-      if(!was){ row.classList.add("active"); light(f.bits[0],f.bits[1]); show(f); }
-    });
-    list.appendChild(row);
-  });
-  list.addEventListener("mouseleave", function(){ if(!list.querySelector(".field.active")) clear(); });
+       body:"Legacy de-emphasis curve; almost always none."}
+    ]);
 })();
 </script>
 </body>

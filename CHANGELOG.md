@@ -5,6 +5,33 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.9.3] - 2026-06-28
+
+### Fixed
+
+- `inspect` no longer misidentifies ADTS AAC as MP3. The no-ID3 dispatch
+  accepted any 11-bit frame sync (0xFFE mask), which ADTS (sync 0xFFF, layer
+  bits 00) passed; a forward scan then locked onto a coincidental MPEG frame
+  and reported a ~16 s AAC as a ~3 s Layer II MP3. Dispatch now requires a
+  fully valid MPEG frame at offset 0.
+- `inspect` lints a FLAC metadata block whose declared length overruns the
+  file, mirroring the WAV/AIFF overrun checks. A truncated FLAC whose PADDING
+  block claimed 8192 bytes previously warned about nothing.
+- `inspect` no longer flags `avg_bytes_per_sec` on non-PCM `fmt ` chunks. The
+  identity `avg = sample_rate * block_align` is PCM-only; ADPCM (tag 0x0002 /
+  0x0011) tripped it. Gated to `tag == 1`, matching the `block_align` check.
+
+### Changed
+
+- The interactive format-anatomy pages (`docs/formats/*-anatomy.html`) share a
+  reworked inspector layout: the field-detail panel sits flush with the byte
+  diagram and no longer reflows on hover, and hovering or clicking a byte/bit
+  square highlights its field both ways.
+- Format-internals docs corrected against the specs: MIDI SMPTE decode and a
+  tempo-table hex typo, the WAV ACID hex example and bext field widths, the
+  MP3 frame-sync value, the AIFF 80-bit float sign and AIFC COMM minimum size,
+  and the WAV `format_tag` table gained `0x0002` (MS ADPCM).
+
 ## [0.9.2] - 2026-06-28
 
 ### Added
