@@ -98,6 +98,21 @@ class TestInspectWav:
         frames = next(f for f in data["fields"] if f["name"] == "frames")
         assert frames["value"] == 4  # 8 bytes present / 2-byte align, not ~1e9
 
+    def test_adpcm_duration_uses_fact_not_block_align(self, tmp_path):
+        # ADPCM block_align is a block size (many samples/block), so
+        # bytes/align gives a near-zero bogus duration; the fact chunk's
+        # sample count is authoritative and must win.
+        fmt = _chunk(b"fmt ", struct.pack(
+            "<HHIIHH", 0x0011, 1, 44100, 11100, 1024, 4))
+        fact = _chunk(b"fact", struct.pack("<I", 44100))  # 1.0 s of samples
+        data = _chunk(b"data", b"\x00" * 2048)            # only 2 blocks
+        path = _wav(tmp_path, fmt, fact, data)
+        chunks, _ = inspect_wav(path)
+        d = next(c for c in chunks if c["id"] == "data")
+        frames = next(f for f in d["fields"] if f["name"] == "frames")
+        assert frames["value"] == 44100
+        assert "1.000 s" in d["summary"]
+
     def test_adpcm_avg_bytes_not_linted(self, tmp_path):
         # avg_bytes_per_sec == sample_rate*block_align is a PCM-only identity.
         # ADPCM (tag 0x0011) legitimately breaks it; the lint must stay quiet.
@@ -176,6 +191,27 @@ class TestInspectAiff:
         mark = next(c for c in chunks if c["id"] == "MARK")
         assert "2 marker(s)" in mark["summary"]
         assert warns == []
+
+    def test_aifc_compressed_duration_is_approximate(self, tmp_path):
+        # AIFC ima4: num_sample_frames is a packet count, so frames/rate is
+        # not the real duration. it must be labeled approximate and warned.
+        comm = _aiff_chunk(b"COMM", struct.pack(">hIh", 1, 83, 16)
+                           + RATE_44100 + b"ima4" + b"\x00")
+        path = _aiff(tmp_path, comm, _ssnd(), form=b"AIFC")
+        chunks, warns = inspect_aiff(path, "AIFC")
+        comm_c = next(c for c in chunks if c["id"] == "COMM")
+        assert "approx" in comm_c["summary"]
+        assert any("approximate" in w for w in comm_c["warnings"])
+
+    def test_aifc_pcm_duration_is_exact(self, tmp_path):
+        # sowt/NONE are uncompressed: duration stays exact, no warning.
+        comm = _aiff_chunk(b"COMM", struct.pack(">hIh", 1, 44100, 16)
+                           + RATE_44100 + b"sowt" + b"\x00")
+        path = _aiff(tmp_path, comm, _ssnd(), form=b"AIFC")
+        chunks, _ = inspect_aiff(path, "AIFC")
+        comm_c = next(c for c in chunks if c["id"] == "COMM")
+        assert "approx" not in comm_c["summary"]
+        assert "1.000 s" in comm_c["summary"]
 
     def test_inst_loop_dangling_marker_flagged(self, tmp_path):
         path = _aiff(tmp_path, _comm(), _mark([(1, 0, b"a")]),
@@ -440,6 +476,20 @@ class TestInspectMp3:
         assert by_name["TIT2"] == "My Title"
         assert by_name["TPE1"] == "Some Artist"
         assert warns == []
+
+    def test_xing_frame_count_divergence_flagged(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        # forge a Xing header (offset 21 for MPEG1 mono) declaring 9999
+        # frames while only 3 are actually present.
+        fr = bytearray(_MP3_FRAME)
+        fr[21:25] = b"Xing"
+        fr[25:29] = struct.pack(">I", 0x01)      # frames flag
+        fr[29:33] = struct.pack(">I", 9999)      # bogus frame count
+        p = tmp_path / "vbr.mp3"
+        p.write_bytes(bytes(fr) + _MP3_FRAME * 2)
+        chunks, _ = inspect_mp3(str(p))
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert any("diverges" in w for w in frames["warnings"])
 
     def test_id3v1_trailer_detected(self, tmp_path):
         from acidcat.commands.inspect import inspect_mp3
