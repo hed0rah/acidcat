@@ -5,6 +5,27 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.9.5] - 2026-07-01
+
+### Fixed
+
+- `inspect` no longer dispatches an ID3-wrapped non-MP3 container as MP3. A file
+  that opens with an ID3v2 tag is treated as MP3 only when the tag does not wrap
+  a RIFF/AIFF/FLAC/MIDI container; otherwise it is cleanly rejected instead of
+  emitting bogus "no MPEG frame" warnings.
+- `inspect` flags an AIFF COMM `num_sample_frames` that implies more audio than
+  the file holds (its duration is then untrustworthy), gated to uncompressed so
+  AIFC packet counts are not false-flagged.
+- `inspect` flags an SSND `offset` that exceeds the chunk payload, which
+  previously degraded silently to a reported 0 bytes.
+
+### Changed
+
+- SECURITY.md documents that acidcat performs no eval/exec/deserialization/
+  subprocess on parsed content, closing the metadata-reader code-injection class
+  (e.g. CVE-2021-22204 in another tool).
+- Format-anatomy pages normalized to a single background palette.
+
 ## [0.9.4] - 2026-06-29
 
 ### Fixed
