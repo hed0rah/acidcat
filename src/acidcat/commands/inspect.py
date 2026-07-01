@@ -516,6 +516,10 @@ def _aiff_ssnd(b, ctx, size, avail=None):
     summary = f"audio payload, {max(audio_bytes, 0):,} bytes"
     if overrun:
         summary += " (chunk overruns, from bytes present)"
+    if offset > max(0, eff - 8):
+        warns.append(
+            f"SSND offset {offset:,} exceeds the {max(0, eff - 8):,}-byte payload"
+        )
     frames, ch, bits = ctx.get("frames"), ctx.get("channels"), ctx.get("bits")
     comp = ctx.get("compression", "NONE")
     uncompressed = comp in ("NONE", "none", "sowt", "twos", "raw ")
@@ -643,6 +647,14 @@ def inspect_aiff(filepath, form_type):
                 if cid == "COMM":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_comm(payload, ctx, form_type)
+                    fr, ch, bits = ctx.get("frames"), ctx.get("channels"), ctx.get("bits")
+                    comp = ctx.get("compression")
+                    if fr and ch and bits and (comp is None or comp in _AIFC_UNCOMPRESSED) \
+                            and fr * ch * (bits // 8) > file_size:
+                        entry["warnings"].append(
+                            f"num_sample_frames {fr:,} implies more audio than the "
+                            f"{file_size:,}-byte file holds; duration is not trustworthy"
+                        )
                 elif cid == "SSND":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_ssnd(payload, ctx, size, avail)
@@ -1634,6 +1646,19 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args):
     return 0
 
 
+def _id3_tagged_mp3(filepath):
+    """A file starting with an ID3v2 tag is MP3 only if the tag does not
+    merely wrap a different known container. Some tools prepend an ID3 tag
+    to a WAV/AIFF/FLAC; that is not an MP3 and must not be claimed as one."""
+    hdr = mp3mod.read_id3v2(filepath)
+    if not hdr:
+        return True  # "ID3" magic but an unreadable header; treat as an MP3 attempt
+    with open(filepath, "rb") as f:
+        f.seek(hdr["total"])
+        nxt = f.read(4)
+    return nxt not in (b"RIFF", b"RF64", b"FORM", b"fLaC", b"MThd")
+
+
 def run(args):
     filepath = args.target
     if not os.path.isfile(filepath):
@@ -1662,6 +1687,10 @@ def run(args):
     elif magic[:4] == b"fLaC":
         fmt_label = "FLAC"
         chunks, file_warns = inspect_flac(filepath)
+    elif magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
+        print("acidcat inspect: ID3 tag wraps a non-MP3 container; not "
+              "supported", file=sys.stderr)
+        return 1
     elif magic[:3] == b"ID3" or (len(magic) >= 4
                                  and mp3mod.decode_frame_header(magic[:4]) is not None):
         fmt_label = "MP3/MPEG audio"
