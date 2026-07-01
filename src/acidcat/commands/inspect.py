@@ -516,6 +516,10 @@ def _aiff_ssnd(b, ctx, size, avail=None):
     summary = f"audio payload, {max(audio_bytes, 0):,} bytes"
     if overrun:
         summary += " (chunk overruns, from bytes present)"
+    if offset > max(0, eff - 8):
+        warns.append(
+            f"SSND offset {offset:,} exceeds the {max(0, eff - 8):,}-byte payload"
+        )
     frames, ch, bits = ctx.get("frames"), ctx.get("channels"), ctx.get("bits")
     comp = ctx.get("compression", "NONE")
     uncompressed = comp in ("NONE", "none", "sowt", "twos", "raw ")
@@ -643,6 +647,14 @@ def inspect_aiff(filepath, form_type):
                 if cid == "COMM":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_comm(payload, ctx, form_type)
+                    fr, ch, bits = ctx.get("frames"), ctx.get("channels"), ctx.get("bits")
+                    comp = ctx.get("compression")
+                    if fr and ch and bits and (comp is None or comp in _AIFC_UNCOMPRESSED) \
+                            and fr * ch * (bits // 8) > file_size:
+                        entry["warnings"].append(
+                            f"num_sample_frames {fr:,} implies more audio than the "
+                            f"{file_size:,}-byte file holds; duration is not trustworthy"
+                        )
                 elif cid == "SSND":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_ssnd(payload, ctx, size, avail)

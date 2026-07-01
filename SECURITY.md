@@ -28,3 +28,8 @@ are clamped to the actual payload before any loop, and metrics are derived from
 the bytes actually present rather than the declared size. Reports of inputs that
 hang, exhaust memory, crash a walker, or produce confidently wrong output are in
 scope and welcome.
+
+acidcat also performs **no `eval`, `exec`, deserialization (`pickle`/`marshal`),
+template rendering, or subprocess execution on parsed content** -- the
+metadata-reader code-injection class (for example CVE-2021-22204 in another
+tool) has no reachable sink here.
