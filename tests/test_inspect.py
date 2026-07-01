@@ -183,6 +183,23 @@ class TestInspectAiff:
         ssnd = next(c for c in chunks if c["id"] == "SSND")
         assert any("COMM frames" in w for w in ssnd["warnings"])
 
+    def test_ssnd_offset_exceeding_payload_flagged(self, tmp_path):
+        # an SSND offset larger than the chunk payload degrades to 0 bytes;
+        # it must be flagged, not silently swallowed.
+        ssnd = _aiff_chunk(b"SSND", struct.pack(">II", 0xFFFFFFF0, 0) + b"\x00" * 8)
+        path = _aiff(tmp_path, _comm(), ssnd)
+        chunks, _ = inspect_aiff(path, "AIFF")
+        s = next(c for c in chunks if c["id"] == "SSND")
+        assert any("offset" in w and "exceeds" in w for w in s["warnings"])
+
+    def test_comm_frames_exceeding_file_flagged(self, tmp_path):
+        # num_sample_frames that implies more audio than the whole file holds
+        # makes the duration untrustworthy; flag it on the COMM chunk.
+        path = _aiff(tmp_path, _comm(frames=0xFFFFFFFF), _ssnd())
+        chunks, _ = inspect_aiff(path, "AIFF")
+        comm = next(c for c in chunks if c["id"] == "COMM")
+        assert any("implies more audio" in w for w in comm["warnings"])
+
     def test_markers_and_inst_loops(self, tmp_path):
         path = _aiff(tmp_path, _comm(),
                      _mark([(1, 0, b"start"), (2, 4, b"end")]),
