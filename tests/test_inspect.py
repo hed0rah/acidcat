@@ -1206,3 +1206,38 @@ class TestBitwigBWBM:
         from acidcat.commands.inspect import _parse_bwbm
         s, _, w = _parse_bwbm(b"\x00" * 20, {})
         assert s == "truncated" and w
+
+
+class TestBitwigWalker:
+    def _bw(self, *pairs):
+        import struct as _s
+        def tok(b): return _s.pack(">I", len(b)) + b
+        def meta(k, v): return tok(k) + b"\x08" + _s.pack(">I", len(v)) + v
+        body = b"".join(meta(k, v) for k, v in pairs)
+        return b"BtWg" + b"0003000200" + body
+
+    def test_parse_meta_extracts_string_fields(self):
+        from acidcat.core.bitwig import parse_meta
+        data = self._bw((b"device_name", b"Polysynth"), (b"tags", b"bass wide"),
+                        (b"comment", b"secret msg"))
+        m = parse_meta(data)
+        assert m["device_name"] == "Polysynth"
+        assert m["tags"] == "bass wide"
+        assert m["comment"] == "secret msg"
+
+    def test_inspect_bitwig_surfaces_description(self, tmp_path):
+        from acidcat.commands.inspect import inspect_bitwig
+        p = tmp_path / "t.bwpreset"
+        p.write_bytes(self._bw((b"device_name", b"Convolution"),
+                               (b"comment", b"wussssuppppp")))
+        chunks, warns = inspect_bitwig(str(p))
+        meta = next(c for c in chunks if c["id"] == "meta")
+        vals = {f["name"]: f["value"] for f in meta["fields"]}
+        assert vals["device"] == "Convolution"
+        assert vals["description"] == "wussssuppppp"
+
+    def test_bitwig_hostile_length_ignored(self):
+        # a forged u32 length must not read past the buffer
+        from acidcat.core.bitwig import parse_meta
+        data = b"BtWg" + b"0003000200" + b"\xff\xff\xff\xff" + b"junk"
+        assert parse_meta(data) == {}  # no crash, nothing decoded

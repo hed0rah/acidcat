@@ -25,6 +25,7 @@ from acidcat.core import midi as midimod
 from acidcat.core.midi import _read_vlq
 from acidcat.core import flac as flacmod
 from acidcat.core import mp3 as mp3mod
+from acidcat.core import bitwig as bwmod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -1339,6 +1340,48 @@ def inspect_serum(filepath):
     return chunks, file_warns
 
 
+# ── bitwig walk ────────────────────────────────────────────────────
+
+
+def inspect_bitwig(filepath):
+    """Structural view of a Bitwig BtWg container (.bwpreset/.bwclip): the
+    header, the decoded metadata block, and a note for any embedded-asset
+    zip. The device/module tree is left opaque."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 4 * 1024 * 1024))
+    chunks, file_warns = [], []
+
+    ver = bwmod.read_header(data)
+    chunks.append({"id": "BtWg", "offset": 0, "size": 14,
+                   "summary": f"Bitwig container, format {ver}",
+                   "fields": [_f(0x00, 4, "magic", "BtWg"),
+                              _f(0x04, 10, "version", ver)],
+                   "warnings": [], "payload_base": 0})
+
+    meta = bwmod.parse_meta(data)
+    fields = [_f(None, 0, label, meta[key][:200])
+              for key, label in bwmod._META_FIELDS if key in meta]
+    if meta:
+        name = meta.get("device_name", "?")
+        cat = meta.get("device_category", "?")
+        summary = f"{name} ({cat})"
+    else:
+        summary = "no meta block decoded"
+        file_warns.append("BtWg meta block not decoded")
+    chunks.append({"id": "meta", "offset": 0, "size": 0,
+                   "summary": summary, "fields": fields, "warnings": []})
+
+    zoff = data.find(b"PK\x03\x04")
+    if zoff >= 0:
+        chunks.append({"id": "assets", "offset": zoff,
+                       "size": file_size - zoff,
+                       "summary": "embedded asset zip (deflate); unzip for the "
+                                  "referenced samples/impulses",
+                       "fields": [], "warnings": []})
+    return chunks, file_warns
+
+
 # ── flac walk ──────────────────────────────────────────────────────
 
 
@@ -2181,6 +2224,8 @@ def _walk_file(filepath, deep):
         return ("RF64/WAVE", *inspect_rf64(filepath))
     if magic[:8] == b"XferJson":
         return ("Xfer Serum preset", *inspect_serum(filepath))
+    if magic[:4] == b"BtWg":
+        return ("Bitwig preset", *inspect_bitwig(filepath))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
     if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
