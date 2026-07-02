@@ -100,6 +100,9 @@ def register(subparsers):
                    help="Output format (default: table).")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Chunk table only, no per-chunk field detail.")
+    p.add_argument("--pretty", action="store_true",
+                   help="Human-friendly view of the decoded tags and metadata "
+                        "(no byte offsets), ideal for presets and tagged files.")
     p.add_argument("-F", "--frames", action="store_true",
                    help="Per-element deep dump: every MPEG frame (MP3) or "
                         "MIDI event. No effect on formats without per-element "
@@ -2209,6 +2212,45 @@ def _render_rows(rows, paint):
         print("    " + "  ".join(f"{str(r.get(c, '')):<{widths[c]}}" for c in cols))
 
 
+def _human_size(n):
+    x = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if x < 1024 or unit == "TB":
+            return f"{int(x)} {unit}" if unit == "B" else f"{x:.1f} {unit}"
+        x /= 1024
+
+
+def _render_pretty(filepath, fmt_label, chunks, file_warns, args):
+    """A clean, human-friendly view of the decoded tags/metadata: section per
+    chunk, aligned key/value, no byte offsets. Made for presets and tagged
+    files (Bitwig, Vital, Serum, MP4 tags, WAV/FLAC/MP3 metadata)."""
+    p = _Paint(_color_enabled(args))
+    size = os.path.getsize(filepath)
+    print(p("id", os.path.basename(filepath)))
+    print(p("dim", f"{fmt_label}, {_human_size(size)}"))
+    for c in chunks:
+        fields = [f for f in c["fields"]
+                  if f["value"] not in (None, "") and str(f["value"]).strip()]
+        if not fields:
+            continue
+        print()
+        head = c["id"].strip()
+        meta = f"  {p('dim', c['summary'])}" if c.get("summary") else ""
+        print(p("id", head) + meta)
+        w = max(len(f["name"]) for f in fields)
+        for f in fields:
+            key = p("dim", f"{f['name']:<{w}}")
+            note = f"  {p('dim', '(' + str(f['note']) + ')')}" if f["note"] else ""
+            print(f"  {key}  {p('val', f['value'])}{note}")
+    all_warns = list(file_warns) + [w for c in chunks for w in c["warnings"]]
+    if all_warns:
+        print()
+        print(p("warn", "warnings:"))
+        for w in all_warns:
+            print(p("warn", f"  ! {w}"))
+    return 0
+
+
 def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None):
     file_size = os.path.getsize(filepath)
     p = _Paint(_color_enabled(args))
@@ -2433,7 +2475,10 @@ def run(args):
             else:
                 if multi:
                     print(f"\nFile: {filepath}")  # readelf-style per-file banner
-                _render_table(filepath, fmt_label, shown, file_warns, args, total)
+                if getattr(args, "pretty", False):
+                    _render_pretty(filepath, fmt_label, shown, file_warns, args)
+                else:
+                    _render_table(filepath, fmt_label, shown, file_warns, args, total)
     except BrokenPipeError:
         # a downstream pager or `head` closed the pipe: exit quietly the way
         # cat and grep do, without a traceback.

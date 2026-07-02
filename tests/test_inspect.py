@@ -1329,3 +1329,20 @@ class TestMp4Walker:
         chunks, _ = inspect_mp4(str(p))
         tags = next(c for c in chunks if c["id"] == "tags")
         assert any(f["value"] == "Song" for f in tags["fields"])
+
+
+class TestPrettyMode:
+    def test_pretty_bitwig_no_byte_offsets(self, tmp_path, capsys):
+        from types import SimpleNamespace
+        def tok(b): return struct.pack(">I", len(b)) + b
+        def meta(k, v): return tok(k) + b"\x08" + struct.pack(">I", len(v)) + v
+        p = tmp_path / "t.bwpreset"
+        p.write_bytes(b"BtWg0003000200" + meta(b"device_name", b"Conv")
+                      + meta(b"tags", b"reverb wide"))
+        args = SimpleNamespace(target=str(p), format="table", show_hex=False,
+                               quiet=False, verbose=False, pretty=True,
+                               color="never")
+        assert run(args) == 0
+        out = capsys.readouterr().out
+        assert "Conv" in out and "reverb wide" in out
+        assert "+0x" not in out  # pretty view drops byte offsets
