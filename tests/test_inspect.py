@@ -890,3 +890,32 @@ class TestRunCli:
         # the TIT2 frame id must appear in the hex column (proves the ID3
         # tag's absolute field offsets are not double-counted by +8)
         assert "54 49 54 32" in out
+
+    # ── --only / --exclude chunk selection ──────────────────────────
+
+    def test_only_filters_to_named_chunk(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data(), _acid())
+        assert run(self._args(p, only="fmt")) == 0
+        out = capsys.readouterr().out
+        assert "showing 1 of 3 chunks" in out
+        assert "PCM" in out and "acid @" not in out
+
+    def test_only_is_case_and_space_insensitive(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data())
+        assert run(self._args(p, only="FMT")) == 0  # matches the "fmt " id
+        assert "showing 1 of 2 chunks" in capsys.readouterr().out
+
+    def test_exclude_drops_chunks(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data(), _acid())
+        assert run(self._args(p, exclude="data,acid")) == 0
+        out = capsys.readouterr().out
+        assert "showing 1 of 3 chunks" in out
+        assert "acid @" not in out
+
+    def test_only_applies_to_ndjson(self, tmp_path, capsys):
+        import json
+        p = _wav(tmp_path, _fmt(), _data(), _acid())
+        assert run(self._args(p, only="acid", format="json")) == 0
+        doc = json.loads(capsys.readouterr().out)
+        assert [c["id"] for c in doc["chunks"]] == ["acid"]
+        assert "_idx" not in doc["chunks"][0]  # helper key stays internal

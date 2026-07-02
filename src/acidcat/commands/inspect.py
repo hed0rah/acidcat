@@ -81,6 +81,13 @@ def register(subparsers):
                    help="Per-element deep dump: every MPEG frame (MP3) or "
                         "MIDI event. No effect on formats without per-element "
                         "structure (WAV, AIFF, FLAC).")
+    p.add_argument("--only", metavar="IDS",
+                   help="Show only these chunk ids (comma-separated, e.g. "
+                        "'fmt,bext'). Case-insensitive, matched against the "
+                        "displayed id. Compose with --hex to hexdump one chunk.")
+    p.add_argument("--exclude", metavar="IDS",
+                   help="Hide these chunk ids (comma-separated). Applied after "
+                        "--only.")
     p.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                    help="Colorize table output: auto (default, when stdout is a "
                         "TTY), always, or never. Respects the NO_COLOR env var.")
@@ -1701,15 +1708,19 @@ def _render_rows(rows, paint):
         print("    " + "  ".join(f"{str(r.get(c, '')):<{widths[c]}}" for c in cols))
 
 
-def _render_table(filepath, fmt_label, chunks, file_warns, args):
+def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None):
     file_size = os.path.getsize(filepath)
     p = _Paint(_color_enabled(args))
+    if total is not None and total != len(chunks):
+        count = f"showing {len(chunks)} of {total} chunks"
+    else:
+        count = f"{len(chunks)} chunks"
     print(f"{os.path.basename(filepath)}: {p('id', fmt_label)}, {file_size:,} bytes, "
-          f"{len(chunks)} chunks")
+          f"{count}")
     print()
     print(p("dim", f"  {'idx':<5} {'id':<5} {'offset':<11} {'size':<11} summary"))
     for i, c in enumerate(chunks):
-        idx = p("dim", f"[{i:>2}]")
+        idx = p("dim", f"[{c.get('_idx', i):>2}]")
         cid = p("id", f"{c['id']:<5}")
         off = p("dim", f"0x{c['offset']:08x}")
         print(f"  {idx}  {cid} {off}  {c['size']:<11,} {c['summary']}")
@@ -1772,6 +1783,29 @@ def _id3_tagged_mp3(filepath):
     return nxt not in (b"RIFF", b"RF64", b"FORM", b"fLaC", b"MThd")
 
 
+def _parse_id_list(val):
+    """A comma-separated chunk-id list into a normalized set (or None)."""
+    if not val:
+        return None
+    return {x.strip().casefold() for x in val.split(",") if x.strip()}
+
+
+def _select_chunks(chunks, only, exclude):
+    """Filter chunks by --only/--exclude, tagging each survivor with its
+    original index so the table keeps truthful [n] and file positions."""
+    out = []
+    for i, c in enumerate(chunks):
+        cid = c["id"].strip().casefold()
+        if only is not None and cid not in only:
+            continue
+        if exclude is not None and cid in exclude:
+            continue
+        c = dict(c)
+        c["_idx"] = i
+        out.append(c)
+    return out
+
+
 class _Unsupported(Exception):
     """A file inspect cannot structurally decode; message is user-facing."""
 
@@ -1817,6 +1851,8 @@ def run(args):
     deep = getattr(args, "frames", False)
     as_json = args.format == "json"
     multi = len(targets) > 1
+    only = _parse_id_list(getattr(args, "only", None))
+    exclude = _parse_id_list(getattr(args, "exclude", None))
     exit_code = 0
 
     try:
@@ -1837,6 +1873,9 @@ def run(args):
                 exit_code = 1
                 continue
 
+            total = len(chunks)
+            shown = _select_chunks(chunks, only, exclude)
+
             if as_json:
                 # NDJSON: one compact record per file per line, so the stream
                 # pipes cleanly into jq -c and other line-oriented tools.
@@ -1844,13 +1883,14 @@ def run(args):
                     "file": filepath,
                     "format": fmt_label,
                     "size": os.path.getsize(filepath),
-                    "chunks": chunks,
+                    "chunks": [{k: v for k, v in c.items() if k != "_idx"}
+                               for c in shown],
                     "warnings": file_warns,
                 }) + "\n")
             else:
                 if multi:
                     print(f"\nFile: {filepath}")  # readelf-style per-file banner
-                _render_table(filepath, fmt_label, chunks, file_warns, args)
+                _render_table(filepath, fmt_label, shown, file_warns, args, total)
     except BrokenPipeError:
         # a downstream pager or `head` closed the pipe: exit quietly the way
         # cat and grep do, without a traceback.
