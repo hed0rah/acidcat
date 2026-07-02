@@ -45,6 +45,9 @@ FORM (AIFF or AIFC)
  +-- SSND         (required: audio sample data)
  +-- MARK         (optional: marker positions)
  +-- INST         (optional: instrument parameters)
+ +-- COMT         (optional: timestamped comments)
+ +-- AESD         (optional: AES3 channel status)
+ +-- APPL         (optional: application-specific data)
  +-- NAME         (optional: track name)
  +-- AUTH         (optional: author)
  +-- (c)          (optional: copyright)
@@ -105,15 +108,41 @@ struct comm_aifc_ext {
 
 ### AIFC Compression Types
 
-| Type   | Meaning              | Notes                          |
-|--------|----------------------|--------------------------------|
-| `NONE` | uncompressed         | same as AIFF                   |
-| `sowt` | little-endian PCM    | "twos" reversed, used by macOS |
-| `fl32` | 32-bit IEEE float    |                                |
-| `fl64` | 64-bit IEEE float    |                                |
-| `alaw` | A-law                | telephony                      |
-| `ulaw` | mu-law               | telephony                      |
-| `ima4` | IMA ADPCM 4:1        | QuickTime                      |
+The set acidcat recognizes. Anything outside it gets an
+"unknown type" warning rather than a silent pass.
+
+| Type            | Meaning                          | Duration    |
+|-----------------|----------------------------------|-------------|
+| `NONE`          | big-endian PCM, same as AIFF     | exact       |
+| `twos`          | big-endian PCM, explicit 4cc     | exact       |
+| `sowt`          | little-endian PCM ("twos" reversed, macOS) | exact |
+| `raw `          | unsigned 8-bit PCM (trailing space is part of the 4cc) | exact |
+| `in24` / `in32` | 24/32-bit big-endian integer PCM | exact       |
+| `42ni` / `23ni` | 24/32-bit little-endian integer PCM (CoreAudio) | exact |
+| `fl32` / `fl64` | 32/64-bit IEEE float (uppercase variants exist) | exact |
+| `alaw` / `ulaw` | A-law / mu-law                   | approximate |
+| `ima4`          | IMA ADPCM 4:1                    | QuickTime, approximate |
+| `MAC3` / `MAC6` | MACE 3:1 / 6:1                   | approximate |
+| `QDMC` / `QDM2` | QDesign Music                    | approximate |
+| `Qclp`          | Qualcomm PureVoice               | approximate |
+
+The duration column is the trap: for the PCM/float types
+`num_sample_frames` counts real sample frames and `frames / rate` is
+an exact duration. For the packet-coded types it counts **packets**,
+so `frames / rate` is only a lower bound; acidcat labels those
+durations `~... (approx)` and warns.
+
+### File-Level Integrity Checks
+
+Beyond per-chunk parsing, acidcat lints the file as a whole:
+
+- FORM size vs actual file size (declared `size + 8` must match)
+- any chunk claiming more bytes than remain in the file
+- missing COMM (file is not decodable as audio)
+- missing SSND despite COMM declaring sample frames
+- SSND `offset` exceeding the chunk's own payload
+- COMM frames implying more audio than the file holds
+- INST loop marker ids that MARK does not define
 
 ### 80-bit IEEE 754 Extended Float
 
@@ -132,9 +161,16 @@ exponent = ((byte[0] & 0x7F) << 8) | byte[1]
 mantissa = bytes 2..9 as uint64 big-endian
 
 if exponent == 0 and mantissa == 0:  value = 0.0
-if exponent == 0x7FFF:               value = infinity
+if exponent == 0x7FFF:               value = inf or NaN per IEEE
 else: value = (-1)^sign * (mantissa / 2^63) * 2^(exponent - 16383)
 ```
+
+Parser note: acidcat's `_parse_ieee_extended` returns 0.0 (treated
+as an unset rate) for the all-ones exponent instead of infinity or
+NaN. Neither is a usable sample rate, and `int(inf)` downstream
+raised OverflowError, turning the whole COMM chunk into a parse
+error. A forged near-max exponent that overflows a double gets the
+same treatment.
 
 ```
 bit-level map (10 bytes):
@@ -245,6 +281,46 @@ Markers are referenced by ID from the INST chunk's loop definitions.
 
 ---
 
+## COMT -- Comments Chunk
+
+Timestamped, optionally marker-linked comments. A step up from ANNO:
+each comment carries a creation time and can attach to a marker.
+acidcat decodes it.
+
+```
+"COMT"
+uint32_t size
+
+struct comt_chunk {
+    uint16_t num_comments;
+    // followed by num_comments records:
+};
+
+struct comment {
+    uint32_t time_stamp;    // seconds since the 1904 Mac epoch
+    int16_t  marker;        // MARK id this comment annotates, 0 = none
+    uint16_t count;         // text length in bytes
+    char     text[count];   // padded to even (pad not counted)
+};
+```
+
+```
+         0      1      2      3
+       +------+------+------+------+
+ +0x00 |  time_stamp (u32 BE)      |  seconds since 1904-01-01
+       +------+------+------+------+  (classic Mac epoch)
+ +0x04 | marker (i16)| count (u16) |  marker 0 = free-standing
+       +------+------+------+------+
+ +0x08 |  text[count], padded even |
+       :                           :
+```
+
+Unlike marker names (Pascal strings), comment text uses an explicit
+16-bit count. The 1904 epoch is 2,082,844,800 seconds before the
+Unix epoch.
+
+---
+
 ## INST -- Instrument Chunk
 
 Sampler/instrument parameters. Similar concept to WAV's inst + smpl.
@@ -348,6 +424,59 @@ char     annotation[size];
 
 Multiple ANNO chunks are allowed (unlike NAME/AUTH/(c) which should
 appear once).
+
+---
+
+## AESD -- Audio Recording Chunk
+
+A verbatim 24-byte AES3 (AES/EBU digital interface) channel-status
+block, as would travel down an AES3 cable. Rare outside broadcast
+and DAT-era transfers.
+
+```
+"AESD"
+uint32_t size       // 24
+
+byte aes_channel_status_data[24];
+```
+
+Byte 0 carries the interesting bits:
+
+```
+bit 0:      0 = consumer (S/PDIF-style), 1 = professional
+bit 1:      0 = PCM audio, 1 = non-audio data
+bits 2-4:   emphasis (000 unindicated, 100 none,
+                      110 50/15 us, 111 CCITT J.17)
+bits 6-7:   sample rate (00 unindicated, 01 48000,
+                         10 44100, 11 32000)
+```
+
+acidcat decodes byte 0 and shows the remaining 23 bytes as hex. Note
+the rate field predates high-rate audio; anything above 48 kHz shows
+as unindicated.
+
+---
+
+## APPL -- Application Specific Chunk
+
+Arbitrary private data tagged with the owning application's
+signature. AIFF's escape hatch, like WAV's unregistered chunks but
+with attribution built in.
+
+```
+"APPL"
+uint32_t size
+
+struct appl_chunk {
+    char signature[4];      // OSType: registered application code
+    byte data[size - 4];    // application-defined
+};
+```
+
+Two signatures have defined structure: `pdos` (Apple II ProDOS) and
+`stoc` (structured own chunk) begin the data with a Pascal string
+naming the application or structure. acidcat reads the signature,
+extracts that pstring when present, and reports the data length.
 
 ---
 

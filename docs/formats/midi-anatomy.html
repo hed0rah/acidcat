@@ -142,13 +142,29 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       <div class="rbody"><p class="note">Seven payload bits per byte; the high bit set means another byte follows. A parser that loses sync here misreads everything after it. acidcat's running-status bookkeeping is exactly where a one-byte desync once corrupted note counts.</p></div></details>
     <details class="region"><summary><span class="chev">&#9656;</span><span class="rname">running status</span><span class="rspan">the omitted byte</span></summary>
       <div class="rbody"><p class="note">Consecutive channel events with the same status may drop the repeated status byte; the parser must remember the last one. Every mainstream DAW exports this way.</p></div></details>
+    <details class="region"><summary><span class="chev">&#9656;</span><span class="rname">channel voice messages</span><span class="rspan">status 0x80-0xEF . SSSS CCCC</span></summary>
+      <div class="rbody"><p class="note">High nibble is the message type, low nibble the channel (0-15). Types 8n-Bn and En carry two data bytes, Cn and Dn one. Note On with velocity 0 means Note Off.</p><div class="kv">
+        <div><span class="k">8n</span><span class="v">note off: key, velocity</span></div>
+        <div><span class="k">9n</span><span class="v">note on: key, velocity (velocity 0 = note off)</span></div>
+        <div><span class="k">An</span><span class="v">polyphonic aftertouch: key, pressure</span></div>
+        <div><span class="k">Bn</span><span class="v">control change: controller, value</span></div>
+        <div><span class="k">Cn</span><span class="v">program change: program (one data byte)</span></div>
+        <div><span class="k">Dn</span><span class="v">channel aftertouch: pressure (one data byte)</span></div>
+        <div><span class="k">En</span><span class="v">pitch bend: 14-bit LSB+MSB, (msb&lt;&lt;7)|lsb - 8192 = signed offset, 0 = center</span></div>
+      </div></div></details>
     <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">meta events</span><span class="rspan">FF type len data</span></summary>
       <div class="rbody"><div class="kv">
         <div><span class="k">FF 51</span><span class="v">tempo: microseconds per quarter (bpm = 60e6 / us)</span></div>
+        <div><span class="k">FF 54</span><span class="v">SMPTE offset: hr mn se fr ff; hr packs 0rrhhhhh, bits 6-5 = frame rate (00=24, 01=25, 10=29.97, 11=30 fps), low 5 bits = hour</span></div>
         <div><span class="k">FF 58</span><span class="v">time signature</span></div>
         <div><span class="k">FF 59</span><span class="v">key signature: sharps/flats count + minor flag</span></div>
-        <div><span class="k">FF 03</span><span class="v">track name</span></div>
+        <div><span class="k">FF 01-07</span><span class="v">text family: text, copyright, track name, instrument, lyric, marker, cue point</span></div>
         <div><span class="k">FF 2F</span><span class="v">end of track (required)</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">sysex</span><span class="rspan">F0 / F7 + VLQ length</span></summary>
+      <div class="rbody"><p class="note">In a file, F0 and F7 are followed by a VLQ byte length, then the payload; F7 carries escapes and continuations. Both cancel running status, same as meta events.</p><div class="kv">
+        <div><span class="k">F0</span><span class="v">&lt;length VLQ&gt; &lt;data&gt; -- standard sysex</span></div>
+        <div><span class="k">F7</span><span class="v">&lt;length VLQ&gt; &lt;data&gt; -- escape / continuation</span></div>
       </div></div></details>
   </div>
 

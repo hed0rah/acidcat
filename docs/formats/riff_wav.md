@@ -151,6 +151,15 @@ struct fmt_extensible {
 };
 ```
 
+The `sub_format` GUID is a 2-byte format tag (same values as the tag
+table above, little-endian) followed by the fixed KSDATAFORMAT_SUBTYPE
+tail `00000000-1000-8000-00AA00389B71`. acidcat reads the tag out of
+the first two bytes, validates the tail, and warns when the GUID is
+non-standard.
+
+A plain extended WAVEFORMATEX (18-byte fmt, tag != 0xFFFE) carries just
+the `cbSize` field at offset 0x10; acidcat shows it when present.
+
 ### Channel Mask (Extensible)
 
 ```
@@ -165,7 +174,18 @@ bit 7:  Front Right of Center(0x080)
 bit 8:  Back Center          (0x100)
 bit 9:  Side Left            (0x200)
 bit 10: Side Right           (0x400)
+bit 11: Top Center           (0x800)
+bit 12: Top Front Left       (0x1000)
+bit 13: Top Front Center     (0x2000)
+bit 14: Top Front Right      (0x4000)
+bit 15: Top Back Left        (0x8000)
+bit 16: Top Back Center      (0x10000)
+bit 17: Top Back Right       (0x20000)
 ```
+
+acidcat prints the set bits as the short speaker names, low bit first:
+FL, FR, FC, LFE, BL, BR, FLC, FRC, BC, SL, SR, TC, TFL, TFC, TFR, TBL,
+TBC, TBR.
 
 Common masks: `0x03` = stereo (FL+FR), `0x04` = mono center,
 `0x3F` = 5.1 surround.
@@ -226,6 +246,11 @@ struct fact_chunk {
 For compressed formats (ADPCM, MP3-in-WAV), the data chunk size doesn't
 directly translate to sample count. The fact chunk is the authoritative
 source.
+
+A `sample_length` of `0xFFFFFFFF` is the RF64 sentinel: the real 64-bit
+count lives in the ds64 chunk's `sample_count`. acidcat resolves the
+sentinel through ds64 and warns when the sentinel appears with no ds64
+to resolve it.
 
 ---
 
@@ -584,6 +609,23 @@ reapportion the 254 bytes after `version` (v0: all reserved; v1: 64-byte UMID
 then 190 reserved; v2: 64-byte UMID, five int16 loudness values in hundredths,
 then 180 reserved). CodingHistory always begins at 0x25A. Per EBU Tech 3285 v2.
 
+### Loudness (v2)
+
+The five loudness fields at 0x19C are int16 LE, each stored as
+hundredths of a unit:
+
+| Field                   | Unit |
+|-------------------------|------|
+| loudness_value          | LUFS |
+| loudness_range          | LU   |
+| max_true_peak_level     | dBTP |
+| max_momentary_loudness  | LUFS |
+| max_short_term_loudness | LUFS |
+
+`0x7FFF` is the "not set" sentinel. The spec also says any value outside
++-99.99 (i.e. raw beyond +-9999) shall be ignored; acidcat reports both
+cases as unset.
+
 ### Time Reference
 
 The `time_reference` fields encode position on a timeline (e.g., timecode
@@ -620,7 +662,7 @@ byte     padding[size];     // all zeros or garbage
 
 ---
 
-## RF64 / WAV64 -- Extended WAV
+## RF64 / Wave64 -- Extended WAV
 
 Standard RIFF has a 4GB file size limit (uint32 size field). Two
 extensions exist:
@@ -632,16 +674,28 @@ extensions exist:
 uint32_t size = 0xFFFFFFFF  // sentinel: "check ds64 chunk"
 "WAVE"
 
-// first chunk must be ds64:
+// first chunk must be ds64. 28-byte fixed area:
 "ds64"
 uint32_t size
-uint64_t riff_size;         // actual file size
+uint64_t riff_size;         // actual file size - 8
 uint64_t data_size;         // actual data chunk size
 uint64_t sample_count;      // replaces fact chunk
 uint32_t table_length;      // number of size-override entries
+
+// then table_length override records, 12 bytes each:
+struct ds64_override {
+    char     id[4];         // chunk id
+    uint64_t size;          // real 64-bit size for that chunk
+};
 ```
 
-### WAV64 (Sony)
+The override table covers any chunk other than `data` whose 32-bit
+size field carries the `0xFFFFFFFF` sentinel; `data` takes its size
+from `data_size` directly. acidcat parses the table and resolves those
+sentinels while walking; a sentinel chunk with no override, or a table
+that runs past the ds64 payload, is linted.
+
+### Wave64 (Sony)
 
 Uses GUIDs instead of 4-byte chunk IDs. 64-bit sizes throughout.
 Less common than RF64.
