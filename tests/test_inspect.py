@@ -580,6 +580,34 @@ class TestInspectMp3:
         frames = next(c for c in chunks if c["id"] == "frames")
         assert any("diverges" in w for w in frames["warnings"])
 
+    def test_info_tag_is_cbr(self, tmp_path):
+        # is_vbr_header was true for both Xing and Info; an Info tag is
+        # LAME's CBR marker and must not force the VBR label.
+        from acidcat.commands.inspect import inspect_mp3
+        fr = bytearray(_MP3_FRAME)
+        fr[21:25] = b"Info"
+        fr[25:29] = struct.pack(">I", 0x01)      # frames flag
+        fr[29:33] = struct.pack(">I", 3)         # accurate frame count
+        p = tmp_path / "cbr.mp3"
+        p.write_bytes(bytes(fr) + _MP3_FRAME * 2)
+        chunks, _ = inspect_mp3(str(p))
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert "CBR" in frames["summary"]
+        vbr = next(f for f in frames["fields"] if f["name"] == "vbr")
+        assert vbr["value"] is False
+
+    def test_xing_tag_forces_vbr_even_with_uniform_bitrates(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        fr = bytearray(_MP3_FRAME)
+        fr[21:25] = b"Xing"
+        fr[25:29] = struct.pack(">I", 0x01)
+        fr[29:33] = struct.pack(">I", 3)
+        p = tmp_path / "vbr2.mp3"
+        p.write_bytes(bytes(fr) + _MP3_FRAME * 2)
+        chunks, _ = inspect_mp3(str(p))
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert "VBR" in frames["summary"]
+
     def test_truncated_xing_header_no_crash(self, tmp_path):
         from acidcat.commands.inspect import inspect_mp3
         # a first frame that declares a Xing tag with the frames flag set but
