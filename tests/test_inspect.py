@@ -1123,3 +1123,33 @@ class TestMidiSmpteOffset:
         mtrk = next(c for c in chunks if c["id"] == "MTrk")
         row = next(r for r in mtrk["rows"] if "smpte" in r["event"])
         assert row["detail"] == "01:00:00:00.00 @ 30 fps"
+
+
+class TestId3v1AndLame:
+    def test_id3v11_full_fields_and_genre(self):
+        from acidcat.commands.inspect import _id3v1_fields
+        tag = (b"TAG" + b"Title".ljust(30, b"\x00") + b"Artist".ljust(30, b"\x00")
+               + b"Album".ljust(30, b"\x00") + b"2020" + b"Comment".ljust(28, b"\x00")
+               + b"\x00" + bytes([7]) + bytes([34]))  # v1.1 track 7, genre 34
+        fields, title = _id3v1_fields(tag)
+        d = {f["name"]: (f["value"], f["note"]) for f in fields}
+        assert title == "Title"
+        assert d["album"][0] == "Album" and d["year"][0] == "2020"
+        assert d["track"][0] == 7
+        assert d["genre"] == (34, "Acid")
+
+    def test_id3v10_has_no_track(self):
+        from acidcat.commands.inspect import _id3v1_fields
+        tag = (b"TAG" + b"T".ljust(30, b"\x00") + b"A".ljust(30, b"\x00")
+               + b"Al".ljust(30, b"\x00") + b"2020" + b"C".ljust(30, b"\x00")
+               + bytes([13]))  # full comment, genre 13
+        fields, _ = _id3v1_fields(tag)
+        assert not any(f["name"] == "track" for f in fields)
+        assert next(f["note"] for f in fields if f["name"] == "genre") == "Pop"
+
+    def test_lame_replaygain_decode(self):
+        from acidcat.commands.inspect import _lame_replaygain
+        # name=1 (radio), sign=1 (neg), magnitude 60 -> -6.0 dB
+        word = (1 << 13) | (1 << 9) | 60
+        assert _lame_replaygain(word) == "-6.0 dB (radio)"
+        assert _lame_replaygain(0) is None

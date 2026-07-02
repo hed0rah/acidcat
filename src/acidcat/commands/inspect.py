@@ -1558,6 +1558,74 @@ _VBR_METHODS = {
     5: "VBR (rh2)", 6: "VBR (constrained)",
 }
 
+# ID3v1 genre index -> name: 0-79 the original spec, 80-191 the Winamp
+# extensions. 255 (and anything past the table) is "none/unknown".
+_ID3_GENRES = [
+    "Blues", "Classic Rock", "Country", "Dance", "Disco", "Funk", "Grunge",
+    "Hip-Hop", "Jazz", "Metal", "New Age", "Oldies", "Other", "Pop", "R&B",
+    "Rap", "Reggae", "Rock", "Techno", "Industrial", "Alternative", "Ska",
+    "Death Metal", "Pranks", "Soundtrack", "Euro-Techno", "Ambient",
+    "Trip-Hop", "Vocal", "Jazz+Funk", "Fusion", "Trance", "Classical",
+    "Instrumental", "Acid", "House", "Game", "Sound Clip", "Gospel", "Noise",
+    "AlternRock", "Bass", "Soul", "Punk", "Space", "Meditative",
+    "Instrumental Pop", "Instrumental Rock", "Ethnic", "Gothic", "Darkwave",
+    "Techno-Industrial", "Electronic", "Pop-Folk", "Eurodance", "Dream",
+    "Southern Rock", "Comedy", "Cult", "Gangsta", "Top 40", "Christian Rap",
+    "Pop/Funk", "Jungle", "Native American", "Cabaret", "New Wave",
+    "Psychadelic", "Rave", "Showtunes", "Trailer", "Lo-Fi", "Tribal",
+    "Acid Punk", "Acid Jazz", "Polka", "Retro", "Musical", "Rock & Roll",
+    "Hard Rock", "Folk", "Folk-Rock", "National Folk", "Swing", "Fast Fusion",
+    "Bebob", "Latin", "Revival", "Celtic", "Bluegrass", "Avantgarde",
+    "Gothic Rock", "Progressive Rock", "Psychedelic Rock", "Symphonic Rock",
+    "Slow Rock", "Big Band", "Chorus", "Easy Listening", "Acoustic", "Humour",
+    "Speech", "Chanson", "Opera", "Chamber Music", "Sonata", "Symphony",
+    "Booty Bass", "Primus", "Porn Groove", "Satire", "Slow Jam", "Club",
+    "Tango", "Samba", "Folklore", "Ballad", "Power Ballad", "Rhythmic Soul",
+    "Freestyle", "Duet", "Punk Rock", "Drum Solo", "A capella", "Euro-House",
+    "Dance Hall", "Goa", "Drum & Bass", "Club-House", "Hardcore", "Terror",
+    "Indie", "BritPop", "Negerpunk", "Polsk Punk", "Beat",
+    "Christian Gangsta Rap", "Heavy Metal", "Black Metal", "Crossover",
+    "Contemporary Christian", "Christian Rock", "Merengue", "Salsa",
+    "Thrash Metal", "Anime", "Jpop", "Synthpop",
+]
+
+
+def _lame_replaygain(word):
+    """Decode a LAME 16-bit replay-gain word; None if unset (0x0000)."""
+    if word == 0:
+        return None
+    name = (word >> 13) & 0x07
+    sign = (word >> 9) & 0x01
+    mag = word & 0x1FF
+    db = (-1 if sign else 1) * mag / 10.0
+    kind = {1: "radio", 2: "audiophile"}.get(name, "")
+    return f"{db:+.1f} dB" + (f" ({kind})" if kind else "")
+
+
+def _id3v1_fields(tag):
+    """Decode a 128-byte ID3v1/v1.1 trailer into display fields; also
+    return the title for the chunk summary."""
+    def s(a, b):
+        return tag[a:b].decode("latin-1", errors="replace").split("\x00")[0].rstrip("\x00 ")
+    fields = [
+        _f(0x03, 30, "title", s(3, 33)),
+        _f(0x21, 30, "artist", s(33, 63)),
+        _f(0x3F, 30, "album", s(63, 93)),
+        _f(0x5D, 4, "year", s(93, 97)),
+    ]
+    # ID3v1.1: byte 125 is zero and byte 126 (track) is nonzero, so the
+    # comment is only 28 bytes. Otherwise it is a full 30-byte v1.0 comment.
+    if tag[125] == 0 and tag[126] != 0:
+        fields.append(_f(0x61, 28, "comment", s(97, 125)))
+        fields.append(_f(0x7E, 1, "track", tag[126]))
+    else:
+        fields.append(_f(0x61, 30, "comment", s(97, 127)))
+    g = tag[127]
+    gname = _ID3_GENRES[g] if g < len(_ID3_GENRES) else ("none" if g == 255
+                                                          else f"unknown {g}")
+    fields.append(_f(0x7F, 1, "genre", g, gname))
+    return fields, s(3, 33)
+
 
 def _decode_id3_text(raw):
     """Decode an ID3v2 text-frame payload (leading encoding byte)."""
@@ -1753,6 +1821,13 @@ def _parse_xing_lame(filepath, frame_off, hdr):
                              _VBR_METHODS.get(vbr_method, "")))
             if lowpass:
                 fields.append(_f(pos + 10, 1, "lowpass", f"{lowpass} Hz"))
+            rg = _lame_replaygain(_bu16(buf, pos + 15))
+            if rg:
+                fields.append(_f(pos + 15, 2, "replay_gain", rg))
+            bitrate = buf[pos + 20]
+            if bitrate:
+                fields.append(_f(pos + 20, 1, "bitrate", f"{bitrate} kbps",
+                                 "min for VBR, target for ABR"))
             delay = (buf[pos + 21] << 4) | (buf[pos + 22] >> 4)
             padding = ((buf[pos + 22] & 0x0F) << 8) | buf[pos + 23]
             fields.append(_f(pos + 21, 3, "gapless", f"delay {delay}, pad {padding}",
@@ -1880,12 +1955,10 @@ def inspect_mp3(filepath, deep=False):
         with open(filepath, "rb") as f:
             f.seek(id3v1_off)
             tag = f.read(128)
-        title = tag[3:33].decode("latin-1", errors="replace").rstrip("\x00 ")
-        artist = tag[33:63].decode("latin-1", errors="replace").rstrip("\x00 ")
+        v1_fields, title = _id3v1_fields(tag)
         chunks.append({"id": "ID3v1", "offset": id3v1_off, "size": 128,
                        "summary": f"ID3v1 trailer, {title or 'untitled'}",
-                       "fields": [_f(0x03, 30, "title", title),
-                                  _f(0x21, 30, "artist", artist)],
+                       "fields": v1_fields,
                        "warnings": [], "payload_base": id3v1_off})
     return chunks, file_warns
 
