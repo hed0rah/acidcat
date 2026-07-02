@@ -400,3 +400,32 @@ class TestInfoMidiDivision:
         code, out, _ = run_cli(self._smf(tmp_path, 0xE350))
         assert code == 0 or code is None
         assert "29.97 fps" in out
+
+
+def test_main_reconfigures_stdout_to_utf8(monkeypatch):
+    # audio metadata is Unicode; the CLI must force UTF-8 output so a non-Latin
+    # tag does not raise UnicodeEncodeError on a cp1252 console (Windows/pipe).
+    import sys
+
+    calls = []
+
+    class FakeStream:
+        encoding = "cp1252"
+
+        def reconfigure(self, **kw):
+            calls.append(kw)
+
+        def write(self, s):
+            return len(s)
+
+        def flush(self):
+            pass
+
+    monkeypatch.setattr(sys, "stdout", FakeStream())
+    monkeypatch.setattr(sys, "stderr", FakeStream())
+    try:
+        cli_main(["--version"])  # reconfigure runs before argparse exits
+    except SystemExit:
+        pass
+    assert any(c.get("encoding") == "utf-8" and c.get("errors") == "replace"
+               for c in calls)
