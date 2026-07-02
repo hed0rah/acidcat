@@ -33,6 +33,9 @@ _FRAME_LISTING_CAP = 100000  # per-element rows kept for the --frames deep dump
 # payload cap, so enumerating their frames needs a bigger read. bounded so a
 # forged synchsafe tag size cannot force an unbounded allocation.
 _ID3_READ_CAP = 16 * 1024 * 1024
+# --full emits raw region bytes for chunks that have decoded fields; cap the
+# hex so a huge header (embedded art) cannot bloat the dump without bound.
+_FULL_RAW_CAP = 8192
 
 _FORMAT_TAGS = {
     0x0001: "PCM",
@@ -54,6 +57,21 @@ _ACID_FLAGS = (
 
 _LOOP_TYPES = {0: "forward", 1: "ping-pong", 2: "reverse"}
 
+# WAVEFORMATEXTENSIBLE dwChannelMask bit positions, low bit first.
+_SPEAKER_POSITIONS = [
+    "FL", "FR", "FC", "LFE", "BL", "BR", "FLC", "FRC", "BC", "SL", "SR",
+    "TC", "TFL", "TFC", "TFR", "TBL", "TBC", "TBR",
+]
+
+# the fixed 14-byte tail of every KSDATAFORMAT_SUBTYPE GUID (the first 2 bytes
+# are the format tag, little-endian).
+_KSDATAFORMAT_TAIL = bytes.fromhex("000000001000800000aa00389b71")
+
+
+def _channel_mask_names(mask):
+    names = [n for i, n in enumerate(_SPEAKER_POSITIONS) if mask & (1 << i)]
+    return ", ".join(names) if names else "none"
+
 _INFO_TAGS = {
     "INAM": "title", "IART": "artist", "ICMT": "comment", "ISFT": "software",
     "ICRD": "date", "IGNR": "genre", "ICOP": "copyright", "IKEY": "keywords",
@@ -66,8 +84,11 @@ def register(subparsers):
         "inspect",
         help="readelf-style structural dump of a WAV, AIFF, MIDI, MP3, or FLAC file.",
     )
-    p.add_argument("target",
-                   help="Path to a WAV, RF64, AIFF, MIDI, Serum, MP3, or FLAC file.")
+    p.add_argument("targets", nargs="+", metavar="target",
+                   help="One or more WAV, RF64, AIFF, MIDI, Serum, MP3, or FLAC "
+                        "files. With more than one, each is printed under a "
+                        "'File:' banner; JSON output becomes NDJSON (one record "
+                        "per line).")
     p.add_argument("--hex", action="store_true", dest="show_hex",
                    help="Show raw bytes next to each decoded field.")
     p.add_argument("-f", "--format", default="table", choices=["table", "json"],
@@ -78,6 +99,18 @@ def register(subparsers):
                    help="Per-element deep dump: every MPEG frame (MP3) or "
                         "MIDI event. No effect on formats without per-element "
                         "structure (WAV, AIFF, FLAC).")
+    p.add_argument("--only", metavar="IDS",
+                   help="Show only these chunk ids (comma-separated, e.g. "
+                        "'fmt,bext'). Case-insensitive, matched against the "
+                        "displayed id. Compose with --hex to hexdump one chunk.")
+    p.add_argument("--exclude", metavar="IDS",
+                   help="Hide these chunk ids (comma-separated). Applied after "
+                        "--only.")
+    p.add_argument("--full", action="store_true",
+                   help="Emit a self-contained structural dump (implies -f json): "
+                        "each chunk with its raw region bytes and every field's "
+                        "absolute byte offset, so build_explorer.py can render a "
+                        "standalone HTML explorer for the file.")
     p.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                    help="Colorize table output: auto (default, when stdout is a "
                         "TTY), always, or never. Respects the NO_COLOR env var.")
@@ -139,6 +172,10 @@ def _parse_fmt(b, ctx):
     if tag == 1 and rate and align and avg != rate * align:
         warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
 
+    # a WAVEFORMATEX (extended, non-extensible) carries a cbSize at 0x10.
+    if tag != 0xFFFE and len(b) >= 18:
+        fields.append(_f(0x10, 2, "cb_size", _u16(b, 0x10), "extension bytes"))
+
     if tag == 0xFFFE and len(b) >= 40:
         cb = _u16(b, 0x10)
         valid_bits = _u16(b, 0x12)
@@ -146,10 +183,16 @@ def _parse_fmt(b, ctx):
         sub = b[0x18:0x28]
         sub_tag = struct.unpack_from("<H", sub, 0)[0]
         sub_name = _FORMAT_TAGS.get(sub_tag, f"guid 0x{sub_tag:04x}")
+        tail_ok = sub[2:] == _KSDATAFORMAT_TAIL
         fields.append(_f(0x10, 2, "cb_size", cb))
         fields.append(_f(0x12, 2, "valid_bits_per_sample", valid_bits))
-        fields.append(_f(0x14, 4, "channel_mask", f"0x{mask:03x}"))
-        fields.append(_f(0x18, 16, "sub_format", sub_name))
+        fields.append(_f(0x14, 4, "channel_mask", f"0x{mask:x}",
+                         _channel_mask_names(mask)))
+        fields.append(_f(0x18, 16, "sub_format", sub_name,
+                         "KSDATAFORMAT_SUBTYPE" if tail_ok else "non-standard GUID"))
+        if not tail_ok:
+            warns.append("sub_format GUID tail is not the standard "
+                         "KSDATAFORMAT_SUBTYPE suffix")
         ctx["format_tag"] = sub_tag
 
     summary = f"{tag_name} {bits}-bit {ch}ch {rate} Hz"
@@ -378,6 +421,32 @@ def _parse_bext(b, ctx):
     fields.append(_f(0x152, 8, "time_reference", timeref, note))
     version = _u16(b, 346)
     fields.append(_f(0x15A, 2, "version", version))
+
+    # v1 (July 2001) adds a 64-byte SMPTE UMID at 0x15C; v2 (May 2011) adds
+    # five int16 loudness values at 0x19C. the fixed area is always 602 bytes;
+    # CodingHistory (ASCII) runs from 0x25A to the end of the chunk.
+    if version >= 1 and len(b) >= 0x15C + 64:
+        umid = b[0x15C:0x15C + 64]
+        shown = umid.hex() if umid.strip(b"\x00") else "0 (no UMID)"
+        fields.append(_f(0x15C, 64, "umid", shown, "SMPTE ST 330"))
+    if version >= 2 and len(b) >= 0x1A6:
+        loud = [("loudness_value", "LUFS"), ("loudness_range", "LU"),
+                ("max_true_peak", "dBTP"), ("max_momentary", "LUFS"),
+                ("max_short_term", "LUFS")]
+        for i, (name, unit) in enumerate(loud):
+            raw = struct.unpack_from("<h", b, 0x19C + i * 2)[0]
+            # 0x7fff is the "not set" sentinel; the spec also says any value
+            # outside +-99.99 (hundredths of a unit) shall be ignored.
+            unset = raw == 0x7FFF or not (-9999 <= raw <= 9999)
+            fields.append(_f(0x19C + i * 2, 2, name,
+                             "unset" if unset else f"{raw / 100:+.2f} {unit}"))
+    if len(b) > 0x25A:
+        # writers pad CodingHistory with trailing NULs; trim before display.
+        hist = b[0x25A:].split(b"\x00")[0].decode("ascii", errors="replace").strip()
+        if hist:
+            fields.append(_f(0x25A, len(b) - 0x25A, "coding_history",
+                             hist[:120], "EBU R98 rows"))
+
     return f"BWF v{version}, {_cstr(b, 256, 32) or 'no originator'}", fields, warns
 
 
@@ -634,6 +703,71 @@ def _aiff_basc(b, ctx):
     return summary, fields, warns
 
 
+def _aiff_comt(b):
+    """AIFF Comments chunk: numComments then timestamped, marker-linked
+    comment records (big-endian, text padded to even)."""
+    fields, warns = [], []
+    if len(b) < 2:
+        return "truncated", fields, ["COMT payload under 2 bytes"]
+    n = _bu16(b, 0)
+    fields.append(_f(0x00, 2, "num_comments", n))
+    pos = 2
+    shown = 0
+    for i in range(n):
+        if pos + 8 > len(b):
+            warns.append(f"declares {n} comments but payload ends at {i}")
+            break
+        marker = struct.unpack_from(">h", b, pos + 4)[0]
+        count = _bu16(b, pos + 6)
+        if pos + 8 + count > len(b):
+            warns.append(f"comment[{i}] text overruns payload")
+            break
+        text = b[pos + 8:pos + 8 + count].decode("ascii", errors="replace").strip()
+        note = f"marker {marker}" if marker else ""
+        fields.append(_f(pos, 8 + count + (count & 1), f"comment[{i}]",
+                         text[:60], note))
+        pos += 8 + count + (count & 1)
+        shown += 1
+    return f"{shown} comment(s)", fields, warns
+
+
+_AES_RATES = {0: "unindicated", 1: "48000", 2: "44100", 3: "32000"}
+_AES_EMPHASIS = {0b000: "unindicated", 0b100: "none",
+                 0b110: "50/15 us", 0b111: "CCITT J.17"}
+
+
+def _aiff_aesd(b):
+    """AIFF Audio Recording chunk: a 24-byte AES3 channel-status block. Byte 0
+    carries the professional/consumer, audio, emphasis, and rate bits."""
+    fields, warns = [], []
+    if len(b) < 24:
+        return "truncated", fields, [f"AESD is {len(b)} bytes, spec says 24"]
+    b0 = b[0]
+    pro = "professional" if (b0 & 0x01) else "consumer"
+    kind = "non-audio" if (b0 & 0x02) else "PCM audio"
+    emphasis = _AES_EMPHASIS.get((b0 >> 2) & 0x07, "reserved")
+    rate = _AES_RATES.get((b0 >> 6) & 0x03, "?")
+    fields.append(_f(0x00, 24, "channel_status", b[:24].hex(),
+                     f"{pro}, {kind}, emphasis {emphasis}, {rate} Hz"))
+    return f"AES3 status: {pro}, {rate} Hz", fields, warns
+
+
+def _aiff_appl(b):
+    """AIFF Application-specific chunk: 4-byte OSType signature then data.
+    'pdos'/'stoc' begin the data with a pstring naming the app/structure."""
+    fields, warns = [], []
+    if len(b) < 4:
+        return "truncated", fields, ["APPL under 4 bytes"]
+    sig = b[:4].decode("ascii", errors="replace")
+    fields.append(_f(0x00, 4, "signature", sig))
+    if sig in ("pdos", "stoc") and len(b) > 4:
+        nlen = b[4]
+        name = b[5:5 + nlen].decode("ascii", errors="replace")
+        fields.append(_f(0x04, 1 + nlen, "name", name, "pstring"))
+    fields.append(_f(None, 0, "data", f"{len(b) - 4:,} bytes"))
+    return f"app '{sig}', {len(b) - 4:,} bytes", fields, warns
+
+
 def inspect_aiff(filepath, form_type):
     """Walk an AIFF/AIFC file and return (chunks, file_warnings)."""
     file_size = os.path.getsize(filepath)
@@ -688,6 +822,15 @@ def inspect_aiff(filepath, form_type):
                 elif cid == "basc":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_basc(payload, ctx)
+                elif cid == "COMT":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_comt(payload)
+                elif cid == "AESD":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_aesd(payload)
+                elif cid == "APPL":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_appl(payload)
                 elif cid in ("NAME", "AUTH", "(c) ", "ANNO"):
                     text = payload.decode("ascii", errors="replace").strip("\x00").strip()
                     entry["summary"] = text[:60]
@@ -791,6 +934,12 @@ def _scan_track(trk, ctx, collect=False):
                 key_sig = f"{sf:+d} {'sharps' if sf >= 0 else 'flats'}" \
                           + (", minor" if edata[1] == 1 else "")
                 detail = key_sig
+            elif etype == 0x54 and elen == 5:
+                # SMPTE offset: hr byte top bits carry the frame rate.
+                hr = edata[0]
+                fps = {0: 24, 1: 25, 2: 29.97, 3: 30}.get((hr >> 5) & 0x03, "?")
+                detail = (f"{hr & 0x1F:02d}:{edata[1]:02d}:{edata[2]:02d}:"
+                          f"{edata[3]:02d}.{edata[4]:02d} @ {fps} fps")
             elif etype in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07):
                 text = edata.decode("ascii", errors="replace").strip()
                 if etype == 0x03 and text:
@@ -1004,6 +1153,22 @@ def _parse_ds64(b, ctx):
     ctx["ds64_riff_size"] = riff_size
     ctx["ds64_data_size"] = data_size
     ctx["ds64_samples"] = sample_count
+    # the override table: table_len entries of (4-byte id, uint64 size) giving
+    # 64-bit sizes for any chunk other than data that carries the sentinel.
+    table = {}
+    tpos = 28
+    for i in range(table_len):
+        if tpos + 12 > len(b):
+            warns.append(f"declares {table_len} override entries but payload "
+                         f"ends at entry {i}")
+            break
+        ent_id = b[tpos:tpos + 4].decode("ascii", errors="replace")
+        ent_size = struct.unpack_from("<Q", b, tpos + 4)[0]
+        table[ent_id] = ent_size
+        fields.append(_f(tpos, 12, f"override[{i}]", f"{ent_id!r} = {ent_size:,}"))
+        tpos += 12
+    if table:
+        ctx["ds64_table"] = table
     file_size = ctx.get("file_size")
     if file_size is not None and data_size > file_size:
         warns.append(
@@ -1045,6 +1210,8 @@ def inspect_rf64(filepath):
             if size == sentinel:
                 if cid == "data" and "ds64_data_size" in ctx:
                     real_size = ctx["ds64_data_size"]
+                elif cid in ctx.get("ds64_table", {}):
+                    real_size = ctx["ds64_table"][cid]
                 else:
                     file_warns.append(
                         f"chunk {cid!r} carries the 64-bit sentinel but "
@@ -1102,7 +1269,7 @@ def inspect_serum(filepath):
     chunks.append({"id": "magc", "offset": 0, "size": 8,
                    "summary": "XferJson signature",
                    "fields": [_f(0x00, 8, "magic", "XferJson")],
-                   "warnings": []})
+                   "warnings": [], "payload_base": 0})
 
     json_start = raw.find(b"{")
     if json_start < 0:
@@ -1269,6 +1436,43 @@ def _flac_application(b):
              _f(0x04, len(b) - 4, "data", f"{len(b) - 4:,} bytes")], [])
 
 
+def _flac_cuesheet(b):
+    """FLAC CUESHEET (block type 5), RFC 9639 section 8.7. Big-endian.
+    396-byte prefix, then per-track 36 bytes + 12 bytes per index point."""
+    fields, warns = [], []
+    if len(b) < 396:
+        return "truncated", fields, [f"CUESHEET is {len(b)} bytes, needs 396"]
+    catalog = b[0:128].split(b"\x00")[0].decode("ascii", errors="replace").strip()
+    lead_in = struct.unpack_from(">Q", b, 128)[0]
+    is_cd = bool(b[136] & 0x80)
+    n_tracks = b[395]
+    fields.append(_f(0x00, 128, "catalog_number", catalog or "(none)"))
+    fields.append(_f(0x80, 8, "lead_in_samples", f"{lead_in:,}"))
+    fields.append(_f(0x88, 1, "is_cd", is_cd))
+    fields.append(_f(0x18B, 1, "num_tracks", n_tracks))
+    pos = 396
+    for i in range(n_tracks):
+        if pos + 36 > len(b):
+            warns.append(f"declares {n_tracks} tracks but payload ends at track {i}")
+            break
+        offset = struct.unpack_from(">Q", b, pos)[0]
+        tnum = b[pos + 8]
+        isrc = b[pos + 9:pos + 21].split(b"\x00")[0].decode("ascii", errors="replace").strip()
+        ttype = "non-audio" if (b[pos + 21] & 0x80) else "audio"
+        preemph = " +pre-emphasis" if (b[pos + 21] & 0x40) else ""
+        n_idx = b[pos + 35]
+        # the last track is the lead-out: 170 for CD-DA, 255 otherwise.
+        lead_out = " (lead-out)" if tnum in (170, 255) else ""
+        detail = f"#{tnum}{lead_out}, {ttype}{preemph}, {n_idx} index"
+        if isrc:
+            detail += f", ISRC {isrc}"
+        fields.append(_f(pos, 36 + n_idx * 12, f"track[{i}]",
+                         f"offset {offset:,}", detail))
+        pos += 36 + n_idx * 12
+    summary = f"cue sheet, {n_tracks} track(s)" + (", CD-DA" if is_cd else "")
+    return summary, fields, warns
+
+
 def inspect_flac(filepath):
     """Walk a FLAC file: metadata blocks then the audio-frame region."""
     file_size = os.path.getsize(filepath)
@@ -1279,7 +1483,8 @@ def inspect_flac(filepath):
 
     chunks.append({"id": "fLaC", "offset": 0, "size": 4,
                    "summary": "FLAC signature",
-                   "fields": [_f(0x00, 4, "magic", "fLaC")], "warnings": []})
+                   "fields": [_f(0x00, 4, "magic", "fLaC")], "warnings": [],
+                   "payload_base": 0})
 
     saw_last = False
     for btype, name, off, length, is_last in flacmod.iter_metadata_blocks(filepath):
@@ -1289,7 +1494,8 @@ def inspect_flac(filepath):
             f.seek(off + 4)
             payload = f.read(min(length, _PAYLOAD_CAP))
         entry = {"id": name, "offset": off, "size": length,
-                 "summary": "", "fields": [], "warnings": []}
+                 "summary": "", "fields": [], "warnings": [],
+                 "payload_base": off + 4}  # FLAC block header is 4 bytes
         try:
             if btype == 0:
                 entry["summary"], entry["fields"], entry["warnings"] = \
@@ -1309,7 +1515,8 @@ def inspect_flac(filepath):
             elif btype == 1:
                 entry["summary"] = f"padding, {length:,} bytes"
             elif btype == 5:
-                entry["summary"] = f"embedded cue sheet, {length:,} bytes"
+                entry["summary"], entry["fields"], entry["warnings"] = \
+                    _flac_cuesheet(payload)
             else:
                 entry["summary"] = f"reserved block type {btype}, {length:,} bytes"
         except Exception as e:
@@ -1346,10 +1553,86 @@ _ID3_TEXT_FRAMES = {
     "COMM": "comment",
 }
 
+# ID3v2.2 used 3-character frame ids. without this map a v2.2 tag lists frame
+# sizes but never decodes its title/artist/etc.
+_ID3V22_TEXT_FRAMES = {
+    "TT2": "title", "TP1": "artist", "TAL": "album", "TCO": "genre",
+    "TBP": "bpm", "TKE": "initial key", "TYE": "year", "TRK": "track",
+    "TSS": "encoder settings", "TEN": "encoded by", "COM": "comment",
+}
+
 _VBR_METHODS = {
     0: "unknown", 1: "CBR", 2: "ABR", 3: "VBR (rh)", 4: "VBR (mtrh)",
     5: "VBR (rh2)", 6: "VBR (constrained)",
 }
+
+# ID3v1 genre index -> name: 0-79 the original spec, 80-191 the Winamp
+# extensions. 255 (and anything past the table) is "none/unknown".
+_ID3_GENRES = [
+    "Blues", "Classic Rock", "Country", "Dance", "Disco", "Funk", "Grunge",
+    "Hip-Hop", "Jazz", "Metal", "New Age", "Oldies", "Other", "Pop", "R&B",
+    "Rap", "Reggae", "Rock", "Techno", "Industrial", "Alternative", "Ska",
+    "Death Metal", "Pranks", "Soundtrack", "Euro-Techno", "Ambient",
+    "Trip-Hop", "Vocal", "Jazz+Funk", "Fusion", "Trance", "Classical",
+    "Instrumental", "Acid", "House", "Game", "Sound Clip", "Gospel", "Noise",
+    "AlternRock", "Bass", "Soul", "Punk", "Space", "Meditative",
+    "Instrumental Pop", "Instrumental Rock", "Ethnic", "Gothic", "Darkwave",
+    "Techno-Industrial", "Electronic", "Pop-Folk", "Eurodance", "Dream",
+    "Southern Rock", "Comedy", "Cult", "Gangsta", "Top 40", "Christian Rap",
+    "Pop/Funk", "Jungle", "Native American", "Cabaret", "New Wave",
+    "Psychadelic", "Rave", "Showtunes", "Trailer", "Lo-Fi", "Tribal",
+    "Acid Punk", "Acid Jazz", "Polka", "Retro", "Musical", "Rock & Roll",
+    "Hard Rock", "Folk", "Folk-Rock", "National Folk", "Swing", "Fast Fusion",
+    "Bebob", "Latin", "Revival", "Celtic", "Bluegrass", "Avantgarde",
+    "Gothic Rock", "Progressive Rock", "Psychedelic Rock", "Symphonic Rock",
+    "Slow Rock", "Big Band", "Chorus", "Easy Listening", "Acoustic", "Humour",
+    "Speech", "Chanson", "Opera", "Chamber Music", "Sonata", "Symphony",
+    "Booty Bass", "Primus", "Porn Groove", "Satire", "Slow Jam", "Club",
+    "Tango", "Samba", "Folklore", "Ballad", "Power Ballad", "Rhythmic Soul",
+    "Freestyle", "Duet", "Punk Rock", "Drum Solo", "A capella", "Euro-House",
+    "Dance Hall", "Goa", "Drum & Bass", "Club-House", "Hardcore", "Terror",
+    "Indie", "BritPop", "Negerpunk", "Polsk Punk", "Beat",
+    "Christian Gangsta Rap", "Heavy Metal", "Black Metal", "Crossover",
+    "Contemporary Christian", "Christian Rock", "Merengue", "Salsa",
+    "Thrash Metal", "Anime", "Jpop", "Synthpop",
+]
+
+
+def _lame_replaygain(word):
+    """Decode a LAME 16-bit replay-gain word; None if unset (0x0000)."""
+    if word == 0:
+        return None
+    name = (word >> 13) & 0x07
+    sign = (word >> 9) & 0x01
+    mag = word & 0x1FF
+    db = (-1 if sign else 1) * mag / 10.0
+    kind = {1: "radio", 2: "audiophile"}.get(name, "")
+    return f"{db:+.1f} dB" + (f" ({kind})" if kind else "")
+
+
+def _id3v1_fields(tag):
+    """Decode a 128-byte ID3v1/v1.1 trailer into display fields; also
+    return the title for the chunk summary."""
+    def s(a, b):
+        return tag[a:b].decode("latin-1", errors="replace").split("\x00")[0].rstrip("\x00 ")
+    fields = [
+        _f(0x03, 30, "title", s(3, 33)),
+        _f(0x21, 30, "artist", s(33, 63)),
+        _f(0x3F, 30, "album", s(63, 93)),
+        _f(0x5D, 4, "year", s(93, 97)),
+    ]
+    # ID3v1.1: byte 125 is zero and byte 126 (track) is nonzero, so the
+    # comment is only 28 bytes. Otherwise it is a full 30-byte v1.0 comment.
+    if tag[125] == 0 and tag[126] != 0:
+        fields.append(_f(0x61, 28, "comment", s(97, 125)))
+        fields.append(_f(0x7E, 1, "track", tag[126]))
+    else:
+        fields.append(_f(0x61, 30, "comment", s(97, 127)))
+    g = tag[127]
+    gname = _ID3_GENRES[g] if g < len(_ID3_GENRES) else ("none" if g == 255
+                                                          else f"unknown {g}")
+    fields.append(_f(0x7F, 1, "genre", g, gname))
+    return fields, s(3, 33)
 
 
 def _decode_id3_text(raw):
@@ -1376,14 +1659,45 @@ def _id3v2_frames(filepath, hdr):
         f.seek(10)
         body = f.read(min(tag_size, _ID3_READ_CAP))
     fields.append(_f(0x03, 1, "version", f"2.{major}.{hdr['revision']}"))
-    fields.append(_f(0x05, 1, "flags", f"0x{hdr['flags']:02x}",
-                     "has footer" if hdr["has_footer"] else ""))
+    flags = hdr["flags"]
+    flag_bits = []
+    if flags & 0x80:
+        flag_bits.append("unsync")
+    if flags & 0x40:
+        flag_bits.append("extended header")
+    if flags & 0x20:
+        flag_bits.append("experimental")
+    if flags & 0x10:
+        flag_bits.append("footer")
+    fields.append(_f(0x05, 1, "flags", f"0x{flags:02x}",
+                     ", ".join(flag_bits) if flag_bits else "none"))
     fields.append(_f(0x06, 4, "tag_size", f"{hdr['size']:,}", "synchsafe"))
 
-    pos = 0
     is_v22 = major == 2
     id_len = 3 if is_v22 else 4
     fhdr_len = 6 if is_v22 else 10
+
+    # whole-tag unsynchronisation (flag bit 7) inserts a $00 after every $FF so
+    # a frame body cannot masquerade as a frame sync. undo it before reading
+    # sizes, or every size past the first $FF byte is wrong. this is a v2.2/v2.3
+    # construct: in v2.4 unsync is per-frame and the frame size is the on-disk
+    # length, so a global de-escape there would misalign every later frame.
+    if flags & 0x80 and major != 4:
+        body = body.replace(b"\xff\x00", b"\xff")
+        warns.append("tag is unsynchronised; byte offsets shown are logical "
+                     "(post-desync), not raw file positions")
+
+    pos = 0
+    # skip the extended header (flag bit 6) so it is not misread as a frame.
+    if flags & 0x40 and not is_v22 and len(body) >= 4:
+        if major == 4:
+            ext_size = mp3mod.synchsafe(body[0:4])       # v2.4: size includes itself
+        else:
+            ext_size = struct.unpack(">I", body[0:4])[0] + 4  # v2.3: excludes the 4
+        if 0 < ext_size <= len(body):
+            fields.append(_f(10, ext_size, "extended_header",
+                             f"{ext_size} bytes", "skipped"))
+            pos = ext_size
     while pos + fhdr_len <= len(body):
         fid = body[pos:pos + id_len]
         if fid[0] == 0:  # padding
@@ -1414,7 +1728,7 @@ def _id3v2_frames(filepath, hdr):
                              f"{fsize:,} bytes", note or "beyond read cap"))
             break
         raw = body[data_start:data_start + fsize]
-        note = _ID3_TEXT_FRAMES.get(fid_s, "")
+        note = (_ID3V22_TEXT_FRAMES if is_v22 else _ID3_TEXT_FRAMES).get(fid_s, "")
         if fid_s.startswith("T") and note:
             value = _decode_id3_text(raw)
         elif fid_s == "APIC" or fid_s == "PIC":
@@ -1429,12 +1743,28 @@ def _id3v2_frames(filepath, hdr):
 
 def _xing_offset(hdr):
     """Byte offset of the Xing/Info tag within the first frame, from the
-    frame start: 4-byte header plus the version/channel-dependent side
-    info block."""
+    frame start: 4-byte header, an optional 2-byte CRC when the frame is
+    protected, then the version/channel-dependent side info block."""
     mono = hdr["channel_mode"] == 0b11
+    base = 4 + (2 if hdr.get("has_crc") else 0)
     if hdr["version_id"] == 0b11:        # MPEG 1
-        return 4 + (17 if mono else 32)
-    return 4 + (9 if mono else 17)       # MPEG 2 / 2.5
+        return base + (17 if mono else 32)
+    return base + (9 if mono else 17)    # MPEG 2 / 2.5
+
+
+def _parse_vbri(buf, off):
+    """Decode a Fraunhofer VBRI header. Returns the Xing-path 4-tuple
+    (fields, warns, frame_count, tag). Offsets are frame-relative to match
+    the frame0 chunk's payload_base. All fields are big-endian."""
+    fields = []
+    version = _bu16(buf, off + 4)
+    nbytes = _bu32(buf, off + 10)
+    frame_count = _bu32(buf, off + 14)
+    fields.append(_f(off, 4, "vbr_tag", "VBRI", "VBR (Fraunhofer)"))
+    fields.append(_f(off + 4, 2, "version", version))
+    fields.append(_f(off + 10, 4, "byte_count", f"{nbytes:,}"))
+    fields.append(_f(off + 14, 4, "frame_count", f"{frame_count:,}"))
+    return fields, [], frame_count, b"VBRI"
 
 
 def _parse_xing_lame(filepath, frame_off, hdr):
@@ -1445,7 +1775,12 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     xoff = _xing_offset(hdr)
     with open(filepath, "rb") as f:
         f.seek(frame_off)
-        buf = f.read(max(hdr["frame_length"], xoff + 200))
+        buf = f.read(max(hdr["frame_length"], xoff + 200, 64))
+    # VBRI (Fraunhofer) sits at a fixed offset, 32 bytes past the 4-byte frame
+    # header, regardless of channel mode; Xing/Info sit at the side-info-
+    # dependent xoff. a frame carries at most one of them.
+    if len(buf) >= 36 + 18 and buf[36:40] == b"VBRI":
+        return _parse_vbri(buf, 36)
     if xoff + 8 > len(buf):
         return None, [], None, None
     tag = buf[xoff:xoff + 4]
@@ -1497,6 +1832,13 @@ def _parse_xing_lame(filepath, frame_off, hdr):
                              _VBR_METHODS.get(vbr_method, "")))
             if lowpass:
                 fields.append(_f(pos + 10, 1, "lowpass", f"{lowpass} Hz"))
+            rg = _lame_replaygain(_bu16(buf, pos + 15))
+            if rg:
+                fields.append(_f(pos + 15, 2, "replay_gain", rg))
+            bitrate = buf[pos + 20]
+            if bitrate:
+                fields.append(_f(pos + 20, 1, "bitrate", f"{bitrate} kbps",
+                                 "min for VBR, target for ABR"))
             delay = (buf[pos + 21] << 4) | (buf[pos + 22] >> 4)
             padding = ((buf[pos + 22] & 0x0F) << 8) | buf[pos + 23]
             fields.append(_f(pos + 21, 3, "gapless", f"delay {delay}, pad {padding}",
@@ -1520,7 +1862,8 @@ def inspect_mp3(filepath, deep=False):
         ntext = sum(1 for fl in flds if fl["off"] is not None and fl["off"] >= 10)
         chunks.append({"id": "ID3v2", "offset": 0, "size": hdr["total"],
                        "summary": f"ID3v2.{hdr['major']} tag, {ntext} frame(s)",
-                       "fields": flds, "warnings": warns})
+                       "fields": flds, "warnings": warns,
+                       "payload_base": 0})  # ID3 field offsets are absolute
         audio_start = hdr["total"]
 
     id3v1_off = mp3mod.find_id3v1(filepath)
@@ -1558,15 +1901,16 @@ def inspect_mp3(filepath, deep=False):
     except Exception as e:
         xing_fields, xing_warns, vbr_frames, vbr_tag = None, \
             [f"VBR header parse error: {e.__class__.__name__}"], None, None
-    # only a Xing tag declares VBR; an Info tag is the same structure
-    # written by LAME for CBR streams and must not force the VBR label.
-    is_vbr_header = vbr_tag == b"Xing"
+    # Xing and VBRI both declare VBR; an Info tag is the same structure as
+    # Xing written by LAME for CBR streams and must not force the VBR label.
+    is_vbr_header = vbr_tag in (b"Xing", b"VBRI")
     if xing_fields is not None:
         fields.extend(xing_fields)
     chunks.append({"id": "frame0", "offset": frame_off, "size": fh["frame_length"],
                    "summary": (f"{fh['version']} {fh['layer']}, {fh['bitrate']} kbps, "
                                f"{fh['sample_rate']} Hz, {fh['channel_mode_name']}"),
-                   "fields": fields, "warnings": xing_warns})
+                   "fields": fields, "warnings": xing_warns,
+                   "payload_base": frame_off})  # fields are frame-relative
 
     # count frames and derive duration. trust the Xing frame count when
     # present (accurate for VBR); otherwise walk the stream. with deep,
@@ -1604,7 +1948,7 @@ def inspect_mp3(filepath, deep=False):
                     "fields": [_f(None, 0, "frame_count", f"{count:,}"),
                                _f(None, 0, "duration", f"{duration:.3f} s"),
                                _f(None, 0, "vbr", not cbr)],
-                    "warnings": []}
+                    "warnings": [], "payload_base": frame_off}
     if vbr_frames and walked and abs(vbr_frames - walked) > max(2, walked // 20):
         frames_entry["warnings"].append(
             f"Xing/VBRI frame_count {vbr_frames:,} diverges from {walked:,} "
@@ -1622,13 +1966,11 @@ def inspect_mp3(filepath, deep=False):
         with open(filepath, "rb") as f:
             f.seek(id3v1_off)
             tag = f.read(128)
-        title = tag[3:33].decode("latin-1", errors="replace").rstrip("\x00 ")
-        artist = tag[33:63].decode("latin-1", errors="replace").rstrip("\x00 ")
+        v1_fields, title = _id3v1_fields(tag)
         chunks.append({"id": "ID3v1", "offset": id3v1_off, "size": 128,
                        "summary": f"ID3v1 trailer, {title or 'untitled'}",
-                       "fields": [_f(0x03, 30, "title", title),
-                                  _f(0x21, 30, "artist", artist)],
-                       "warnings": []})
+                       "fields": v1_fields,
+                       "warnings": [], "payload_base": id3v1_off})
     return chunks, file_warns
 
 
@@ -1694,15 +2036,19 @@ def _render_rows(rows, paint):
         print("    " + "  ".join(f"{str(r.get(c, '')):<{widths[c]}}" for c in cols))
 
 
-def _render_table(filepath, fmt_label, chunks, file_warns, args):
+def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None):
     file_size = os.path.getsize(filepath)
     p = _Paint(_color_enabled(args))
+    if total is not None and total != len(chunks):
+        count = f"showing {len(chunks)} of {total} chunks"
+    else:
+        count = f"{len(chunks)} chunks"
     print(f"{os.path.basename(filepath)}: {p('id', fmt_label)}, {file_size:,} bytes, "
-          f"{len(chunks)} chunks")
+          f"{count}")
     print()
     print(p("dim", f"  {'idx':<5} {'id':<5} {'offset':<11} {'size':<11} summary"))
     for i, c in enumerate(chunks):
-        idx = p("dim", f"[{i:>2}]")
+        idx = p("dim", f"[{c.get('_idx', i):>2}]")
         cid = p("id", f"{c['id']:<5}")
         off = p("dim", f"0x{c['offset']:08x}")
         print(f"  {idx}  {cid} {off}  {c['size']:<11,} {c['summary']}")
@@ -1722,7 +2068,15 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args):
                 off_col = p("dim", off_col)
                 val = p("val", f"{fl['value']!s:<14}")
                 if args.show_hex and fl["off"] is not None:
-                    hx = _hex_bytes(filepath, c["offset"] + 8 + fl["off"], fl["len"])
+                    # field offsets are measured from the chunk's payload base.
+                    # RIFF/AIFF/RF64/MThd all have an 8-byte id+size header, so
+                    # that is the default; formats with a different header (FLAC
+                    # blocks: 4 bytes) or whose fields are already absolute (MP3
+                    # ID3 tags, MPEG frames, the FLAC/Serum magic) set their own.
+                    base = c.get("payload_base")
+                    if base is None:
+                        base = c["offset"] + 8
+                    hx = _hex_bytes(filepath, base + fl["off"], fl["len"])
                     print(f"  {off_col}  {p('dim', f'{hx:<26}')} "
                           f"{fl['name']:<22} {val}{note}")
                 else:
@@ -1757,56 +2111,155 @@ def _id3_tagged_mp3(filepath):
     return nxt not in (b"RIFF", b"RF64", b"FORM", b"fLaC", b"MThd")
 
 
-def run(args):
-    filepath = args.target
-    if not os.path.isfile(filepath):
-        print(f"acidcat inspect: {filepath}: No such file", file=sys.stderr)
-        return 1
-    deep = getattr(args, "frames", False)
+def _parse_id_list(val):
+    """A comma-separated chunk-id list into a normalized set (or None)."""
+    if not val:
+        return None
+    return {x.strip().casefold() for x in val.split(",") if x.strip()}
+
+
+def _select_chunks(chunks, only, exclude):
+    """Filter chunks by --only/--exclude, tagging each survivor with its
+    original index so the table keeps truthful [n] and file positions."""
+    out = []
+    for i, c in enumerate(chunks):
+        cid = c["id"].strip().casefold()
+        if only is not None and cid not in only:
+            continue
+        if exclude is not None and cid in exclude:
+            continue
+        c = dict(c)
+        c["_idx"] = i
+        out.append(c)
+    return out
+
+
+class _Unsupported(Exception):
+    """A file inspect cannot structurally decode; message is user-facing."""
+
+
+def _walk_file(filepath, deep):
+    """Sniff the magic and dispatch to the format walker.
+
+    Returns (fmt_label, chunks, file_warns); raises _Unsupported for a
+    file inspect does not decode."""
     with open(filepath, "rb") as f:
         magic = f.read(14)
     if len(magic) >= 12 and magic[:4] == b"RIFF" and magic[8:12] == b"WAVE":
-        fmt_label = "RIFF/WAVE"
-        chunks, file_warns = inspect_wav(filepath)
-    elif len(magic) >= 12 and magic[:4] == b"FORM" \
-            and magic[8:12] in (b"AIFF", b"AIFC"):
+        return ("RIFF/WAVE", *inspect_wav(filepath))
+    if len(magic) >= 12 and magic[:4] == b"FORM" and magic[8:12] in (b"AIFF", b"AIFC"):
         form_type = magic[8:12].decode("ascii")
-        fmt_label = f"IFF/{form_type}"
-        chunks, file_warns = inspect_aiff(filepath, form_type)
-    elif len(magic) >= 14 and magic[:4] == b"MThd":
-        fmt_label = "Standard MIDI File"
-        chunks, file_warns = inspect_midi(filepath, deep=deep)
-    elif len(magic) >= 12 and magic[:4] == b"RF64" and magic[8:12] == b"WAVE":
-        fmt_label = "RF64/WAVE"
-        chunks, file_warns = inspect_rf64(filepath)
-    elif magic[:8] == b"XferJson":
-        fmt_label = "Xfer Serum preset"
-        chunks, file_warns = inspect_serum(filepath)
-    elif magic[:4] == b"fLaC":
-        fmt_label = "FLAC"
-        chunks, file_warns = inspect_flac(filepath)
-    elif magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
-        print("acidcat inspect: ID3 tag wraps a non-MP3 container; not "
-              "supported", file=sys.stderr)
-        return 1
-    elif magic[:3] == b"ID3" or (len(magic) >= 4
-                                 and mp3mod.decode_frame_header(magic[:4]) is not None):
-        fmt_label = "MP3/MPEG audio"
-        chunks, file_warns = inspect_mp3(filepath, deep=deep)
-    else:
-        print("acidcat inspect: not a WAV, RF64, AIFF, MIDI, Serum "
-              "preset, MP3, or FLAC", file=sys.stderr)
+        return (f"IFF/{form_type}", *inspect_aiff(filepath, form_type))
+    if len(magic) >= 14 and magic[:4] == b"MThd":
+        return ("Standard MIDI File", *inspect_midi(filepath, deep=deep))
+    if len(magic) >= 12 and magic[:4] == b"RF64" and magic[8:12] == b"WAVE":
+        return ("RF64/WAVE", *inspect_rf64(filepath))
+    if magic[:8] == b"XferJson":
+        return ("Xfer Serum preset", *inspect_serum(filepath))
+    if magic[:4] == b"fLaC":
+        return ("FLAC", *inspect_flac(filepath))
+    if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
+        raise _Unsupported("ID3 tag wraps a non-MP3 container; not supported")
+    if magic[:3] == b"ID3" or (len(magic) >= 4
+                               and mp3mod.decode_frame_header(magic[:4]) is not None):
+        return ("MP3/MPEG audio", *inspect_mp3(filepath, deep=deep))
+    raise _Unsupported("not a WAV, RF64, AIFF, MIDI, Serum preset, MP3, or FLAC")
+
+
+def _full_chunk(chunk, filepath):
+    """Enrich a chunk for --full into a self-contained record: its absolute
+    payload base, the raw region bytes as hex (capped), and every field's
+    absolute byte offset. build_explorer.py needs nothing but this JSON."""
+    c = {k: v for k, v in chunk.items() if k != "_idx"}
+    pb = chunk.get("payload_base", chunk["offset"] + 8)
+    c["payload_base"] = pb
+    fields = []
+    for f in chunk["fields"]:
+        f2 = dict(f)
+        # absolute file offset, so a field maps to raw[abs - offset]
+        f2["abs"] = pb + f["off"] if f["off"] is not None else None
+        fields.append(f2)
+    c["fields"] = fields
+    # only carry raw bytes for chunks that actually have positioned fields;
+    # audio-data regions are huge and have nothing to highlight.
+    if any(f["off"] is not None for f in chunk["fields"]):
+        n = min(chunk["size"], _FULL_RAW_CAP)
+        with open(filepath, "rb") as fh:
+            fh.seek(chunk["offset"])
+            raw = fh.read(n)
+        c["raw"] = raw.hex()
+        c["raw_base"] = chunk["offset"]
+        if chunk["size"] > _FULL_RAW_CAP:
+            c["raw_truncated"] = chunk["size"] - _FULL_RAW_CAP
+    return c
+
+
+def run(args):
+    # accept either the multi-file `targets` or the legacy single `target`
+    targets = getattr(args, "targets", None)
+    if not targets:
+        one = getattr(args, "target", None)
+        targets = [one] if one else []
+    if not targets:
+        print("acidcat inspect: no target file given", file=sys.stderr)
         return 1
 
-    if args.format == "json":
-        json.dump({
-            "file": filepath,
-            "format": fmt_label,
-            "size": os.path.getsize(filepath),
-            "chunks": chunks,
-            "warnings": file_warns,
-        }, sys.stdout, indent=2)
-        sys.stdout.write("\n")
-        return 0
+    deep = getattr(args, "frames", False)
+    full = getattr(args, "full", False)
+    as_json = args.format == "json" or full  # --full is a JSON dump
+    multi = len(targets) > 1
+    only = _parse_id_list(getattr(args, "only", None))
+    exclude = _parse_id_list(getattr(args, "exclude", None))
+    exit_code = 0
 
-    return _render_table(filepath, fmt_label, chunks, file_warns, args)
+    try:
+        for filepath in targets:
+            if not os.path.isfile(filepath):
+                print(f"acidcat inspect: {filepath}: No such file", file=sys.stderr)
+                exit_code = 1
+                continue
+            try:
+                fmt_label, chunks, file_warns = _walk_file(filepath, deep)
+            except _Unsupported as e:
+                print(f"acidcat inspect: {filepath}: {e}", file=sys.stderr)
+                exit_code = 1
+                continue
+            except Exception as e:  # a walker bug must not sink the whole run
+                print(f"acidcat inspect: {filepath}: {e.__class__.__name__}: {e}",
+                      file=sys.stderr)
+                exit_code = 1
+                continue
+
+            total = len(chunks)
+            shown = _select_chunks(chunks, only, exclude)
+
+            if as_json:
+                # NDJSON: one compact record per file per line, so the stream
+                # pipes cleanly into jq -c and other line-oriented tools.
+                if full:
+                    out_chunks = [_full_chunk(c, filepath) for c in shown]
+                else:
+                    out_chunks = [{k: v for k, v in c.items() if k != "_idx"}
+                                  for c in shown]
+                sys.stdout.write(json.dumps({
+                    "file": filepath,
+                    "format": fmt_label,
+                    "size": os.path.getsize(filepath),
+                    "full": full,
+                    "chunks": out_chunks,
+                    "warnings": file_warns,
+                }) + "\n")
+            else:
+                if multi:
+                    print(f"\nFile: {filepath}")  # readelf-style per-file banner
+                _render_table(filepath, fmt_label, shown, file_warns, args, total)
+    except BrokenPipeError:
+        # a downstream pager or `head` closed the pipe: exit quietly the way
+        # cat and grep do, without a traceback.
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
+        return exit_code
+
+    return exit_code

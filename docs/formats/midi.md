@@ -191,6 +191,20 @@ status byte format: SSSS CCCC
 
 `n` = channel (0-15). Note On with velocity 0 is equivalent to Note Off.
 
+### Pitch Bend Decode
+
+The two data bytes carry an unsigned 14-bit value, LSB first, seven
+payload bits per byte:
+
+```
+raw    = (msb << 7) | lsb    // 0..16383
+offset = raw - 8192          // signed, 0 = no bend
+```
+
+8192 (`En 00 40`) is center. -8192 is full down, +8191 full up; the
+semitone span depends on the receiver's bend range (default +-2).
+acidcat renders the signed offset, not the raw value.
+
 ### Running Status
 
 If the status byte is the same as the previous message, it can be
@@ -286,6 +300,44 @@ FF 05 <len> <ascii_text>
 
 Syllable-level lyrics. Common in karaoke MIDI (.kar) files.
 
+### FF 06 -- Marker
+
+```
+FF 06 <len> <ascii_text>
+```
+
+Names a point in the sequence ("Verse 1", "Drop"). In format 1 files
+these belong in track 0.
+
+### FF 07 -- Cue Point
+
+```
+FF 07 <len> <ascii_text>
+```
+
+Describes something happening at this point in synchronized media
+(film hit, stage cue).
+
+### FF 08 -- Program Name
+
+```
+FF 08 <len> <ascii_text>
+```
+
+Name of the sound the following program change selects.
+
+### FF 09 -- Device Name
+
+```
+FF 09 <len> <ascii_text>
+```
+
+Name of the device or port this track addresses. Usually once per
+track, at time 0.
+
+acidcat names all of the above; the FF 01 through FF 07 text family
+also decodes as text in the `--frames` event listing.
+
 ### FF 20 -- MIDI Channel Prefix
 
 ```
@@ -293,6 +345,15 @@ FF 20 01 <channel>
 ```
 
 Associates subsequent meta events with a specific channel.
+
+### FF 21 -- MIDI Port
+
+```
+FF 21 01 <port>
+```
+
+Routes the track to an output port, 0-based. Not in the original
+SMF 1.0 spec, but emitted by most DAWs and honored everywhere.
 
 ### FF 2F -- End of Track
 
@@ -327,6 +388,30 @@ Common values:
 
 Multiple tempo events create tempo changes. Track 0 should contain
 the tempo map in format 1 files.
+
+### FF 54 -- SMPTE Offset
+
+```
+FF 54 05 <hr mn se fr ff>
+```
+
+Wall-clock time the track starts at. Should appear at delta 0. The
+`hr` byte is packed `0rrhhhhh`: bits 6-5 select the frame rate, the
+low 5 bits are the hour.
+
+```
+rr = 00  ->  24 fps
+rr = 01  ->  25 fps
+rr = 10  ->  29.97 fps (30 drop-frame)
+rr = 11  ->  30 fps
+
+fps  = table[(hr >> 5) & 0x03]
+hour = hr & 0x1F
+```
+
+`mn` and `se` are minutes and seconds, `fr` is the frame, and `ff`
+counts fractional frames in 1/100-frame units. acidcat decodes the
+event as `HH:MM:SS:FR.ff` plus the frame rate.
 
 ### FF 58 -- Time Signature
 

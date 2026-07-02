@@ -147,12 +147,13 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <details class="region opt">
       <summary><span class="chev">&#9656;</span><span class="rname">ID3v2 tag</span><span class="rspan">0x00 . variable</span></summary>
       <div class="rbody">
-        <p class="note">Prepended metadata. A 10-byte header, then frames, until padding. The size is synchsafe (7 bits per byte) so the length can never contain a false 0xFF sync.</p>
+        <p class="note">Prepended metadata. A 10-byte header, then frames, until padding. The tag size is synchsafe (7 bits per byte) so the length can never contain a false 0xFF sync. Frame sizes differ by version: v2.3 is a plain big-endian uint32, v2.4 is synchsafe. When the unsync flag is set the writer stuffed a 0x00 after every 0xFF; strip those before reading frame sizes.</p>
         <div class="kv">
           <div><span class="k">magic</span><span class="v">"ID3"</span></div>
-          <div><span class="k">version</span><span class="v">major . revision  (2.3 / 2.4)</span></div>
-          <div><span class="k">flags</span><span class="v">unsync, extended header, footer</span></div>
+          <div><span class="k">version</span><span class="v">major . revision  (2.2 / 2.3 / 2.4; v2.2 uses 3-char frame ids)</span></div>
+          <div><span class="k">flags</span><span class="v">b7 unsync (0x00 stuffed after 0xFF) . b6 extended header . b5 experimental . b4 footer</span></div>
           <div><span class="k">size</span><span class="v">(b0&lt;&lt;21)|(b1&lt;&lt;14)|(b2&lt;&lt;7)|b3</span></div>
+          <div><span class="k">frame size</span><span class="v">v2.3 plain uint32 . v2.4 synchsafe</span></div>
           <div><span class="k">frames</span><span class="v">TIT2 . TPE1 . TALB . TBPM . APIC</span></div>
         </div>
       </div>
@@ -169,13 +170,28 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <details class="region">
       <summary><span class="chev">&#9656;</span><span class="rname">Xing / Info + LAME</span><span class="rspan">inside frame 0 . vbr header</span></summary>
       <div class="rbody">
-        <p class="note">VBR cannot be sized from one bitrate, so the encoder writes a header into the first frame after the side-info block. "Xing" is true VBR, "Info" is CBR by LAME. Offset from frame start: 36 (MPEG-1 stereo), 21 (MPEG-1 mono or MPEG-2 stereo), 13 (MPEG-2 mono).</p>
+        <p class="note">VBR cannot be sized from one bitrate, so the encoder writes a header into the first frame after the side-info block. "Xing" is true VBR, "Info" is CBR by LAME. Offset from frame start: 36 (MPEG-1 stereo), 21 (MPEG-1 mono or MPEG-2 stereo), 13 (MPEG-2 mono). Add 2 when the frame is CRC-protected: the 2 CRC bytes sit between the header and the side info.</p>
         <div class="kv">
           <div><span class="k">id</span><span class="v">"Xing" | "Info"</span></div>
           <div><span class="k">flags</span><span class="v">b0 frames . b1 bytes . b2 TOC . b3 quality</span></div>
           <div><span class="k">frame_count</span><span class="v">exact total, gives duration with no walk</span></div>
           <div><span class="k">LAME</span><span class="v">9-byte encoder string, VBR method, lowpass</span></div>
+          <div><span class="k">replay_gain</span><span class="v">16-bit word at LAME+15: 3-bit name . 3-bit originator . sign . 9-bit 0.1 dB</span></div>
+          <div><span class="k">bitrate</span><span class="v">1 byte at LAME+20: min for VBR, target for ABR</span></div>
           <div><span class="k">gapless</span><span class="v">delay + padding, 12 bits each at LAME+21</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region opt">
+      <summary><span class="chev">&#9656;</span><span class="rname">VBRI header</span><span class="rspan">inside frame 0 . frame start + 36</span></summary>
+      <div class="rbody">
+        <p class="note">The Fraunhofer encoder's VBR header. Unlike Xing/Info it sits at a fixed offset, frame start + 36, independent of version, channel mode, and side-info size. All fields big-endian; a frame carries at most one of Xing/Info/VBRI.</p>
+        <div class="kv">
+          <div><span class="k">id</span><span class="v">"VBRI"</span></div>
+          <div><span class="k">version</span><span class="v">2 bytes at +4</span></div>
+          <div><span class="k">byte_count</span><span class="v">4 bytes at +10</span></div>
+          <div><span class="k">frame_count</span><span class="v">4 bytes at +14, marks the stream VBR</span></div>
         </div>
       </div>
     </details>
@@ -188,7 +204,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
           <div><span class="k">magic</span><span class="v">"TAG"</span></div>
           <div><span class="k">title / artist / album</span><span class="v">30 bytes each, latin-1</span></div>
           <div><span class="k">year</span><span class="v">4 bytes</span></div>
-          <div><span class="k">comment</span><span class="v">30 bytes (last 2 may be track no.)</span></div>
+          <div><span class="k">comment</span><span class="v">30 bytes; v1.1: byte 28 is 0x00, byte 29 is the track number</span></div>
           <div><span class="k">genre</span><span class="v">1 byte, index into a fixed table</span></div>
         </div>
       </div>
