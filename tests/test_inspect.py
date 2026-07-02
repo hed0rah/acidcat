@@ -322,6 +322,39 @@ class TestInspectMidi:
         chunks, _ = inspect_midi(path)
         assert all("rows" not in c for c in chunks)
 
+    def test_whole_file_read_is_capped(self, tmp_path, monkeypatch):
+        # a forged multi-GB .mid must not be slurped whole (DoS). cap
+        # shrunk for the test; the header still parses and the missing
+        # tail surfaces as warnings instead of an OOM.
+        import acidcat.core.midi as midimod
+        monkeypatch.setattr(midimod, "MAX_SMF_BYTES", 64)
+        big = _smf(tmp_path, [_TRACK * 20], name="big.mid")
+        chunks, warns = inspect_midi(big)
+        assert chunks[0]["id"] == "MThd"
+        assert any("cap" in w for w in warns)
+
+    def test_mthd_length_below_six(self, tmp_path):
+        # hdr_len - 6 went negative for a sub-spec MThd length and, under
+        # --hex, reached the renderer as read(negative) (the whole file).
+        # no field may carry a negative length; the lie gets a warning.
+        p = tmp_path / "short_hdr.mid"
+        p.write_bytes(b"MThd" + struct.pack(">I", 2)
+                      + struct.pack(">HHH", 0, 1, 480)
+                      + b"MTrk" + struct.pack(">I", len(_TRACK)) + _TRACK)
+        chunks, _ = inspect_midi(str(p))
+        mthd = chunks[0]
+        assert all(f["len"] >= 0 for f in mthd["fields"])
+        assert any("spec minimum is 6" in w for w in mthd["warnings"])
+
+    def test_mthd_length_below_six_hex_render(self, tmp_path, capsys):
+        p = tmp_path / "short_hdr2.mid"
+        p.write_bytes(b"MThd" + struct.pack(">I", 2)
+                      + struct.pack(">HHH", 0, 1, 480)
+                      + b"MTrk" + struct.pack(">I", len(_TRACK)) + _TRACK)
+        args = SimpleNamespace(target=str(p), show_hex=True, format="table",
+                               quiet=False, verbose=False)
+        assert run(args) == 0  # must not blow up rendering hex
+
 
 class TestInspectRf64:
     def _rf64(self, tmp_path, data_bytes=8, sentinel_ok=True):
@@ -360,6 +393,61 @@ class TestInspectRf64:
         _, warns = inspect_rf64(path)
         assert any("sentinel" in w for w in warns)
 
+    def test_fact_sentinel_resolved_via_ds64(self, tmp_path):
+        # an RF64 fact chunk stores 0xFFFFFFFF; the real sample count
+        # lives in ds64. duration must derive from the ds64 count, not
+        # the sentinel (which read as ~97,000 s for a 1 s file).
+        from acidcat.commands.inspect import inspect_rf64
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_bytes = 88200  # 1.0 s of 16-bit mono at 44100 Hz
+        fact_chunk = b"fact" + struct.pack("<I", 4) + struct.pack("<I", 0xFFFFFFFF)
+        data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * data_bytes
+        ds64 = struct.pack("<QQQI", 0, data_bytes, 44100, 0)
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds64)) + ds64
+        body = b"WAVE" + ds64_chunk + fmt_chunk + fact_chunk + data_chunk
+        ds64 = struct.pack("<QQQI", len(body), data_bytes, 44100, 0)
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds64)) + ds64
+        body = b"WAVE" + ds64_chunk + fmt_chunk + fact_chunk + data_chunk
+        p = tmp_path / "fact.rf64"
+        p.write_bytes(b"RF64" + struct.pack("<I", 0xFFFFFFFF) + body)
+        chunks, warns = inspect_rf64(str(p))
+        fact = next(c for c in chunks if c["id"] == "fact")
+        assert "44,100 samples" in fact["summary"]
+        data = next(c for c in chunks if c["id"] == "data")
+        assert "1.000 s" in data["summary"]
+        assert warns == []
+
+    def test_ds64_data_size_beyond_file_linted(self, tmp_path):
+        # a ds64 claiming exabytes of data cannot be honest about a
+        # small file; lint it at the source, not just at the data chunk.
+        from acidcat.commands.inspect import inspect_rf64
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 8
+        ds64 = struct.pack("<QQQI", 100, 2 ** 63, 4, 0)
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds64)) + ds64
+        body = b"WAVE" + ds64_chunk + fmt_chunk + data_chunk
+        p = tmp_path / "lie.rf64"
+        p.write_bytes(b"RF64" + struct.pack("<I", 0xFFFFFFFF) + body)
+        chunks, _ = inspect_rf64(str(p))
+        d = next(c for c in chunks if c["id"] == "ds64")
+        assert any("exceeds the whole file" in w for w in d["warnings"])
+
+    def test_fact_sentinel_without_ds64_not_trusted(self, tmp_path):
+        # a plain RIFF/WAVE with a 0xFFFFFFFF fact has no ds64 to
+        # resolve through; the sentinel must not become a sample count
+        # (27 hours at 44.1 kHz).
+        path = _wav(tmp_path, _fmt(),
+                    _chunk(b"fact", struct.pack("<I", 0xFFFFFFFF)),
+                    _data(441))
+        chunks, _ = inspect_wav(path)
+        fact = next(c for c in chunks if c["id"] == "fact")
+        assert any("ds64" in w for w in fact["warnings"])
+        data = next(c for c in chunks if c["id"] == "data")
+        frames = next(f for f in data["fields"] if f["name"] == "frames")
+        assert frames["value"] == 441  # from data bytes, not the sentinel
+
 
 class TestInspectSerum:
     def test_json_and_blob(self, tmp_path):
@@ -380,6 +468,39 @@ class TestInspectSerum:
         p.write_bytes(b"XferJson" + b"\x00" * 32)
         _, warns = inspect_serum(str(p))
         assert any("JSON" in w for w in warns)
+
+    def test_deeply_nested_json_no_crash(self, tmp_path):
+        # the json scanner recurses per nesting level; a forged preset
+        # with thousands of nested objects raised RecursionError past
+        # the ValueError-only handler and crashed the command.
+        from acidcat.commands.inspect import inspect_serum
+        p = tmp_path / "deep.serumpreset"
+        p.write_bytes(b"XferJson{" + b'"k":{' * 5000)
+        chunks, warns = inspect_serum(str(p))  # must not raise
+        assert any("JSON" in w for w in warns)
+
+    def test_deeply_nested_json_core_parser_no_crash(self, tmp_path):
+        # same guard in the core parser used by info/index
+        from acidcat.core.serum import parse_serum_preset
+        p = tmp_path / "deep2.serumpreset"
+        p.write_bytes(b"XferJson{" + b'"k":{' * 5000)
+        assert parse_serum_preset(str(p)) == {}  # must not raise
+
+    def test_multibyte_utf8_blob_boundary(self, tmp_path):
+        # raw_decode returns a CHARACTER offset; using it as a byte
+        # offset shifted the blob chunk left by one byte per multibyte
+        # UTF-8 character in the JSON metadata.
+        from acidcat.commands.inspect import inspect_serum
+        meta = '{"presetName": "Gröwl ééé"}'.encode("utf-8")
+        p = tmp_path / "umlaut.serumpreset"
+        p.write_bytes(b"XferJson" + meta + b"\x01" * 64)
+        chunks, warns = inspect_serum(str(p))
+        blob = next(c for c in chunks if c["id"] == "blob")
+        assert blob["offset"] == 8 + len(meta)
+        assert blob["size"] == 64
+        jsn = next(c for c in chunks if c["id"] == "json")
+        assert jsn["size"] == len(meta)
+        assert warns == []
 
 
 def _flac_block(btype, payload, last=False):
@@ -446,6 +567,44 @@ class TestInspectFlac:
         pad = next(c for c in chunks if c["id"] == "PADDING")
         assert any("overruns the file" in w for w in pad["warnings"])
 
+    def test_picture_forged_mime_length(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        # PICTURE with a mime length claiming 4 GB: must warn and stop,
+        # not decode the rest of the block as a garbage mime string.
+        pic = struct.pack(">I", 3) + struct.pack(">I", 0xFFFFFFFF) + b"\x00" * 64
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()),
+                     _flac_block(6, pic, last=True))
+        chunks, _ = inspect_flac(path)
+        p = next(c for c in chunks if c["id"] == "PICTURE")
+        assert p["summary"] == "truncated"
+        assert any("mime_type length" in w for w in p["warnings"])
+
+    def test_picture_forged_description_length(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        pic = (struct.pack(">I", 3)
+               + struct.pack(">I", 9) + b"image/png"
+               + struct.pack(">I", 0xFFFFFF00) + b"\x00" * 64)
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()),
+                     _flac_block(6, pic, last=True))
+        chunks, _ = inspect_flac(path)
+        p = next(c for c in chunks if c["id"] == "PICTURE")
+        assert p["summary"] == "truncated"
+        assert any("description length" in w for w in p["warnings"])
+
+    def test_picture_valid_still_decodes(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        img = b"\x89PNG\r\n"
+        pic = (struct.pack(">I", 3)
+               + struct.pack(">I", 9) + b"image/png"
+               + struct.pack(">I", 5) + b"cover"
+               + struct.pack(">IIIII", 32, 32, 24, 0, len(img)) + img)
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()),
+                     _flac_block(6, pic, last=True))
+        chunks, _ = inspect_flac(path)
+        p = next(c for c in chunks if c["id"] == "PICTURE")
+        assert "image/png" in p["summary"]
+        assert "32x32" in p["summary"]
+
 
 # MPEG 1 Layer III, 128 kbps, 44100 Hz, mono: 417-byte frames
 _MP3_FRAME = b"\xff\xfb\x90\xc0" + b"\x00" * 413
@@ -507,6 +666,45 @@ class TestInspectMp3:
         chunks, _ = inspect_mp3(str(p))
         frames = next(c for c in chunks if c["id"] == "frames")
         assert any("diverges" in w for w in frames["warnings"])
+
+    def test_info_tag_is_cbr(self, tmp_path):
+        # is_vbr_header was true for both Xing and Info; an Info tag is
+        # LAME's CBR marker and must not force the VBR label.
+        from acidcat.commands.inspect import inspect_mp3
+        fr = bytearray(_MP3_FRAME)
+        fr[21:25] = b"Info"
+        fr[25:29] = struct.pack(">I", 0x01)      # frames flag
+        fr[29:33] = struct.pack(">I", 3)         # accurate frame count
+        p = tmp_path / "cbr.mp3"
+        p.write_bytes(bytes(fr) + _MP3_FRAME * 2)
+        chunks, _ = inspect_mp3(str(p))
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert "CBR" in frames["summary"]
+        vbr = next(f for f in frames["fields"] if f["name"] == "vbr")
+        assert vbr["value"] is False
+
+    def test_xing_tag_forces_vbr_even_with_uniform_bitrates(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        fr = bytearray(_MP3_FRAME)
+        fr[21:25] = b"Xing"
+        fr[25:29] = struct.pack(">I", 0x01)
+        fr[29:33] = struct.pack(">I", 3)
+        p = tmp_path / "vbr2.mp3"
+        p.write_bytes(bytes(fr) + _MP3_FRAME * 2)
+        chunks, _ = inspect_mp3(str(p))
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert "VBR" in frames["summary"]
+
+    def test_truncated_xing_header_no_crash(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        # a first frame that declares a Xing tag with the frames flag set but
+        # ends right after the flags: the frame_count read must not run past
+        # the buffer (previously an uncaught struct.error crashed inspect).
+        p = tmp_path / "x.mp3"
+        p.write_bytes(b"\xff\xfb\x90\xc0" + b"\x00" * 17 + b"Xing" + struct.pack(">I", 1))
+        chunks, warns = inspect_mp3(str(p))  # must not raise
+        allw = warns + [w for c in chunks for w in c.get("warnings", [])]
+        assert any("truncated" in w.lower() for w in allw)
 
     def test_id3v1_trailer_detected(self, tmp_path):
         from acidcat.commands.inspect import inspect_mp3

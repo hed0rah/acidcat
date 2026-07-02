@@ -141,3 +141,28 @@ def test_parse_bpm_rejects_letter_adjacent_digits():
     assert parse_bpm_from_filename("/packs/120bpm_loop.wav") == 120
     assert parse_bpm_from_filename("/packs/loop_140_BPM.wav") == 140
     assert parse_bpm_from_filename("/packs/_120_drum.wav") == 120
+
+
+def test_filename_flat_keys_normalized():
+    # flats were missing from the suffix patterns, so 'Eb minor' fell
+    # through to the bare-token walker, which saw 'Eb' alone and
+    # returned D# MAJOR.
+    assert parse_key_from_filename("/l/pad Eb minor.wav") == "D#m"
+    assert parse_key_from_filename("/l/pad_Bb_maj.wav") == "A#"
+    assert parse_key_from_filename("/l/bass Abmin.wav") == "G#m"
+    assert parse_key_from_filename("/l/lead_Dbm.wav") == "C#m"
+
+
+def test_filename_capital_m_is_major():
+    # capital-M suffix is the Beatport / Mixed In Key major marker;
+    # lowercasing it collapsed 'F#M' (F# major) onto 'F#m' (minor).
+    assert parse_key_from_filename("/l/pad_F#M.wav") == "F#"
+    assert parse_key_from_filename("/l/pad_F#m.wav") == "F#m"
+    assert parse_key_from_filename("/l/loop EbM 124.wav") == "D#"
+
+
+def test_filename_worded_suffixes_stay_case_insensitive():
+    assert parse_key_from_filename("/l/PAD_A_MINOR.wav") == "Am"
+    assert parse_key_from_filename("/l/PAD_C_MAJOR.wav") == "C"
+    assert parse_key_from_filename("/l/pad_in_A minor.wav") == "Am"
+    assert parse_key_from_filename("/l/pad_in_C_major.wav") == "C"

@@ -21,6 +21,7 @@ import sys
 from acidcat.core.riff import iter_chunks
 from acidcat.core.aiff import iter_chunks as iter_aiff_chunks
 from acidcat.core.aiff import _parse_ieee_extended, _AIFC_KNOWN_COMPRESSION
+from acidcat.core import midi as midimod
 from acidcat.core.midi import _read_vlq
 from acidcat.core import flac as flacmod
 from acidcat.core import mp3 as mp3mod
@@ -197,11 +198,27 @@ def _parse_fact(b, ctx):
     if len(b) < 4:
         return "truncated", [], ["fact payload under 4 bytes"]
     n = _u32(b, 0)
+    warns = []
+    notes = []
+    if n == 0xFFFFFFFF:
+        # RF64 sentinel: the real 64-bit count lives in ds64. never
+        # trust the sentinel itself as a sample count.
+        if "ds64_samples" in ctx:
+            n = ctx["ds64_samples"]
+            notes.append("0xffffffff sentinel, resolved via ds64")
+        else:
+            warns.append("sample_length is the 0xffffffff sentinel but "
+                         "no ds64 chunk provides the 64-bit count")
+            return ("sample count deferred to ds64, which is absent",
+                    [_f(0x00, 4, "sample_length", "0xffffffff", "sentinel")],
+                    warns)
     rate = ctx.get("sample_rate")
-    note = f"{n / rate:.3f} s" if rate and n else ""
+    if rate and n:
+        notes.append(f"{n / rate:.3f} s")
     ctx["fact_samples"] = n
     ctx.setdefault("frames", n)
-    return f"{n:,} samples/channel", [_f(0x00, 4, "sample_length", n, note)], []
+    return (f"{n:,} samples/channel",
+            [_f(0x00, 4, "sample_length", n, ", ".join(notes))], warns)
 
 
 def _parse_acid(b, ctx):
@@ -855,9 +872,14 @@ def inspect_midi(filepath, deep=False):
     With ``deep``, each MTrk carries a per-event listing."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
-        data = f.read()
+        data = f.read(midimod.MAX_SMF_BYTES)
     chunks = []
     file_warns = []
+    if file_size > len(data):
+        file_warns.append(
+            f"file is {file_size:,} bytes; parsed the first "
+            f"{len(data):,} (cap)")
+        file_size = len(data)
 
     hdr_len = struct.unpack(">I", data[4:8])[0]
     fmt, ntrks, division = struct.unpack(">HHH", data[8:14])
@@ -875,12 +897,20 @@ def inspect_midi(filepath, deep=False):
         ctx["ticks_per_sec"] = (29.97 if fps == 29 else fps) * tpf
     else:
         fields.append(_f(0x04, 2, "division", division, "ticks per quarter note"))
-    if hdr_len != 6:
+    hdr_warns = []
+    if hdr_len > 6:
         fields.append(_f(0x06, hdr_len - 6, "extra_header",
                          f"{hdr_len - 6} bytes", "legal, skipped"))
+    elif hdr_len < 6:
+        # a negative extra_header length would reach --hex as
+        # read(negative), i.e. the whole file. the six header bytes
+        # were still decoded above (best effort).
+        hdr_warns.append(
+            f"MThd declares {hdr_len} bytes, spec minimum is 6")
     summary = f"format {fmt}, {ntrks} track(s)"
     chunks.append({"id": "MThd", "offset": 0, "size": hdr_len,
-                   "summary": summary, "fields": fields, "warnings": []})
+                   "summary": summary, "fields": fields,
+                   "warnings": hdr_warns})
 
     offset = 8 + hdr_len
     found = 0
@@ -970,6 +1000,11 @@ def _parse_ds64(b, ctx):
     ctx["ds64_riff_size"] = riff_size
     ctx["ds64_data_size"] = data_size
     ctx["ds64_samples"] = sample_count
+    file_size = ctx.get("file_size")
+    if file_size is not None and data_size > file_size:
+        warns.append(
+            f"data_size {data_size:,} exceeds the whole file "
+            f"({file_size:,} bytes)")
     return f"64-bit sizes: data {data_size:,} bytes", fields, warns
 
 
@@ -979,7 +1014,7 @@ def inspect_rf64(filepath):
     which must be the first chunk.
     """
     file_size = os.path.getsize(filepath)
-    ctx = {}
+    ctx = {"file_size": file_size}
     chunks = []
     file_warns = []
     seen = []
@@ -1071,10 +1106,12 @@ def inspect_serum(filepath):
         return chunks, file_warns
 
     text = raw[json_start:].decode("utf-8", errors="replace")
+    # RecursionError: the json scanner recurses per nesting level, so a
+    # forged preset with thousands of nested objects blows the stack.
     try:
         parsed, end = json.JSONDecoder().raw_decode(text)
-    except ValueError as e:
-        file_warns.append(f"JSON block does not parse: {e}")
+    except (ValueError, RecursionError) as e:
+        file_warns.append(f"JSON block does not parse: {e.__class__.__name__}: {e}")
         return chunks, file_warns
 
     fields = []
@@ -1087,11 +1124,17 @@ def inspect_serum(filepath):
                 val = ", ".join(str(v) for v in val)
             fields.append(_f(None, 0, key, str(val)[:80]))
     name = parsed.get("presetName") or "unnamed"
-    chunks.append({"id": "json", "offset": json_start, "size": end,
+    # raw_decode's end is a CHARACTER offset into the decoded text; the
+    # blob boundary is a BYTE offset, so re-encode the parsed region to
+    # measure it. exact for valid UTF-8 (which valid JSON is); off only
+    # when the JSON region itself held invalid bytes, where any offset
+    # is best-effort.
+    end_bytes = len(text[:end].encode("utf-8"))
+    chunks.append({"id": "json", "offset": json_start, "size": end_bytes,
                    "summary": f"'{name}' metadata, {len(parsed)} keys",
                    "fields": fields, "warnings": []})
 
-    blob_off = json_start + end
+    blob_off = json_start + end_bytes
     chunks.append({"id": "blob", "offset": blob_off,
                    "size": file_size - blob_off,
                    "summary": f"wavetable/modulation data, "
@@ -1173,10 +1216,21 @@ def _flac_picture(b):
         return "truncated", fields, ["PICTURE under 32 bytes"]
     ptype = _bu32(b, 0)
     pos = 4
+    # validate the declared string lengths before slicing: a forged
+    # length would otherwise decode the rest of the block (up to the
+    # payload cap) as a garbage mime/description string.
     mlen = _bu32(b, pos)
+    if pos + 4 + mlen > len(b):
+        return "truncated", fields, [
+            f"mime_type length {mlen:,} overruns block"]
     mime = b[pos + 4:pos + 4 + mlen].decode("ascii", errors="replace")
     pos += 4 + mlen
+    if pos + 4 > len(b):
+        return "truncated", fields, ["PICTURE ends before description length"]
     dlen = _bu32(b, pos)
+    if pos + 4 + dlen > len(b):
+        return "truncated", fields, [
+            f"description length {dlen:,} overruns block"]
     desc = b[pos + 4:pos + 4 + dlen].decode("utf-8", errors="replace")
     pos += 4 + dlen
     if pos + 20 > len(b):
@@ -1366,35 +1420,49 @@ def _xing_offset(hdr):
 
 def _parse_xing_lame(filepath, frame_off, hdr):
     """Decode the Xing/Info VBR header and any LAME extension in the
-    first frame. Returns (fields, warns, frame_count) or (None, [], None)
-    if no tag is present."""
+    first frame. Returns (fields, warns, frame_count, tag) where tag is
+    b"Xing" (VBR), b"Info" (CBR), or None if no tag is present."""
     fields, warns = [], []
     xoff = _xing_offset(hdr)
     with open(filepath, "rb") as f:
         f.seek(frame_off)
         buf = f.read(max(hdr["frame_length"], xoff + 200))
     if xoff + 8 > len(buf):
-        return None, [], None
+        return None, [], None, None
     tag = buf[xoff:xoff + 4]
     if tag not in (b"Xing", b"Info"):
-        return None, [], None
+        return None, [], None, None
     kind = "VBR" if tag == b"Xing" else "CBR (LAME)"
     fields.append(_f(xoff, 4, "vbr_tag", tag.decode("ascii"), kind))
     flags = _bu32(buf, xoff + 4)
     pos = xoff + 8
+    # each optional field is only present if its flag is set; the tag may be
+    # truncated after any of them, so bound every read against the buffer.
     frame_count = None
     if flags & 0x01:
+        if pos + 4 > len(buf):
+            warns.append("Xing header truncated before frame_count")
+            return fields, warns, frame_count, tag
         frame_count = _bu32(buf, pos)
         fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}"))
         pos += 4
     if flags & 0x02:
+        if pos + 4 > len(buf):
+            warns.append("Xing header truncated before byte_count")
+            return fields, warns, frame_count, tag
         nbytes = _bu32(buf, pos)
         fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}"))
         pos += 4
     if flags & 0x04:
+        if pos + 100 > len(buf):
+            warns.append("Xing header truncated before seek table")
+            return fields, warns, frame_count, tag
         fields.append(_f(pos, 100, "toc", "100-entry seek table"))
         pos += 100
     if flags & 0x08:
+        if pos + 4 > len(buf):
+            warns.append("Xing header truncated before quality")
+            return fields, warns, frame_count, tag
         quality = _bu32(buf, pos)
         fields.append(_f(pos, 4, "quality", quality, "0=best, 100=worst"))
         pos += 4
@@ -1414,7 +1482,7 @@ def _parse_xing_lame(filepath, frame_off, hdr):
             padding = ((buf[pos + 22] & 0x0F) << 8) | buf[pos + 23]
             fields.append(_f(pos + 21, 3, "gapless", f"delay {delay}, pad {padding}",
                              "encoder delay / padding samples"))
-    return fields, warns, frame_count
+    return fields, warns, frame_count, tag
 
 
 def inspect_mp3(filepath, deep=False):
@@ -1465,9 +1533,16 @@ def inspect_mp3(filepath, deep=False):
     if fh["emphasis"] != "none":
         fields.append(_f(None, 0, "emphasis", fh["emphasis"]))
 
-    xing_fields, xing_warns, vbr_frames = _parse_xing_lame(filepath, frame_off, fh)
-    is_vbr_header = xing_fields is not None
-    if is_vbr_header:
+    try:
+        xing_fields, xing_warns, vbr_frames, vbr_tag = \
+            _parse_xing_lame(filepath, frame_off, fh)
+    except Exception as e:
+        xing_fields, xing_warns, vbr_frames, vbr_tag = None, \
+            [f"VBR header parse error: {e.__class__.__name__}"], None, None
+    # only a Xing tag declares VBR; an Info tag is the same structure
+    # written by LAME for CBR streams and must not force the VBR label.
+    is_vbr_header = vbr_tag == b"Xing"
+    if xing_fields is not None:
         fields.extend(xing_fields)
     chunks.append({"id": "frame0", "offset": frame_off, "size": fh["frame_length"],
                    "summary": (f"{fh['version']} {fh['layer']}, {fh['bitrate']} kbps, "
