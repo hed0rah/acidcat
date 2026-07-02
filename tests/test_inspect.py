@@ -1288,3 +1288,44 @@ class TestNcwWalker:
         bad = MAGIC + b"\x00" * 4 + _s.pack("<HHII", 2, 7, 48000, 100) + b"\x00" * 40
         assert parse_header(bad) is None
         assert parse_header(b"nope" + b"\x00" * 40) is None
+
+
+class TestMp4Walker:
+    def _box(self, t, payload):
+        import struct as _s
+        return _s.pack(">I", 8 + len(payload)) + t + payload
+
+    def _m4a_with_title(self, title):
+        import struct as _s
+        data_box = self._box(b"data", _s.pack(">II", 1, 0) + title.encode())
+        nam = self._box(b"\xa9nam", data_box)
+        ilst = self._box(b"ilst", nam)
+        meta = self._box(b"meta", b"\x00\x00\x00\x00" + ilst)  # FullBox prefix
+        udta = self._box(b"udta", meta)
+        moov = self._box(b"moov", udta)
+        ftyp = self._box(b"ftyp", b"M4A \x00\x00\x00\x00")
+        return ftyp + moov
+
+    def test_iter_boxes_tree_and_ilst(self):
+        from acidcat.core.mp4 import iter_boxes, parse_ilst, is_mp4
+        data = self._m4a_with_title("Hello")
+        assert is_mp4(data)
+        types = [b["type"] for b in iter_boxes(data)]
+        assert b"ftyp" in types and b"moov" in types and b"ilst" in types
+        assert parse_ilst(data) == {"title": "Hello"}
+
+    def test_truncated_box_flagged_not_crash(self):
+        import struct as _s
+        from acidcat.core.mp4 import iter_boxes
+        # a box claiming more than the buffer holds
+        data = _s.pack(">I", 999999) + b"moov" + b"\x00" * 4
+        boxes = list(iter_boxes(data))
+        assert boxes and boxes[0]["truncated"]
+
+    def test_inspect_mp4_surfaces_title(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp4
+        p = tmp_path / "t.m4a"
+        p.write_bytes(self._m4a_with_title("Song"))
+        chunks, _ = inspect_mp4(str(p))
+        tags = next(c for c in chunks if c["id"] == "tags")
+        assert any(f["value"] == "Song" for f in tags["fields"])

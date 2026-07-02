@@ -28,6 +28,7 @@ from acidcat.core import mp3 as mp3mod
 from acidcat.core import bitwig as bwmod
 from acidcat.core import vital as vitalmod
 from acidcat.core import ncw as ncwmod
+from acidcat.core import mp4 as mp4mod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -1440,6 +1441,52 @@ def inspect_ncw(filepath):
     return chunks, []
 
 
+# ── mp4 walk ───────────────────────────────────────────────────────
+
+
+def inspect_mp4(filepath):
+    """Structural view of an ISO-BMFF MP4/M4A file: the decoded metadata (from
+    udta > meta > ilst and the movie duration) followed by the box tree."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 8 * 1024 * 1024))  # boxes/tags are early
+    chunks, warns = [], []
+
+    ts, dur = mp4mod.movie_timescale_duration(data)
+    dur_s = dur / ts if ts and dur else None
+    meta = mp4mod.parse_ilst(data)
+    mfields = []
+    if dur_s:
+        mfields.append(_f(None, 0, "duration", f"{dur_s:.3f} s"))
+    for label in ("title", "artist", "album_artist", "album", "year", "genre",
+                  "bpm", "composer", "encoder", "comment", "track", "disc",
+                  "cover_art", "compilation"):
+        if label in meta:
+            mfields.append(_f(None, 0, label, str(meta[label])[:200]))
+    if mfields:
+        title = meta.get("title", "")
+        chunks.append({"id": "tags", "offset": 0, "size": 0,
+                       "summary": f"'{title}'" if title else "iTunes metadata",
+                       "fields": mfields, "warnings": []})
+
+    for b in mp4mod.iter_boxes(data):
+        t = b["type"].decode("latin-1", errors="replace")
+        summary = ". " * b["depth"] + t
+        fields = []
+        if b["truncated"]:
+            warns.append(f"box {t!r} at 0x{b['offset']:08x} overruns its parent")
+            summary += " (overruns parent)"
+        elif b["type"] == b"ftyp":
+            brand = data[b["offset"] + b["hdr"]:b["offset"] + b["hdr"] + 4]
+            summary += f"  major brand {brand.decode('latin-1', errors='replace')}"
+            fields.append(_f(0x00, 4, "major_brand",
+                             brand.decode("latin-1", errors="replace")))
+        chunks.append({"id": t[:8], "offset": b["offset"], "size": b["size"],
+                       "summary": summary, "fields": fields, "warnings": [],
+                       "payload_base": b["offset"] + b["hdr"]})
+    return chunks, warns
+
+
 # ── flac walk ──────────────────────────────────────────────────────
 
 
@@ -2288,6 +2335,8 @@ def _walk_file(filepath, deep):
         return ("NI Compressed Wave", *inspect_ncw(filepath))
     if magic[:1] == b"{":
         return ("Vital preset", *inspect_vital(filepath))
+    if magic[4:8] == b"ftyp":
+        return ("MP4/M4A", *inspect_mp4(filepath))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
     if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
