@@ -1028,3 +1028,41 @@ class TestParseFmtExtensible:
         b = struct.pack("<HHIIHH", 3, 2, 44100, 44100 * 8, 8, 32) + struct.pack("<H", 0)
         _, fields, _ = _parse_fmt(b, {})
         assert any(f["name"] == "cb_size" for f in fields)
+
+
+class TestParseBext:
+    def _bext(self, version, umid=b"", loud=None, hist=b""):
+        b = (b"Desc".ljust(256, b"\x00") + b"Orig".ljust(32, b"\x00")
+             + b"Ref".ljust(32, b"\x00") + b"2026-07-02" + b"11-30-00"
+             + struct.pack("<II", 44100, 0) + struct.pack("<H", version))
+        if version >= 2:
+            loud = loud or [0, 0, 0, 0, 0]
+            b += umid.ljust(64, b"\x00") + b"".join(
+                struct.pack("<h", x) for x in loud) + b"\x00" * 180
+        elif version >= 1:
+            b += umid.ljust(64, b"\x00") + b"\x00" * 190
+        else:
+            b += b"\x00" * 254
+        return b + hist
+
+    def test_v2_umid_loudness_and_history(self):
+        from acidcat.commands.inspect import _parse_bext
+        b = self._bext(2, umid=b"\x01\x02\x03",
+                       loud=[-2265, 500, -150, 0x7FFF, -1000],
+                       hist=b"A=PCM,F=48000,W=24,M=stereo\r\n\x00\x00")
+        _, fields, _ = _parse_bext(b, {"sample_rate": 44100})
+        d = {f["name"]: f["value"] for f in fields}
+        assert d["loudness_value"] == "-22.65 LUFS"
+        assert d["max_momentary"] == "unset"      # 0x7fff sentinel
+        assert d["umid"].startswith("010203")
+        assert d["coding_history"].startswith("A=PCM")
+
+    def test_v0_has_no_umid_or_loudness(self):
+        from acidcat.commands.inspect import _parse_bext
+        _, fields, _ = _parse_bext(self._bext(0), {})
+        assert not any(f["name"] in ("umid", "loudness_value") for f in fields)
+
+    def test_v1_all_zero_umid(self):
+        from acidcat.commands.inspect import _parse_bext
+        _, fields, _ = _parse_bext(self._bext(1), {})
+        assert next(f["value"] for f in fields if f["name"] == "umid") == "0 (no UMID)"

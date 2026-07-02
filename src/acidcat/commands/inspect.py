@@ -413,6 +413,32 @@ def _parse_bext(b, ctx):
     fields.append(_f(0x152, 8, "time_reference", timeref, note))
     version = _u16(b, 346)
     fields.append(_f(0x15A, 2, "version", version))
+
+    # v1 (July 2001) adds a 64-byte SMPTE UMID at 0x15C; v2 (May 2011) adds
+    # five int16 loudness values at 0x19C. the fixed area is always 602 bytes;
+    # CodingHistory (ASCII) runs from 0x25A to the end of the chunk.
+    if version >= 1 and len(b) >= 0x15C + 64:
+        umid = b[0x15C:0x15C + 64]
+        shown = umid.hex() if umid.strip(b"\x00") else "0 (no UMID)"
+        fields.append(_f(0x15C, 64, "umid", shown, "SMPTE ST 330"))
+    if version >= 2 and len(b) >= 0x1A6:
+        loud = [("loudness_value", "LUFS"), ("loudness_range", "LU"),
+                ("max_true_peak", "dBTP"), ("max_momentary", "LUFS"),
+                ("max_short_term", "LUFS")]
+        for i, (name, unit) in enumerate(loud):
+            raw = struct.unpack_from("<h", b, 0x19C + i * 2)[0]
+            # 0x7fff is the "not set" sentinel; the spec also says any value
+            # outside +-99.99 (hundredths of a unit) shall be ignored.
+            unset = raw == 0x7FFF or not (-9999 <= raw <= 9999)
+            fields.append(_f(0x19C + i * 2, 2, name,
+                             "unset" if unset else f"{raw / 100:+.2f} {unit}"))
+    if len(b) > 0x25A:
+        # writers pad CodingHistory with trailing NULs; trim before display.
+        hist = b[0x25A:].split(b"\x00")[0].decode("ascii", errors="replace").strip()
+        if hist:
+            fields.append(_f(0x25A, len(b) - 0x25A, "coding_history",
+                             hist[:120], "EBU R98 rows"))
+
     return f"BWF v{version}, {_cstr(b, 256, 32) or 'no originator'}", fields, warns
 
 
