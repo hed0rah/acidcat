@@ -508,6 +508,17 @@ class TestInspectMp3:
         frames = next(c for c in chunks if c["id"] == "frames")
         assert any("diverges" in w for w in frames["warnings"])
 
+    def test_truncated_xing_header_no_crash(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        # a first frame that declares a Xing tag with the frames flag set but
+        # ends right after the flags: the frame_count read must not run past
+        # the buffer (previously an uncaught struct.error crashed inspect).
+        p = tmp_path / "x.mp3"
+        p.write_bytes(b"\xff\xfb\x90\xc0" + b"\x00" * 17 + b"Xing" + struct.pack(">I", 1))
+        chunks, warns = inspect_mp3(str(p))  # must not raise
+        allw = warns + [w for c in chunks for w in c.get("warnings", [])]
+        assert any("truncated" in w.lower() for w in allw)
+
     def test_id3v1_trailer_detected(self, tmp_path):
         from acidcat.commands.inspect import inspect_mp3
         v1 = b"TAG" + b"My Title".ljust(30, b"\x00") \
