@@ -360,6 +360,45 @@ class TestInspectRf64:
         _, warns = inspect_rf64(path)
         assert any("sentinel" in w for w in warns)
 
+    def test_fact_sentinel_resolved_via_ds64(self, tmp_path):
+        # an RF64 fact chunk stores 0xFFFFFFFF; the real sample count
+        # lives in ds64. duration must derive from the ds64 count, not
+        # the sentinel (which read as ~97,000 s for a 1 s file).
+        from acidcat.commands.inspect import inspect_rf64
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_bytes = 88200  # 1.0 s of 16-bit mono at 44100 Hz
+        fact_chunk = b"fact" + struct.pack("<I", 4) + struct.pack("<I", 0xFFFFFFFF)
+        data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * data_bytes
+        ds64 = struct.pack("<QQQI", 0, data_bytes, 44100, 0)
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds64)) + ds64
+        body = b"WAVE" + ds64_chunk + fmt_chunk + fact_chunk + data_chunk
+        ds64 = struct.pack("<QQQI", len(body), data_bytes, 44100, 0)
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds64)) + ds64
+        body = b"WAVE" + ds64_chunk + fmt_chunk + fact_chunk + data_chunk
+        p = tmp_path / "fact.rf64"
+        p.write_bytes(b"RF64" + struct.pack("<I", 0xFFFFFFFF) + body)
+        chunks, warns = inspect_rf64(str(p))
+        fact = next(c for c in chunks if c["id"] == "fact")
+        assert "44,100 samples" in fact["summary"]
+        data = next(c for c in chunks if c["id"] == "data")
+        assert "1.000 s" in data["summary"]
+        assert warns == []
+
+    def test_fact_sentinel_without_ds64_not_trusted(self, tmp_path):
+        # a plain RIFF/WAVE with a 0xFFFFFFFF fact has no ds64 to
+        # resolve through; the sentinel must not become a sample count
+        # (27 hours at 44.1 kHz).
+        path = _wav(tmp_path, _fmt(),
+                    _chunk(b"fact", struct.pack("<I", 0xFFFFFFFF)),
+                    _data(441))
+        chunks, _ = inspect_wav(path)
+        fact = next(c for c in chunks if c["id"] == "fact")
+        assert any("ds64" in w for w in fact["warnings"])
+        data = next(c for c in chunks if c["id"] == "data")
+        frames = next(f for f in data["fields"] if f["name"] == "frames")
+        assert frames["value"] == 441  # from data bytes, not the sentinel
+
 
 class TestInspectSerum:
     def test_json_and_blob(self, tmp_path):

@@ -197,11 +197,27 @@ def _parse_fact(b, ctx):
     if len(b) < 4:
         return "truncated", [], ["fact payload under 4 bytes"]
     n = _u32(b, 0)
+    warns = []
+    notes = []
+    if n == 0xFFFFFFFF:
+        # RF64 sentinel: the real 64-bit count lives in ds64. never
+        # trust the sentinel itself as a sample count.
+        if "ds64_samples" in ctx:
+            n = ctx["ds64_samples"]
+            notes.append("0xffffffff sentinel, resolved via ds64")
+        else:
+            warns.append("sample_length is the 0xffffffff sentinel but "
+                         "no ds64 chunk provides the 64-bit count")
+            return ("sample count deferred to ds64, which is absent",
+                    [_f(0x00, 4, "sample_length", "0xffffffff", "sentinel")],
+                    warns)
     rate = ctx.get("sample_rate")
-    note = f"{n / rate:.3f} s" if rate and n else ""
+    if rate and n:
+        notes.append(f"{n / rate:.3f} s")
     ctx["fact_samples"] = n
     ctx.setdefault("frames", n)
-    return f"{n:,} samples/channel", [_f(0x00, 4, "sample_length", n, note)], []
+    return (f"{n:,} samples/channel",
+            [_f(0x00, 4, "sample_length", n, ", ".join(notes))], warns)
 
 
 def _parse_acid(b, ctx):
