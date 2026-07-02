@@ -37,37 +37,55 @@ def parse_bpm_from_filename(filepath):
     return None
 
 
+# flat -> sharp normalization for consistency with MIDI note naming.
+# Cb/Fb aren't pitch-raising flats; they're enharmonic with B/E.
+_FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#",
+                  "Bb": "A#", "Cb": "B", "Fb": "E"}
+
+
+def _normalize_root(note):
+    """'eb'/'EB'/'Eb' -> 'D#'; 'f#' -> 'F#'; 'a' -> 'A'."""
+    root = note[0].upper() + note[1:].lower()
+    return _FLAT_TO_SHARP.get(root, root)
+
+
 def parse_key_from_filename(filepath):
-    """Extract musical key from filename. Returns string like 'C#m' or None."""
+    """Extract musical key from filename. Returns string like 'C#m' or None.
+
+    Flats are accepted and normalized to sharps ('Eb minor' -> 'D#m').
+    A bare capital-M suffix is the major marker used by Beatport /
+    Mixed In Key / Serato / Rekordbox ('F#M' -> F# major); lowercase
+    'm' is minor. The worded suffixes (maj/major/min/minor) stay
+    case-insensitive.
+    """
     filename = os.path.basename(filepath).replace('_', ' ').replace('-', ' ')
     key_patterns = [
-        r'\b([A-G]#?)\s*major\b',
-        r'\b([A-G]#?)\s*maj\b',
-        r'\b([A-G]#?)major\b',
-        r'\b([A-G]#?)maj\b',
-        r'\b([A-G]#?)\s*minor\b',
-        r'\b([A-G]#?)\s*min\b',
-        r'\b([A-G]#?)minor\b',
-        r'\b([A-G]#?)min\b',
-        r'\b([A-G]#?)\s*M\b',
-        r'\b([A-G]#?)\s*m\b',
-        r'\b([A-G]#?)m\b',
+        r'\b([A-G][#b]?)\s*major\b',
+        r'\b([A-G][#b]?)\s*maj\b',
+        r'\b([A-G][#b]?)major\b',
+        r'\b([A-G][#b]?)maj\b',
+        r'\b([A-G][#b]?)\s*minor\b',
+        r'\b([A-G][#b]?)\s*min\b',
+        r'\b([A-G][#b]?)minor\b',
+        r'\b([A-G][#b]?)min\b',
+        r'\b([A-G][#b]?)\s*[mM]\b',
     ]
     for pattern in key_patterns:
         match = re.search(pattern, filename, re.IGNORECASE)
         if match:
-            note = match.group(1).upper()
-            key_text = match.group(0).lower()
-            # classify minor vs major: 'min' or 'minor' anywhere; or trailing
-            # 'm' that isn't part of 'major'/'maj'.
-            if "min" in key_text:
+            note = _normalize_root(match.group(1))
+            key_text = match.group(0)
+            lowered = key_text.lower()
+            # classify minor vs major: 'min' or 'minor' anywhere; 'maj'
+            # anywhere is major; otherwise the bare one-letter suffix
+            # decides by case (M = major, m = minor).
+            if "min" in lowered:
                 return f"{note}m"
-            if "maj" in key_text:
+            if "maj" in lowered:
                 return note
-            # bare trailing m (e.g. 'Am', 'C#m')
-            if re.search(r"m\s*$", key_text):
-                return f"{note}m"
-            return note
+            if key_text.rstrip().endswith("M"):
+                return note
+            return f"{note}m"
     return None
 
 
@@ -86,15 +104,7 @@ def parse_bare_key_token(token):
     note = m.group(1).upper()
     accidental = m.group(2) or ""
     minor = "m" if m.group(3) else ""
-    # normalize flat to sharp for consistency with MIDI note naming.
-    # Cb/Fb aren't pitch-raising flats; they're enharmonic with B/E.
-    if accidental == "b":
-        flat_to_sharp = {"Db": "C#", "Eb": "D#", "Gb": "F#",
-                         "Ab": "G#", "Bb": "A#",
-                         "Cb": "B", "Fb": "E"}
-        root = flat_to_sharp.get(note + "b", note + "b")
-    else:
-        root = note + accidental
+    root = _normalize_root(note + accidental)
     return root + minor
 
 
