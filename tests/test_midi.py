@@ -128,3 +128,29 @@ def test_meta_event_cancels_running_status(tmp_path):
     meta = parse_midi(str(f))
     assert meta["note_count"] == 1
     assert meta["note_max"] == 60
+
+
+def _keysig_track(sf, mi):
+    """Track with one key-signature meta event, then end-of-track."""
+    return (b"\x00\xFF\x59\x02" + struct.pack(">bB", sf, mi)
+            + b"\x00\xFF\x2F\x00")
+
+
+def test_key_signature_major(tmp_path):
+    """Major keys name the signature's major root directly."""
+    cases = {0: "C", 1: "G", 4: "E", 7: "C#", -1: "F", -3: "Eb", -7: "Cb"}
+    for sf, want in cases.items():
+        p = tmp_path / f"k{sf}.mid"
+        p.write_bytes(_build_smf([_keysig_track(sf, 0)]))
+        assert parse_midi(str(p))["key_sig"] == want, f"sf={sf}"
+
+
+def test_key_signature_minor_is_relative_minor(tmp_path):
+    """mi=1 names the RELATIVE minor (major root + 9 semitones), not the
+    major root with an 'm' suffix. sf=0 mi=1 is A minor, not C minor."""
+    cases = {0: "Am", 1: "Em", 2: "Bm", 3: "F#m", 7: "A#m",
+             -1: "Dm", -3: "Cm", -5: "Bbm", -7: "Abm"}
+    for sf, want in cases.items():
+        p = tmp_path / f"k{sf}.mid"
+        p.write_bytes(_build_smf([_keysig_track(sf, 1)]))
+        assert parse_midi(str(p))["key_sig"] == want, f"sf={sf}"
