@@ -640,6 +640,68 @@ class TestInspectMp3:
         assert "CBR" in frames["summary"]
         assert warns == []
 
+    def test_id3v22_text_frames_decode(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+
+        def v22(fid, text):  # v2.2: 3-char id + 3-byte size
+            payload = b"\x00" + text.encode("latin-1")
+            return fid + struct.pack(">I", len(payload))[1:] + payload
+        tag = _id3v2(v22(b"TT2", "Song"), v22(b"TP1", "Band"), major=2)
+        p = tmp_path / "t.mp3"
+        p.write_bytes(tag + _MP3_FRAME)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        vals = {f["name"]: (f["value"], f["note"]) for f in id3["fields"]}
+        assert vals.get("TT2") == ("Song", "title")
+        assert vals.get("TP1") == ("Band", "artist")
+
+    def test_id3v2_extended_header_skipped(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+
+        def v23(fid, text):
+            payload = b"\x00" + text.encode("latin-1")
+            return fid + struct.pack(">I", len(payload)) + b"\x00\x00" + payload
+        ext = struct.pack(">I", 6) + b"\x00" * 6  # v2.3 ext header: size(excl)=6
+        tag = _id3v2(ext + v23(b"TIT2", "Hi"), major=3)
+        tag = tag[:5] + bytes([0x40]) + tag[6:]  # set extended-header flag
+        p = tmp_path / "t.mp3"
+        p.write_bytes(tag + _MP3_FRAME)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        names = [f["name"] for f in id3["fields"]]
+        assert "extended_header" in names
+        assert any(f["name"] == "TIT2" for f in id3["fields"])  # frame past it still read
+
+    def test_id3v2_unsync_warns(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+
+        def v23(fid, payload):
+            return fid + struct.pack(">I", len(payload)) + b"\x00\x00" + payload
+        tag = _id3v2(v23(b"TIT2", b"\x00\xff\x00A"), major=3)
+        tag = tag[:5] + bytes([0x80]) + tag[6:]  # set unsync flag
+        p = tmp_path / "t.mp3"
+        p.write_bytes(tag + _MP3_FRAME)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        assert any("unsynchronised" in w for w in id3["warnings"])
+
+    def test_mp3_vbri_header_parsed(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp3
+        # inject a VBRI header at the fixed offset 36 into a valid frame
+        vbri = b"VBRI" + struct.pack(">HHH", 1, 0, 100) + struct.pack(">II", 5000, 42)
+        frame = bytearray(_MP3_FRAME)
+        frame[36:36 + len(vbri)] = vbri
+        p = tmp_path / "t.mp3"
+        p.write_bytes(bytes(frame) * 2)
+        chunks, _ = inspect_mp3(str(p))
+        f0 = next(c for c in chunks if c["id"] == "frame0")
+        d = {f["name"]: f["value"] for f in f0["fields"]}
+        assert d.get("vbr_tag") == "VBRI"
+        assert d.get("frame_count") == "42"
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert any(f["name"] == "vbr" and f["value"] is True
+                   for f in frames["fields"])
+
     def test_id3v2_frames_decoded(self, tmp_path):
         from acidcat.commands.inspect import inspect_mp3
         tag = _id3v2(_id3_text_frame(b"TIT2", "My Title"),

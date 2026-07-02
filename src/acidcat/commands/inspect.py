@@ -1358,6 +1358,14 @@ _ID3_TEXT_FRAMES = {
     "COMM": "comment",
 }
 
+# ID3v2.2 used 3-character frame ids. without this map a v2.2 tag lists frame
+# sizes but never decodes its title/artist/etc.
+_ID3V22_TEXT_FRAMES = {
+    "TT2": "title", "TP1": "artist", "TAL": "album", "TCO": "genre",
+    "TBP": "bpm", "TKE": "initial key", "TYE": "year", "TRK": "track",
+    "TSS": "encoder settings", "TEN": "encoded by", "COM": "comment",
+}
+
 _VBR_METHODS = {
     0: "unknown", 1: "CBR", 2: "ABR", 3: "VBR (rh)", 4: "VBR (mtrh)",
     5: "VBR (rh2)", 6: "VBR (constrained)",
@@ -1388,14 +1396,43 @@ def _id3v2_frames(filepath, hdr):
         f.seek(10)
         body = f.read(min(tag_size, _ID3_READ_CAP))
     fields.append(_f(0x03, 1, "version", f"2.{major}.{hdr['revision']}"))
-    fields.append(_f(0x05, 1, "flags", f"0x{hdr['flags']:02x}",
-                     "has footer" if hdr["has_footer"] else ""))
+    flags = hdr["flags"]
+    flag_bits = []
+    if flags & 0x80:
+        flag_bits.append("unsync")
+    if flags & 0x40:
+        flag_bits.append("extended header")
+    if flags & 0x20:
+        flag_bits.append("experimental")
+    if flags & 0x10:
+        flag_bits.append("footer")
+    fields.append(_f(0x05, 1, "flags", f"0x{flags:02x}",
+                     ", ".join(flag_bits) if flag_bits else "none"))
     fields.append(_f(0x06, 4, "tag_size", f"{hdr['size']:,}", "synchsafe"))
 
-    pos = 0
     is_v22 = major == 2
     id_len = 3 if is_v22 else 4
     fhdr_len = 6 if is_v22 else 10
+
+    # whole-tag unsynchronisation (flag bit 7) inserts a $00 after every $FF so
+    # a frame body cannot masquerade as a frame sync. undo it before reading
+    # sizes, or every size past the first $FF byte is wrong.
+    if flags & 0x80:
+        body = body.replace(b"\xff\x00", b"\xff")
+        warns.append("tag is unsynchronised; byte offsets shown are logical "
+                     "(post-desync), not raw file positions")
+
+    pos = 0
+    # skip the extended header (flag bit 6) so it is not misread as a frame.
+    if flags & 0x40 and not is_v22 and len(body) >= 4:
+        if major == 4:
+            ext_size = mp3mod.synchsafe(body[0:4])       # v2.4: size includes itself
+        else:
+            ext_size = struct.unpack(">I", body[0:4])[0] + 4  # v2.3: excludes the 4
+        if 0 < ext_size <= len(body):
+            fields.append(_f(10, ext_size, "extended_header",
+                             f"{ext_size} bytes", "skipped"))
+            pos = ext_size
     while pos + fhdr_len <= len(body):
         fid = body[pos:pos + id_len]
         if fid[0] == 0:  # padding
@@ -1426,7 +1463,7 @@ def _id3v2_frames(filepath, hdr):
                              f"{fsize:,} bytes", note or "beyond read cap"))
             break
         raw = body[data_start:data_start + fsize]
-        note = _ID3_TEXT_FRAMES.get(fid_s, "")
+        note = (_ID3V22_TEXT_FRAMES if is_v22 else _ID3_TEXT_FRAMES).get(fid_s, "")
         if fid_s.startswith("T") and note:
             value = _decode_id3_text(raw)
         elif fid_s == "APIC" or fid_s == "PIC":
@@ -1449,6 +1486,21 @@ def _xing_offset(hdr):
     return 4 + (9 if mono else 17)       # MPEG 2 / 2.5
 
 
+def _parse_vbri(buf, off):
+    """Decode a Fraunhofer VBRI header. Returns the Xing-path 4-tuple
+    (fields, warns, frame_count, tag). Offsets are frame-relative to match
+    the frame0 chunk's payload_base. All fields are big-endian."""
+    fields = []
+    version = _bu16(buf, off + 4)
+    nbytes = _bu32(buf, off + 10)
+    frame_count = _bu32(buf, off + 14)
+    fields.append(_f(off, 4, "vbr_tag", "VBRI", "VBR (Fraunhofer)"))
+    fields.append(_f(off + 4, 2, "version", version))
+    fields.append(_f(off + 10, 4, "byte_count", f"{nbytes:,}"))
+    fields.append(_f(off + 14, 4, "frame_count", f"{frame_count:,}"))
+    return fields, [], frame_count, b"VBRI"
+
+
 def _parse_xing_lame(filepath, frame_off, hdr):
     """Decode the Xing/Info VBR header and any LAME extension in the
     first frame. Returns (fields, warns, frame_count, tag) where tag is
@@ -1457,7 +1509,12 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     xoff = _xing_offset(hdr)
     with open(filepath, "rb") as f:
         f.seek(frame_off)
-        buf = f.read(max(hdr["frame_length"], xoff + 200))
+        buf = f.read(max(hdr["frame_length"], xoff + 200, 64))
+    # VBRI (Fraunhofer) sits at a fixed offset, 32 bytes past the 4-byte frame
+    # header, regardless of channel mode; Xing/Info sit at the side-info-
+    # dependent xoff. a frame carries at most one of them.
+    if len(buf) >= 36 + 18 and buf[36:40] == b"VBRI":
+        return _parse_vbri(buf, 36)
     if xoff + 8 > len(buf):
         return None, [], None, None
     tag = buf[xoff:xoff + 4]
@@ -1571,9 +1628,9 @@ def inspect_mp3(filepath, deep=False):
     except Exception as e:
         xing_fields, xing_warns, vbr_frames, vbr_tag = None, \
             [f"VBR header parse error: {e.__class__.__name__}"], None, None
-    # only a Xing tag declares VBR; an Info tag is the same structure
-    # written by LAME for CBR streams and must not force the VBR label.
-    is_vbr_header = vbr_tag == b"Xing"
+    # Xing and VBRI both declare VBR; an Info tag is the same structure as
+    # Xing written by LAME for CBR streams and must not force the VBR label.
+    is_vbr_header = vbr_tag in (b"Xing", b"VBRI")
     if xing_fields is not None:
         fields.extend(xing_fields)
     chunks.append({"id": "frame0", "offset": frame_off, "size": fh["frame_length"],
