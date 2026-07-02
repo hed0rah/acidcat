@@ -123,3 +123,34 @@ class TestAppleLoopsBasc:
         f.write_bytes(_form(b"AIFF", _comm_aiff(), _ssnd()))
         _, meta, _ = parse_aiff(str(f))
         assert meta.get("basc_beats") is None
+
+
+class TestIeeeExtendedNonFinite:
+    # all-ones exponent encodes IEEE inf/NaN; a huge finite exponent
+    # overflows a double. int(inf) downstream raised OverflowError and
+    # turned the whole COMM chunk into a parse error, losing channels
+    # and frame count too.
+
+    def test_inf_returns_zero(self):
+        assert _parse_ieee_extended(b"\x7f\xff" + b"\x80" + b"\x00" * 7) == 0.0
+
+    def test_nan_returns_zero(self):
+        assert _parse_ieee_extended(b"\x7f\xff" + b"\xc0" + b"\x00" * 7) == 0.0
+
+    def test_negative_inf_returns_zero(self):
+        assert _parse_ieee_extended(b"\xff\xff" + b"\x80" + b"\x00" * 7) == 0.0
+
+    def test_huge_finite_exponent_returns_zero(self):
+        # exponent 0x7FFE: finite in 80-bit but overflows a double
+        assert _parse_ieee_extended(b"\x7f\xfe" + b"\x80" + b"\x00" * 7) == 0.0
+
+    def test_comm_survives_inf_rate(self, tmp_path):
+        inf_rate = b"\x7f\xff" + b"\x80" + b"\x00" * 7
+        f = tmp_path / "inf.aiff"
+        f.write_bytes(_form(b"AIFF", _comm_aiff(rate=inf_rate), _ssnd()))
+        results, meta, _ = parse_aiff(str(f), enumerate_all=True)
+        assert meta["channels"] == 1          # COMM still decodes
+        assert meta["num_frames"] == 441
+        assert meta["sample_rate"] == 0
+        assert meta["duration_sec"] is None
+        assert not any(k == "error" for _, k, _ in results)

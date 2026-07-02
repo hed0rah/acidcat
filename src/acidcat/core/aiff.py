@@ -5,6 +5,7 @@ Big-endian chunk-based format, Apple's counterpart to RIFF/WAV.
 Also handles REX files (which are AIFF internally).
 """
 
+import math
 import os
 import struct
 import binascii
@@ -36,10 +37,20 @@ def _parse_ieee_extended(data):
     if exponent == 0 and mantissa == 0:
         return 0.0
     elif exponent == 0x7FFF:
-        return float('inf') * sign
+        # all-ones exponent is IEEE inf/NaN. neither is a usable sample
+        # rate, and int(inf) downstream raised OverflowError, turning
+        # the whole COMM chunk into a parse error. treat as unset.
+        return 0.0
     else:
         f = mantissa / (1 << 63)
-        f = f * (2 ** (exponent - 16383))
+        try:
+            f = f * (2.0 ** (exponent - 16383))
+        except OverflowError:
+            # a forged near-max exponent overflows a double the same
+            # way the inf sentinel does; same treatment.
+            return 0.0
+        if not math.isfinite(f):
+            return 0.0
         return f * sign
 
 
