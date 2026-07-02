@@ -1382,19 +1382,33 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     fields.append(_f(xoff, 4, "vbr_tag", tag.decode("ascii"), kind))
     flags = _bu32(buf, xoff + 4)
     pos = xoff + 8
+    # each optional field is only present if its flag is set; the tag may be
+    # truncated after any of them, so bound every read against the buffer.
     frame_count = None
     if flags & 0x01:
+        if pos + 4 > len(buf):
+            warns.append("Xing header truncated before frame_count")
+            return fields, warns, frame_count
         frame_count = _bu32(buf, pos)
         fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}"))
         pos += 4
     if flags & 0x02:
+        if pos + 4 > len(buf):
+            warns.append("Xing header truncated before byte_count")
+            return fields, warns, frame_count
         nbytes = _bu32(buf, pos)
         fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}"))
         pos += 4
     if flags & 0x04:
+        if pos + 100 > len(buf):
+            warns.append("Xing header truncated before seek table")
+            return fields, warns, frame_count
         fields.append(_f(pos, 100, "toc", "100-entry seek table"))
         pos += 100
     if flags & 0x08:
+        if pos + 4 > len(buf):
+            warns.append("Xing header truncated before quality")
+            return fields, warns, frame_count
         quality = _bu32(buf, pos)
         fields.append(_f(pos, 4, "quality", quality, "0=best, 100=worst"))
         pos += 4
@@ -1465,7 +1479,11 @@ def inspect_mp3(filepath, deep=False):
     if fh["emphasis"] != "none":
         fields.append(_f(None, 0, "emphasis", fh["emphasis"]))
 
-    xing_fields, xing_warns, vbr_frames = _parse_xing_lame(filepath, frame_off, fh)
+    try:
+        xing_fields, xing_warns, vbr_frames = _parse_xing_lame(filepath, frame_off, fh)
+    except Exception as e:
+        xing_fields, xing_warns, vbr_frames = None, \
+            [f"VBR header parse error: {e.__class__.__name__}"], None
     is_vbr_header = xing_fields is not None
     if is_vbr_header:
         fields.extend(xing_fields)
