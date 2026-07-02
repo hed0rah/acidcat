@@ -891,12 +891,20 @@ def inspect_midi(filepath, deep=False):
         ctx["ticks_per_sec"] = (29.97 if fps == 29 else fps) * tpf
     else:
         fields.append(_f(0x04, 2, "division", division, "ticks per quarter note"))
-    if hdr_len != 6:
+    hdr_warns = []
+    if hdr_len > 6:
         fields.append(_f(0x06, hdr_len - 6, "extra_header",
                          f"{hdr_len - 6} bytes", "legal, skipped"))
+    elif hdr_len < 6:
+        # a negative extra_header length would reach --hex as
+        # read(negative), i.e. the whole file. the six header bytes
+        # were still decoded above (best effort).
+        hdr_warns.append(
+            f"MThd declares {hdr_len} bytes, spec minimum is 6")
     summary = f"format {fmt}, {ntrks} track(s)"
     chunks.append({"id": "MThd", "offset": 0, "size": hdr_len,
-                   "summary": summary, "fields": fields, "warnings": []})
+                   "summary": summary, "fields": fields,
+                   "warnings": hdr_warns})
 
     offset = 8 + hdr_len
     found = 0
