@@ -1186,3 +1186,23 @@ class TestInspectFull:
         data = next(c for c in d["chunks"] if c["id"] == "data")
         if "raw" in data:
             assert len(bytes.fromhex(data["raw"])) <= _FULL_RAW_CAP
+
+
+class TestBitwigBWBM:
+    def test_bwbm_beats_duration_bpm(self):
+        import struct as _s
+        from acidcat.commands.inspect import _parse_bwbm
+        payload = (_s.pack("<I", 1) + _s.pack("<I", 2) + b"\x00" * 16
+                   + _s.pack("<d", 6.0) + _s.pack("<d", 2.5714285714))
+        summary, fields, warns = _parse_bwbm(payload, {})
+        d = {f["name"]: f["value"] for f in fields}
+        assert d["version"] == 1
+        assert d["beats"] == 6.0
+        assert "2.5714" in d["duration"]
+        assert d["derived_bpm"] == 140.0  # 6 / 2.5714 * 60
+        assert "140" in summary and warns == []
+
+    def test_bwbm_truncated(self):
+        from acidcat.commands.inspect import _parse_bwbm
+        s, _, w = _parse_bwbm(b"\x00" * 20, {})
+        assert s == "truncated" and w

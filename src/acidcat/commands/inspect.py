@@ -76,6 +76,7 @@ _INFO_TAGS = {
     "INAM": "title", "IART": "artist", "ICMT": "comment", "ISFT": "software",
     "ICRD": "date", "IGNR": "genre", "ICOP": "copyright", "IKEY": "keywords",
     "ISBJ": "subject", "IENG": "engineer", "ITCH": "technician", "IPRD": "product",
+    "IBPM": "bpm",  # non-standard, written by Bitwig
 }
 
 
@@ -450,6 +451,29 @@ def _parse_bext(b, ctx):
     return f"BWF v{version}, {_cstr(b, 256, 32) or 'no originator'}", fields, warns
 
 
+def _parse_bwbm(b, ctx):
+    """Bitwig Beat Map: the loop tempo/beat metadata Bitwig writes into a WAV
+    bounce in place of a Sony acid chunk. version u32, then two doubles at
+    0x18/0x20 holding the loop length in beats and its duration in seconds.
+    Verified against a Bitwig Studio 6.0.6 bounce."""
+    fields, warns = [], []
+    if len(b) < 40:
+        return "truncated", fields, [f"BWBM payload is {len(b)} bytes, expected 40"]
+    version = _u32(b, 0)
+    beats = struct.unpack_from("<d", b, 0x18)[0]
+    dur = struct.unpack_from("<d", b, 0x20)[0]
+    fields.append(_f(0x00, 4, "version", version))
+    fields.append(_f(0x18, 8, "beats", round(beats, 4)))
+    fields.append(_f(0x20, 8, "duration", f"{dur:.4f} s"))
+    bpm = beats / dur * 60 if dur else None
+    if bpm:
+        fields.append(_f(None, 0, "derived_bpm", round(bpm, 2), "beats / duration * 60"))
+    summary = f"Bitwig beat map, {beats:g} beats, {dur:.3f} s"
+    if bpm:
+        summary += f", ~{bpm:.1f} bpm"
+    return summary, fields, warns
+
+
 _PARSERS = {
     "fmt ": _parse_fmt,
     "fact": _parse_fact,
@@ -459,6 +483,7 @@ _PARSERS = {
     "cue ": _parse_cue,
     "LIST": _parse_list,
     "bext": _parse_bext,
+    "BWBM": _parse_bwbm,
 }
 
 
