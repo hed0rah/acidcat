@@ -322,6 +322,28 @@ class TestInspectMidi:
         chunks, _ = inspect_midi(path)
         assert all("rows" not in c for c in chunks)
 
+    def test_mthd_length_below_six(self, tmp_path):
+        # hdr_len - 6 went negative for a sub-spec MThd length and, under
+        # --hex, reached the renderer as read(negative) (the whole file).
+        # no field may carry a negative length; the lie gets a warning.
+        p = tmp_path / "short_hdr.mid"
+        p.write_bytes(b"MThd" + struct.pack(">I", 2)
+                      + struct.pack(">HHH", 0, 1, 480)
+                      + b"MTrk" + struct.pack(">I", len(_TRACK)) + _TRACK)
+        chunks, _ = inspect_midi(str(p))
+        mthd = chunks[0]
+        assert all(f["len"] >= 0 for f in mthd["fields"])
+        assert any("spec minimum is 6" in w for w in mthd["warnings"])
+
+    def test_mthd_length_below_six_hex_render(self, tmp_path, capsys):
+        p = tmp_path / "short_hdr2.mid"
+        p.write_bytes(b"MThd" + struct.pack(">I", 2)
+                      + struct.pack(">HHH", 0, 1, 480)
+                      + b"MTrk" + struct.pack(">I", len(_TRACK)) + _TRACK)
+        args = SimpleNamespace(target=str(p), show_hex=True, format="table",
+                               quiet=False, verbose=False)
+        assert run(args) == 0  # must not blow up rendering hex
+
 
 class TestInspectRf64:
     def _rf64(self, tmp_path, data_bytes=8, sentinel_ok=True):
