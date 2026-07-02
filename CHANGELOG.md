@@ -5,6 +5,39 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.9.6] - 2026-07-02
+
+### Fixed
+
+- `inspect` no longer crashes on three malformed inputs that reached a read
+  past a buffer: a truncated MP3 Xing header (uncaught `struct.error`), a
+  deeply nested Serum preset (uncaught `RecursionError`), and an `MThd` shorter
+  than 6 bytes under `--hex`. Each now degrades to a warning.
+- Key detection corrected. A minor MIDI key signature now names the relative
+  minor (an A-minor signature reports `Am`, not `Cm`), and filename key parsing
+  accepts flats (`Eb minor` becomes `D#m`) and the capital-M major marker
+  (`F#M` becomes `F#`). This flows into `info`, the index, and Camelot matching.
+- RF64 duration: the `fact` chunk's `0xFFFFFFFF` sentinel is resolved through
+  the `ds64` 64-bit sample count instead of being taken literally (which
+  reported durations of tens of thousands of seconds).
+- MP3 frames carrying a LAME `Info` tag are labeled CBR, not VBR; only a `Xing`
+  tag denotes VBR.
+- `acid` chunks padded beyond 24 bytes are decoded instead of silently dropping
+  BPM and beats.
+- `info` renders a SMPTE MIDI division as frames-per-second and ticks-per-frame
+  rather than a meaningless "ticks/beat".
+- AIFF sample rates whose 80-bit extended value is non-finite are treated as
+  unset instead of degrading the COMM chunk to a parse error.
+
+### Changed
+
+- Format sniffing in `index` recognizes all MPEG audio layers and versions (it
+  previously matched Layer III only), reusing the frame-header validator that
+  also rejects ADTS AAC.
+- Hardening: `inspect` lints an RF64 `ds64` data size larger than the file,
+  validates FLAC PICTURE string lengths before slicing, and caps the MIDI
+  whole-file read at 256 MB.
+
 ## [0.9.5] - 2026-07-01
 
 ### Fixed
