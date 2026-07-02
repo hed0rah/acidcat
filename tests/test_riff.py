@@ -184,6 +184,41 @@ class TestParseRiff:
         meter = next((v for c, k, v in results if k == "meter"), None)
         assert meter == "4/4"
 
+    def test_acid_chunk_padded_past_24_bytes(self, tmp_path):
+        """some taggers pad the acid chunk past its 24-byte layout; an
+        exact-length struct.unpack raised on the extra bytes and BPM,
+        beats, and root were silently lost. trailing bytes are ignored.
+        """
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
+        acid_payload = struct.pack(
+            "<IHHfIHHf", 0x05, 60, 0x8000, 0.0, 8, 4, 4, 120.0,
+        ) + b"\x00" * 4  # 28 bytes: 24-byte layout + 4 pad bytes
+        acid_chunk = b"acid" + struct.pack("<I", len(acid_payload)) + acid_payload
+        body = b"WAVE" + fmt_chunk + data_chunk + acid_chunk
+        wav = tmp_path / "padded_acid.wav"
+        wav.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+        _, meta, _ = parse_riff(str(wav))
+        assert meta["bpm"] == 120.0
+        assert meta["acid_beats"] == 8
+        assert meta["acid_root_note"] == 60
+
+    def test_acid_chunk_short_reports_error_not_garbage(self, tmp_path):
+        """an acid chunk under 24 bytes cannot hold the layout; it must
+        surface an error entry, not partially-decoded values."""
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        acid_chunk = b"acid" + struct.pack("<I", 12) + b"\x00" * 12
+        body = b"WAVE" + fmt_chunk + acid_chunk
+        wav = tmp_path / "short_acid.wav"
+        wav.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+        results, meta, _ = parse_riff(str(wav), enumerate_all=True)
+        assert meta["bpm"] is None
+        assert any(c == "acid" and k == "error" for c, k, _ in results)
+
     def test_drum_loop_if_present(self):
         import os
         from conftest import SAMPLE_WAV
