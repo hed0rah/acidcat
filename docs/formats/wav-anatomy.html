@@ -133,7 +133,17 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <div><span class="k">form type</span><span class="v">"WAVE"</span></div>
       </div></div></details>
     <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">fmt</span><span class="rspan">format . drawn below</span></summary>
-      <div class="rbody"><p class="note">The audio encoding. 16 bytes for PCM, more for extensible. See the byte map below.</p></div></details>
+      <div class="rbody"><p class="note">The audio encoding. 16 bytes for PCM (the byte map below), 18 with a cb_size field at 0x10, 40 for extensible (tag 0xFFFE), which appends:</p><div class="kv">
+        <div><span class="k">cb_size</span><span class="v">u16 extension byte count, 22 for extensible</span></div>
+        <div><span class="k">valid_bits_per_sample</span><span class="v">u16, real precision inside the container word</span></div>
+        <div><span class="k">channel_mask</span><span class="v">u32 speaker bitmask, low bit first: FL FR FC LFE BL BR FLC FRC BC SL SR TC TFL TFC TFR TBL TBC TBR</span></div>
+        <div><span class="k">sub_format</span><span class="v">16-byte GUID: 2-byte format tag + fixed tail 00000000-1000-8000-00AA00389B71; a non-standard tail is warned</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">fact</span><span class="rspan">sample count . 4 bytes</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">sample_length</span><span class="v">u32 samples per channel; the authoritative count for non-PCM codecs</span></div>
+        <div><span class="k">0xFFFFFFFF</span><span class="v">RF64 sentinel, resolved via the ds64 sample_count; warned if ds64 is absent</span></div>
+      </div></div></details>
     <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">data</span><span class="rspan">the audio payload</span></summary>
       <div class="rbody"><p class="note">Interleaved PCM samples. duration = data_size / (rate * channels * bytes_per_sample). A declared size past EOF is linted, and acidcat derives duration from the bytes present, not the claim.</p></div></details>
     <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">acid</span><span class="rspan">loop metadata . drawn below</span></summary>
@@ -143,11 +153,34 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <div><span class="k">midi_unity_note</span><span class="v">root key; 0 = unset sentinel, not C-1</span></div>
         <div><span class="k">num_sample_loops</span><span class="v">each loop is 24 bytes: start/end in sample frames</span></div>
       </div></div></details>
-    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">cue / LIST / bext</span><span class="rspan">markers, text, broadcast</span></summary>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">inst</span><span class="rspan">instrument tuning . 7 bytes</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">base_note</span><span class="v">MIDI root, usually duplicates the smpl unity note</span></div>
+        <div><span class="k">detune / gain</span><span class="v">i8 cents (-50..+50) and i8 dB adjustment</span></div>
+        <div><span class="k">note / velocity range</span><span class="v">low..high playable keys and trigger velocities, one u8 each</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">cue / LIST</span><span class="rspan">markers, text</span></summary>
       <div class="rbody"><div class="kv">
         <div><span class="k">cue</span><span class="v">u32 count (clamped to payload), then 24-byte points</span></div>
         <div><span class="k">LIST/INFO</span><span class="v">INAM title, IART artist, ICMT, IGNR, ...</span></div>
-        <div><span class="k">bext</span><span class="v">broadcast wave: originator, date, time reference</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">bext</span><span class="rspan">broadcast wave . 602-byte fixed area</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">description</span><span class="v">256-byte free text</span></div>
+        <div><span class="k">originator</span><span class="v">32-byte creator name</span></div>
+        <div><span class="k">originator_reference</span><span class="v">32-byte unique reference</span></div>
+        <div><span class="k">time_reference</span><span class="v">u64 sample count since midnight, two u32 halves</span></div>
+        <div><span class="k">version</span><span class="v">0, 1, or 2; the fixed area is 602 bytes in every version</span></div>
+        <div><span class="k">umid</span><span class="v">64-byte SMPTE ST 330 identifier at 0x15C, v1+</span></div>
+        <div><span class="k">loudness</span><span class="v">v2: five i16 at 0x19C in hundredths of LUFS/LU/dBTP; 0x7FFF = unset</span></div>
+        <div><span class="k">coding_history</span><span class="v">ASCII EBU R98 rows from 0x25A to the end of the chunk</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">RF64 / ds64</span><span class="rspan">64-bit sizes . EBU Tech 3306</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">header</span><span class="v">"RF64" replaces "RIFF"; the 32-bit size holds the 0xFFFFFFFF sentinel</span></div>
+        <div><span class="k">ds64 fixed area</span><span class="v">28 bytes, must be the first chunk: riff_size u64, data_size u64, sample_count u64, table_length u32</span></div>
+        <div><span class="k">override table</span><span class="v">table_length records of 4-byte chunk id + u64 size, for non-data chunks carrying the sentinel</span></div>
+        <div><span class="k">resolution</span><span class="v">data takes data_size, others read the table; a sentinel with no override is linted</span></div>
       </div></div></details>
   </div>
 

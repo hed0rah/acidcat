@@ -48,7 +48,8 @@ struct id3v2_header {
     char     magic[3];      // "ID3"
     uint8_t  version_major; // 3 = ID3v2.3, 4 = ID3v2.4 (2 = ID3v2.2)
     uint8_t  version_minor;
-    uint8_t  flags;         // bit 7 unsync, bit 6 extended, bit 4 footer
+    uint8_t  flags;         // bit 7 unsync, bit 6 extended header,
+                            // bit 5 experimental, bit 4 footer
     uint8_t  size[4];       // synchsafe: 28 bits, 7 bits per byte
 };
 ```
@@ -72,7 +73,25 @@ struct id3v2_frame {
 };
 ```
 
-ID3v2.2 frames are smaller: 3-byte id, 3-byte plain size, no flags.
+The frame size field differs by version: **v2.3 is a plain big-endian
+uint32**, **v2.4 is synchsafe** (same 7-bits-per-byte decode as the tag
+size). Reading a v2.4 tag with v2.3 size rules (or vice versa) walks off
+the frame boundaries as soon as any frame exceeds 127 bytes.
+
+Two header flags change how the frame data must be read:
+
+- **unsync (bit 7)**: the writer inserted a `$00` after every `$FF` byte
+  so tag data can never look like a frame sync. A reader must strip
+  those stuffed zeros before interpreting frame sizes; acidcat reverses
+  the unsynchronisation up front and reports logical (post-desync)
+  offsets.
+- **extended header (bit 6)**: an optional variable-size block sits
+  between the tag header and the first frame. Its own size field is
+  synchsafe in v2.4 (and includes itself) but plain in v2.3 (and
+  excludes its own 4 size bytes). acidcat skips it so it is not misread
+  as a frame.
+
+Bit 5 is the experimental flag; bit 4 (v2.4) marks a trailing footer.
 
 Text frames (id starts with `T`) begin with an encoding byte:
 `0` = Latin-1, `1` = UTF-16 with BOM, `2` = UTF-16BE, `3` = UTF-8.
@@ -90,8 +109,28 @@ Common frames acidcat surfaces:
 | `TYER` / `TDRC` | year      |
 | `TRCK` | track number       |
 | `TSSE` | encoder settings   |
+| `TENC` | encoded by         |
 | `APIC` | attached picture   |
 | `COMM` | comment            |
+
+### ID3v2.2 Frames
+
+ID3v2.2 frames are smaller: 3-byte id, 3-byte plain big-endian size, no
+flags. The frame ids are 3 characters instead of 4; acidcat maps and
+decodes the common ones just like their v2.3/2.4 counterparts:
+
+| Frame | Meaning          | v2.3/2.4 equivalent |
+|-------|------------------|---------------------|
+| `TT2` | title            | `TIT2`              |
+| `TP1` | artist           | `TPE1`              |
+| `TAL` | album            | `TALB`              |
+| `TCO` | genre            | `TCON`              |
+| `TBP` | beats per minute | `TBPM`              |
+| `TKE` | initial key      | `TKEY`              |
+| `TYE` | year             | `TYER`              |
+| `TRK` | track number     | `TRCK`              |
+| `TEN` | encoded by       | `TENC`              |
+| `COM` | comment          | `COMM`              |
 
 ---
 
@@ -100,7 +139,7 @@ Common frames acidcat surfaces:
 Every audio frame starts with a 4-byte header:
 
 ```
- syncword          11 bits   all ones (0x7FF; first 12 bits read 0xFFF)
+ syncword          11 bits   all ones (0x7FF); first byte is 0xFF, next 3 bits set
  version            2 bits   00=MPEG2.5 01=reserved 10=MPEG2 11=MPEG1
  layer              2 bits   00=reserved 01=Layer III 10=Layer II 11=Layer I
  protection         1 bit    0 = 16-bit CRC follows the header
@@ -168,6 +207,10 @@ the frame start (4-byte header + side info):
 | MPEG 1     | 21 | 36 |
 | MPEG 2/2.5 | 13 | 21 |
 
+When the frame is CRC-protected (protection bit = 0), the 2 CRC bytes
+sit between the 4-byte header and the side info, so **add 2** to every
+offset above.
+
 ```
 struct xing {
     char     id[4];      // "Xing" (VBR) or "Info" (CBR encoded by LAME)
@@ -179,9 +222,25 @@ struct xing {
 };
 ```
 
-`Xing` means true VBR; `Info` means CBR written by LAME. VBRI is a
-Fraunhofer-encoder variant at offset 36 from the frame start (32 bytes
-after the 4-byte header); less common.
+`Xing` means true VBR; `Info` means CBR written by LAME.
+
+### VBRI (Fraunhofer)
+
+The Fraunhofer encoder writes a `VBRI` header instead. Unlike
+Xing/Info, it sits at a **fixed** offset: frame start + 36 (32 bytes
+after the 4-byte header), independent of version, channel mode, and
+side-info size. All fields are big-endian:
+
+| Offset (from `VBRI`) | Field | Size |
+|-------:|-------------|-----:|
+| 0  | id `"VBRI"`  | 4 |
+| 4  | version      | 2 |
+| 10 | byte_count   | 4 |
+| 14 | frame_count  | 4 |
+
+A frame carries at most one of Xing/Info/VBRI. acidcat parses VBRI and
+labels the stream VBR, using its frame_count for the duration exactly
+as it would a Xing count.
 
 ### LAME Tag
 
@@ -193,7 +252,14 @@ extension beginning with a 9-byte version string (`LAME3.99r`):
 | 0  | encoder version | 9 bytes, e.g. `LAME3.99r` |
 | 9  | tag revision + VBR method | low nibble: 1=CBR 2=ABR 3/4/5=VBR |
 | 10 | lowpass filter | value x 100 Hz |
+| 15 | replay gain | 16-bit word, big-endian (see below) |
+| 20 | bitrate | 1 byte, kbps: minimum for VBR, target for ABR |
 | 21 | encoder delay + padding | 12 bits each; the gapless-playback info |
+
+The 16-bit replay-gain word packs, high bits first: a 3-bit name code
+(1 = radio, 2 = audiophile), a 3-bit originator code, a sign bit, and a
+9-bit magnitude in units of 0.1 dB. All zeros means unset. acidcat
+decodes both the replay-gain word and the bitrate byte.
 
 The encoder delay/padding pair is what lets gapless players trim the
 codec's priming and trailing samples.
@@ -212,7 +278,7 @@ struct id3v1 {
     char artist[30];
     char album[30];
     char year[4];
-    char comment[30];  // last 2 bytes may hold a track number (ID3v1.1)
+    char comment[30];  // ID3v1.1: byte 28 is 0x00 and byte 29 is the track number
     uint8_t genre;     // index into a fixed genre table
 };
 ```

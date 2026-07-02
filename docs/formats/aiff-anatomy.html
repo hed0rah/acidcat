@@ -130,7 +130,11 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <div><span class="k">form type</span><span class="v">"AIFF" (PCM) or "AIFC" (compressed)</span></div>
       </div></div></details>
     <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">COMM</span><span class="rspan">common . drawn below</span></summary>
-      <div class="rbody"><p class="note">Channels, frame count, bit depth, and the 80-bit sample rate. AIFC adds a 4-char compression type and a pascal-string name after the rate. See the byte map below.</p></div></details>
+      <div class="rbody"><p class="note">Channels, frame count, bit depth, and the 80-bit sample rate. AIFC adds a 4-char compression type and a pascal-string name after the rate; acidcat validates the type against its known set and warns on anything else. See the byte map below.</p><div class="kv">
+        <div><span class="k">uncompressed</span><span class="v">NONE, twos, sowt, raw&nbsp;, in24/in32, 42ni/23ni, fl32/fl64: frames are real frames, duration is exact</span></div>
+        <div><span class="k">packet-coded</span><span class="v">alaw/ulaw, ima4, MAC3/MAC6, QDMC/QDM2, Qclp: frames count packets, duration is only approximate and flagged ~</span></div>
+        <div><span class="k">unknown 4cc</span><span class="v">surfaced with a warning, never silently treated as PCM</span></div>
+      </div></div></details>
     <details class="region req"><summary><span class="chev">&#9656;</span><span class="rname">SSND</span><span class="rspan">sound data</span></summary>
       <div class="rbody"><div class="kv">
         <div><span class="k">offset</span><span class="v">u32, bytes to the first frame (usually 0)</span></div>
@@ -142,8 +146,28 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <div><span class="k">MARK</span><span class="v">u16 count, then id + position + pascal-string name</span></div>
         <div><span class="k">INST</span><span class="v">base note, detune, gain, key/velocity range, sustain/release loops referencing marker ids</span></div>
       </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">COMT</span><span class="rspan">timestamped comments</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">num_comments</span><span class="v">u16 record count</span></div>
+        <div><span class="k">time_stamp</span><span class="v">u32, seconds since the 1904 Mac epoch</span></div>
+        <div><span class="k">marker</span><span class="v">i16 MARK id the comment annotates, 0 = none</span></div>
+        <div><span class="k">text</span><span class="v">u16 count, then count bytes, padded to even</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">AESD</span><span class="rspan">aes3 channel status</span></summary>
+      <div class="rbody"><p class="note">A verbatim 24-byte AES3 channel-status block. acidcat decodes byte 0: bit 0 professional/consumer, bit 1 audio/non-audio, bits 2-4 emphasis, bits 6-7 sample rate (48000 / 44100 / 32000 / unindicated).</p></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">APPL</span><span class="rspan">application data</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">signature</span><span class="v">4-byte OSType naming the owning application</span></div>
+        <div><span class="k">data</span><span class="v">application-defined; "pdos" and "stoc" begin it with a pascal string naming the app/structure</span></div>
+      </div></div></details>
     <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">basc</span><span class="rspan">apple loops tempo</span></summary>
       <div class="rbody"><p class="note">Apple Loops metadata: version, beat count, root key, scale, time signature. No official spec; layout field-verified against indexed loops. acidcat derives bpm = beats / (frames / rate) * 60, which matched the filename bpm on every test file.</p></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">cate / trns / FLLR</span><span class="rspan">apple loops companions</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">cate</span><span class="v">category/descriptor taxonomy (instrument, genre); summarized, not yet field-parsed</span></div>
+        <div><span class="k">trns</span><span class="v">transient/slice table used for time-stretching; the REX hiding inside AIFF</span></div>
+        <div><span class="k">FLLR</span><span class="v">filler/padding so metadata can be rewritten in place</span></div>
+      </div></div></details>
     <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">NAME / AUTH / (c) / ANNO / ID3</span><span class="rspan">text + embedded tag</span></summary>
       <div class="rbody"><div class="kv">
         <div><span class="k">NAME / AUTH</span><span class="v">plain text: title, author</span></div>
@@ -264,7 +288,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         ["sign","1 bit"],["exponent","15 bits, bias 16383"],["mantissa","64 bits, explicit leading 1"],
         ["value","2^(exp-16383) * mantissa / 2^63"]],
         body:"An 80-bit IEEE-754 extended-precision float, a 68k-era Apple format. Python's struct has no code for it, so acidcat reassembles it by hand from the exponent and the explicit 64-bit mantissa.",
-        note:"40 0E AC 44 00.. : exponent 0x400E = 16398, so 2^15 * 1.3454.. = 44100. an explicit leading mantissa bit, unlike float64."}
+        note:"40 0E AC 44 00.. : exponent 0x400E = 16398 = 16383 + 15; mantissa / 2^63 = 0xAC44 / 2^15 = 1.3458.., times 2^15 = 44100. an explicit leading mantissa bit, unlike float64. an all-ones exponent (IEEE inf/NaN) decodes to 0 = unset, never a rate."}
     ]);
 })();
 </script>

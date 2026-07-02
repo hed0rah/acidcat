@@ -52,20 +52,31 @@ field -- the parser must detect where valid JSON ends.
 
 ```python
 raw = file.read()
-json_start = raw.find(b'{')
-# try progressively larger slices until json.loads() succeeds
-for end in range(json_start + 50, json_start + 10000):
-    try:
-        parsed = json.loads(raw[json_start:end])
-        break
-    except json.JSONDecodeError:
-        continue
+json_start = raw.find(b"{")
+text = raw[json_start:].decode("utf-8", errors="replace")
+try:
+    parsed, end = json.JSONDecoder().raw_decode(text)
+except (ValueError, RecursionError):
+    return {}
 ```
 
-This works because the JSON is well-formed and relatively small
-(typically under 2KB). The binary data following it will cause
-JSONDecodeError, so the first successful parse captures exactly
-the metadata block.
+`raw_decode` scans the text once and stops at the first complete JSON
+object, returning both the parsed object and the end index. That end
+index is the JSON boundary; no trial-and-error slicing is needed, and
+the whole extraction is a single linear pass regardless of how large
+the metadata block is.
+
+Two details matter:
+
+- `end` is a character offset into the decoded text, not a byte
+  offset. To locate the binary blob that follows, re-encode the parsed
+  region: `end_bytes = len(text[:end].encode("utf-8"))`. This is exact
+  for valid UTF-8 (which valid JSON is); it is only approximate when
+  the JSON region itself held invalid bytes, where any offset is
+  best-effort anyway.
+- the `RecursionError` guard is deliberate: the json scanner recurses
+  once per nesting level, so a forged preset with thousands of nested
+  objects blows the stack instead of raising `JSONDecodeError`.
 
 ### Known Fields
 
@@ -156,10 +167,32 @@ Preset file sizes correlate with content:
 
 ---
 
+## acidcat inspect
+
+`acidcat inspect FILE.SerumPreset` renders a structural view of the
+file as three regions:
+
+1. **magc** -- the 8-byte `XferJson` signature at offset 0
+2. **json** -- the metadata block, with the known fields decoded and
+   the preset name and key count in the summary
+3. **blob** -- everything after the JSON: opaque wavetable and
+   modulation data, reported by size only
+
+The walker reads at most 4 MiB of the file; the JSON block always sits
+near the front, and the blob region's size is computed from the file
+size, so nothing past the cap needs reading. The json/blob boundary
+comes from `raw_decode`'s end index, re-encoded from a character
+offset to a byte offset as described above. A JSON block that fails to
+parse (including via the `RecursionError` guard) is reported as a file
+warning rather than crashing the walk.
+
+---
+
 ## Notes
 
-- the JSON portion is **not** length-prefixed -- the progressive parse
-  approach is the most reliable extraction method
+- the JSON portion is **not** length-prefixed -- `raw_decode`'s
+  returned end index is what marks where the metadata stops and the
+  binary blob begins
 - all Serum 2 presets use this format regardless of content complexity
 - the `tags` field is particularly useful for batch categorization
   of preset libraries

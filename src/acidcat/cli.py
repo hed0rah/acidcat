@@ -58,6 +58,9 @@ def _build_parser():
     query.register(subparsers)
     inspect.register(subparsers)
 
+    # keep a handle to the subparser table so unrecognized arguments can be
+    # reported against the chosen subcommand's usage, not the top-level one.
+    parser._sub = subparsers
     return parser
 
 
@@ -117,7 +120,16 @@ def main(argv=None):
         return _try_bare_path(["-"])
 
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    args, extras = parser.parse_known_args(argv)
+    if extras:
+        # an unrecognized flag or stray argument. if a valid subcommand was
+        # named, print that subcommand's usage (readelf/git behavior) rather
+        # than the top-level usage, which is what the user actually needs.
+        cmd = getattr(args, "command", None)
+        msg = "unrecognized arguments: " + " ".join(extras)
+        if cmd and cmd in parser._sub.choices:
+            parser._sub.choices[cmd].error(msg)
+        parser.error(msg)
 
     if args.command is None:
         parser.print_help()

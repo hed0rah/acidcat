@@ -5,6 +5,44 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.10.0] - 2026-07-02
+
+### Added
+
+- `inspect` accepts multiple files. With more than one, each is printed under a
+  readelf-style `File:` banner and JSON output becomes NDJSON (one record per
+  line). A missing or undecodable file is reported to stderr and skipped, and
+  the exit code reflects any failure. A broken downstream pipe exits quietly.
+- `inspect --only` / `--exclude` select or drop chunks by id (comma-separated,
+  case-insensitive). Composing `--only NAME --hex` gives a focused hexdump.
+- `inspect --full` emits a self-contained structural dump (implies JSON): each
+  chunk with its raw region bytes and every field's absolute byte offset.
+- `build_explorer.py`, a standalone script that renders a `--full` dump to a
+  self-contained interactive HTML byte explorer (a hex grid with the decoded
+  fields tinted over the bytes).
+- Native decode of many previously-opaque structures: WAV `fmt ` extensible
+  (sub-format GUID, `channel_mask` speaker names, `cbSize`) and `bext` v1/v2
+  (UMID, EBU R128 loudness, coding history); the RF64 `ds64` size-override
+  table; FLAC CUESHEET; AIFF COMT/AESD/APPL; MP3 ID3v2.2 frames, VBRI headers,
+  LAME replay-gain and bitrate, and full ID3v1.1 with the standard genre table;
+  MIDI SMPTE-offset meta events.
+
+### Fixed
+
+- `inspect --hex` read the wrong bytes for FLAC, MP3, and Serum, which do not
+  share the RIFF 8-byte chunk-header layout. Each chunk now carries a payload
+  base, so `--hex` and the `--full` byte ranges are correct across every format.
+- ID3v2 unsynchronisation is de-escaped for v2.2/v2.3 before frame sizes are
+  read (v2.4 per-frame unsync is left intact); the extended header is skipped
+  rather than misread as the first frame.
+- The Xing/Info side-info offset accounts for the two CRC bytes present on a
+  CRC-protected MPEG frame.
+
+### Changed
+
+- Unrecognized arguments print the chosen subcommand's usage rather than the
+  top-level usage.
+
 ## [0.9.7] - 2026-07-02
 
 ### Fixed

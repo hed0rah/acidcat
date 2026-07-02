@@ -148,9 +148,16 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">PICTURE</span><span class="rspan">type 6 . cover art</span></summary>
       <div class="rbody"><div class="kv">
         <div><span class="k">fields</span><span class="v">picture type, MIME, description, w/h/depth, data</span></div>
-        <div><span class="k">note</span><span class="v">same shape as the ID3v2 APIC frame</span></div>
+        <div><span class="k">note</span><span class="v">APIC-like, but adds w/h/depth/colors and length-prefixes its strings</span></div>
       </div></div></details>
-    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">SEEKTABLE / PADDING / APPLICATION / CUESHEET</span><span class="rspan">types 3 / 1 / 2 / 5</span></summary>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">CUESHEET</span><span class="rspan">type 5 . tracks + indices</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">prefix</span><span class="v">396 bytes: 128-byte catalog number, u64 lead-in, is-CD flag (top bit of byte 136), reserved, u8 num_tracks</span></div>
+        <div><span class="k">tracks</span><span class="v">36 bytes each: u64 offset, u8 number, 12-byte ISRC, type + pre-emphasis bits, u8 index count</span></div>
+        <div><span class="k">indices</span><span class="v">12 bytes each after their track: u64 offset, u8 number, 3 reserved</span></div>
+        <div><span class="k">lead-out</span><span class="v">last track, number 170 (CD-DA) or 255</span></div>
+      </div></div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">SEEKTABLE / PADDING / APPLICATION</span><span class="rspan">types 3 / 1 / 2</span></summary>
       <div class="rbody"><div class="kv">
         <div><span class="k">SEEKTABLE</span><span class="v">18-byte seek points (0xFFFF.. = placeholder)</span></div>
         <div><span class="k">PADDING</span><span class="v">zeroed slack for later in-place edits</span></div>
@@ -295,7 +302,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         ["5 bits","bits/sample - 1 = 15  ->  16"],["36 bits","total samples = 88200"]],
         body:"A bit-packed 64-bit field, not byte-aligned: rate, channels-1, bits-1, then a 36-bit total sample count.",
         note:"duration = total_samples / sample_rate, no frame walk needed. channels and bits store minus one."},
-      {label:"md5_signature",k:"rsv",r:[18,33],val:"16-byte MD5",body:"MD5 of the unencoded audio, so a decoder can verify a bit-exact round trip. 0 = unset."}
+      {label:"md5_signature",k:"enum",r:[18,33],val:"16-byte MD5",body:"MD5 of the unencoded audio, so a decoder can verify a bit-exact round trip. 0 = unset."}
     ]);
 })();
 </script>

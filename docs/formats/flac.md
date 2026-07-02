@@ -20,9 +20,9 @@ audio frames.
    ...
 ```
 
-Almost everything is big-endian and bit-packed. The one exception is the
-VORBIS_COMMENT payload, which is little-endian (it was lifted wholesale
-from the OGG Vorbis spec).
+Almost everything is big-endian and bit-packed. The one exception is
+VORBIS_COMMENT, whose length fields are little-endian (the layout was
+lifted wholesale from the OGG Vorbis spec).
 
 Detection: the file starts with the ASCII bytes `fLaC`.
 
@@ -48,10 +48,11 @@ Block types:
 | 3    | SEEKTABLE      | array of seek points                  |
 | 4    | VORBIS_COMMENT | vendor string + tag list (metadata)   |
 | 5    | CUESHEET       | embedded cue sheet (tracks/indices)   |
-| 6    | PICTURE        | cover art (same fields as ID3 APIC)   |
+| 6    | PICTURE        | cover art                             |
 
-A parser walks blocks until it sees the one with the last-block flag,
-then the audio frames begin.
+Types 7-126 are reserved; type 127 is forbidden (it would collide with
+the frame sync code). A parser walks blocks until it sees the one with
+the last-block flag, then the audio frames begin.
 
 ---
 
@@ -69,7 +70,7 @@ struct streaminfo {
     uint20_t sample_rate;      // Hz
     uint3_t  channels_minus_1; // actual channels = value + 1
     uint5_t  bits_minus_1;     // actual bits/sample = value + 1
-    uint36_t total_samples;    // per channel; 0 = unknown
+    uint36_t total_samples;    // interchannel, not per channel; 0 = unknown
     uint8_t  md5[16];          // MD5 of the unencoded audio (0 = unset)
 };
 ```
@@ -115,8 +116,10 @@ uint32_t width; uint32_t height; uint32_t depth; uint32_t colors;
 uint32_t data_length;  uint8_t data[data_length];
 ```
 
-All big-endian. The same fields as the ID3v2 `APIC` frame, but FLAC length-prefixes
-the MIME and description strings (32-bit) instead of null-terminating them.
+All big-endian. Similar in spirit to the ID3v2 `APIC` frame but not
+identical: FLAC length-prefixes the MIME and description strings
+(32-bit) instead of null-terminating them, and adds the width, height,
+depth, and colors fields, which APIC does not carry at all.
 
 ### SEEKTABLE (type 3)
 
@@ -127,6 +130,45 @@ An array of 18-byte seek points, each: `uint64 sample_number`,
 ### APPLICATION (type 2)
 
 A 4-byte registered application id followed by opaque app-specific data.
+
+### CUESHEET (type 5)
+
+An embedded cue sheet (RFC 9639 section 8.7), typically carried over
+from a CD rip. Big-endian like the rest of FLAC. A fixed 396-byte
+prefix, then one 36-byte structure per track, each followed by its
+index points:
+
+```
+struct cuesheet {
+    char     media_catalog_number[128]; // ASCII, NUL-padded
+    uint64_t lead_in_samples;
+    uint8_t  flags;                     // top bit of byte 136: 1 = CD-DA
+    uint8_t  reserved[258];             // (plus the low 7 bits of flags)
+    uint8_t  num_tracks;                // byte 395
+    // then num_tracks of:
+    struct track {
+        uint64_t offset;                // samples, relative to audio start
+        uint8_t  number;                // 0 is invalid
+        char     isrc[12];              // NUL-padded, all-NUL = none
+        uint8_t  flags;                 // bit 7: 1 = non-audio
+                                        // bit 6: 1 = pre-emphasis
+        uint8_t  reserved[13];          // (plus the low 6 bits of flags)
+        uint8_t  num_index_points;
+        // then num_index_points of 12 bytes each:
+        //   uint64_t offset;           // samples, relative to track offset
+        //   uint8_t  number;
+        //   uint8_t  reserved[3];
+    };
+};
+```
+
+The last track is always the lead-out: track number 170 for a CD-DA
+cue sheet, 255 otherwise. It marks the end of the audio and carries no
+index points.
+
+acidcat decodes the catalog number, lead-in sample count, the is-CD
+flag, and every track (offset, number, ISRC, audio/non-audio,
+pre-emphasis, index-point count), flagging the lead-out.
 
 ---
 
@@ -170,9 +212,10 @@ No frame walk required, unlike MP3 or OGG. If `total_samples` is 0
 - watch the endianness trap: FLAC is big-endian except VORBIS_COMMENT,
   whose lengths are little-endian.
 - `acidcat inspect FILE.flac` walks every metadata block (STREAMINFO,
-  VORBIS_COMMENT, PICTURE, SEEKTABLE, APPLICATION, PADDING), decodes the
-  STREAMINFO fields, lists the Vorbis tags, and reports the audio-frame
-  extent. It lints the STREAMINFO-first and last-block-flag rules.
+  VORBIS_COMMENT, PICTURE, SEEKTABLE, CUESHEET, APPLICATION, PADDING),
+  decodes the STREAMINFO fields, lists the Vorbis tags, decodes the
+  CUESHEET tracks, and reports the audio-frame extent. It lints the
+  STREAMINFO-first, last-block-flag, and block-overrun rules.
   `--frames` is a no-op for FLAC: the audio frames have no per-element
   metadata worth dumping.
 - for indexing, acidcat reads the Vorbis Comment tags through mutagen.
