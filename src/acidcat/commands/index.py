@@ -31,6 +31,7 @@ from acidcat.core.riff import (
 )
 from acidcat.core.aiff import is_aiff, parse_aiff
 from acidcat.core.midi import is_midi, parse_midi
+from acidcat.core.mp3 import decode_frame_header
 from acidcat.core.serum import is_serum_preset, parse_serum_preset
 from acidcat.core.tagged import is_tagged_format
 
@@ -883,8 +884,13 @@ def _sniff_format(filepath):
         return "ogg"
     if head[0:3] == b"ID3":
         return "mp3"
-    # MP3 sync frame (no ID3 tag): 0xFF followed by 0xFB / 0xFA / 0xF3 / 0xF2
-    if head[0] == 0xFF and head[1] in (0xFB, 0xFA, 0xF3, 0xF2):
+    # MP3 sync frame (no ID3 tag): 11 set sync bits, then let the frame
+    # header decoder vet version/layer/bitrate/rate. the old fixed byte
+    # list only matched MPEG 1/2 Layer III, so Layer I/II and MPEG 2.5
+    # files sniffed as None and were misindexed; decode_frame_header
+    # also rejects ADTS AAC (reserved layer bits).
+    if head[0] == 0xFF and (head[1] & 0xE0) == 0xE0 \
+            and decode_frame_header(head[0:4]) is not None:
         return "mp3"
     if head[4:8] == b"ftyp":
         return "mp4"
