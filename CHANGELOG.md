@@ -5,6 +5,23 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.9.7] - 2026-07-02
+
+### Fixed
+
+- `inspect` no longer false-warns `frame 'APIC' size N overruns tag` on MP3s
+  whose ID3v2 tag carries embedded cover art. The frame-overrun check compared
+  each frame against the 64 KB read buffer rather than the tag's declared size,
+  so any tag with art larger than 64 KB tripped the warning and stopped
+  enumerating frames early. The tag is now read up to a 16 MB cap and overrun
+  is tested against the declared tag size; a frame that genuinely exceeds the
+  tag still warns.
+- `inspect --color` renders de-emphasized text (offsets, notes, table headers)
+  as bright-black instead of the faint attribute. Terminals implement faint by
+  blending the foreground toward the background, which turned muddy on any
+  non-black terminal background; bright-black is a palette slot the theme
+  defines, so it stays legible everywhere.
+
 ## [0.9.6] - 2026-07-02
 
 ### Fixed

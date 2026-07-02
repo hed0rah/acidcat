@@ -29,6 +29,10 @@ from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
 _FRAME_LISTING_CAP = 100000  # per-element rows kept for the --frames deep dump
+# ID3v2 tags routinely carry embedded cover art far larger than the generic
+# payload cap, so enumerating their frames needs a bigger read. bounded so a
+# forged synchsafe tag size cannot force an unbounded allocation.
+_ID3_READ_CAP = 16 * 1024 * 1024
 
 _FORMAT_TAGS = {
     0x0001: "PCM",
@@ -1367,9 +1371,10 @@ def _id3v2_frames(filepath, hdr):
     frames to their values; lists every frame id and size otherwise."""
     fields, warns = [], []
     major = hdr["major"]
+    tag_size = hdr["size"]
     with open(filepath, "rb") as f:
         f.seek(10)
-        body = f.read(min(hdr["size"], _PAYLOAD_CAP))
+        body = f.read(min(tag_size, _ID3_READ_CAP))
     fields.append(_f(0x03, 1, "version", f"2.{major}.{hdr['revision']}"))
     fields.append(_f(0x05, 1, "flags", f"0x{hdr['flags']:02x}",
                      "has footer" if hdr["has_footer"] else ""))
@@ -1391,8 +1396,22 @@ def _id3v2_frames(filepath, hdr):
         else:
             fsize = struct.unpack(">I", body[pos + 4:pos + 8])[0]
         data_start = pos + fhdr_len
+        if data_start + fsize > tag_size:
+            # the frame claims to run past the tag's own declared size:
+            # a genuine structural error, compared against the true tag
+            # size rather than however much we happened to read.
+            warns.append(
+                f"frame {fid_s!r} size {fsize} overruns the "
+                f"{tag_size:,}-byte tag"
+            )
+            break
         if data_start + fsize > len(body):
-            warns.append(f"frame {fid_s!r} size {fsize} overruns tag")
+            # fits inside the declared tag but past what we read (embedded
+            # art beyond the read cap). record the frame and stop cleanly;
+            # this is not a spec violation.
+            note = "attached picture" if fid_s in ("APIC", "PIC") else ""
+            fields.append(_f(10 + pos, fhdr_len + fsize, fid_s,
+                             f"{fsize:,} bytes", note or "beyond read cap"))
             break
         raw = body[data_start:data_start + fsize]
         note = _ID3_TEXT_FRAMES.get(fid_s, "")
@@ -1630,7 +1649,11 @@ def _hex_bytes(filepath, offset, length, cap=8):
 # the column width first and paint the padded string.
 
 _ANSI = {
-    "dim": "\033[2m",
+    # bright-black (a real palette slot the terminal theme defines) rather
+    # than faint (\033[2m): terminals render faint by blending the fg toward
+    # the background, which turns muddy on any non-black background. 90 stays
+    # legible against whatever background the user's theme actually uses.
+    "dim": "\033[90m",
     "id": "\033[1;36m",     # bold cyan: chunk ids, format label, anchors
     "val": "\033[32m",      # green: decoded field values
     "warn": "\033[1;31m",   # bold red: warnings
