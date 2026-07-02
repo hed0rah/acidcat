@@ -981,3 +981,30 @@ class TestRunCli:
         doc = json.loads(capsys.readouterr().out)
         assert [c["id"] for c in doc["chunks"]] == ["acid"]
         assert "_idx" not in doc["chunks"][0]  # helper key stays internal
+
+
+class TestParseFmtExtensible:
+    def test_extensible_channel_mask_and_guid(self):
+        from acidcat.commands.inspect import _parse_fmt, _KSDATAFORMAT_TAIL
+        sub = struct.pack("<H", 1) + _KSDATAFORMAT_TAIL  # PCM subtype
+        b = (struct.pack("<HHIIHH", 0xFFFE, 6, 48000, 48000 * 12, 12, 16)
+             + struct.pack("<HH", 22, 16) + struct.pack("<I", 0x3F) + sub)
+        _, fields, warns = _parse_fmt(b, {})
+        d = {f["name"]: (f["value"], f["note"]) for f in fields}
+        assert d["channel_mask"] == ("0x3f", "FL, FR, FC, LFE, BL, BR")
+        assert d["sub_format"] == ("PCM", "KSDATAFORMAT_SUBTYPE")
+        assert warns == []
+
+    def test_extensible_nonstandard_guid_warns(self):
+        from acidcat.commands.inspect import _parse_fmt
+        b = (struct.pack("<HHIIHH", 0xFFFE, 2, 44100, 44100 * 4, 4, 16)
+             + struct.pack("<HH", 22, 16) + struct.pack("<I", 0x03)
+             + struct.pack("<H", 1) + b"\x00" * 14)  # wrong GUID tail
+        _, _, warns = _parse_fmt(b, {})
+        assert any("KSDATAFORMAT" in w for w in warns)
+
+    def test_nonextensible_extended_shows_cbsize(self):
+        from acidcat.commands.inspect import _parse_fmt
+        b = struct.pack("<HHIIHH", 3, 2, 44100, 44100 * 8, 8, 32) + struct.pack("<H", 0)
+        _, fields, _ = _parse_fmt(b, {})
+        assert any(f["name"] == "cb_size" for f in fields)

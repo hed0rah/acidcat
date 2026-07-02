@@ -54,6 +54,21 @@ _ACID_FLAGS = (
 
 _LOOP_TYPES = {0: "forward", 1: "ping-pong", 2: "reverse"}
 
+# WAVEFORMATEXTENSIBLE dwChannelMask bit positions, low bit first.
+_SPEAKER_POSITIONS = [
+    "FL", "FR", "FC", "LFE", "BL", "BR", "FLC", "FRC", "BC", "SL", "SR",
+    "TC", "TFL", "TFC", "TFR", "TBL", "TBC", "TBR",
+]
+
+# the fixed 14-byte tail of every KSDATAFORMAT_SUBTYPE GUID (the first 2 bytes
+# are the format tag, little-endian).
+_KSDATAFORMAT_TAIL = bytes.fromhex("000000001000800000aa00389b71")
+
+
+def _channel_mask_names(mask):
+    names = [n for i, n in enumerate(_SPEAKER_POSITIONS) if mask & (1 << i)]
+    return ", ".join(names) if names else "none"
+
 _INFO_TAGS = {
     "INAM": "title", "IART": "artist", "ICMT": "comment", "ISFT": "software",
     "ICRD": "date", "IGNR": "genre", "ICOP": "copyright", "IKEY": "keywords",
@@ -149,6 +164,10 @@ def _parse_fmt(b, ctx):
     if tag == 1 and rate and align and avg != rate * align:
         warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
 
+    # a WAVEFORMATEX (extended, non-extensible) carries a cbSize at 0x10.
+    if tag != 0xFFFE and len(b) >= 18:
+        fields.append(_f(0x10, 2, "cb_size", _u16(b, 0x10), "extension bytes"))
+
     if tag == 0xFFFE and len(b) >= 40:
         cb = _u16(b, 0x10)
         valid_bits = _u16(b, 0x12)
@@ -156,10 +175,16 @@ def _parse_fmt(b, ctx):
         sub = b[0x18:0x28]
         sub_tag = struct.unpack_from("<H", sub, 0)[0]
         sub_name = _FORMAT_TAGS.get(sub_tag, f"guid 0x{sub_tag:04x}")
+        tail_ok = sub[2:] == _KSDATAFORMAT_TAIL
         fields.append(_f(0x10, 2, "cb_size", cb))
         fields.append(_f(0x12, 2, "valid_bits_per_sample", valid_bits))
-        fields.append(_f(0x14, 4, "channel_mask", f"0x{mask:03x}"))
-        fields.append(_f(0x18, 16, "sub_format", sub_name))
+        fields.append(_f(0x14, 4, "channel_mask", f"0x{mask:x}",
+                         _channel_mask_names(mask)))
+        fields.append(_f(0x18, 16, "sub_format", sub_name,
+                         "KSDATAFORMAT_SUBTYPE" if tail_ok else "non-standard GUID"))
+        if not tail_ok:
+            warns.append("sub_format GUID tail is not the standard "
+                         "KSDATAFORMAT_SUBTYPE suffix")
         ctx["format_tag"] = sub_tag
 
     summary = f"{tag_name} {bits}-bit {ch}ch {rate} Hz"
