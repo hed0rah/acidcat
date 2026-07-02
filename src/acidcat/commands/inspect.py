@@ -1039,6 +1039,22 @@ def _parse_ds64(b, ctx):
     ctx["ds64_riff_size"] = riff_size
     ctx["ds64_data_size"] = data_size
     ctx["ds64_samples"] = sample_count
+    # the override table: table_len entries of (4-byte id, uint64 size) giving
+    # 64-bit sizes for any chunk other than data that carries the sentinel.
+    table = {}
+    tpos = 28
+    for i in range(table_len):
+        if tpos + 12 > len(b):
+            warns.append(f"declares {table_len} override entries but payload "
+                         f"ends at entry {i}")
+            break
+        ent_id = b[tpos:tpos + 4].decode("ascii", errors="replace")
+        ent_size = struct.unpack_from("<Q", b, tpos + 4)[0]
+        table[ent_id] = ent_size
+        fields.append(_f(tpos, 12, f"override[{i}]", f"{ent_id!r} = {ent_size:,}"))
+        tpos += 12
+    if table:
+        ctx["ds64_table"] = table
     file_size = ctx.get("file_size")
     if file_size is not None and data_size > file_size:
         warns.append(
@@ -1080,6 +1096,8 @@ def inspect_rf64(filepath):
             if size == sentinel:
                 if cid == "data" and "ds64_data_size" in ctx:
                     real_size = ctx["ds64_data_size"]
+                elif cid in ctx.get("ds64_table", {}):
+                    real_size = ctx["ds64_table"][cid]
                 else:
                     file_warns.append(
                         f"chunk {cid!r} carries the 64-bit sentinel but "

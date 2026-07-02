@@ -393,6 +393,26 @@ class TestInspectRf64:
         _, warns = inspect_rf64(path)
         assert any("sentinel" in w for w in warns)
 
+    def test_ds64_override_table_resolves_nondata_sentinel(self, tmp_path):
+        # a non-data chunk carrying the sentinel is resolved through the
+        # ds64 override table, not broken on.
+        from acidcat.commands.inspect import inspect_rf64
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        bigx = b"bigx" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 16
+        data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 8
+        # ds64: riff/data/samples + a 1-entry table overriding bigx = 16
+        ds = (struct.pack("<QQQI", 0, 8, 4, 1) + b"bigx" + struct.pack("<Q", 16))
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds)) + ds
+        body = b"WAVE" + ds64_chunk + fmt_chunk + bigx + data_chunk
+        p = tmp_path / "tbl.rf64"
+        p.write_bytes(b"RF64" + struct.pack("<I", 0xFFFFFFFF) + body)
+        chunks, warns = inspect_rf64(str(p))
+        ids = [c["id"] for c in chunks]
+        assert ids == ["ds64", "fmt ", "bigx", "data"]
+        assert next(c["size"] for c in chunks if c["id"] == "bigx") == 16
+        assert not any("no override" in w for w in warns)
+
     def test_fact_sentinel_resolved_via_ds64(self, tmp_path):
         # an RF64 fact chunk stores 0xFFFFFFFF; the real sample count
         # lives in ds64. duration must derive from the ds64 count, not
