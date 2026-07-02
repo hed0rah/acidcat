@@ -154,3 +154,17 @@ def test_key_signature_minor_is_relative_minor(tmp_path):
         p = tmp_path / f"k{sf}.mid"
         p.write_bytes(_build_smf([_keysig_track(sf, 1)]))
         assert parse_midi(str(p))["key_sig"] == want, f"sf={sf}"
+
+
+def test_whole_file_read_is_capped(tmp_path, monkeypatch):
+    """a forged multi-GB .mid must not be slurped whole (DoS). the cap
+    is shrunk for the test; header metadata still parses."""
+    import acidcat.core.midi as midimod
+    monkeypatch.setattr(midimod, "MAX_SMF_BYTES", 64)
+    track = (b"\x00\xFF\x51\x03\x07\xA1\x20" + b"\x00\x90\x3C\x64" * 100
+             + b"\x00\xFF\x2F\x00")
+    p = tmp_path / "big.mid"
+    p.write_bytes(_build_smf([track]))
+    meta = parse_midi(str(p))  # must not read past the cap or raise
+    assert meta["format"] == 1
+    assert meta["tempo_bpm"] == 120.0

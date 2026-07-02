@@ -21,6 +21,7 @@ import sys
 from acidcat.core.riff import iter_chunks
 from acidcat.core.aiff import iter_chunks as iter_aiff_chunks
 from acidcat.core.aiff import _parse_ieee_extended, _AIFC_KNOWN_COMPRESSION
+from acidcat.core import midi as midimod
 from acidcat.core.midi import _read_vlq
 from acidcat.core import flac as flacmod
 from acidcat.core import mp3 as mp3mod
@@ -871,9 +872,14 @@ def inspect_midi(filepath, deep=False):
     With ``deep``, each MTrk carries a per-event listing."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
-        data = f.read()
+        data = f.read(midimod.MAX_SMF_BYTES)
     chunks = []
     file_warns = []
+    if file_size > len(data):
+        file_warns.append(
+            f"file is {file_size:,} bytes; parsed the first "
+            f"{len(data):,} (cap)")
+        file_size = len(data)
 
     hdr_len = struct.unpack(">I", data[4:8])[0]
     fmt, ntrks, division = struct.unpack(">HHH", data[8:14])
@@ -994,6 +1000,11 @@ def _parse_ds64(b, ctx):
     ctx["ds64_riff_size"] = riff_size
     ctx["ds64_data_size"] = data_size
     ctx["ds64_samples"] = sample_count
+    file_size = ctx.get("file_size")
+    if file_size is not None and data_size > file_size:
+        warns.append(
+            f"data_size {data_size:,} exceeds the whole file "
+            f"({file_size:,} bytes)")
     return f"64-bit sizes: data {data_size:,} bytes", fields, warns
 
 
@@ -1003,7 +1014,7 @@ def inspect_rf64(filepath):
     which must be the first chunk.
     """
     file_size = os.path.getsize(filepath)
-    ctx = {}
+    ctx = {"file_size": file_size}
     chunks = []
     file_warns = []
     seen = []
@@ -1205,10 +1216,21 @@ def _flac_picture(b):
         return "truncated", fields, ["PICTURE under 32 bytes"]
     ptype = _bu32(b, 0)
     pos = 4
+    # validate the declared string lengths before slicing: a forged
+    # length would otherwise decode the rest of the block (up to the
+    # payload cap) as a garbage mime/description string.
     mlen = _bu32(b, pos)
+    if pos + 4 + mlen > len(b):
+        return "truncated", fields, [
+            f"mime_type length {mlen:,} overruns block"]
     mime = b[pos + 4:pos + 4 + mlen].decode("ascii", errors="replace")
     pos += 4 + mlen
+    if pos + 4 > len(b):
+        return "truncated", fields, ["PICTURE ends before description length"]
     dlen = _bu32(b, pos)
+    if pos + 4 + dlen > len(b):
+        return "truncated", fields, [
+            f"description length {dlen:,} overruns block"]
     desc = b[pos + 4:pos + 4 + dlen].decode("utf-8", errors="replace")
     pos += 4 + dlen
     if pos + 20 > len(b):
