@@ -371,3 +371,32 @@ class TestDumpJson:
     def test_survey_not_directory(self, minimal_wav):
         code, out, err = run_cli("survey", minimal_wav)
         assert code == 1
+
+
+class TestInfoMidiDivision:
+    def _smf(self, tmp_path, division):
+        track = b"\x00\xFF\x2F\x00"
+        smf = (b"MThd" + struct.pack(">IHHH", 6, 0, 1, division)
+               + b"MTrk" + struct.pack(">I", len(track)) + track)
+        p = tmp_path / "d.mid"
+        p.write_bytes(smf)
+        return str(p)
+
+    def test_ppq_division_labeled_ticks_per_beat(self, tmp_path):
+        code, out, _ = run_cli(self._smf(tmp_path, 480))
+        assert code == 0 or code is None
+        assert "480 ticks/beat" in out
+
+    def test_smpte_division_rendered_as_fps(self, tmp_path):
+        # 0xE728: high byte -25 fps, low byte 40 ticks/frame. printing
+        # the raw word as "59176 ticks/beat" was nonsense.
+        code, out, _ = run_cli(self._smf(tmp_path, 0xE728))
+        assert code == 0 or code is None
+        assert "SMPTE 25 fps, 40 ticks/frame" in out
+        assert "ticks/beat" not in out
+
+    def test_smpte_2997_dropframe(self, tmp_path):
+        # -29 encodes 29.97 drop-frame
+        code, out, _ = run_cli(self._smf(tmp_path, 0xE350))
+        assert code == 0 or code is None
+        assert "29.97 fps" in out
