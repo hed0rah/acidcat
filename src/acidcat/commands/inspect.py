@@ -1390,18 +1390,18 @@ def _xing_offset(hdr):
 
 def _parse_xing_lame(filepath, frame_off, hdr):
     """Decode the Xing/Info VBR header and any LAME extension in the
-    first frame. Returns (fields, warns, frame_count) or (None, [], None)
-    if no tag is present."""
+    first frame. Returns (fields, warns, frame_count, tag) where tag is
+    b"Xing" (VBR), b"Info" (CBR), or None if no tag is present."""
     fields, warns = [], []
     xoff = _xing_offset(hdr)
     with open(filepath, "rb") as f:
         f.seek(frame_off)
         buf = f.read(max(hdr["frame_length"], xoff + 200))
     if xoff + 8 > len(buf):
-        return None, [], None
+        return None, [], None, None
     tag = buf[xoff:xoff + 4]
     if tag not in (b"Xing", b"Info"):
-        return None, [], None
+        return None, [], None, None
     kind = "VBR" if tag == b"Xing" else "CBR (LAME)"
     fields.append(_f(xoff, 4, "vbr_tag", tag.decode("ascii"), kind))
     flags = _bu32(buf, xoff + 4)
@@ -1412,27 +1412,27 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     if flags & 0x01:
         if pos + 4 > len(buf):
             warns.append("Xing header truncated before frame_count")
-            return fields, warns, frame_count
+            return fields, warns, frame_count, tag
         frame_count = _bu32(buf, pos)
         fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}"))
         pos += 4
     if flags & 0x02:
         if pos + 4 > len(buf):
             warns.append("Xing header truncated before byte_count")
-            return fields, warns, frame_count
+            return fields, warns, frame_count, tag
         nbytes = _bu32(buf, pos)
         fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}"))
         pos += 4
     if flags & 0x04:
         if pos + 100 > len(buf):
             warns.append("Xing header truncated before seek table")
-            return fields, warns, frame_count
+            return fields, warns, frame_count, tag
         fields.append(_f(pos, 100, "toc", "100-entry seek table"))
         pos += 100
     if flags & 0x08:
         if pos + 4 > len(buf):
             warns.append("Xing header truncated before quality")
-            return fields, warns, frame_count
+            return fields, warns, frame_count, tag
         quality = _bu32(buf, pos)
         fields.append(_f(pos, 4, "quality", quality, "0=best, 100=worst"))
         pos += 4
@@ -1452,7 +1452,7 @@ def _parse_xing_lame(filepath, frame_off, hdr):
             padding = ((buf[pos + 22] & 0x0F) << 8) | buf[pos + 23]
             fields.append(_f(pos + 21, 3, "gapless", f"delay {delay}, pad {padding}",
                              "encoder delay / padding samples"))
-    return fields, warns, frame_count
+    return fields, warns, frame_count, tag
 
 
 def inspect_mp3(filepath, deep=False):
@@ -1504,12 +1504,15 @@ def inspect_mp3(filepath, deep=False):
         fields.append(_f(None, 0, "emphasis", fh["emphasis"]))
 
     try:
-        xing_fields, xing_warns, vbr_frames = _parse_xing_lame(filepath, frame_off, fh)
+        xing_fields, xing_warns, vbr_frames, vbr_tag = \
+            _parse_xing_lame(filepath, frame_off, fh)
     except Exception as e:
-        xing_fields, xing_warns, vbr_frames = None, \
-            [f"VBR header parse error: {e.__class__.__name__}"], None
-    is_vbr_header = xing_fields is not None
-    if is_vbr_header:
+        xing_fields, xing_warns, vbr_frames, vbr_tag = None, \
+            [f"VBR header parse error: {e.__class__.__name__}"], None, None
+    # only a Xing tag declares VBR; an Info tag is the same structure
+    # written by LAME for CBR streams and must not force the VBR label.
+    is_vbr_header = vbr_tag == b"Xing"
+    if xing_fields is not None:
         fields.extend(xing_fields)
     chunks.append({"id": "frame0", "offset": frame_off, "size": fh["frame_length"],
                    "summary": (f"{fh['version']} {fh['layer']}, {fh['bitrate']} kbps, "
