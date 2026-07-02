@@ -695,6 +695,71 @@ def _aiff_basc(b, ctx):
     return summary, fields, warns
 
 
+def _aiff_comt(b):
+    """AIFF Comments chunk: numComments then timestamped, marker-linked
+    comment records (big-endian, text padded to even)."""
+    fields, warns = [], []
+    if len(b) < 2:
+        return "truncated", fields, ["COMT payload under 2 bytes"]
+    n = _bu16(b, 0)
+    fields.append(_f(0x00, 2, "num_comments", n))
+    pos = 2
+    shown = 0
+    for i in range(n):
+        if pos + 8 > len(b):
+            warns.append(f"declares {n} comments but payload ends at {i}")
+            break
+        marker = struct.unpack_from(">h", b, pos + 4)[0]
+        count = _bu16(b, pos + 6)
+        if pos + 8 + count > len(b):
+            warns.append(f"comment[{i}] text overruns payload")
+            break
+        text = b[pos + 8:pos + 8 + count].decode("ascii", errors="replace").strip()
+        note = f"marker {marker}" if marker else ""
+        fields.append(_f(pos, 8 + count + (count & 1), f"comment[{i}]",
+                         text[:60], note))
+        pos += 8 + count + (count & 1)
+        shown += 1
+    return f"{shown} comment(s)", fields, warns
+
+
+_AES_RATES = {0: "unindicated", 1: "48000", 2: "44100", 3: "32000"}
+_AES_EMPHASIS = {0b000: "unindicated", 0b100: "none",
+                 0b110: "50/15 us", 0b111: "CCITT J.17"}
+
+
+def _aiff_aesd(b):
+    """AIFF Audio Recording chunk: a 24-byte AES3 channel-status block. Byte 0
+    carries the professional/consumer, audio, emphasis, and rate bits."""
+    fields, warns = [], []
+    if len(b) < 24:
+        return "truncated", fields, [f"AESD is {len(b)} bytes, spec says 24"]
+    b0 = b[0]
+    pro = "professional" if (b0 & 0x01) else "consumer"
+    kind = "non-audio" if (b0 & 0x02) else "PCM audio"
+    emphasis = _AES_EMPHASIS.get((b0 >> 2) & 0x07, "reserved")
+    rate = _AES_RATES.get((b0 >> 6) & 0x03, "?")
+    fields.append(_f(0x00, 24, "channel_status", b[:24].hex(),
+                     f"{pro}, {kind}, emphasis {emphasis}, {rate} Hz"))
+    return f"AES3 status: {pro}, {rate} Hz", fields, warns
+
+
+def _aiff_appl(b):
+    """AIFF Application-specific chunk: 4-byte OSType signature then data.
+    'pdos'/'stoc' begin the data with a pstring naming the app/structure."""
+    fields, warns = [], []
+    if len(b) < 4:
+        return "truncated", fields, ["APPL under 4 bytes"]
+    sig = b[:4].decode("ascii", errors="replace")
+    fields.append(_f(0x00, 4, "signature", sig))
+    if sig in ("pdos", "stoc") and len(b) > 4:
+        nlen = b[4]
+        name = b[5:5 + nlen].decode("ascii", errors="replace")
+        fields.append(_f(0x04, 1 + nlen, "name", name, "pstring"))
+    fields.append(_f(None, 0, "data", f"{len(b) - 4:,} bytes"))
+    return f"app '{sig}', {len(b) - 4:,} bytes", fields, warns
+
+
 def inspect_aiff(filepath, form_type):
     """Walk an AIFF/AIFC file and return (chunks, file_warnings)."""
     file_size = os.path.getsize(filepath)
@@ -749,6 +814,15 @@ def inspect_aiff(filepath, form_type):
                 elif cid == "basc":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_basc(payload, ctx)
+                elif cid == "COMT":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_comt(payload)
+                elif cid == "AESD":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_aesd(payload)
+                elif cid == "APPL":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _aiff_appl(payload)
                 elif cid in ("NAME", "AUTH", "(c) ", "ANNO"):
                     text = payload.decode("ascii", errors="replace").strip("\x00").strip()
                     entry["summary"] = text[:60]
@@ -852,6 +926,12 @@ def _scan_track(trk, ctx, collect=False):
                 key_sig = f"{sf:+d} {'sharps' if sf >= 0 else 'flats'}" \
                           + (", minor" if edata[1] == 1 else "")
                 detail = key_sig
+            elif etype == 0x54 and elen == 5:
+                # SMPTE offset: hr byte top bits carry the frame rate.
+                hr = edata[0]
+                fps = {0: 24, 1: 25, 2: 29.97, 3: 30}.get((hr >> 5) & 0x03, "?")
+                detail = (f"{hr & 0x1F:02d}:{edata[1]:02d}:{edata[2]:02d}:"
+                          f"{edata[3]:02d}.{edata[4]:02d} @ {fps} fps")
             elif etype in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07):
                 text = edata.decode("ascii", errors="replace").strip()
                 if etype == 0x03 and text:

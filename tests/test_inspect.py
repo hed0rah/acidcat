@@ -1089,3 +1089,37 @@ class TestFlacCuesheet:
         from acidcat.commands.inspect import _flac_cuesheet
         s, _, w = _flac_cuesheet(b"\x00" * 100)
         assert s == "truncated" and w
+
+
+class TestAiffExtraChunks:
+    def test_comt_marker_linked_comment(self):
+        from acidcat.commands.inspect import _aiff_comt
+        b = struct.pack(">H", 1) + struct.pack(">IhH", 0, 3, 5) + b"hello" + b"\x00"
+        s, fields, warns = _aiff_comt(b)
+        c = next(f for f in fields if f["name"] == "comment[0]")
+        assert c["value"] == "hello" and c["note"] == "marker 3"
+        assert warns == []
+
+    def test_aesd_channel_status_byte0(self):
+        from acidcat.commands.inspect import _aiff_aesd
+        s, fields, _ = _aiff_aesd(bytes([0x81]) + b"\x00" * 23)  # pro, 44.1k
+        assert "professional" in fields[0]["note"] and "44100" in fields[0]["note"]
+
+    def test_appl_pdos_pstring(self):
+        from acidcat.commands.inspect import _aiff_appl
+        s, fields, _ = _aiff_appl(b"pdos" + bytes([4]) + b"MyAp" + b"\x00")
+        assert any(f["name"] == "name" and f["value"] == "MyAp" for f in fields)
+
+
+class TestMidiSmpteOffset:
+    def test_smpte_offset_decoded(self, tmp_path):
+        smpte = bytes([0, 0xFF, 0x54, 0x05, 0x61, 0, 0, 0, 0])  # 30fps, hour 1
+        trk = smpte + b"\x00\xFF\x2F\x00"
+        data = (b"MThd" + struct.pack(">IHHH", 6, 0, 1, 480)
+                + b"MTrk" + struct.pack(">I", len(trk)) + trk)
+        p = tmp_path / "t.mid"
+        p.write_bytes(data)
+        chunks, _ = inspect_midi(str(p), deep=True)
+        mtrk = next(c for c in chunks if c["id"] == "MTrk")
+        row = next(r for r in mtrk["rows"] if "smpte" in r["event"])
+        assert row["detail"] == "01:00:00:00.00 @ 30 fps"
