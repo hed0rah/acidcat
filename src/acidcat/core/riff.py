@@ -81,8 +81,14 @@ def parse_riff(filepath, enumerate_all=False):
                     # a previous unpack ("<IHHIII f") read num_beats from
                     # q2 and the meter from the real beats field, so every
                     # spec-conformant file reported acid_beats=0.
+                    # unpack_from, not unpack: some taggers pad the chunk
+                    # past 24 bytes, and an exact-length unpack raised on
+                    # them, silently dropping BPM/beats.
+                    if len(chunk_data) < 24:
+                        raise ValueError(
+                            f"acid chunk is {len(chunk_data)} bytes, need 24")
                     flags, root_note, _q1, _q2, beats, meter_den, meter_num, tempo = \
-                        struct.unpack("<IHHfIHHf", chunk_data)
+                        struct.unpack_from("<IHHfIHHf", chunk_data, 0)
                     meta["acid_root_note"] = root_note
                     meta["acid_beats"] = beats
                     meta["acid_one_shot"] = bool(flags & 0x01)
