@@ -1679,8 +1679,10 @@ def _id3v2_frames(filepath, hdr):
 
     # whole-tag unsynchronisation (flag bit 7) inserts a $00 after every $FF so
     # a frame body cannot masquerade as a frame sync. undo it before reading
-    # sizes, or every size past the first $FF byte is wrong.
-    if flags & 0x80:
+    # sizes, or every size past the first $FF byte is wrong. this is a v2.2/v2.3
+    # construct: in v2.4 unsync is per-frame and the frame size is the on-disk
+    # length, so a global de-escape there would misalign every later frame.
+    if flags & 0x80 and major != 4:
         body = body.replace(b"\xff\x00", b"\xff")
         warns.append("tag is unsynchronised; byte offsets shown are logical "
                      "(post-desync), not raw file positions")

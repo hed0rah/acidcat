@@ -40,8 +40,13 @@ def _load(source):
     except json.JSONDecodeError:
         for line in stripped.splitlines():
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 records.append(json.loads(line))
+            except json.JSONDecodeError as e:
+                print(f"build_explorer: skipping malformed line: {e}",
+                      file=sys.stderr)
     return records
 
 
@@ -56,10 +61,14 @@ def _byte_grid(chunk):
     base = chunk["raw_base"]
     # map an absolute byte offset to the index of the field that covers it.
     owner = {}
+    raw_end = base + len(raw)
     positioned = [f for f in chunk["fields"] if f.get("abs") is not None]
     for i, f in enumerate(positioned):
         start = f["abs"]
-        for off in range(start, start + max(1, f["len"])):
+        # clamp to the bytes actually present: a bulk field (a data chunk's
+        # audio payload) declares a length far larger than the capped raw.
+        end = min(start + max(1, f["len"]), raw_end)
+        for off in range(start, end):
             owner.setdefault(off, i)
 
     cells = []
@@ -86,8 +95,7 @@ def _field_rows(chunk):
     idx = {id(f): i for i, f in enumerate(positioned)}
     for f in chunk["fields"]:
         fi = idx.get(id(f))
-        off = f'{f["abs"]:08x}' if f.get("abs") is not None else "&mdash;"
-        off = off.replace("&mdash;", "")
+        off = f'{f["abs"]:08x}' if f.get("abs") is not None else ""
         note = f' <span class="note">{_esc(f["note"])}</span>' if f.get("note") else ""
         attr = f' data-fi="{fi}"' if fi is not None else ""
         cls = "frow owned" if fi is not None else "frow"
