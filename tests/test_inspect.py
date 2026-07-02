@@ -322,6 +322,17 @@ class TestInspectMidi:
         chunks, _ = inspect_midi(path)
         assert all("rows" not in c for c in chunks)
 
+    def test_whole_file_read_is_capped(self, tmp_path, monkeypatch):
+        # a forged multi-GB .mid must not be slurped whole (DoS). cap
+        # shrunk for the test; the header still parses and the missing
+        # tail surfaces as warnings instead of an OOM.
+        import acidcat.core.midi as midimod
+        monkeypatch.setattr(midimod, "MAX_SMF_BYTES", 64)
+        big = _smf(tmp_path, [_TRACK * 20], name="big.mid")
+        chunks, warns = inspect_midi(big)
+        assert chunks[0]["id"] == "MThd"
+        assert any("cap" in w for w in warns)
+
     def test_mthd_length_below_six(self, tmp_path):
         # hdr_len - 6 went negative for a sub-spec MThd length and, under
         # --hex, reached the renderer as read(negative) (the whole file).
@@ -406,6 +417,22 @@ class TestInspectRf64:
         data = next(c for c in chunks if c["id"] == "data")
         assert "1.000 s" in data["summary"]
         assert warns == []
+
+    def test_ds64_data_size_beyond_file_linted(self, tmp_path):
+        # a ds64 claiming exabytes of data cannot be honest about a
+        # small file; lint it at the source, not just at the data chunk.
+        from acidcat.commands.inspect import inspect_rf64
+        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+        data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 8
+        ds64 = struct.pack("<QQQI", 100, 2 ** 63, 4, 0)
+        ds64_chunk = b"ds64" + struct.pack("<I", len(ds64)) + ds64
+        body = b"WAVE" + ds64_chunk + fmt_chunk + data_chunk
+        p = tmp_path / "lie.rf64"
+        p.write_bytes(b"RF64" + struct.pack("<I", 0xFFFFFFFF) + body)
+        chunks, _ = inspect_rf64(str(p))
+        d = next(c for c in chunks if c["id"] == "ds64")
+        assert any("exceeds the whole file" in w for w in d["warnings"])
 
     def test_fact_sentinel_without_ds64_not_trusted(self, tmp_path):
         # a plain RIFF/WAVE with a 0xFFFFFFFF fact has no ds64 to
@@ -539,6 +566,44 @@ class TestInspectFlac:
         chunks, _ = inspect_flac(path)
         pad = next(c for c in chunks if c["id"] == "PADDING")
         assert any("overruns the file" in w for w in pad["warnings"])
+
+    def test_picture_forged_mime_length(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        # PICTURE with a mime length claiming 4 GB: must warn and stop,
+        # not decode the rest of the block as a garbage mime string.
+        pic = struct.pack(">I", 3) + struct.pack(">I", 0xFFFFFFFF) + b"\x00" * 64
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()),
+                     _flac_block(6, pic, last=True))
+        chunks, _ = inspect_flac(path)
+        p = next(c for c in chunks if c["id"] == "PICTURE")
+        assert p["summary"] == "truncated"
+        assert any("mime_type length" in w for w in p["warnings"])
+
+    def test_picture_forged_description_length(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        pic = (struct.pack(">I", 3)
+               + struct.pack(">I", 9) + b"image/png"
+               + struct.pack(">I", 0xFFFFFF00) + b"\x00" * 64)
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()),
+                     _flac_block(6, pic, last=True))
+        chunks, _ = inspect_flac(path)
+        p = next(c for c in chunks if c["id"] == "PICTURE")
+        assert p["summary"] == "truncated"
+        assert any("description length" in w for w in p["warnings"])
+
+    def test_picture_valid_still_decodes(self, tmp_path):
+        from acidcat.commands.inspect import inspect_flac
+        img = b"\x89PNG\r\n"
+        pic = (struct.pack(">I", 3)
+               + struct.pack(">I", 9) + b"image/png"
+               + struct.pack(">I", 5) + b"cover"
+               + struct.pack(">IIIII", 32, 32, 24, 0, len(img)) + img)
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()),
+                     _flac_block(6, pic, last=True))
+        chunks, _ = inspect_flac(path)
+        p = next(c for c in chunks if c["id"] == "PICTURE")
+        assert "image/png" in p["summary"]
+        assert "32x32" in p["summary"]
 
 
 # MPEG 1 Layer III, 128 kbps, 44100 Hz, mono: 417-byte frames

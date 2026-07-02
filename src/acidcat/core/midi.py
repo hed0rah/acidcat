@@ -8,6 +8,11 @@ key signature, track names, note statistics.
 import os
 import struct
 
+# bound the whole-file read: real SMFs are kilobytes to a few MB, and
+# even pathological "black MIDI" renders stay well under this. a forged
+# multi-GB .mid must not OOM the indexer (threat model is DoS).
+MAX_SMF_BYTES = 256 * 1024 * 1024
+
 
 def is_midi(filepath):
     """Check if file is a Standard MIDI File."""
@@ -53,7 +58,7 @@ def parse_midi(filepath):
     }
 
     with open(filepath, "rb") as f:
-        data = f.read()
+        data = f.read(MAX_SMF_BYTES)
 
     if len(data) < 14 or data[0:4] != b"MThd":
         return meta
