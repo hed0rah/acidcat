@@ -5,6 +5,16 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.10.1] - 2026-07-02
+
+### Fixed
+
+- The CLI forces UTF-8 output. acidcat printed decoded tags with the platform
+  default stdout encoding, so on Windows or any non-UTF-8 locale (or a
+  redirected pipe) a file with non-Latin metadata (a Korean artist tag, for
+  example) raised an uncaught UnicodeEncodeError. stdout and stderr are now
+  reconfigured to UTF-8 with errors=replace at CLI entry.
+
 ## [0.10.0] - 2026-07-02
 
 ### Added

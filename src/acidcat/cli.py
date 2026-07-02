@@ -109,6 +109,16 @@ def _try_bare_path(argv):
 
 
 def main(argv=None):
+    # audio metadata is Unicode (UTF-8/UTF-16 tags), so emit UTF-8 regardless
+    # of the platform default. Windows consoles and pipes default to cp1252 and
+    # would raise UnicodeEncodeError on a non-Latin tag; replace stays a safety
+    # net (all text encodes under UTF-8).
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     # try bare-path dispatch first (before argparse can error on unknown subcommand)
     result = _try_bare_path(argv)
     if result is not None:
