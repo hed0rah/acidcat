@@ -381,6 +381,39 @@ class TestInspectSerum:
         _, warns = inspect_serum(str(p))
         assert any("JSON" in w for w in warns)
 
+    def test_deeply_nested_json_no_crash(self, tmp_path):
+        # the json scanner recurses per nesting level; a forged preset
+        # with thousands of nested objects raised RecursionError past
+        # the ValueError-only handler and crashed the command.
+        from acidcat.commands.inspect import inspect_serum
+        p = tmp_path / "deep.serumpreset"
+        p.write_bytes(b"XferJson{" + b'"k":{' * 5000)
+        chunks, warns = inspect_serum(str(p))  # must not raise
+        assert any("JSON" in w for w in warns)
+
+    def test_deeply_nested_json_core_parser_no_crash(self, tmp_path):
+        # same guard in the core parser used by info/index
+        from acidcat.core.serum import parse_serum_preset
+        p = tmp_path / "deep2.serumpreset"
+        p.write_bytes(b"XferJson{" + b'"k":{' * 5000)
+        assert parse_serum_preset(str(p)) == {}  # must not raise
+
+    def test_multibyte_utf8_blob_boundary(self, tmp_path):
+        # raw_decode returns a CHARACTER offset; using it as a byte
+        # offset shifted the blob chunk left by one byte per multibyte
+        # UTF-8 character in the JSON metadata.
+        from acidcat.commands.inspect import inspect_serum
+        meta = '{"presetName": "Gröwl ééé"}'.encode("utf-8")
+        p = tmp_path / "umlaut.serumpreset"
+        p.write_bytes(b"XferJson" + meta + b"\x01" * 64)
+        chunks, warns = inspect_serum(str(p))
+        blob = next(c for c in chunks if c["id"] == "blob")
+        assert blob["offset"] == 8 + len(meta)
+        assert blob["size"] == 64
+        jsn = next(c for c in chunks if c["id"] == "json")
+        assert jsn["size"] == len(meta)
+        assert warns == []
+
 
 def _flac_block(btype, payload, last=False):
     head = bytes([(0x80 if last else 0) | btype]) + struct.pack(">I", len(payload))[1:]

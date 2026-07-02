@@ -38,11 +38,14 @@ def parse_serum_preset(filepath):
 
     # raw_decode returns (object, end_index) in a single linear pass,
     # stopping at the first complete JSON object. avoids the O(n^2)
-    # progressive-slice scan that prior versions used.
+    # progressive-slice scan that prior versions used. RecursionError:
+    # the json scanner recurses per nesting level, so a forged preset
+    # with thousands of nested objects blows the stack instead of
+    # raising JSONDecodeError.
     try:
         text = raw[json_start:].decode("utf-8", errors="replace")
         parsed, _ = json.JSONDecoder().raw_decode(text)
-    except (json.JSONDecodeError, ValueError):
+    except (ValueError, RecursionError):
         return meta
 
     for key in ("fileType", "presetName", "presetAuthor",
