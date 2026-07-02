@@ -1105,7 +1105,7 @@ def inspect_serum(filepath):
     chunks.append({"id": "magc", "offset": 0, "size": 8,
                    "summary": "XferJson signature",
                    "fields": [_f(0x00, 8, "magic", "XferJson")],
-                   "warnings": []})
+                   "warnings": [], "payload_base": 0})
 
     json_start = raw.find(b"{")
     if json_start < 0:
@@ -1282,7 +1282,8 @@ def inspect_flac(filepath):
 
     chunks.append({"id": "fLaC", "offset": 0, "size": 4,
                    "summary": "FLAC signature",
-                   "fields": [_f(0x00, 4, "magic", "fLaC")], "warnings": []})
+                   "fields": [_f(0x00, 4, "magic", "fLaC")], "warnings": [],
+                   "payload_base": 0})
 
     saw_last = False
     for btype, name, off, length, is_last in flacmod.iter_metadata_blocks(filepath):
@@ -1292,7 +1293,8 @@ def inspect_flac(filepath):
             f.seek(off + 4)
             payload = f.read(min(length, _PAYLOAD_CAP))
         entry = {"id": name, "offset": off, "size": length,
-                 "summary": "", "fields": [], "warnings": []}
+                 "summary": "", "fields": [], "warnings": [],
+                 "payload_base": off + 4}  # FLAC block header is 4 bytes
         try:
             if btype == 0:
                 entry["summary"], entry["fields"], entry["warnings"] = \
@@ -1523,7 +1525,8 @@ def inspect_mp3(filepath, deep=False):
         ntext = sum(1 for fl in flds if fl["off"] is not None and fl["off"] >= 10)
         chunks.append({"id": "ID3v2", "offset": 0, "size": hdr["total"],
                        "summary": f"ID3v2.{hdr['major']} tag, {ntext} frame(s)",
-                       "fields": flds, "warnings": warns})
+                       "fields": flds, "warnings": warns,
+                       "payload_base": 0})  # ID3 field offsets are absolute
         audio_start = hdr["total"]
 
     id3v1_off = mp3mod.find_id3v1(filepath)
@@ -1569,7 +1572,8 @@ def inspect_mp3(filepath, deep=False):
     chunks.append({"id": "frame0", "offset": frame_off, "size": fh["frame_length"],
                    "summary": (f"{fh['version']} {fh['layer']}, {fh['bitrate']} kbps, "
                                f"{fh['sample_rate']} Hz, {fh['channel_mode_name']}"),
-                   "fields": fields, "warnings": xing_warns})
+                   "fields": fields, "warnings": xing_warns,
+                   "payload_base": frame_off})  # fields are frame-relative
 
     # count frames and derive duration. trust the Xing frame count when
     # present (accurate for VBR); otherwise walk the stream. with deep,
@@ -1607,7 +1611,7 @@ def inspect_mp3(filepath, deep=False):
                     "fields": [_f(None, 0, "frame_count", f"{count:,}"),
                                _f(None, 0, "duration", f"{duration:.3f} s"),
                                _f(None, 0, "vbr", not cbr)],
-                    "warnings": []}
+                    "warnings": [], "payload_base": frame_off}
     if vbr_frames and walked and abs(vbr_frames - walked) > max(2, walked // 20):
         frames_entry["warnings"].append(
             f"Xing/VBRI frame_count {vbr_frames:,} diverges from {walked:,} "
@@ -1631,7 +1635,7 @@ def inspect_mp3(filepath, deep=False):
                        "summary": f"ID3v1 trailer, {title or 'untitled'}",
                        "fields": [_f(0x03, 30, "title", title),
                                   _f(0x21, 30, "artist", artist)],
-                       "warnings": []})
+                       "warnings": [], "payload_base": id3v1_off})
     return chunks, file_warns
 
 
@@ -1725,7 +1729,15 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args):
                 off_col = p("dim", off_col)
                 val = p("val", f"{fl['value']!s:<14}")
                 if args.show_hex and fl["off"] is not None:
-                    hx = _hex_bytes(filepath, c["offset"] + 8 + fl["off"], fl["len"])
+                    # field offsets are measured from the chunk's payload base.
+                    # RIFF/AIFF/RF64/MThd all have an 8-byte id+size header, so
+                    # that is the default; formats with a different header (FLAC
+                    # blocks: 4 bytes) or whose fields are already absolute (MP3
+                    # ID3 tags, MPEG frames, the FLAC/Serum magic) set their own.
+                    base = c.get("payload_base")
+                    if base is None:
+                        base = c["offset"] + 8
+                    hx = _hex_bytes(filepath, base + fl["off"], fl["len"])
                     print(f"  {off_col}  {p('dim', f'{hx:<26}')} "
                           f"{fl['name']:<22} {val}{note}")
                 else:

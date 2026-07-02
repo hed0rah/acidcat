@@ -872,3 +872,21 @@ class TestRunCli:
         assert run(self._multi([a, str(tmp_path / "gone.wav")])) == 1
         out = capsys.readouterr().out
         assert "RIFF/WAVE" in out  # the good file still rendered
+
+    # ── --hex reads the right bytes across formats (payload_base) ────
+
+    def test_hex_flac_reads_magic_not_offset_8(self, tmp_path, capsys):
+        p = _flac(tmp_path, _flac_block(0, _streaminfo(), last=True))
+        assert run(self._args(p, show_hex=True)) == 0
+        out = capsys.readouterr().out
+        # the magic field must show the fLaC bytes, not 8 bytes into the file
+        assert "66 4c 61 43" in out
+
+    def test_hex_mp3_id3_reads_absolute_offsets(self, tmp_path, capsys):
+        p = tmp_path / "t.mp3"
+        p.write_bytes(_id3v2(_id3_text_frame(b"TIT2", "Hi")) + _MP3_FRAME)
+        assert run(self._args(str(p), show_hex=True)) == 0
+        out = capsys.readouterr().out
+        # the TIT2 frame id must appear in the hex column (proves the ID3
+        # tag's absolute field offsets are not double-counted by +8)
+        assert "54 49 54 32" in out
