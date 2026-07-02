@@ -1241,3 +1241,50 @@ class TestBitwigWalker:
         from acidcat.core.bitwig import parse_meta
         data = b"BtWg" + b"0003000200" + b"\xff\xff\xff\xff" + b"junk"
         assert parse_meta(data) == {}  # no crash, nothing decoded
+
+
+class TestVitalWalker:
+    def test_parse_vital_metadata(self):
+        import json
+        from acidcat.core.vital import parse_vital
+        data = json.dumps({"synth_version": "1.0.7", "preset_name": "Test",
+                           "author": "Me", "settings": {"a": 1}}).encode()
+        obj = parse_vital(data)
+        assert obj["preset_name"] == "Test" and obj["author"] == "Me"
+
+    def test_non_vital_json_rejected(self):
+        from acidcat.core.vital import parse_vital
+        assert parse_vital(b'{"hello":"world"}') is None   # lacks Vital keys
+        assert parse_vital(b'not json') is None
+
+    def test_inspect_vital_surfaces_name(self, tmp_path):
+        import json
+        from acidcat.commands.inspect import inspect_vital
+        p = tmp_path / "t.vital"
+        p.write_bytes(json.dumps({"synth_version": "1.0", "preset_name": "P",
+                                  "author": "A", "settings": {}}).encode())
+        chunks, _ = inspect_vital(str(p))
+        vals = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+        assert vals["preset_name"] == "P" and vals["author"] == "A"
+
+
+class TestNcwWalker:
+    def _ncw(self, ch=2, bits=24, rate=48000, n=44100):
+        import struct as _s
+        from acidcat.core.ncw import MAGIC
+        return (MAGIC + b"\x31\x01\x00\x00" + _s.pack("<HHII", ch, bits, rate, n)
+                + b"\x00" * 40)
+
+    def test_parse_ncw_header(self):
+        from acidcat.core.ncw import parse_header
+        h = parse_header(self._ncw())
+        assert h == {"channels": 2, "bits": 24, "sample_rate": 48000,
+                     "num_samples": 44100}
+
+    def test_ncw_bad_params_rejected(self):
+        from acidcat.core.ncw import parse_header, MAGIC
+        import struct as _s
+        # bits=7 is invalid -> not trusted as NCW
+        bad = MAGIC + b"\x00" * 4 + _s.pack("<HHII", 2, 7, 48000, 100) + b"\x00" * 40
+        assert parse_header(bad) is None
+        assert parse_header(b"nope" + b"\x00" * 40) is None

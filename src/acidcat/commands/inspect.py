@@ -26,6 +26,8 @@ from acidcat.core.midi import _read_vlq
 from acidcat.core import flac as flacmod
 from acidcat.core import mp3 as mp3mod
 from acidcat.core import bitwig as bwmod
+from acidcat.core import vital as vitalmod
+from acidcat.core import ncw as ncwmod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -1382,6 +1384,62 @@ def inspect_bitwig(filepath):
     return chunks, file_warns
 
 
+# ── vital walk ─────────────────────────────────────────────────────
+
+
+def inspect_vital(filepath):
+    """Structural view of a Vital preset (bare JSON): the top-level metadata
+    plus a note that the synth state under 'settings' is opaque."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 32 * 1024 * 1024))
+    obj = vitalmod.parse_vital(data)
+    if obj is None:
+        raise _Unsupported("not a Vital preset (JSON did not parse or lacks "
+                           "Vital keys)")
+    fields = []
+    for k in vitalmod.META_KEYS:
+        v = obj.get(k)
+        if v is not None and not isinstance(v, (dict, list)):
+            fields.append(_f(None, 0, k, str(v)[:200]))
+    settings = obj.get("settings")
+    nkeys = len(settings) if isinstance(settings, dict) else 0
+    name = obj.get("preset_name") or "unnamed"
+    chunks = [{"id": "vital", "offset": 0, "size": file_size,
+               "summary": f"'{name}' by {obj.get('author', '?')}, "
+                          f"{nkeys} settings keys",
+               "fields": fields, "warnings": []}]
+    return chunks, []
+
+
+# ── ncw walk ───────────────────────────────────────────────────────
+
+
+def inspect_ncw(filepath):
+    """Structural view of an NI Compressed Wave (.ncw) file: the audio
+    parameters from the header. The compressed blocks are opaque."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        head = f.read(64)
+    hdr = ncwmod.parse_header(head)
+    if hdr is None:
+        raise _Unsupported("not a valid NCW header")
+    dur = hdr["num_samples"] / hdr["sample_rate"] if hdr["sample_rate"] else 0
+    fields = [
+        _f(0x08, 2, "channels", hdr["channels"]),
+        _f(0x0A, 2, "bits_per_sample", hdr["bits"]),
+        _f(0x0C, 4, "sample_rate", hdr["sample_rate"], "Hz"),
+        _f(0x10, 4, "num_samples", hdr["num_samples"],
+           f"{dur:.3f} s" if dur else ""),
+    ]
+    chunks = [{"id": "NCW", "offset": 0, "size": file_size,
+               "summary": f"NI Compressed Wave, {hdr['bits']}-bit "
+                          f"{hdr['channels']}ch {hdr['sample_rate']} Hz, "
+                          f"{dur:.3f} s (compressed audio opaque)",
+               "fields": fields, "warnings": [], "payload_base": 0}]
+    return chunks, []
+
+
 # ── flac walk ──────────────────────────────────────────────────────
 
 
@@ -2226,6 +2284,10 @@ def _walk_file(filepath, deep):
         return ("Xfer Serum preset", *inspect_serum(filepath))
     if magic[:4] == b"BtWg":
         return ("Bitwig preset", *inspect_bitwig(filepath))
+    if magic[:4] == ncwmod.MAGIC:
+        return ("NI Compressed Wave", *inspect_ncw(filepath))
+    if magic[:1] == b"{":
+        return ("Vital preset", *inspect_vital(filepath))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
     if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
