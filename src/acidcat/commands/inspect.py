@@ -66,8 +66,11 @@ def register(subparsers):
         "inspect",
         help="readelf-style structural dump of a WAV, AIFF, MIDI, MP3, or FLAC file.",
     )
-    p.add_argument("target",
-                   help="Path to a WAV, RF64, AIFF, MIDI, Serum, MP3, or FLAC file.")
+    p.add_argument("targets", nargs="+", metavar="target",
+                   help="One or more WAV, RF64, AIFF, MIDI, Serum, MP3, or FLAC "
+                        "files. With more than one, each is printed under a "
+                        "'File:' banner; JSON output becomes NDJSON (one record "
+                        "per line).")
     p.add_argument("--hex", action="store_true", dest="show_hex",
                    help="Show raw bytes next to each decoded field.")
     p.add_argument("-f", "--format", default="table", choices=["table", "json"],
@@ -1757,56 +1760,92 @@ def _id3_tagged_mp3(filepath):
     return nxt not in (b"RIFF", b"RF64", b"FORM", b"fLaC", b"MThd")
 
 
-def run(args):
-    filepath = args.target
-    if not os.path.isfile(filepath):
-        print(f"acidcat inspect: {filepath}: No such file", file=sys.stderr)
-        return 1
-    deep = getattr(args, "frames", False)
+class _Unsupported(Exception):
+    """A file inspect cannot structurally decode; message is user-facing."""
+
+
+def _walk_file(filepath, deep):
+    """Sniff the magic and dispatch to the format walker.
+
+    Returns (fmt_label, chunks, file_warns); raises _Unsupported for a
+    file inspect does not decode."""
     with open(filepath, "rb") as f:
         magic = f.read(14)
     if len(magic) >= 12 and magic[:4] == b"RIFF" and magic[8:12] == b"WAVE":
-        fmt_label = "RIFF/WAVE"
-        chunks, file_warns = inspect_wav(filepath)
-    elif len(magic) >= 12 and magic[:4] == b"FORM" \
-            and magic[8:12] in (b"AIFF", b"AIFC"):
+        return ("RIFF/WAVE", *inspect_wav(filepath))
+    if len(magic) >= 12 and magic[:4] == b"FORM" and magic[8:12] in (b"AIFF", b"AIFC"):
         form_type = magic[8:12].decode("ascii")
-        fmt_label = f"IFF/{form_type}"
-        chunks, file_warns = inspect_aiff(filepath, form_type)
-    elif len(magic) >= 14 and magic[:4] == b"MThd":
-        fmt_label = "Standard MIDI File"
-        chunks, file_warns = inspect_midi(filepath, deep=deep)
-    elif len(magic) >= 12 and magic[:4] == b"RF64" and magic[8:12] == b"WAVE":
-        fmt_label = "RF64/WAVE"
-        chunks, file_warns = inspect_rf64(filepath)
-    elif magic[:8] == b"XferJson":
-        fmt_label = "Xfer Serum preset"
-        chunks, file_warns = inspect_serum(filepath)
-    elif magic[:4] == b"fLaC":
-        fmt_label = "FLAC"
-        chunks, file_warns = inspect_flac(filepath)
-    elif magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
-        print("acidcat inspect: ID3 tag wraps a non-MP3 container; not "
-              "supported", file=sys.stderr)
-        return 1
-    elif magic[:3] == b"ID3" or (len(magic) >= 4
-                                 and mp3mod.decode_frame_header(magic[:4]) is not None):
-        fmt_label = "MP3/MPEG audio"
-        chunks, file_warns = inspect_mp3(filepath, deep=deep)
-    else:
-        print("acidcat inspect: not a WAV, RF64, AIFF, MIDI, Serum "
-              "preset, MP3, or FLAC", file=sys.stderr)
+        return (f"IFF/{form_type}", *inspect_aiff(filepath, form_type))
+    if len(magic) >= 14 and magic[:4] == b"MThd":
+        return ("Standard MIDI File", *inspect_midi(filepath, deep=deep))
+    if len(magic) >= 12 and magic[:4] == b"RF64" and magic[8:12] == b"WAVE":
+        return ("RF64/WAVE", *inspect_rf64(filepath))
+    if magic[:8] == b"XferJson":
+        return ("Xfer Serum preset", *inspect_serum(filepath))
+    if magic[:4] == b"fLaC":
+        return ("FLAC", *inspect_flac(filepath))
+    if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
+        raise _Unsupported("ID3 tag wraps a non-MP3 container; not supported")
+    if magic[:3] == b"ID3" or (len(magic) >= 4
+                               and mp3mod.decode_frame_header(magic[:4]) is not None):
+        return ("MP3/MPEG audio", *inspect_mp3(filepath, deep=deep))
+    raise _Unsupported("not a WAV, RF64, AIFF, MIDI, Serum preset, MP3, or FLAC")
+
+
+def run(args):
+    # accept either the multi-file `targets` or the legacy single `target`
+    targets = getattr(args, "targets", None)
+    if not targets:
+        one = getattr(args, "target", None)
+        targets = [one] if one else []
+    if not targets:
+        print("acidcat inspect: no target file given", file=sys.stderr)
         return 1
 
-    if args.format == "json":
-        json.dump({
-            "file": filepath,
-            "format": fmt_label,
-            "size": os.path.getsize(filepath),
-            "chunks": chunks,
-            "warnings": file_warns,
-        }, sys.stdout, indent=2)
-        sys.stdout.write("\n")
-        return 0
+    deep = getattr(args, "frames", False)
+    as_json = args.format == "json"
+    multi = len(targets) > 1
+    exit_code = 0
 
-    return _render_table(filepath, fmt_label, chunks, file_warns, args)
+    try:
+        for filepath in targets:
+            if not os.path.isfile(filepath):
+                print(f"acidcat inspect: {filepath}: No such file", file=sys.stderr)
+                exit_code = 1
+                continue
+            try:
+                fmt_label, chunks, file_warns = _walk_file(filepath, deep)
+            except _Unsupported as e:
+                print(f"acidcat inspect: {filepath}: {e}", file=sys.stderr)
+                exit_code = 1
+                continue
+            except Exception as e:  # a walker bug must not sink the whole run
+                print(f"acidcat inspect: {filepath}: {e.__class__.__name__}: {e}",
+                      file=sys.stderr)
+                exit_code = 1
+                continue
+
+            if as_json:
+                # NDJSON: one compact record per file per line, so the stream
+                # pipes cleanly into jq -c and other line-oriented tools.
+                sys.stdout.write(json.dumps({
+                    "file": filepath,
+                    "format": fmt_label,
+                    "size": os.path.getsize(filepath),
+                    "chunks": chunks,
+                    "warnings": file_warns,
+                }) + "\n")
+            else:
+                if multi:
+                    print(f"\nFile: {filepath}")  # readelf-style per-file banner
+                _render_table(filepath, fmt_label, chunks, file_warns, args)
+    except BrokenPipeError:
+        # a downstream pager or `head` closed the pipe: exit quietly the way
+        # cat and grep do, without a traceback.
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
+        return exit_code
+
+    return exit_code

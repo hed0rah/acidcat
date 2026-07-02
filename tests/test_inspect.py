@@ -835,3 +835,40 @@ class TestRunCli:
         p.write_bytes(_MP3_FRAME * 2)
         assert run(self._args(str(p), color="never")) == 0
         assert "\x1b[" not in capsys.readouterr().out
+
+    # ── multiple targets ────────────────────────────────────────────
+
+    def _multi(self, targets, **kw):
+        base = dict(targets=list(targets), show_hex=False, format="table",
+                    quiet=False, verbose=False)
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    def test_two_files_get_readelf_banner(self, tmp_path, capsys):
+        a = _wav(tmp_path, _fmt(), _data(), name="a.wav")
+        b = _wav(tmp_path, _fmt(), _data(), name="b.wav")
+        assert run(self._multi([a, b])) == 0
+        out = capsys.readouterr().out
+        assert out.count("File: ") == 2
+        assert f"File: {a}" in out and f"File: {b}" in out
+
+    def test_single_file_has_no_banner(self, tmp_path, capsys):
+        a = _wav(tmp_path, _fmt(), _data(), name="a.wav")
+        assert run(self._multi([a])) == 0
+        assert "File: " not in capsys.readouterr().out
+
+    def test_multi_json_is_ndjson(self, tmp_path, capsys):
+        import json
+        a = _wav(tmp_path, _fmt(), _data(), name="a.wav")
+        b = _wav(tmp_path, _fmt(), _data(), name="b.wav")
+        assert run(self._multi([a, b], format="json")) == 0
+        lines = [l for l in capsys.readouterr().out.splitlines() if l.strip()]
+        assert len(lines) == 2
+        docs = [json.loads(l) for l in lines]  # each line parses on its own
+        assert [d["format"] for d in docs] == ["RIFF/WAVE", "RIFF/WAVE"]
+
+    def test_missing_among_present_keeps_going_exit_1(self, tmp_path, capsys):
+        a = _wav(tmp_path, _fmt(), _data(), name="a.wav")
+        assert run(self._multi([a, str(tmp_path / "gone.wav")])) == 1
+        out = capsys.readouterr().out
+        assert "RIFF/WAVE" in out  # the good file still rendered
