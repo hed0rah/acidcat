@@ -1071,10 +1071,12 @@ def inspect_serum(filepath):
         return chunks, file_warns
 
     text = raw[json_start:].decode("utf-8", errors="replace")
+    # RecursionError: the json scanner recurses per nesting level, so a
+    # forged preset with thousands of nested objects blows the stack.
     try:
         parsed, end = json.JSONDecoder().raw_decode(text)
-    except ValueError as e:
-        file_warns.append(f"JSON block does not parse: {e}")
+    except (ValueError, RecursionError) as e:
+        file_warns.append(f"JSON block does not parse: {e.__class__.__name__}: {e}")
         return chunks, file_warns
 
     fields = []
@@ -1087,11 +1089,17 @@ def inspect_serum(filepath):
                 val = ", ".join(str(v) for v in val)
             fields.append(_f(None, 0, key, str(val)[:80]))
     name = parsed.get("presetName") or "unnamed"
-    chunks.append({"id": "json", "offset": json_start, "size": end,
+    # raw_decode's end is a CHARACTER offset into the decoded text; the
+    # blob boundary is a BYTE offset, so re-encode the parsed region to
+    # measure it. exact for valid UTF-8 (which valid JSON is); off only
+    # when the JSON region itself held invalid bytes, where any offset
+    # is best-effort.
+    end_bytes = len(text[:end].encode("utf-8"))
+    chunks.append({"id": "json", "offset": json_start, "size": end_bytes,
                    "summary": f"'{name}' metadata, {len(parsed)} keys",
                    "fields": fields, "warnings": []})
 
-    blob_off = json_start + end
+    blob_off = json_start + end_bytes
     chunks.append({"id": "blob", "offset": blob_off,
                    "size": file_size - blob_off,
                    "summary": f"wavetable/modulation data, "
