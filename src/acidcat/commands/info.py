@@ -194,7 +194,18 @@ def _info_midi(filepath, args):
         rec["Tracks"] = meta["tracks"]
 
     if meta["division"] is not None:
-        rec["Division"] = f"{meta['division']} ticks/beat"
+        division = meta["division"]
+        if division & 0x8000:
+            # SMPTE division: high byte is a negative two's-complement
+            # frame rate, low byte is ticks per frame. rendering the
+            # raw word as ticks/beat (e.g. "59176 ticks/beat") is
+            # nonsense; -29 means 29.97 drop-frame.
+            fps = 256 - ((division >> 8) & 0xFF)
+            tpf = division & 0xFF
+            shown = 29.97 if fps == 29 else fps
+            rec["Division"] = f"SMPTE {shown} fps, {tpf} ticks/frame"
+        else:
+            rec["Division"] = f"{division} ticks/beat"
 
     if meta["tempo_bpm"] is not None:
         rec["BPM"] = meta["tempo_bpm"]
