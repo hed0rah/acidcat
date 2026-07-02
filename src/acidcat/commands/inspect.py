@@ -1733,12 +1733,13 @@ def _id3v2_frames(filepath, hdr):
 
 def _xing_offset(hdr):
     """Byte offset of the Xing/Info tag within the first frame, from the
-    frame start: 4-byte header plus the version/channel-dependent side
-    info block."""
+    frame start: 4-byte header, an optional 2-byte CRC when the frame is
+    protected, then the version/channel-dependent side info block."""
     mono = hdr["channel_mode"] == 0b11
+    base = 4 + (2 if hdr.get("has_crc") else 0)
     if hdr["version_id"] == 0b11:        # MPEG 1
-        return 4 + (17 if mono else 32)
-    return 4 + (9 if mono else 17)       # MPEG 2 / 2.5
+        return base + (17 if mono else 32)
+    return base + (9 if mono else 17)    # MPEG 2 / 2.5
 
 
 def _parse_vbri(buf, off):
