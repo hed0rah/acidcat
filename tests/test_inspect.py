@@ -1066,3 +1066,26 @@ class TestParseBext:
         from acidcat.commands.inspect import _parse_bext
         _, fields, _ = _parse_bext(self._bext(1), {})
         assert next(f["value"] for f in fields if f["name"] == "umid") == "0 (no UMID)"
+
+
+class TestFlacCuesheet:
+    def test_cuesheet_tracks_and_leadout(self):
+        from acidcat.commands.inspect import _flac_cuesheet
+        b = b"1234567890123".ljust(128, b"\x00") + struct.pack(">Q", 88200)
+        b += bytes([0x80]) + b"\x00" * 258 + bytes([2])  # is-CD, reserved, 2 tracks
+        b += (struct.pack(">Q", 0) + bytes([1]) + b"USRC12300001".ljust(12, b"\x00")
+              + bytes([0]) + b"\x00" * 13 + bytes([1]))          # track 1, 1 index
+        b += struct.pack(">Q", 0) + bytes([1]) + b"\x00" * 3     # its index point
+        b += (struct.pack(">Q", 441000) + bytes([170]) + b"\x00" * 12
+              + bytes([0]) + b"\x00" * 13 + bytes([0]))          # lead-out
+        s, fields, warns = _flac_cuesheet(b)
+        assert "CD-DA" in s and "2 track" in s
+        tracks = [f for f in fields if f["name"].startswith("track")]
+        assert "ISRC USRC12300001" in tracks[0]["note"]
+        assert "lead-out" in tracks[1]["note"]
+        assert warns == []
+
+    def test_cuesheet_truncated(self):
+        from acidcat.commands.inspect import _flac_cuesheet
+        s, _, w = _flac_cuesheet(b"\x00" * 100)
+        assert s == "truncated" and w

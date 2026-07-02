@@ -1348,6 +1348,43 @@ def _flac_application(b):
              _f(0x04, len(b) - 4, "data", f"{len(b) - 4:,} bytes")], [])
 
 
+def _flac_cuesheet(b):
+    """FLAC CUESHEET (block type 5), RFC 9639 section 8.7. Big-endian.
+    396-byte prefix, then per-track 36 bytes + 12 bytes per index point."""
+    fields, warns = [], []
+    if len(b) < 396:
+        return "truncated", fields, [f"CUESHEET is {len(b)} bytes, needs 396"]
+    catalog = b[0:128].split(b"\x00")[0].decode("ascii", errors="replace").strip()
+    lead_in = struct.unpack_from(">Q", b, 128)[0]
+    is_cd = bool(b[136] & 0x80)
+    n_tracks = b[395]
+    fields.append(_f(0x00, 128, "catalog_number", catalog or "(none)"))
+    fields.append(_f(0x80, 8, "lead_in_samples", f"{lead_in:,}"))
+    fields.append(_f(0x88, 1, "is_cd", is_cd))
+    fields.append(_f(0x18B, 1, "num_tracks", n_tracks))
+    pos = 396
+    for i in range(n_tracks):
+        if pos + 36 > len(b):
+            warns.append(f"declares {n_tracks} tracks but payload ends at track {i}")
+            break
+        offset = struct.unpack_from(">Q", b, pos)[0]
+        tnum = b[pos + 8]
+        isrc = b[pos + 9:pos + 21].split(b"\x00")[0].decode("ascii", errors="replace").strip()
+        ttype = "non-audio" if (b[pos + 21] & 0x80) else "audio"
+        preemph = " +pre-emphasis" if (b[pos + 21] & 0x40) else ""
+        n_idx = b[pos + 35]
+        # the last track is the lead-out: 170 for CD-DA, 255 otherwise.
+        lead_out = " (lead-out)" if tnum in (170, 255) else ""
+        detail = f"#{tnum}{lead_out}, {ttype}{preemph}, {n_idx} index"
+        if isrc:
+            detail += f", ISRC {isrc}"
+        fields.append(_f(pos, 36 + n_idx * 12, f"track[{i}]",
+                         f"offset {offset:,}", detail))
+        pos += 36 + n_idx * 12
+    summary = f"cue sheet, {n_tracks} track(s)" + (", CD-DA" if is_cd else "")
+    return summary, fields, warns
+
+
 def inspect_flac(filepath):
     """Walk a FLAC file: metadata blocks then the audio-frame region."""
     file_size = os.path.getsize(filepath)
@@ -1390,7 +1427,8 @@ def inspect_flac(filepath):
             elif btype == 1:
                 entry["summary"] = f"padding, {length:,} bytes"
             elif btype == 5:
-                entry["summary"] = f"embedded cue sheet, {length:,} bytes"
+                entry["summary"], entry["fields"], entry["warnings"] = \
+                    _flac_cuesheet(payload)
             else:
                 entry["summary"] = f"reserved block type {btype}, {length:,} bytes"
         except Exception as e:
