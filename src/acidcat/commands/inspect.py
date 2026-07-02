@@ -33,6 +33,9 @@ _FRAME_LISTING_CAP = 100000  # per-element rows kept for the --frames deep dump
 # payload cap, so enumerating their frames needs a bigger read. bounded so a
 # forged synchsafe tag size cannot force an unbounded allocation.
 _ID3_READ_CAP = 16 * 1024 * 1024
+# --full emits raw region bytes for chunks that have decoded fields; cap the
+# hex so a huge header (embedded art) cannot bloat the dump without bound.
+_FULL_RAW_CAP = 8192
 
 _FORMAT_TAGS = {
     0x0001: "PCM",
@@ -103,6 +106,11 @@ def register(subparsers):
     p.add_argument("--exclude", metavar="IDS",
                    help="Hide these chunk ids (comma-separated). Applied after "
                         "--only.")
+    p.add_argument("--full", action="store_true",
+                   help="Emit a self-contained structural dump (implies -f json): "
+                        "each chunk with its raw region bytes and every field's "
+                        "absolute byte offset, so build_explorer.py can render a "
+                        "standalone HTML explorer for the file.")
     p.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                    help="Colorize table output: auto (default, when stdout is a "
                         "TTY), always, or never. Respects the NO_COLOR env var.")
@@ -2156,6 +2164,34 @@ def _walk_file(filepath, deep):
     raise _Unsupported("not a WAV, RF64, AIFF, MIDI, Serum preset, MP3, or FLAC")
 
 
+def _full_chunk(chunk, filepath):
+    """Enrich a chunk for --full into a self-contained record: its absolute
+    payload base, the raw region bytes as hex (capped), and every field's
+    absolute byte offset. build_explorer.py needs nothing but this JSON."""
+    c = {k: v for k, v in chunk.items() if k != "_idx"}
+    pb = chunk.get("payload_base", chunk["offset"] + 8)
+    c["payload_base"] = pb
+    fields = []
+    for f in chunk["fields"]:
+        f2 = dict(f)
+        # absolute file offset, so a field maps to raw[abs - offset]
+        f2["abs"] = pb + f["off"] if f["off"] is not None else None
+        fields.append(f2)
+    c["fields"] = fields
+    # only carry raw bytes for chunks that actually have positioned fields;
+    # audio-data regions are huge and have nothing to highlight.
+    if any(f["off"] is not None for f in chunk["fields"]):
+        n = min(chunk["size"], _FULL_RAW_CAP)
+        with open(filepath, "rb") as fh:
+            fh.seek(chunk["offset"])
+            raw = fh.read(n)
+        c["raw"] = raw.hex()
+        c["raw_base"] = chunk["offset"]
+        if chunk["size"] > _FULL_RAW_CAP:
+            c["raw_truncated"] = chunk["size"] - _FULL_RAW_CAP
+    return c
+
+
 def run(args):
     # accept either the multi-file `targets` or the legacy single `target`
     targets = getattr(args, "targets", None)
@@ -2167,7 +2203,8 @@ def run(args):
         return 1
 
     deep = getattr(args, "frames", False)
-    as_json = args.format == "json"
+    full = getattr(args, "full", False)
+    as_json = args.format == "json" or full  # --full is a JSON dump
     multi = len(targets) > 1
     only = _parse_id_list(getattr(args, "only", None))
     exclude = _parse_id_list(getattr(args, "exclude", None))
@@ -2197,12 +2234,17 @@ def run(args):
             if as_json:
                 # NDJSON: one compact record per file per line, so the stream
                 # pipes cleanly into jq -c and other line-oriented tools.
+                if full:
+                    out_chunks = [_full_chunk(c, filepath) for c in shown]
+                else:
+                    out_chunks = [{k: v for k, v in c.items() if k != "_idx"}
+                                  for c in shown]
                 sys.stdout.write(json.dumps({
                     "file": filepath,
                     "format": fmt_label,
                     "size": os.path.getsize(filepath),
-                    "chunks": [{k: v for k, v in c.items() if k != "_idx"}
-                               for c in shown],
+                    "full": full,
+                    "chunks": out_chunks,
                     "warnings": file_warns,
                 }) + "\n")
             else:

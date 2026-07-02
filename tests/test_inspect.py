@@ -1153,3 +1153,36 @@ class TestId3v1AndLame:
         word = (1 << 13) | (1 << 9) | 60
         assert _lame_replaygain(word) == "-6.0 dB (radio)"
         assert _lame_replaygain(0) is None
+
+
+class TestInspectFull:
+    def _args(self, target, **kw):
+        base = dict(target=target, show_hex=False, format="table", quiet=False,
+                    verbose=False, full=True)
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    def test_full_emits_json_with_raw_and_abs(self, tmp_path, capsys):
+        import json
+        p = _wav(tmp_path, _fmt(channels=2), _data())
+        assert run(self._args(p)) == 0          # --full implies json even w/ format=table
+        d = json.loads(capsys.readouterr().out)
+        assert d["full"] is True
+        fmt = next(c for c in d["chunks"] if c["id"] == "fmt ")
+        assert "raw" in fmt and "raw_base" in fmt and "payload_base" in fmt
+        # a field's absolute offset must map into the raw region bytes
+        sr = next(f for f in fmt["fields"] if f["name"] == "sample_rate")
+        raw = bytes.fromhex(fmt["raw"])
+        pos = sr["abs"] - fmt["raw_base"]
+        assert int.from_bytes(raw[pos:pos + sr["len"]], "little") == 44100
+
+    def test_full_raw_capped(self, tmp_path, capsys):
+        import json
+        from acidcat.commands.inspect import _FULL_RAW_CAP
+        # a data chunk larger than the cap must not dump unbounded hex
+        p = _wav(tmp_path, _fmt(), _data(n_frames=_FULL_RAW_CAP, align=2))
+        assert run(self._args(p)) == 0
+        d = json.loads(capsys.readouterr().out)
+        data = next(c for c in d["chunks"] if c["id"] == "data")
+        if "raw" in data:
+            assert len(bytes.fromhex(data["raw"])) <= _FULL_RAW_CAP
