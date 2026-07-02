@@ -170,9 +170,10 @@ No frame walk required, unlike MP3 or OGG. If `total_samples` is 0
 - watch the endianness trap: FLAC is big-endian except VORBIS_COMMENT,
   whose lengths are little-endian.
 - `acidcat inspect FILE.flac` walks every metadata block (STREAMINFO,
-  VORBIS_COMMENT, PICTURE, SEEKTABLE, APPLICATION, PADDING), decodes the
-  STREAMINFO fields, lists the Vorbis tags, and reports the audio-frame
-  extent. It lints the STREAMINFO-first and last-block-flag rules.
+  VORBIS_COMMENT, PICTURE, SEEKTABLE, CUESHEET, APPLICATION, PADDING),
+  decodes the STREAMINFO fields, lists the Vorbis tags, decodes the
+  CUESHEET tracks, and reports the audio-frame extent. It lints the
+  STREAMINFO-first, last-block-flag, and block-overrun rules.
   `--frames` is a no-op for FLAC: the audio frames have no per-element
   metadata worth dumping.
 - for indexing, acidcat reads the Vorbis Comment tags through mutagen.

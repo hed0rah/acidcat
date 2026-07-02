@@ -292,8 +292,9 @@ struct inst_chunk {
 Note the field-order trap relative to WAV's 7-byte `inst` chunk: AIFF
 puts the key range before the velocity range and carries gain as a
 16-bit value, and the loops live here (by marker reference) rather
-than in a separate smpl chunk. acidcat parses the scalar fields but
-does not yet resolve sustain/release loops through MARK.
+than in a separate smpl chunk. acidcat parses the scalar fields and
+resolves both the sustain and release loops, validating each loop's
+marker ids against the MARK chunk.
 
 ### Loop Modes
 

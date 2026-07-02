@@ -100,7 +100,7 @@ Common frames acidcat surfaces:
 Every audio frame starts with a 4-byte header:
 
 ```
- syncword          11 bits   all ones (0x7FF; first 12 bits read 0xFFF)
+ syncword          11 bits   all ones (0x7FF); first byte is 0xFF, next 3 bits set
  version            2 bits   00=MPEG2.5 01=reserved 10=MPEG2 11=MPEG1
  layer              2 bits   00=reserved 01=Layer III 10=Layer II 11=Layer I
  protection         1 bit    0 = 16-bit CRC follows the header
@@ -212,7 +212,7 @@ struct id3v1 {
     char artist[30];
     char album[30];
     char year[4];
-    char comment[30];  // last 2 bytes may hold a track number (ID3v1.1)
+    char comment[30];  // ID3v1.1: byte 28 is 0x00 and byte 29 is the track number
     uint8_t genre;     // index into a fixed genre table
 };
 ```

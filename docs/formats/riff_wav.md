@@ -568,16 +568,21 @@ struct bext_chunk {
     uint32_t time_reference_low;        // low 32 bits, sample count since midnight
     uint32_t time_reference_high;       // high 32 bits (low + high<<32 = total)
     uint16_t version;                   // BWF version (0, 1, or 2)
-    uint8_t  umid[64];                  // SMPTE UMID (v1+)
-    int16_t  loudness_value;            // EBU R128 (v2+)
-    int16_t  loudness_range;            // (v2+)
-    int16_t  max_true_peak_level;       // (v2+)
-    int16_t  max_momentary_loudness;    // (v2+)
-    int16_t  max_short_term_loudness;   // (v2+)
-    char     reserved[180];             // (v2+)
+    uint8_t  umid[64];                  // SMPTE UMID; reserved in v0, used v1+
+    int16_t  loudness_value;            // EBU R128 hundredths; reserved before v2
+    int16_t  loudness_range;            // 0x7FFF = unset
+    int16_t  max_true_peak_level;       //
+    int16_t  max_momentary_loudness;    //
+    int16_t  max_short_term_loudness;   //
+    char     reserved[180];             // rest of the 254-byte version region
     char     coding_history[];          // variable-length, CR/LF delimited
 };
 ```
+
+The fixed area is **602 bytes (0x25A) in every version**; the versions only
+reapportion the 254 bytes after `version` (v0: all reserved; v1: 64-byte UMID
+then 190 reserved; v2: 64-byte UMID, five int16 loudness values in hundredths,
+then 180 reserved). CodingHistory always begins at 0x25A. Per EBU Tech 3285 v2.
 
 ### Time Reference
 
