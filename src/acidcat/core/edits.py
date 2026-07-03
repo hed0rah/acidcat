@@ -99,6 +99,7 @@ _EASY_FIELDS = {
     "comment": "comment", "description": "comment",
     "date": "date", "year": "date",
     "bpm": "bpm",
+    "key": "key", "initialkey": "key",
     "track": "tracknumber", "tracknumber": "tracknumber",
 }
 _easyid3_ready = False
@@ -112,6 +113,8 @@ def _register_easyid3_comment():
         return
     from mutagen.easyid3 import EasyID3
     from mutagen.id3 import COMM
+    if "key" not in EasyID3.valid_keys:
+        EasyID3.RegisterTextKey("key", "TKEY")
     if "comment" not in EasyID3.valid_keys:
         def _get(id3, _):
             return [c.text[0] for c in id3.getall("COMM")
