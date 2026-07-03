@@ -108,12 +108,25 @@ def _field_rows(chunk):
     return "".join(rows)
 
 
+def _dark_tint(c):
+    """Blend a light field-tint toward the dark ground so dark mode gets a
+    subtle dark-tinted byte background (light ink stays readable over it)."""
+    h = c.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    dr, dg, db = 0x19, 0x1a, 0x17
+    return "#%02x%02x%02x" % (round(r + (dr - r) * 0.8),
+                              round(g + (dg - g) * 0.8),
+                              round(b + (db - b) * 0.8))
+
+
 def _tint_css(max_fields):
     out = []
     for i in range(max_fields):
         c = _TINTS[i % len(_TINTS)]
         out.append(f'.region [data-fi="{i}"].owned{{background:{c}}}')
-        out.append(f'.region.hot-{i} [data-fi="{i}"]{{outline:2px solid #1a2b3c;'
+        out.append(f':root[data-theme="dark"] .region [data-fi="{i}"].owned'
+                   f'{{background:{_dark_tint(c)}}}')
+        out.append(f'.region.hot-{i} [data-fi="{i}"]{{outline:2px solid var(--ink);'
                    f'outline-offset:-2px}}')
     return "".join(out)
 
@@ -165,15 +178,19 @@ _PAGE = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>acidcat explorer / {title}</title>
+<script>(function(){{try{{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}}catch(e){{}}}})();</script>
 <style>
-:root{{--paper:#f4f1ea;--ink:#1a2b3c;--soft:#4a5a68;--line:#c9c2b4;--hot:#8a3324}}
+:root{{--paper:#f4f1ea;--ink:#1a2b3c;--soft:#4a5a68;--line:#c9c2b4;--hot:#8a3324;--panel:#fbfaf6;--hair:#ece7db;--hot-soft:#fff2c8}}
+:root[data-theme="dark"]{{--paper:#191a17;--ink:#e6e6e1;--soft:#abaca1;--line:#383a32;--hot:#d98c78;--panel:#212320;--hair:#2b2d26;--hot-soft:#3a2a24}}
+.theme-toggle{{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font:0.6rem/1 ui-monospace,monospace;letter-spacing:0.2em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer}}
+.theme-toggle:hover{{color:var(--hot);border-color:var(--hot)}}
 *{{box-sizing:border-box}}
 body{{margin:0;background:var(--paper);color:var(--ink);
   font:13px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:2rem}}
 header{{border-bottom:2px solid var(--ink);padding-bottom:0.6rem;margin-bottom:1.5rem}}
 header h1{{margin:0;font-size:1.2rem;letter-spacing:0.02em}}
 header .spec{{color:var(--soft);font-size:0.85rem;margin-top:0.2rem}}
-.region{{border:1px solid var(--line);background:#fbfaf6;margin-bottom:1.2rem;
+.region{{border:1px solid var(--line);background:var(--panel);margin-bottom:1.2rem;
   padding:0.8rem 1rem}}
 .region h2{{margin:0 0 0.2rem;font-size:0.95rem;display:flex;
   justify-content:space-between;align-items:baseline}}
@@ -187,11 +204,11 @@ header .spec{{color:var(--soft);font-size:0.85rem;margin-top:0.2rem}}
 .byte{{padding:0 2px;border-radius:2px}}
 .byte.owned{{cursor:pointer}}
 table.fields{{border-collapse:collapse;flex:1 1 260px;min-width:260px}}
-.fields td{{padding:1px 8px;vertical-align:top;border-bottom:1px solid #ece7db}}
+.fields td{{padding:1px 8px;vertical-align:top;border-bottom:1px solid var(--hair)}}
 .fields .foff{{color:var(--soft);white-space:nowrap}}
 .fields .fname{{font-weight:700}}
 .frow.owned{{cursor:pointer}}
-.frow.hot td{{background:#fff2c8}}
+.frow.hot td{{background:var(--hot-soft)}}
 .note{{color:var(--soft)}}
 .warns,.filewarns ul{{margin:0.3rem 0;padding-left:1.1rem;color:var(--hot)}}
 .trunc{{color:var(--soft);font-size:0.8rem;margin-top:0.3rem}}
@@ -209,6 +226,8 @@ footer{{margin-top:2rem;color:var(--soft);font-size:0.8rem;
 {warnings}
 <footer>built by build_explorer.py from an acidcat inspect --full dump.
 hover a byte or a field to link the two.</footer>
+<button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme"></button>
+<script>(function(){{var t=document.getElementById("themeToggle");function cur(){{return document.documentElement.getAttribute("data-theme")||"light";}}function ap(m){{document.documentElement.setAttribute("data-theme",m);try{{localStorage.setItem("acidcat-theme",m);}}catch(e){{}}t.textContent=(m==="dark"?"light":"dark");}}t.addEventListener("click",function(){{ap(cur()==="dark"?"light":"dark");}});ap(cur());}})();</script>
 <script>
 document.querySelectorAll(".region").forEach(function(region){{
   function set(fi, on){{
