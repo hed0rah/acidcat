@@ -1444,15 +1444,16 @@ def inspect_bitwig(filepath, deep=False):
                            "summary": f"{len(modules)} devices/modules in the "
                                       "chain (pre-order)",
                            "fields": mfields, "warnings": []})
-        conns = bwmod.parse_connections(data)
-        if conns:
-            shown = conns[:120]
-            cfields = [_f(None, 0, f"[{i + 1}]", c) for i, c in enumerate(shown)]
-            extra = "" if len(conns) <= 120 else f" (first 120 of {len(conns)})"
-            chunks.append({"id": "wiring", "offset": 0, "size": 0,
-                           "summary": f"{len(conns)} Grid routing paths "
-                                      f"(module/parameter targets){extra}",
-                           "fields": cfields, "warnings": []})
+        rows = bwmod.flatten_tree(bwmod.parse_tree(data))
+        if rows:
+            leaves = sum(1 for _, _, leaf in rows if leaf)
+            tfields = [_f(None, 0, ("  " * d) + seg, "param" if leaf else "+")
+                       for d, seg, leaf in rows]
+            chunks.append({"id": "tree", "offset": 0, "size": 0,
+                           "summary": f"addressable structure tree "
+                                      f"({len(rows)} nodes, {leaves} wired "
+                                      f"parameters, from Grid paths)",
+                           "fields": tfields, "warnings": []})
 
     zoff = data.find(b"PK\x03\x04")
     if zoff >= 0:

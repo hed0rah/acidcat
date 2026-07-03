@@ -12,6 +12,7 @@ value is a type byte (0x08 = string) then a u32-BE length then the value bytes.
 """
 
 import io
+import re
 import struct
 import zipfile
 
@@ -119,6 +120,63 @@ def parse_connections(data, cap=500):
                 i += 4 + ln
                 continue
         i += 1
+    return out
+
+
+def _collect_paths(data, cap=4000):
+    """Every length-prefixed ASCII string that contains a '/' (a Grid path
+    reference). Deduped, order-preserving, bounded."""
+    end = data.find(b"PK\x03\x04")
+    if end < 0:
+        end = len(data)
+    out, seen = [], set()
+    i = 14
+    while i + 4 < end and len(out) < cap:
+        ln = struct.unpack_from(">I", data, i)[0]
+        if 3 <= ln <= 200 and i + 4 + ln <= end:
+            s = data[i + 4:i + 4 + ln]
+            # Grid structure paths only (exclude the type MIME, asset paths, and
+            # I/O-style module names that merely contain a slash).
+            if (b"MODULES" in s or b"CHAIN" in s) and b"CONTENTS" in s \
+                    and all(32 <= b < 127 for b in s):
+                v = s.decode("latin-1")
+                if v not in seen:
+                    seen.add(v)
+                    out.append(v)
+                i += 4 + ln
+                continue
+        i += 1
+    return out
+
+
+def parse_tree(data):
+    """The nested structure tree, built from the union of Grid path references.
+    Each path (e.g. CONTENTS/MODULES/4/CONTENTS/CUTOFF) is split on '/' and ':'
+    into segments; merging every path forms the module/parameter hierarchy the
+    patch actually addresses. Returns a nested dict {segment: subtree}."""
+    tree = {}
+    for path in _collect_paths(data):
+        node = tree
+        for seg in re.split(r"[/:]", path):
+            if seg:
+                node = node.setdefault(seg, {})
+    return tree
+
+
+def flatten_tree(tree, depth=0, out=None, cap=600):
+    """Depth-first (depth, segment, is_leaf) rows for display. Numeric segments
+    (module indices) sort numerically, names alphabetically after them."""
+    if out is None:
+        out = []
+
+    def _key(k):
+        return (0, int(k)) if k.isdigit() else (1, k.lower())
+
+    for k in sorted(tree, key=_key):
+        if len(out) >= cap:
+            break
+        out.append((depth, k, not tree[k]))
+        flatten_tree(tree[k], depth + 1, out, cap)
     return out
 
 
