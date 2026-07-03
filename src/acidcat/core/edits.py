@@ -52,12 +52,38 @@ def edit_vital(data, changes):
 _EASY_FIELDS = {
     "title": "title", "name": "title",
     "artist": "artist", "creator": "artist",
+    "albumartist": "albumartist",
     "album": "album",
     "genre": "genre",
+    "comment": "comment", "description": "comment",
     "date": "date", "year": "date",
     "bpm": "bpm",
     "track": "tracknumber", "tracknumber": "tracknumber",
 }
+_easyid3_ready = False
+
+
+def _register_easyid3_comment():
+    """Teach mutagen's EasyID3 to read/write a plain comment (COMM), which it
+    does not expose by default."""
+    global _easyid3_ready
+    if _easyid3_ready:
+        return
+    from mutagen.easyid3 import EasyID3
+    from mutagen.id3 import COMM
+    if "comment" not in EasyID3.valid_keys:
+        def _get(id3, _):
+            return [c.text[0] for c in id3.getall("COMM")
+                    if c.desc == "" and c.text]
+
+        def _set(id3, _, value):
+            id3.delall("COMM")
+            id3.add(COMM(encoding=3, lang="eng", desc="", text=value))
+
+        def _del(id3, _):
+            id3.delall("COMM")
+        EasyID3.RegisterKey("comment", _get, _set, _del)
+    _easyid3_ready = True
 
 
 def edit_tagged(data, suffix, changes):
@@ -67,6 +93,10 @@ def edit_tagged(data, suffix, changes):
         import mutagen
     except ImportError:
         raise EditError("editing tagged audio needs mutagen (pip install mutagen)")
+    try:
+        _register_easyid3_comment()
+    except Exception:
+        pass
     fd, tmp = tempfile.mkstemp(suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -81,10 +111,15 @@ def edit_tagged(data, suffix, changes):
                 raise EditError(f"tagged audio has no editable field {field!r}")
             old = audio.get(key)
             old = old[0] if isinstance(old, list) and old else old
-            if value is None or value == "":
-                audio.pop(key, None)
-            else:
-                audio[key] = [str(value)]
+            try:
+                if value is None or value == "":
+                    audio.pop(key, None)
+                else:
+                    audio[key] = [str(value)]
+            except (KeyError, ValueError, TypeError):
+                raise EditError(
+                    f"{suffix.lstrip('.') or 'this format'} cannot store "
+                    f"field {field!r}")
             applied.append((field, old, value))
         audio.save()
         with open(tmp, "rb") as r:
