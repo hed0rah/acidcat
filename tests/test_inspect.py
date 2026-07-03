@@ -1602,3 +1602,26 @@ class TestBitwigParameters:
         params = dict(parse_parameters(data))
         assert params["GLIDE_TIME"] == 1.0
         assert abs(params["F1FREQ"] - 142.1) < 0.001
+
+
+class TestVitalDeep:
+    def test_deep_structure(self):
+        from acidcat.core.vital import deep_structure
+        obj = {"synth_version": "1", "settings": {
+            "osc_1_on": 1.0, "osc_2_on": 0.0, "osc_3_on": 1.0,
+            "wavetables": [{"name": "Saw"}, {"name": "Sine"}],
+            "lfos": [{"name": "Sin"}, {"name": "Tri"}],
+            "reverb_on": 1.0, "delay_on": 0.0, "distortion_on": 1.0,
+            "modulations": [{"source": "lfo_1", "destination": "osc_1_level"},
+                            {"source": "", "destination": ""}],
+            "modulation_1_amount": 0.5,
+        }}
+        st = deep_structure(obj)
+        assert st["oscillators"] == ["osc_1", "osc_3"]
+        assert st["wavetables"] == ["Saw", "Sine"]
+        assert st["effects"] == ["distortion", "reverb"]
+        assert st["modulations"] == [("lfo_1", "osc_1_level", 0.5)]
+
+    def test_deep_structure_no_settings(self):
+        from acidcat.core.vital import deep_structure
+        assert deep_structure({"synth_version": "1"}) == {}
