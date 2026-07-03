@@ -245,7 +245,7 @@ class TestScanSmplSentinel:
         assert code == 0 or code is None
         with open(out_csv, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
-        assert rows[0]["key"] == "C4"
+        assert rows[0]["key"] == "C3"  # MIDI 60 = C3 (DAW convention)
 
 
 class TestSurveyCommand:

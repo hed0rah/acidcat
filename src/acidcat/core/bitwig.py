@@ -11,14 +11,21 @@ a u32-BE length followed by that many bytes. A meta entry is a key token whose
 value is a type byte (0x08 = string) then a u32-BE length then the value bytes.
 """
 
+import io
+import re
 import struct
+import zipfile
 
 MAGIC = b"BtWg"
 _MAX_LEN = 1 << 20  # sanity cap on any declared length
+# bound byte-by-byte scans so a huge preset with no embedded zip cannot force a
+# multi-second full-buffer scan (the meta/params/tree all sit early).
+_SCAN_CAP = 16 * 1024 * 1024
 
 # string-valued meta keys worth surfacing, in display order (key, label)
 _META_FIELDS = [
     ("device_name", "device"),
+    ("device_id", "device_id"),
     ("device_creator", "device_creator"),
     ("device_category", "category"),
     ("device_type", "device_type"),
@@ -26,6 +33,9 @@ _META_FIELDS = [
     ("creator", "creator"),
     ("comment", "description"),
     ("tags", "tags"),
+    ("type", "content_type"),
+    ("branch", "branch"),
+    ("revision_id", "revision"),
     ("application_version_name", "bitwig_version"),
 ]
 _META_KEYS_BYTES = {k.encode(): k for k, _ in _META_FIELDS}
@@ -70,3 +80,269 @@ def parse_meta(data):
                         continue
         i += 1
     return meta
+
+
+_REF_KEYS = [
+    (b"referenced_device_ids", "referenced_devices"),
+    (b"referenced_module_ids", "referenced_modules"),
+    (b"referenced_modulator_ids", "referenced_modulators"),
+    (b"referenced_packaged_file_ids", "referenced_files"),
+]
+
+
+_NUM_FIELDS = [("bpm", "bpm"), ("beat_length", "beat_length")]
+
+
+def parse_numeric(data):
+    """Top-level f64 fields (type 0x07 = big-endian double), e.g. a note clip's
+    bpm and beat length. The key is matched length-prefixed so a short name like
+    'bpm' cannot match a substring. Returns {label: float}."""
+    out = {}
+    for key, label in _NUM_FIELDS:
+        kb = struct.pack(">I", len(key)) + key.encode()
+        idx = data.find(kb)
+        if idx < 0:
+            continue
+        vp = idx + len(kb)
+        if vp + 9 <= len(data) and data[vp] == 0x07:
+            out[label] = struct.unpack_from(">d", data, vp + 1)[0]
+    return out
+
+
+def parse_parameters(data, cap=4000):
+    """Every named device parameter and its value. A parameter is stored as
+    [u32 keylen][UPPER_SNAKE key][u32 marker][0x07][f64 big-endian]. Values are
+    in Bitwig's internal units (seconds, semitones, or normalized 0..1 depending
+    on the parameter), reported raw. Returns [(name, value)]."""
+    end = data.find(b"PK\x03\x04")
+    if end < 0:
+        end = len(data)
+    end = min(end, _SCAN_CAP)
+    out = []
+    i = 14
+    while i + 4 < end and len(out) < cap:
+        kl = struct.unpack_from(">I", data, i)[0]
+        if 2 <= kl <= 40 and i + 4 + kl + 13 <= end:
+            key = data[i + 4:i + 4 + kl]
+            if all(65 <= b <= 90 or b == 95 or 48 <= b <= 57 for b in key) \
+                    and data[i + 4 + kl + 4] == 0x07:
+                val = struct.unpack_from(">d", data, i + 4 + kl + 5)[0]
+                out.append((key.decode(), val))
+                i = i + 4 + kl + 13
+                continue
+        i += 1
+    return out
+
+
+def parse_references(data):
+    """Counts from the referenced_*_ids arrays (type 0x19 = u32 count + items):
+    the preset's dependency graph (how many devices/modules/modulators it wires
+    together). Returns {label: count}."""
+    out = {}
+    for key, label in _REF_KEYS:
+        idx = data.find(key)
+        if idx < 0:
+            continue
+        vp = idx + len(key)
+        if vp < len(data) and data[vp] == 0x19 and vp + 5 <= len(data):
+            count = struct.unpack_from(">I", data, vp + 1)[0]
+            if 0 <= count <= 100000:
+                out[label] = count
+    return out
+
+
+def parse_connections(data, cap=500):
+    """Grid routing paths (e.g. 'CONTENTS/MODULES/4/CONTENTS/CUTOFF'), each
+    naming a destination module and parameter. Deduped, order-preserving,
+    bounded. This is the patch wiring."""
+    end = data.find(b"PK\x03\x04")
+    if end < 0:
+        end = len(data)
+    end = min(end, _SCAN_CAP)
+    seen, out = set(), []
+    i = 14
+    while i + 4 < end and len(out) < cap:
+        ln = struct.unpack_from(">I", data, i)[0]
+        if 8 <= ln <= 200 and i + 4 + ln <= end:
+            s = data[i + 4:i + 4 + ln]
+            if b"MODULES/" in s and all(32 <= b < 127 for b in s):
+                v = s.decode("latin-1")
+                if v not in seen:
+                    seen.add(v)
+                    out.append(v)
+                i += 4 + ln
+                continue
+        i += 1
+    return out
+
+
+def _collect_paths(data, cap=4000):
+    """Every length-prefixed ASCII string that contains a '/' (a Grid path
+    reference). Deduped, order-preserving, bounded."""
+    end = data.find(b"PK\x03\x04")
+    if end < 0:
+        end = len(data)
+    end = min(end, _SCAN_CAP)
+    out, seen = [], set()
+    i = 14
+    while i + 4 < end and len(out) < cap:
+        ln = struct.unpack_from(">I", data, i)[0]
+        if 3 <= ln <= 200 and i + 4 + ln <= end:
+            s = data[i + 4:i + 4 + ln]
+            # Grid structure paths only (exclude the type MIME, asset paths, and
+            # I/O-style module names that merely contain a slash).
+            if (b"MODULES" in s or b"CHAIN" in s) and b"CONTENTS" in s \
+                    and all(32 <= b < 127 for b in s):
+                v = s.decode("latin-1")
+                if v not in seen:
+                    seen.add(v)
+                    out.append(v)
+                i += 4 + ln
+                continue
+        i += 1
+    return out
+
+
+def parse_tree(data):
+    """The nested structure tree, built from the union of Grid path references.
+    Each path (e.g. CONTENTS/MODULES/4/CONTENTS/CUTOFF) is split on '/' and ':'
+    into segments; merging every path forms the module/parameter hierarchy the
+    patch actually addresses. Returns a nested dict {segment: subtree}."""
+    tree = {}
+    for path in _collect_paths(data):
+        node = tree
+        for seg in re.split(r"[/:]", path):
+            if seg:
+                node = node.setdefault(seg, {})
+    return tree
+
+
+def flatten_tree(tree, depth=0, out=None, cap=600):
+    """Depth-first (depth, segment, is_leaf) rows for display. Numeric segments
+    (module indices) sort numerically, names alphabetically after them."""
+    if out is None:
+        out = []
+
+    def _key(k):
+        return (0, int(k)) if k.isdigit() else (1, k.lower())
+
+    for k in sorted(tree, key=_key):
+        if len(out) >= cap:
+            break
+        out.append((depth, k, not tree[k]))
+        flatten_tree(tree[k], depth + 1, out, cap)
+    return out
+
+
+# note-clip field ids. type 0x07 = f64 big-endian; type 0x01 = 1-byte int.
+_NOTE_CHANCE = b"\x00\x00\x2d\xfc\x07"   # per-note anchor (chance value)
+_NOTE_PITCH = b"\x00\x00\x00\xee\x01"    # lane footer: raw MIDI pitch (u8)
+_NOTE_POS = b"\x00\x00\x02\xaf\x07"      # position, in beats
+_NOTE_DUR = b"\x00\x00\x00\x26\x07"      # duration, in beats
+_NOTE_VEL = b"\x00\x00\x00\xef\x07"      # velocity, 0..1 (= MIDI velocity / 127)
+
+
+def _f64_at(data, off):
+    if 0 <= off <= len(data) - 8:
+        return struct.unpack_from(">d", data, off)[0]
+    return None
+
+
+def _nearest_f64(data, anchor, pat, lo, hi):
+    """The f64 payload of the `pat` field whose id sits closest to `anchor`
+    within [anchor+lo, anchor+hi] (the record window), or None."""
+    a, b = max(0, anchor + lo), min(len(data), anchor + hi)
+    best = None
+    i = data.find(pat, a, b)  # bound the search to the window (no scan to EOF)
+    while i >= 0:
+        d = abs(i - anchor)
+        if best is None or d < best[0]:
+            best = (d, _f64_at(data, i + len(pat)))
+        i = data.find(pat, i + 1, b)
+    return best[1] if best else None
+
+
+def parse_notes(data, cap=200000):
+    """Extract notes from a Bitwig note clip as [{pitch, start, duration,
+    velocity}]. Notes are grouped into per-pitch lanes (footer field 0xee = raw
+    MIDI note, serialized in descending pitch order); each note is a record
+    anchored by the chance field 0x2dfc. start/duration are in beats, velocity
+    is 0..1 (MIDI velocity / 127). Fields are located by id near each anchor
+    (not fixed byte offsets), so varying record layouts are tolerated. [] if the
+    clip carries no note lanes."""
+    anchors, i = [], data.find(_NOTE_CHANCE)
+    while i >= 0 and len(anchors) < cap:
+        anchors.append(i)
+        i = data.find(_NOTE_CHANCE, i + 1)
+    footers, i = [], data.find(_NOTE_PITCH)
+    while i >= 0 and len(footers) < cap:
+        if i + 5 < len(data):  # the pitch byte must exist
+            footers.append((i, data[i + 5]))
+        i = data.find(_NOTE_PITCH, i + 1)
+    if not anchors or not footers:
+        return []
+    notes, fi = [], 0
+    for a in anchors:
+        while fi < len(footers) and footers[fi][0] < a:  # lane footer follows
+            fi += 1                                        # its notes
+        pitch = footers[fi][1] if fi < len(footers) else None
+        notes.append({
+            "pitch": pitch,
+            "start": _nearest_f64(data, a, _NOTE_POS, -168, -8),
+            "duration": _nearest_f64(data, a, _NOTE_DUR, -168, -8),
+            "velocity": _nearest_f64(data, a, _NOTE_VEL, 8, 168),
+        })
+    return notes
+
+
+def parse_structure(data, max_tokens=50000):
+    """Best-effort device/module tree: the object class names in the preset,
+    in pre-order (Grid modules and device-chain containers like Filter+, LFO,
+    Reverb, Chain, MODULATORS). A class name is a length-prefixed ASCII token
+    immediately followed by a 'CONTENTS' token. Returns a list of class names.
+    Bounded so a hostile file cannot force an unbounded scan."""
+    end = data.find(b"PK\x03\x04")
+    if end < 0:
+        end = len(data)
+    end = min(end, _SCAN_CAP)
+    toks = []
+    i = 14
+    while i + 4 < end and len(toks) < max_tokens:
+        ln = struct.unpack_from(">I", data, i)[0]
+        if 2 <= ln <= 64 and i + 4 + ln <= end:
+            s = data[i + 4:i + 4 + ln]
+            if all(32 <= b < 127 for b in s):
+                toks.append(s.decode("latin-1"))
+                i += 4 + ln
+                continue
+        i += 1
+    return [toks[j] for j in range(len(toks) - 1)
+            if toks[j + 1] == "CONTENTS" and toks[j] != "CONTENTS"
+            and "/" not in toks[j] and ":" not in toks[j]]
+
+
+def list_assets(data, prefix=65536, max_entries=512):
+    """List the entries in the embedded DEFLATE zip: [(name, declared_size,
+    head)], where head is only the first `prefix` decompressed bytes (enough to
+    identify the format and read audio params). Reading a prefix, not the whole
+    entry, means a zip bomb (few compressed bytes, gigabytes inflated) cannot
+    exhaust memory: total held is at most max_entries * prefix. [] if no zip."""
+    z = data.find(b"PK\x03\x04")
+    if z < 0:
+        return []
+    out = []
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data[z:]))
+        for info in zf.infolist()[:max_entries]:
+            if info.is_dir():
+                continue
+            head = None
+            try:
+                with zf.open(info) as fh:
+                    head = fh.read(prefix)  # streamed: inflates ~prefix bytes only
+            except (zipfile.BadZipFile, OSError, RuntimeError, EOFError):
+                head = None
+            out.append((info.filename, info.file_size, head))
+    except (zipfile.BadZipFile, OSError):
+        return []
+    return out

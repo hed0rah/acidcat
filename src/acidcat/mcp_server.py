@@ -251,6 +251,12 @@ def search_samples(args):
         where.append("LOWER(s.format) = LOWER(?)")
         params.append(args["format"])
 
+    for key, col in (("device", "device"), ("category", "category"),
+                     ("creator", "creator"), ("product", "product")):
+        if args.get(key):
+            where.append(f"LOWER(s.{col}) = LOWER(?)")
+            params.append(args[key])
+
     tags = args.get("tags") or []
     if tags:
         placeholders = ",".join("?" for _ in tags)
@@ -1218,10 +1224,11 @@ def _register_all():
     # fast (read-only)
     _tool(
         "search_samples",
-        "Fast. Filter samples across all registered libraries by "
-        "bpm/key/duration/tags/text/format. Use 'root' to scope to one or "
-        "more libraries by label or path. Prefer this over analysis tools "
-        "for any discovery query.",
+        "Fast. Filter samples and presets across all registered libraries by "
+        "bpm/key/duration/tags/text/format, and by preset metadata "
+        "device/category/creator/product (Bitwig, Native Instruments, Vital). "
+        "Use 'root' to scope to one or more libraries by label or path. Prefer "
+        "this over analysis tools for any discovery query.",
         {
             "type": "object",
             "properties": {
@@ -1234,10 +1241,22 @@ def _register_all():
                 "tags": {"type": "array", "items": {"type": "string"},
                          "description": "AND semantics across tags."},
                 "text": {"type": "string",
-                         "description": "FTS across title/artist/album/"
-                         "genre/comment/description/tags/path."},
+                         "description": "FTS across title/artist/album/genre/"
+                         "comment/description/tags/preset/device/creator/path."},
                 "format": {"type": "string",
-                           "description": "wav, mp3, flac, midi, serum, ..."},
+                           "description": "wav, mp3, flac, midi, serum, "
+                           "bwpreset, nmsv, vital, ..."},
+                "device": {"type": "string",
+                           "description": "Preset device/instrument "
+                           "(e.g. Polysynth, Massive)."},
+                "category": {"type": "string",
+                             "description": "Preset category "
+                             "(e.g. Reverb, Bass, Synth)."},
+                "creator": {"type": "string",
+                            "description": "Preset creator/author."},
+                "product": {"type": "string",
+                            "description": "Product (Bitwig, Vital, Massive, "
+                            "Absynth, FM8, ...)."},
                 "root": {"type": "string",
                          "description": "Library label or path. "
                          "Comma-separated for multiple."},

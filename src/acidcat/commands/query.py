@@ -19,7 +19,9 @@ from acidcat.core.formats import output
 
 DEFAULT_FIELDS = [
     "path", "format", "bpm", "key", "duration",
-    "title", "artist", "album", "scan_root",
+    "title", "artist", "album",
+    "preset_name", "device", "product", "creator", "category",
+    "scan_root",
 ]
 
 
@@ -39,8 +41,15 @@ def register(subparsers):
                    help="Tag filter. Repeat for AND semantics.")
     p.add_argument("--format", dest="file_format",
                    help="File format filter (wav, mp3, flac, midi, ...).")
+    p.add_argument("--device",
+                   help="Preset device/instrument (e.g. Polysynth, Massive).")
+    p.add_argument("--category",
+                   help="Preset category (e.g. Reverb, Bass, Synth).")
+    p.add_argument("--creator", help="Preset creator/author.")
+    p.add_argument("--product",
+                   help="Product (Bitwig, Vital, Massive, Absynth, FM8, ...).")
     p.add_argument("--text", help="Full-text search across title/artist/album/"
-                   "genre/comment/description/tags/path.")
+                   "genre/comment/description/tags/preset/device/creator/path.")
     p.add_argument("--root",
                    help="Scope results to one or more libraries (label or "
                         "path). Comma-separate to query multiple libraries.")
@@ -207,6 +216,13 @@ def _build_sql(args):
     if args.file_format:
         where.append("LOWER(s.format) = LOWER(?)")
         params.append(args.file_format)
+
+    for arg, col in (("device", "device"), ("category", "category"),
+                     ("creator", "creator"), ("product", "product")):
+        val = getattr(args, arg, None)
+        if val:
+            where.append(f"LOWER(s.{col}) = LOWER(?)")
+            params.append(val)
 
     tags = [t for t in (args.tag or []) if t]
     if tags:

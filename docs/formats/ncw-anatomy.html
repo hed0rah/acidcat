@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / ncw anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* ncw palette: ember value, teal flag, graphite anchor */
+  --enum:#8A452E;  --enum-soft:#E5D5CB;
+  --flag:#3F6464;  --flag-soft:#D3DEDD;
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03);
+  --sync:#4A4E58;  --sync-soft:#D8D9DE;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
+.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.75rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500;letter-spacing:0.02em}
+.region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px;vertical-align:middle}
+.region .rbody{padding:0.6rem 1rem 1.2rem 3rem;border-top:1px solid var(--hair)}
+
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.32rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
+.detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title">
+        <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
+        <h1>NCW Anatomy</h1>
+      </div>
+      <div class="stamp"><b>NI Compressed Wave</b>.ncw . Kontakt libraries<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>01 A8 9E D6</b></div>
+      <div>endian <b>little</b></div>
+      <div>codec <b>lossless blocks</b></div>
+      <div>sample <b>2ch 24-bit 48k</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="lede">NCW is the sample format inside Kontakt instruments: PCM audio, losslessly compressed. The file is a fixed little-endian header, a block table, and a run of delta/bit-packed audio blocks that reconstruct the original samples exactly. No ASCII magic here; the file opens with the 4-byte sentinel <b>01 A8 9E D6</b> (a newer writer variant uses <b>01 A8 9E D7</b>). Everything below is field-verified against a real Kontakt library .ncw. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind, the way syntax highlighting does: <span class="k-en">ember</span> is a decoded value, graphite is a structural anchor, faint is reserved.</p>
+  <aside class="sig" aria-hidden="true"></aside>
+  </div>
+
+  <div class="sec">file regions</div>
+  <p class="note">Top to bottom, what a reader walks. The audio parameters a producer wants sit in the first 32 bytes; acidcat inspect decodes them and derives the duration without touching the compressed body.</p>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">fixed header</span><span class="rspan">0x00 . 120 bytes . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">All integers little-endian. The first 32 bytes carry the magic, the audio parameters, and three offsets that lay out the rest of the file; the remainder of the 120-byte header is zero in the files examined. The worked example is the corpus file: 2 channels, 24-bit, 48000 Hz, 439295 samples.</p>
+        <div id="block-header"></div>
+        <div class="kv">
+          <div><span class="k">magic</span><span class="v">01 A8 9E D6 at offset 0; 01 A8 9E D7 on newer writers</span></div>
+          <div><span class="k">audio params</span><span class="v">channels u16 @ 0x08 . bits u16 @ 0x0A . sample_rate u32 @ 0x0C . num_samples u32 @ 0x10</span></div>
+          <div><span class="k">layout offsets</span><span class="v">block table @ the u32 at 0x14, audio data @ the u32 at 0x18, body size in the u32 at 0x1C</span></div>
+          <div><span class="k">cross-check</span><span class="v">data_offset + data_size = file size; 3556 + 1909184 = 1912740 on the corpus file</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">block table</span><span class="rspan">0x78 . u32 offsets</span></summary>
+      <div class="rbody">
+        <p class="note">Between the header and the audio sits an index: one u32 offset per compressed block, relative to the start of the audio body, plus a final entry marking its end. Random access falls out for free; a player seeks the table, not the stream.</p>
+        <div class="kv">
+          <div><span class="k">entry</span><span class="v">u32 little-endian, offset from data_offset</span></div>
+          <div><span class="k">corpus file</span><span class="v">859 entries at 0x78: 858 blocks plus the end sentinel, ascending from 0 to 1909184</span></div>
+          <div><span class="k">block span</span><span class="v">each block covers 512 sample frames; 858 x 512 = 439296, one frame past num_samples, so the last block runs short</span></div>
+          <div><span class="k">sizing</span><span class="v">entry deltas give each block's compressed byte size; they vary block to block with the material</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">compressed audio body</span><span class="rspan">data_offset . opaque to acidcat</span></summary>
+      <div class="rbody">
+        <p class="note">The samples themselves, packed block by block. Each block is delta/bit-packed: store the differences between neighbouring samples, then keep only as many bits per delta as the block actually needs. Quiet or smooth material packs tight; noise barely shrinks. Decoding reconstructs the original PCM exactly; this is lossless, not perceptual.</p>
+        <div class="kv">
+          <div><span class="k">unit</span><span class="v">fixed blocks of 512 samples, each independently decodable via the table</span></div>
+          <div><span class="k">packing</span><span class="v">per-block delta coding with a per-block bit width</span></div>
+          <div><span class="k">guarantee</span><span class="v">bit-exact PCM out; the WAV that went in comes back whole</span></div>
+          <div><span class="k">acidcat</span><span class="v">left opaque; deep audio decode is out of scope, the header already answers the catalog questions</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="sec">what acidcat reads</div>
+  <p class="note">The header is enough. Four fields in, one division out, and a corrupt file gets rejected instead of cataloged with a nonsense duration.</p>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">header decode + validation</span><span class="rspan">inspect . index</span></summary>
+      <div class="rbody">
+        <div class="kv">
+          <div><span class="k">read</span><span class="v">channels, bit depth, sample rate, sample count from the fixed header</span></div>
+          <div><span class="k">derive</span><span class="v">duration = num_samples / sample_rate; 439295 / 48000 = 9.152 s on the corpus file</span></div>
+          <div><span class="k">validate</span><span class="v">channels 1-32 . bits in {8, 16, 24, 32} . sample_rate 8000-384000 . num_samples 1 to 2e9</span></div>
+          <div><span class="k">on failure</span><span class="v">the file is rejected as corrupt rather than shown with an absurd duration</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <footer>
+    <span>acidcat / ncw anatomy</span>
+    <span>ncw . 01 A8 9E D6 . 2ch 24-bit 48000 Hz . 9.152 s</span>
+  <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // ncw fixed header, first 32 bytes of the corpus file: 2ch 24-bit 48000 Hz
+  build("block-header", 'byte',
+    [0x01,0xA8,0x9E,0xD6,
+     0x31,0x01,0x00,0x00,
+     0x02,0x00, 0x18,0x00,
+     0x80,0xBB,0x00,0x00,
+     0xFF,0xB3,0x06,0x00,
+     0x78,0x00,0x00,0x00,
+     0xE4,0x0D,0x00,0x00,
+     0xC0,0x21,0x1D,0x00],
+    [
+      {label:"magic",k:"sync",r:[0,3],val:"01 A8 9E D6",sel:0,branch:[
+        ["..D6","classic sentinel; this file and most library content"],
+        ["..D7","newer writer variant; same header layout past the magic"]],
+       body:"Four bytes open the file: the little-endian sentinel 0xD69EA801. Not ASCII, not human-readable, just a signature. A file that does not start with one of the two variants is not NCW.",
+       note:"acidcat matches both magics and parses the rest identically."},
+      {label:"header tag",k:"rsv",r:[4,7],val:"0x131",
+       body:"Four bytes between the magic and the audio parameters: a block-header / version area. Reads 0x131 on the corpus file. Left uninterpreted; nothing downstream depends on it.",
+       note:"treated as reserved until a second value shows up in the wild."},
+      {label:"channels",k:"enum",r:[8,9],val:"2",
+       body:"u16 little-endian channel count. Stereo here; Kontakt libraries carry mono and stereo NCW side by side.",
+       note:"acidcat accepts 1-32; anything outside rejects the header."},
+      {label:"bits_per_sample",k:"enum",r:[10,11],val:"24",sel:2,branch:[
+        ["8","8-bit PCM"],
+        ["16","16-bit PCM"],
+        ["24","24-bit PCM: this file"],
+        ["32","32-bit PCM"]],
+       body:"u16 little-endian bit depth of the original PCM. The compression is lossless, so this is also the bit depth that comes back out.",
+       note:"acidcat accepts only {8, 16, 24, 32}."},
+      {label:"sample_rate",k:"enum",r:[12,15],val:"48000 Hz",
+       body:"u32 little-endian sample rate. 0x0000BB80 = 48000. Together with num_samples this is all a catalog needs for duration.",
+       note:"acidcat accepts 8000-384000 Hz."},
+      {label:"num_samples",k:"enum",r:[16,19],val:"439295",
+       body:"u32 little-endian count of sample frames in the decoded audio. 0x0006B3FF = 439295 frames; divided by the rate that is 9.152 seconds.",
+       note:"acidcat accepts 1 to 2e9 and derives duration = num_samples / sample_rate."},
+      {label:"table_offset",k:"sync",r:[20,23],val:"120",
+       body:"u32 little-endian: where the block table begins, which is also the size of this fixed header. 120 on the files examined; bytes 0x20-0x77 are zero.",
+       note:"the header is padded well past the fields drawn here."},
+      {label:"data_offset",k:"sync",r:[24,27],val:"3556",
+       body:"u32 little-endian: where the compressed audio body begins. Everything between table_offset and here is the block table; 3436 bytes on the corpus file, 859 u32 entries.",
+       note:"858 blocks of 512 frames cover the 439295 samples, plus one end-sentinel entry."},
+      {label:"data_size",k:"sync",r:[28,31],val:"1909184",
+       body:"u32 little-endian byte count of the compressed audio body. The last block-table entry equals this value, and data_offset + data_size equals the file size: 3556 + 1909184 = 1912740.",
+       note:"three independent numbers that must agree; a cheap integrity check before touching the audio."}
+    ]);
+})();
+</script>
+</body>
+</html>
