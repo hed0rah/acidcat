@@ -31,6 +31,7 @@ from acidcat.core import ncw as ncwmod
 from acidcat.core import mp4 as mp4mod
 from acidcat.core import ni as nimod
 from acidcat.core import ogg as oggmod
+from acidcat.core import anomalies as anomaliesmod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -121,6 +122,10 @@ def register(subparsers):
                         "each chunk with its raw region bytes and every field's "
                         "absolute byte offset, so build_explorer.py can render a "
                         "standalone HTML explorer for the file.")
+    p.add_argument("--anomalies", action="store_true",
+                   help="Forensic scan: flag trailing data past the container, "
+                        "appended-format magic (polyglots), structural size "
+                        "mismatches, and control bytes smuggled into text fields.")
     p.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                    help="Colorize table output: auto (default, when stdout is a "
                         "TTY), always, or never. Respects the NO_COLOR env var.")
@@ -2556,6 +2561,22 @@ def _render_pretty(filepath, fmt_label, chunks, file_warns, args):
     return 0
 
 
+def _render_anomalies(findings, args):
+    """Print the forensic findings from `--anomalies` under the main dump."""
+    p = _Paint(_color_enabled(args))
+    role = {"alert": "warn", "warn": "warn", "notice": "dim"}
+    print()
+    if not findings:
+        print(p("dim", "  anomalies: none"))
+        return
+    print(p("id", f"  anomalies ({len(findings)}):"))
+    for f in findings:
+        sev = f["severity"]
+        tag = p(role.get(sev, "dim"), f"[{sev:6}]")
+        off = p("dim", f"0x{f['offset']:08x}")
+        print(f"    {tag} {off}  {f['rule']:16} {f['message']}")
+
+
 def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None):
     file_size = os.path.getsize(filepath)
     p = _Paint(_color_enabled(args))
@@ -2766,6 +2787,8 @@ def run(args):
 
             total = len(chunks)
             shown = _select_chunks(chunks, only, exclude)
+            findings = (anomaliesmod.scan(filepath, fmt_label, chunks, file_warns)
+                        if getattr(args, "anomalies", False) else None)
 
             if as_json:
                 # NDJSON: one compact record per file per line, so the stream
@@ -2782,6 +2805,7 @@ def run(args):
                     "full": full,
                     "chunks": out_chunks,
                     "warnings": file_warns,
+                    **({"anomalies": findings} if findings is not None else {}),
                 }) + "\n")
             else:
                 pretty = getattr(args, "pretty", False)
@@ -2793,6 +2817,8 @@ def run(args):
                     _render_pretty(filepath, fmt_label, shown, file_warns, args)
                 else:
                     _render_table(filepath, fmt_label, shown, file_warns, args, total)
+                if findings is not None:
+                    _render_anomalies(findings, args)
     except BrokenPipeError:
         # a downstream pager or `head` closed the pipe: exit quietly the way
         # cat and grep do, without a traceback.

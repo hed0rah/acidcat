@@ -5,6 +5,16 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [Unreleased]
+
+### Added
+
+- `inspect --anomalies`: a forensic scan that flags trailing data past the
+  declared container end, appended-format magic (polyglot detection: ZIP/PDF/
+  PNG/... after the audio), structural size mismatches (surfaced from the
+  walker), and control bytes smuggled into text fields. Findings carry a
+  severity, byte offset, and rule; also emitted in `-f json`.
+
 ## [0.13.0] - 2026-07-03
 
 ### Added
