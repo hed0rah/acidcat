@@ -148,8 +148,19 @@ def _f32(b, off):
     return struct.unpack_from("<f", b, off)[0]
 
 
+def _dtext(raw):
+    """Decode metadata text: UTF-8, falling back to latin-1. Modern DAWs (and
+    bandcamp) write RIFF/AIFF text as UTF-8; ascii/errors='replace' silently
+    destroyed non-Latin tags (Korean, CJK, the whole non-ASCII world) into
+    U+FFFD. latin-1 never raises, so a real cp1252 tag still round-trips."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
 def _cstr(b, off, length):
-    return b[off:off + length].split(b"\x00")[0].decode("ascii", errors="replace").strip()
+    return _dtext(b[off:off + length].split(b"\x00")[0]).strip()
 
 
 def _flag_names(value, table):
@@ -672,7 +683,7 @@ def _aiff_mark(b, ctx):
         mid = struct.unpack_from(">h", b, pos)[0]
         position = _bu32(b, pos + 2)
         name_len = b[pos + 6]
-        name = b[pos + 7:pos + 7 + name_len].decode("ascii", errors="replace")
+        name = _dtext(b[pos + 7:pos + 7 + name_len])
         fields.append(_f(pos, 7 + name_len, f"marker[{i}]", position,
                          f"id {mid}" + (f", '{name}'" if name else "")))
         ids[mid] = position
@@ -756,7 +767,7 @@ def _aiff_comt(b):
         if pos + 8 + count > len(b):
             warns.append(f"comment[{i}] text overruns payload")
             break
-        text = b[pos + 8:pos + 8 + count].decode("ascii", errors="replace").strip()
+        text = _dtext(b[pos + 8:pos + 8 + count]).strip()
         note = f"marker {marker}" if marker else ""
         fields.append(_f(pos, 8 + count + (count & 1), f"comment[{i}]",
                          text[:60], note))
@@ -823,8 +834,10 @@ def inspect_ogg(filepath):
         fields = []
         if vendor:
             fields.append(_f(None, 0, "vendor", vendor[:200]))
-        for k, v in tags.items():
+        for k, v in list(tags.items())[:200]:
             fields.append(_f(None, 0, k, str(v)[:200]))
+        if len(tags) > 200:
+            fields.append(_f(None, 0, "...", f"{len(tags) - 200} more comments"))
         chunks.append({"id": "comments", "offset": 0, "size": 0,
                        "summary": f"{len(tags)} Vorbis comment(s)",
                        "fields": fields, "warnings": []})
@@ -920,7 +933,7 @@ def inspect_aiff(filepath, form_type):
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_appl(payload)
                 elif cid in ("NAME", "AUTH", "(c) ", "ANNO"):
-                    text = payload.decode("ascii", errors="replace").strip("\x00").strip()
+                    text = _dtext(payload).strip("\x00").strip()
                     entry["summary"] = text[:60]
                     entry["fields"] = [_f(0x00, size, "text", text[:200])]
                 elif cid == "ID3 ":
@@ -1030,7 +1043,7 @@ def _scan_track(trk, ctx, collect=False):
                 detail = (f"{hr & 0x1F:02d}:{edata[1]:02d}:{edata[2]:02d}:"
                           f"{edata[3]:02d}.{edata[4]:02d} @ {fps} fps")
             elif etype in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07):
-                text = edata.decode("ascii", errors="replace").strip()
+                text = _dtext(edata).strip()
                 if etype == 0x03 and text:
                     names.append(text)
                 detail = text[:48]
@@ -1510,12 +1523,15 @@ def inspect_bitwig(filepath, deep=False):
             nfields = [_f(None, 0, "note count", len(notes)),
                        _f(None, 0, "pitch range", rng)]
             if deep:
+                _inf = float("inf")
+
+                def _fin(x):  # finite value or 0 (a crafted clip can carry NaN/Inf)
+                    return x if isinstance(x, (int, float)) and -_inf < x < _inf else 0
                 for n in notes[:500]:
                     nm = (midi_note_to_name(n["pitch"])
                           if n["pitch"] is not None else "?")
-                    vel = round((n["velocity"] or 0) * 127)
-                    start = n["start"] if n["start"] is not None else 0
-                    dur = n["duration"] if n["duration"] is not None else 0
+                    vel = round(_fin(n["velocity"]) * 127)
+                    start, dur = _fin(n["start"]), _fin(n["duration"])
                     nfields.append(_f(None, 0, f"{nm} @ {start:g}",
                                       f"dur {dur:g}, vel {vel}"))
                 if len(notes) > 500:
