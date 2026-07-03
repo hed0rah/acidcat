@@ -29,6 +29,7 @@ from acidcat.core import bitwig as bwmod
 from acidcat.core import vital as vitalmod
 from acidcat.core import ncw as ncwmod
 from acidcat.core import mp4 as mp4mod
+from acidcat.core import ni as nimod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -1516,6 +1517,32 @@ def inspect_mp4(filepath):
     return chunks, warns
 
 
+# ── native instruments walk ────────────────────────────────────────
+
+
+def inspect_ni(filepath):
+    """Structural view of a Native Instruments hsin preset (Massive .nmsv,
+    Absynth .nabs, modern Kontakt .nki): the readable SoundInfoItem metadata.
+    The FastLZ-compressed preset payload is left opaque."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 16 * 1024 * 1024))
+    meta = nimod.parse_hsin(data)
+    if meta is None:
+        raise _Unsupported("not a Native Instruments hsin container")
+    fields = []
+    for k, label in (("product", "product"), ("name", "name"),
+                     ("version", "app_version")):
+        if meta.get(k):
+            fields.append(_f(None, 0, label, meta[k]))
+    summary = (f"{meta.get('product', 'NI')} preset "
+               f"'{meta.get('name', '(unnamed)')}'")
+    chunks = [{"id": "hsin", "offset": 0, "size": file_size,
+               "summary": summary, "fields": fields, "warnings": [],
+               "payload_base": 0}]
+    return chunks, []
+
+
 # ── flac walk ──────────────────────────────────────────────────────
 
 
@@ -2385,7 +2412,7 @@ def _walk_file(filepath, deep):
     Returns (fmt_label, chunks, file_warns); raises _Unsupported for a
     file inspect does not decode."""
     with open(filepath, "rb") as f:
-        magic = f.read(14)
+        magic = f.read(16)
     if len(magic) >= 12 and magic[:4] == b"RIFF" and magic[8:12] == b"WAVE":
         return ("RIFF/WAVE", *inspect_wav(filepath))
     if len(magic) >= 12 and magic[:4] == b"FORM" and magic[8:12] in (b"AIFF", b"AIFC"):
@@ -2405,6 +2432,8 @@ def _walk_file(filepath, deep):
         return ("Vital preset", *inspect_vital(filepath))
     if magic[4:8] == b"ftyp":
         return ("MP4/M4A", *inspect_mp4(filepath))
+    if magic[12:16] == b"hsin":
+        return ("Native Instruments preset", *inspect_ni(filepath))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
     if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
