@@ -1647,3 +1647,25 @@ class TestBitwigNotes:
     def test_parse_notes_empty_without_lanes(self):
         from acidcat.core.bitwig import parse_notes
         assert parse_notes(b"BtWg0003000200 no note lanes here") == []
+
+
+class TestAiffEmbeddedID3:
+    def _id3v23(self, frames):
+        body = b""
+        for fid, text in frames:
+            p = b"\x03" + text.encode("utf-8")  # utf-8 encoding byte
+            body += fid + struct.pack(">I", len(p)) + b"\x00\x00" + p
+        n = len(body)
+        ss = bytes([(n >> 21) & 0x7f, (n >> 14) & 0x7f, (n >> 7) & 0x7f, n & 0x7f])
+        return b"ID3\x03\x00\x00" + ss + body
+
+    def test_aiff_decodes_embedded_id3(self):
+        from acidcat.commands.inspect import _aiff_id3_fields
+        tag = self._id3v23([(b"TPE1", "아버지"), (b"TIT2", "untitled")])
+        fields = _aiff_id3_fields(tag)
+        vals = {f["value"] for f in fields}
+        assert "아버지" in vals and "untitled" in vals
+
+    def test_aiff_id3_ignores_non_id3(self):
+        from acidcat.commands.inspect import _aiff_id3_fields
+        assert _aiff_id3_fields(b"not an id3 tag") == []

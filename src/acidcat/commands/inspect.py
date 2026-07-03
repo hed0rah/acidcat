@@ -801,6 +801,31 @@ def _aiff_appl(b):
     return f"app '{sig}', {len(b) - 4:,} bytes", fields, warns
 
 
+def _aiff_id3_fields(tag_bytes):
+    """Decode an embedded ID3v2 tag (AIFF 'ID3 ' chunk) by reusing the MP3 ID3
+    parser: the chunk payload is a complete ID3 tag, so write it to a temp file
+    and run the same frame decoder. Returns [] if it is not a valid tag."""
+    if tag_bytes[:3] != b"ID3":
+        return []
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix=".id3")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(tag_bytes)
+        hdr = mp3mod.read_id3v2(tmp)
+        if not hdr:
+            return []
+        flds, _ = _id3v2_frames(tmp, hdr)
+        return flds
+    except Exception:
+        return []
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def inspect_aiff(filepath, form_type):
     """Walk an AIFF/AIFC file and return (chunks, file_warnings)."""
     file_size = os.path.getsize(filepath)
@@ -869,6 +894,7 @@ def inspect_aiff(filepath, form_type):
                     entry["summary"] = text[:60]
                     entry["fields"] = [_f(0x00, size, "text", text[:200])]
                 elif cid == "ID3 ":
+                    entry["fields"] = _aiff_id3_fields(payload)
                     entry["summary"] = f"embedded ID3v2 tag, {size:,} bytes"
                 elif cid == "cate":
                     entry["summary"] = "apple loops category data"
