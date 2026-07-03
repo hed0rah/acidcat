@@ -167,7 +167,7 @@ class TestParseRiff:
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
-        # 15-beat 4/4 loop at 122 bpm, root C4: mirrors a verified
+        # 15-beat 4/4 loop at 122 bpm, root C3: mirrors a verified
         # real-world acid payload byte for byte
         acid_payload = struct.pack(
             "<IHHfIHHf", 0x05, 60, 0x8000, 0.0, 15, 4, 4, 122.0,

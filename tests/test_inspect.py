@@ -264,8 +264,8 @@ def _smf(tmp_path, tracks, division=480, ntrks=None, name="t.mid"):
 _TRACK = (
     b"\x00\xFF\x03\x04Bass"            # track name
     b"\x00\xFF\x51\x03\x07\xA1\x20"    # tempo 120
-    b"\x00\x90\x3C\x64"                # note on C4
-    b"\x00\x40\x6E"                    # running status note on E4
+    b"\x00\x90\x3C\x64"                # note on C3
+    b"\x00\x40\x6E"                    # running status note on E3
     b"\x00\xFF\x2F\x00"                # end of track
 )
 

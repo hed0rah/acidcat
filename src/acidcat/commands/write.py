@@ -100,10 +100,6 @@ def run(args):
         print(f"{os.path.basename(path)}  [{fmt}]")
         for field, old, new in applied:
             print(f"  {field}: {old!r} -> {new!r}")
-        if "experimental" in fmt and not args.dry_run:
-            print("  ! experimental writer: confirm the file still opens in its "
-                  "app before trusting it (the _original backup is your fallback)",
-                  file=sys.stderr)
         if args.dry_run:
             continue
         written, backup = writer.commit(
