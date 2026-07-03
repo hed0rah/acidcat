@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / bitwig anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* bitwig palette: amber value, moss flag, graphite anchor */
+  --enum:#8A5A2E;  --enum-soft:#E5DACB;
+  --flag:#556B4F;  --flag-soft:#D8DFD3;
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03);
+  --sync:#4A4E58;  --sync-soft:#D8D9DE;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
+.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.75rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500;letter-spacing:0.02em}
+.region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px;vertical-align:middle}
+.region .rbody{padding:0.6rem 1rem 1.2rem 3rem;border-top:1px solid var(--hair)}
+
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.32rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
+.detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title">
+        <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
+        <h1>Bitwig Anatomy</h1>
+      </div>
+      <div class="stamp"><b>BtWg container</b>.bwpreset . .bwclip<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"BtWg"</b></div>
+      <div>endian <b>big (meta)</b></div>
+      <div>container <b>tagged + tree</b></div>
+      <div>sample <b>42 74 57 67</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="lede">A Bitwig preset is not audio. It is an ASCII <b>BtWg</b> header, a big-endian self-describing metadata block, an opaque device tree, and, when "embed files" was on, a ZIP archive of the referenced assets. The same container backs <b>.bwpreset</b>, <b>.bwclip</b>, and <b>.bwmodulator</b>; everything below is field-verified against real Bitwig Studio 6.x files. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind, the way syntax highlighting does: <span class="k-en">amber</span> is a decoded value, <span class="k-fl">moss</span> is a flag, graphite is a structural anchor, faint is reserved.</p>
+  <aside class="sig" aria-hidden="true"></aside>
+  </div>
+
+  <div class="sec">file regions</div>
+  <p class="note">Top to bottom, what a reader walks. The metadata a producer wants sits right behind the header; acidcat inspect (and inspect --pretty) decodes it and flags the embedded-asset zip.</p>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">BtWg header</span><span class="rspan">0x00 . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">All ASCII: the 4-byte magic, ten format/version digits, then a run of hex digits. Careful with the family: .bwimpulse is not this container at all, it is a plain FLAC file.</p>
+        <div id="block-header"></div>
+        <div class="kv">
+          <div><span class="k">magic</span><span class="v">"BtWg"</span></div>
+          <div><span class="k">format/version</span><span class="v">10 ASCII digits; "0003000200" on Studio 6.x files</span></div>
+          <div><span class="k">hex field</span><span class="v">ASCII hex digits after the version chars; varies per file, left uninterpreted</span></div>
+          <div><span class="k">extensions</span><span class="v">.bwpreset . .bwclip . .bwmodulator share this header; .bwimpulse is FLAC</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">tagged meta block</span><span class="rspan">big-endian . self-describing</span></summary>
+      <div class="rbody">
+        <p class="note">A list of key/value entries, each one self-describing: a u32-BE length and that many ASCII key bytes, then a type byte (0x08 = string), a u32-BE value length, and the value bytes. One worked entry is drawn below: device_name = "Drum Machine". The keys, in order:</p>
+        <div id="block-meta"></div>
+        <div class="kv">
+          <div><span class="k">application_version_name</span><span class="v">writing Bitwig version, e.g. "4.4"; branch alongside it</span></div>
+          <div><span class="k">comment</span><span class="v">the preset DESCRIPTION field as typed in the browser</span></div>
+          <div><span class="k">creator</span><span class="v">preset author</span></div>
+          <div><span class="k">device_category</span><span class="v">e.g. Container . Reverb . Synth</span></div>
+          <div><span class="k">device_creator</span><span class="v">device vendor, e.g. Bitwig</span></div>
+          <div><span class="k">device_id</span><span class="v">uuid of the device the preset targets</span></div>
+          <div><span class="k">device_name</span><span class="v">e.g. Drum Machine . Polysynth . Convolution</span></div>
+          <div><span class="k">device_type</span><span class="v">note_to_audio for instruments, audio_to_audio for FX</span></div>
+          <div><span class="k">preset_category</span><span class="v">browser category for the preset itself</span></div>
+          <div><span class="k">referenced_*_ids</span><span class="v">device / modulator / module / packaged_file id lists: the dependency graph</span></div>
+          <div><span class="k">revision_id / revision_no</span><span class="v">a sha plus a revision counter</span></div>
+          <div><span class="k">tags</span><span class="v">space-separated, e.g. "digital harmonic slow soft"</span></div>
+          <div><span class="k">type</span><span class="v">"application/bitwig-preset"</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">module / device tree</span><span class="rspan">after the meta block . opaque</span></summary>
+      <div class="rbody">
+        <p class="note">The Grid and device graph: a nested CONTENTS/MODULES/N/CONTENTS/... structure holding every module in the patch. acidcat v1 leaves it opaque; the meta block already carries what the browser needs.</p>
+        <div class="kv">
+          <div><span class="k">nesting</span><span class="v">CONTENTS &gt; MODULES &gt; N &gt; CONTENTS, recursively</span></div>
+          <div><span class="k">module names</span><span class="v">e.g. Pitch Shifter . Stereo Split/Merge . All-pass Delay . Peak Limiter</span></div>
+          <div><span class="k">per module</span><span class="v">an optional description string alongside the parameters</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region opt">
+      <summary><span class="chev">&#9656;</span><span class="rname">embedded asset zip</span><span class="rspan">"embed files" on . PK 03 04</span></summary>
+      <div class="rbody">
+        <p class="note">With "embed files" enabled, every referenced asset is packed into a DEFLATE ZIP embedded in the preset. Unzip it and the referenced files come back whole. acidcat inspect flags the archive when it is present.</p>
+        <div class="kv">
+          <div><span class="k">magic</span><span class="v">PK 03 04, standard local-file header</span></div>
+          <div><span class="k">compression</span><span class="v">DEFLATE</span></div>
+          <div><span class="k">contents</span><span class="v">samples, impulses; .bwimpulse entries are FLAC and decode anywhere</span></div>
+          <div><span class="k">microtuning</span><span class="v">Micro-pitch scales are stored native as per-note tags NOTE1..NOTE11 plus EDO_DIVISIONS / EDO_OCTAVES, not the original .scl file</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="sec">related: wav bounces</div>
+  <p class="note">Not this container, but from the same writer: audio bounced out of Bitwig carries its own tempo trail in the WAV.</p>
+  <div>
+    <details class="region opt">
+      <summary><span class="chev">&#9656;</span><span class="rname">BWBM + IBPM</span><span class="rspan">inside bounced .wav files</span></summary>
+      <div class="rbody">
+        <div class="kv">
+          <div><span class="k">LIST/INFO IBPM</span><span class="v">tempo as an INFO tag</span></div>
+          <div><span class="k">BWBM chunk</span><span class="v">u32 version, then two f64: beats at 0x18, duration seconds at 0x20</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <footer>
+    <span>acidcat / bitwig anatomy</span>
+    <span>btwg . 0003000200 . device_name "Drum Machine"</span>
+  <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // BtWg header: magic + the ten format/version digits, all ASCII
+  build("block-header", 'byte',
+    [0x42,0x74,0x57,0x67, 0x30,0x30,0x30,0x33,0x30,0x30,0x30,0x32,0x30,0x30],
+    [
+      {label:"magic",k:"sync",r:[0,3],val:"\"BtWg\"",
+       body:"Four ASCII bytes open the container. Shared by .bwpreset, .bwclip, and .bwmodulator; a file that does not start here is not this format.",
+       note:".bwimpulse looks like family but starts fLaC: it is a plain FLAC file, decode it as one."},
+      {label:"format/version",k:"enum",r:[4,13],val:"0003000200",
+       body:"Ten ASCII digits carrying the container format and writer version. Every Studio 6.x file examined reads 0003000200.",
+       note:"a run of ASCII hex digits follows these chars; the content varies per file and acidcat leaves it uninterpreted."}
+    ]);
+
+  // one tagged meta entry: device_name = "Drum Machine"
+  build("block-meta", 'byte',
+    [0x00,0x00,0x00,0x0B,
+     0x64,0x65,0x76,0x69,0x63,0x65,0x5F,0x6E,0x61,0x6D,0x65,
+     0x08,
+     0x00,0x00,0x00,0x0C,
+     0x44,0x72,0x75,0x6D,0x20,0x4D,0x61,0x63,0x68,0x69,0x6E,0x65],
+    [
+      {label:"key_len",k:"sync",r:[0,3],val:"11",
+       body:"u32 big-endian: the byte count of the key that follows. The whole block is walked entry by entry with nothing but these lengths.",
+       note:"every integer in the meta block is big-endian."},
+      {label:"key",k:"enum",r:[4,14],val:"device_name",
+       body:"That many ASCII bytes name the entry. Here: device_name, the device this preset targets, e.g. Drum Machine, Polysynth, Convolution."},
+      {label:"value_type",k:"enum",r:[15,15],val:"0x08 string",sel:0,branch:[
+        ["0x08","string: u32-BE length + bytes"],
+        ["other","non-string types appear past the meta block; not decoded"]],
+       body:"One type byte announces the value encoding. Every key in the meta block carries 0x08, a length-prefixed string.",
+       note:"acidcat inspect decodes device, creator, category, tags, description, and version from these entries."},
+      {label:"value_len",k:"sync",r:[16,19],val:"12",
+       body:"u32 big-endian: the byte count of the value. \"Drum Machine\" is 12 bytes."},
+      {label:"value",k:"enum",r:[20,31],val:"\"Drum Machine\"",
+       body:"The value bytes themselves. Together with the key this reads device_name = \"Drum Machine\": the entry a browser sorts on."}
+    ]);
+})();
+</script>
+</body>
+</html>

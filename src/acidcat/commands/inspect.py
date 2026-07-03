@@ -1537,7 +1537,7 @@ def inspect_ni(filepath):
     if not meta:
         raise _Unsupported("not a recognized Native Instruments preset")
     order = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
-             "device_type", "version", "tempo", "genre", "key"]
+             "description", "device_type", "version", "tempo", "genre", "key"]
     fields = [_f(None, 0, k, str(meta[k])) for k in order if meta.get(k)]
     for k in meta:
         if k not in order:
