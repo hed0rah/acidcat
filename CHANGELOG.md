@@ -14,6 +14,12 @@ once it leaves alpha.
   PNG/... after the audio), structural size mismatches (surfaced from the
   walker), and control bytes smuggled into text fields. Findings carry a
   severity, byte offset, and rule; also emitted in `-f json`.
+- `cover` command: extract, embed, or remove embedded cover art across MP3,
+  FLAC, MP4/M4A, and Ogg (`acidcat cover FILE -o art.jpg`, `--set art.png`,
+  `--remove`); embed/remove are atomic with a `_original` backup.
+- Custom ID3 frames in `write`: `--set txxx:NAME=value` (and `wxxx:NAME=url`)
+  set user-defined frames; on FLAC/Ogg the name becomes a Vorbis comment, on
+  M4A a freeform atom. `inspect` decodes TXXX/WXXX as `description = value`.
 - LSB-steganography detection: `--anomalies` computes the per-window entropy of
   the low bit-plane of PCM WAV samples and flags a uniform-high floor (the tell
   of an encrypted hidden payload; natural audio dips low in quiet passages).
