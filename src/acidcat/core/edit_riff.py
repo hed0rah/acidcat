@@ -32,7 +32,16 @@ _BEXT_FIELDS = {
     "origination_time": (330, 8), "time_recorded": (330, 8),
 }
 _BEXT_MIN = 602
+# smpl chunk: the sampler root key (midi_unity_note) at payload offset 12.
+_SMPL_FIELDS = {"root", "root_note", "unity_note"}
 _NOTE_INDEX = {n: i for i, n in enumerate(NOTES)}
+
+
+def _fmt_sample_rate(chunks):
+    fmt = next((c[1] for c in chunks if c[0] == b"fmt "), None)
+    if fmt and len(fmt) >= 8:
+        return struct.unpack_from("<I", fmt, 4)[0]
+    return 44100
 
 
 def _note_to_midi(s):
@@ -122,7 +131,9 @@ def edit_wav(data, changes):
     info_changes = {f: v for f, v in changes.items() if f.lower() in _INFO_TAGS}
     acid_changes = {f: v for f, v in changes.items() if f.lower() in _ACID_FIELDS}
     bext_changes = {f: v for f, v in changes.items() if f.lower() in _BEXT_FIELDS}
-    unknown = set(changes) - set(info_changes) - set(acid_changes) - set(bext_changes)
+    smpl_changes = {f: v for f, v in changes.items() if f.lower() in _SMPL_FIELDS}
+    unknown = (set(changes) - set(info_changes) - set(acid_changes)
+               - set(bext_changes) - set(smpl_changes))
     if unknown:
         raise EditError(f"WAV has no editable field(s): {', '.join(sorted(unknown))}")
 
@@ -193,6 +204,28 @@ def edit_wav(data, changes):
         else:
             chunks.insert(next(i for i, c in enumerate(chunks) if c[0] == b"data"),
                           [b"bext", bytes(buf)])  # bext goes before data
+
+    # ---- smpl sampler root note ----
+    if smpl_changes:
+        sm = next((c for c in chunks if c[0] == b"smpl"), None)
+        if sm:
+            buf = bytearray(sm[1])
+            if len(buf) < 36:
+                raise EditError("smpl chunk too short to edit safely")
+        else:
+            period = round(1_000_000_000 / _fmt_sample_rate(chunks))
+            buf = bytearray(struct.pack("<9I", 0, 0, period, 60, 0, 0, 0, 0, 0))
+        for field, value in smpl_changes.items():
+            old = struct.unpack_from("<I", buf, 12)[0]
+            midi = _note_to_midi(str(value)) if value else 60
+            if midi is None:
+                raise EditError(f"unrecognized root note {value!r}")
+            struct.pack_into("<I", buf, 12, midi)
+            applied.append((field, old, value))
+        if sm:
+            sm[1] = bytes(buf)
+        else:
+            chunks.append([b"smpl", bytes(buf)])
 
     # ---- emit ----
     out = bytearray(b"RIFF\x00\x00\x00\x00WAVE")

@@ -157,3 +157,11 @@ def test_note_to_midi():
     assert edit_riff._note_to_midi("C3") == 60
     assert edit_riff._note_to_midi("A3") == 69
     assert edit_riff._note_to_midi("60") == 60
+
+
+def test_wav_smpl_root_note():
+    src = _wav(_fmt(), _data())
+    out, _ = edit_riff.edit_wav(src, {"root": "C3"})
+    smpl = _payload(out, b"smpl")
+    assert struct.unpack_from("<I", smpl, 12)[0] == 60  # C3 sampler root
+    assert _payload(out, b"data") == _payload(src, b"data")  # audio intact
