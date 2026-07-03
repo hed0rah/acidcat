@@ -35,16 +35,19 @@ def is_mp4(data):
     return len(data) >= 12 and data[4:8] == b"ftyp"
 
 
-def _box_header(data, pos, end):
-    """Decode a box header at pos. Return (btype, hdr_len, box_size) or None
-    if it does not fit / is malformed."""
-    if pos + 8 > end:
+def _box_header(data, pos, end, avail):
+    """Decode a box header at pos. `end` is the logical bound (parent box end,
+    or the real file size at the top level); `avail` is how many bytes were read
+    into `data`. Returns (btype, hdr_len, box_size, beyond_cap) or None if the
+    box overruns its logical bound (malformed). beyond_cap is True when the box
+    is valid but its contents extend past the read window (e.g. a large mdat)."""
+    if pos + 8 > avail:
         return None
     size = struct.unpack_from(">I", data, pos)[0]
     btype = data[pos + 4:pos + 8]
     hdr = 8
     if size == 1:
-        if pos + 16 > end:
+        if pos + 16 > avail:
             return None
         size = struct.unpack_from(">Q", data, pos + 8)[0]
         hdr = 16
@@ -54,31 +57,37 @@ def _box_header(data, pos, end):
         hdr += 16
     if size < hdr or pos + size > end:
         return None
-    return btype, hdr, size
+    return btype, hdr, size, pos + size > avail
 
 
-def iter_boxes(data, start=0, end=None, depth=0):
-    """Yield box dicts {type, offset, size, hdr, depth, truncated} for the box
-    tree in [start, end), recursing into containers. Depth- and bounds-safe."""
+def iter_boxes(data, start=0, end=None, depth=0, file_size=None):
+    """Yield box dicts {type, offset, size, hdr, depth, truncated, beyond_cap}
+    for the box tree in [start, end), recursing into containers. `file_size` (the
+    real on-disk size) bounds top-level boxes so a large mdat read only in part
+    is 'beyond_cap', not a false 'overruns'. Depth- and bounds-safe."""
+    avail = len(data)
+    if file_size is None:
+        file_size = avail
     if end is None:
-        end = len(data)
+        end = file_size
     pos = start
-    while pos + 8 <= end:
-        hd = _box_header(data, pos, end)
+    while pos + 8 <= end and pos + 8 <= avail:
+        hd = _box_header(data, pos, end, avail)
         if hd is None:
-            # a box header that overruns its parent: report and stop this level
-            raw = struct.unpack_from(">I", data, pos)[0] if pos + 4 <= end else 0
-            yield {"type": data[pos + 4:pos + 8], "offset": pos,
-                   "size": raw, "hdr": 8, "depth": depth, "truncated": True}
+            # a box header that overruns its logical parent: report and stop.
+            raw = struct.unpack_from(">I", data, pos)[0] if pos + 4 <= avail else 0
+            yield {"type": data[pos + 4:pos + 8], "offset": pos, "size": raw,
+                   "hdr": 8, "depth": depth, "truncated": True, "beyond_cap": False}
             return
-        btype, hdr, size = hd
+        btype, hdr, size, beyond_cap = hd
         yield {"type": btype, "offset": pos, "size": size, "hdr": hdr,
-               "depth": depth, "truncated": False}
-        if btype in _CONTAINERS and depth < _MAX_DEPTH:
-            yield from iter_boxes(data, pos + hdr, pos + size, depth + 1)
-        elif btype == b"meta" and size >= hdr + 4 and depth < _MAX_DEPTH:
+               "depth": depth, "truncated": False, "beyond_cap": beyond_cap}
+        if not beyond_cap and btype in _CONTAINERS and depth < _MAX_DEPTH:
+            yield from iter_boxes(data, pos + hdr, pos + size, depth + 1, file_size)
+        elif not beyond_cap and btype == b"meta" and size >= hdr + 4 \
+                and depth < _MAX_DEPTH:
             # FullBox container: 4-byte version/flags before the children
-            yield from iter_boxes(data, pos + hdr + 4, pos + size, depth + 1)
+            yield from iter_boxes(data, pos + hdr + 4, pos + size, depth + 1, file_size)
         pos += size
 
 
@@ -141,10 +150,10 @@ def audio_info(data):
             continue
         # FullBox: 4-byte version/flags, 4-byte entry_count, then the entry box
         ep = b["offset"] + b["hdr"] + 8
-        eh = _box_header(data, ep, b["offset"] + b["size"])
+        eh = _box_header(data, ep, b["offset"] + b["size"], len(data))
         if eh is None:
             return None
-        codec, ehdr, _ = eh
+        codec, ehdr, _, _ = eh
         ap = ep + ehdr  # AudioSampleEntry payload
         # 6 reserved + 2 data_ref_index + 8 reserved, then channelcount(2),
         # samplesize(2), 2+2, samplerate(4, 16.16 fixed).

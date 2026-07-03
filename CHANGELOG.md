@@ -5,6 +5,34 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.14.0] - 2026-07-03
+
+### Added
+
+- `inspect --anomalies`: a forensic scan that flags trailing data past the
+  declared container end, appended-format magic (polyglot detection: ZIP/PDF/
+  PNG/... after the audio), structural size mismatches (surfaced from the
+  walker), and control bytes smuggled into text fields. Findings carry a
+  severity, byte offset, and rule; also emitted in `-f json`. Also flags duplicate ID3 frames, non-zero content in spec-ignorable padding/free regions, and FLAC APPLICATION blocks.
+- `cover` command: extract, embed, or remove embedded cover art across MP3,
+  FLAC, MP4/M4A, and Ogg (`acidcat cover FILE -o art.jpg`, `--set art.png`,
+  `--remove`); embed/remove are atomic with a `_original` backup.
+- Custom ID3 frames in `write`: `--set txxx:NAME=value` (and `wxxx:NAME=url`)
+  set user-defined frames; on FLAC/Ogg the name becomes a Vorbis comment, on
+  M4A a freeform atom. `inspect` decodes TXXX/WXXX as `description = value`.
+- LSB-steganography detection: `--anomalies` computes the per-window entropy of
+  the low bit-plane of PCM WAV samples and flags a uniform-high floor (the tell
+  of an encrypted hidden payload; natural audio dips low in quiet passages).
+  `inspect --full` emits the entropy map and `build_explorer.py` renders it as a
+  color heat-map in the byte explorer.
+
+### Fixed
+
+- MP4/M4A: a large `mdat` (or any box) whose contents extend past the inspector's
+  read window was wrongly flagged as overrunning its parent. Box sizes are now
+  reconciled against the real file size, so a valid large box reads as "content
+  beyond read window", not an error. (Found by `--anomalies` on a real ALAC file.)
+
 ## [0.13.0] - 2026-07-03
 
 ### Added
