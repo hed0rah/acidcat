@@ -1379,3 +1379,31 @@ class TestReviewHardening:
         bad = (MAGIC + b"\x00" * 4
                + struct.pack("<HHII", 2, 24, 48000, 0xFFFFFFFF) + b"\x00" * 40)
         assert parse_header(bad) is None
+
+
+class TestNiHsinWalker:
+    def _hsin(self, name, product, version):
+        import struct as _s
+        def p16(s): return _s.pack("<I", len(s)) + s.encode("utf-16-le")
+        body = bytearray(0x30)
+        body[0x0C:0x10] = b"hsin"
+        body += p16(version) + p16(name) + p16(product)
+        _s.pack_into("<Q", body, 0, len(body))
+        return bytes(body)
+
+    def test_parse_hsin_metadata(self):
+        from acidcat.core.ni import parse_hsin
+        m = parse_hsin(self._hsin("MyPreset", "Massive", "2.0.1"))
+        assert m == {"product": "Massive", "version": "2.0.1", "name": "MyPreset"}
+
+    def test_non_hsin_rejected(self):
+        from acidcat.core.ni import parse_hsin
+        assert parse_hsin(b"not an hsin file at all" * 4) is None
+
+    def test_inspect_ni_surfaces_name(self, tmp_path):
+        from acidcat.commands.inspect import inspect_ni
+        p = tmp_path / "t.nmsv"
+        p.write_bytes(self._hsin("Bass01", "Massive", "1.5"))
+        chunks, _ = inspect_ni(str(p))
+        vals = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+        assert vals["product"] == "Massive" and vals["name"] == "Bass01"
