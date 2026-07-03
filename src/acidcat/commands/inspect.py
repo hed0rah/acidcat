@@ -31,6 +31,8 @@ from acidcat.core import ncw as ncwmod
 from acidcat.core import mp4 as mp4mod
 from acidcat.core import ni as nimod
 from acidcat.core import ogg as oggmod
+from acidcat.core import anomalies as anomaliesmod
+from acidcat.core import lsb as lsbmod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -121,6 +123,10 @@ def register(subparsers):
                         "each chunk with its raw region bytes and every field's "
                         "absolute byte offset, so build_explorer.py can render a "
                         "standalone HTML explorer for the file.")
+    p.add_argument("--anomalies", action="store_true",
+                   help="Forensic scan: flag trailing data past the container, "
+                        "appended-format magic (polyglots), structural size "
+                        "mismatches, and control bytes smuggled into text fields.")
     p.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                    help="Colorize table output: auto (default, when stdout is a "
                         "TTY), always, or never. Respects the NO_COLOR env var.")
@@ -1732,13 +1738,17 @@ def inspect_mp4(filepath):
                        "summary": f"'{title}'" if title else "iTunes metadata",
                        "fields": mfields, "warnings": []})
 
-    for b in mp4mod.iter_boxes(data):
+    for b in mp4mod.iter_boxes(data, file_size=file_size):
         t = b["type"].decode("latin-1", errors="replace")
         summary = ". " * b["depth"] + t
         fields = []
         if b["truncated"]:
             warns.append(f"box {t!r} at 0x{b['offset']:08x} overruns its parent")
             summary += " (overruns parent)"
+        elif b.get("beyond_cap"):
+            # a valid box (e.g. a large mdat) whose contents run past the read
+            # window: not an error, just not fully read.
+            summary += " (content beyond read window)"
         elif b["type"] == b"ftyp" and b["depth"] == 0:
             brand = data[b["offset"] + b["hdr"]:b["offset"] + b["hdr"] + 4]
             summary += f"  major brand {brand.decode('latin-1', errors='replace')}"
@@ -2130,6 +2140,27 @@ def _decode_id3_text(raw):
     return text.replace("\x00", " ").strip()
 
 
+def _decode_txxx(raw, fid):
+    """Decode a user-defined TXXX/WXXX frame as 'description = value'. TXXX is
+    [enc][description NUL][value]; WXXX's value is always latin-1 (a URL)."""
+    if not raw:
+        return ""
+    enc = raw[0]
+    body = raw[1:]
+    codecs = {0: "latin-1", 1: "utf-16", 2: "utf-16-be", 3: "utf-8"}
+    codec = codecs.get(enc, "latin-1")
+    sep = b"\x00\x00" if enc in (1, 2) else b"\x00"
+    idx = body.find(sep)
+    if idx < 0:
+        desc, val = body, b""
+    else:
+        desc, val = body[:idx], body[idx + len(sep):]
+    d = desc.decode(codec, "replace").strip()
+    vcodec = "latin-1" if fid == "WXXX" else codec
+    v = val.decode(vcodec, "replace").replace("\x00", " ").strip()
+    return f"{d} = {v}" if d else v
+
+
 def _id3v2_frames(filepath, hdr):
     """Enumerate ID3v2 frames into display fields. Decodes common text
     frames to their values; lists every frame id and size otherwise."""
@@ -2210,7 +2241,10 @@ def _id3v2_frames(filepath, hdr):
             break
         raw = body[data_start:data_start + fsize]
         note = (_ID3V22_TEXT_FRAMES if is_v22 else _ID3_TEXT_FRAMES).get(fid_s, "")
-        if fid_s.startswith("T") and note:
+        if fid_s in ("TXXX", "WXXX"):
+            value = _decode_txxx(raw, fid_s)
+            note = "user-defined text" if fid_s == "TXXX" else "user-defined URL"
+        elif fid_s.startswith("T") and note:
             value = _decode_id3_text(raw)
         elif fid_s == "APIC" or fid_s == "PIC":
             value = f"{fsize:,} bytes"
@@ -2556,6 +2590,22 @@ def _render_pretty(filepath, fmt_label, chunks, file_warns, args):
     return 0
 
 
+def _render_anomalies(findings, args):
+    """Print the forensic findings from `--anomalies` under the main dump."""
+    p = _Paint(_color_enabled(args))
+    role = {"alert": "warn", "warn": "warn", "notice": "dim"}
+    print()
+    if not findings:
+        print(p("dim", "  anomalies: none"))
+        return
+    print(p("id", f"  anomalies ({len(findings)}):"))
+    for f in findings:
+        sev = f["severity"]
+        tag = p(role.get(sev, "dim"), f"[{sev:6}]")
+        off = p("dim", f"0x{f['offset']:08x}")
+        print(f"    {tag} {off}  {f['rule']:16} {f['message']}")
+
+
 def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None):
     file_size = os.path.getsize(filepath)
     p = _Paint(_color_enabled(args))
@@ -2766,6 +2816,23 @@ def run(args):
 
             total = len(chunks)
             shown = _select_chunks(chunks, only, exclude)
+            findings = (anomaliesmod.scan(filepath, fmt_label, chunks, file_warns)
+                        if getattr(args, "anomalies", False) else None)
+            lsb_info = None
+            if getattr(args, "anomalies", False) or full:
+                try:
+                    lsb_info = lsbmod.analyze(filepath, fmt_label, chunks)
+                except Exception:
+                    lsb_info = None
+            if findings is not None and lsb_info and lsb_info["suspicious"]:
+                findings.append({
+                    "severity": "alert", "offset": lsb_info["region"][0],
+                    "rule": "lsb_stego",
+                    "message": f"uniform-high LSB entropy (min {lsb_info['min']}, "
+                               f"mean {lsb_info['mean']}): possible LSB-stego payload"})
+                findings.sort(key=lambda x: (
+                    -{"alert": 3, "warn": 2, "notice": 1}.get(x["severity"], 0),
+                    x["offset"]))
 
             if as_json:
                 # NDJSON: one compact record per file per line, so the stream
@@ -2782,6 +2849,8 @@ def run(args):
                     "full": full,
                     "chunks": out_chunks,
                     "warnings": file_warns,
+                    **({"anomalies": findings} if findings is not None else {}),
+                    **({"lsb": lsb_info} if lsb_info else {}),
                 }) + "\n")
             else:
                 pretty = getattr(args, "pretty", False)
@@ -2793,6 +2862,8 @@ def run(args):
                     _render_pretty(filepath, fmt_label, shown, file_warns, args)
                 else:
                     _render_table(filepath, fmt_label, shown, file_warns, args, total)
+                if findings is not None:
+                    _render_anomalies(findings, args)
     except BrokenPipeError:
         # a downstream pager or `head` closed the pipe: exit quietly the way
         # cat and grep do, without a traceback.
