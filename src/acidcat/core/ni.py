@@ -42,7 +42,11 @@ def _u16le_pascals(data, limit=1 << 20):
             except UnicodeDecodeError:
                 i += 1
                 continue
-            if s and all(0x20 <= ord(ch) < 0xFFFF for ch in s):
+            # require mostly-ASCII printable text, so binary noise that happens
+            # to decode as valid UTF-16LE (e.g. a stray CJK codepoint) is not
+            # mistaken for a metadata string.
+            printable = sum(ch.isascii() and ch.isprintable() for ch in s)
+            if len(s) >= 2 and printable >= len(s) * 0.7:
                 out.append((i, s))
                 i += 4 + c * 2
                 continue
@@ -214,25 +218,41 @@ def parse_hsin(data):
         return None
     meta = {}
     strings = _u16le_pascals(data)
-    app_off = None
+    app_off = version_off = None
     for off, s in strings:
         if s in _APP_NAMES:
             meta["product"], app_off = s, off
             break
     for off, s in strings:
         if _VERSION_RE.match(s):
-            meta["version"] = s
+            meta["version"], version_off = s, off
             break
-    # the SoundInfoItem name sits before the app-name string; take the last
-    # alphabetic, non-version pascal string in that region.
-    name = None
+    # the SoundInfoItem name is the FIRST alphabetic, non-version pascal string
+    # after the version; author/vendor/description are the fields right after it
+    # (positional, so they read correctly even when the name field is populated).
+    name_end = None
     for off, s in strings:
+        if version_off is not None and off <= version_off:
+            continue
         if app_off is not None and off >= app_off:
             break
         if s == meta.get("version") or s in _APP_NAMES:
             continue
         if any(ch.isalpha() for ch in s):
-            name = s
-    if name:
-        meta["name"] = name
+            meta["name"] = s
+            name_end = off + 4 + len(s) * 2
+            break
+    if name_end is not None:
+        pos = name_end
+        for label in ("author", "vendor", "description"):
+            if (app_off is not None and pos >= app_off) or pos + 4 > len(data):
+                break
+            c = struct.unpack_from("<I", data, pos)[0]
+            if c > 256 or pos + 4 + c * 2 > len(data):
+                break
+            val = data[pos + 4:pos + 4 + c * 2].decode(
+                "utf-16-le", errors="replace").strip()
+            if val:
+                meta[label] = val
+            pos += 4 + c * 2
     return meta
