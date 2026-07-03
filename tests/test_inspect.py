@@ -1516,3 +1516,26 @@ class TestNiFastLZ:
     def test_decompress_subtree_none_on_garbage(self):
         from acidcat.core.ni import decompress_subtree
         assert decompress_subtree(b"\x00" * 200) is None
+
+
+class TestBitwigReferences:
+    def test_parse_references_counts(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_references
+        data = (b"BtWg0003000200" + b"referenced_module_ids" + b"\x19"
+                + _s.pack(">I", 3) + b"referenced_device_ids" + b"\x19"
+                + _s.pack(">I", 5))
+        refs = parse_references(data)
+        assert refs["referenced_modules"] == 3
+        assert refs["referenced_devices"] == 5
+
+    def test_parse_connections_paths(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_connections
+
+        def tok(s):
+            return _s.pack(">I", len(s)) + s.encode()
+        data = (b"BtWg0003000200" + tok("CONTENTS/MODULES/4/CONTENTS/CUTOFF")
+                + tok("plain string") + tok("CONTENTS/MODULES/4/CONTENTS/CUTOFF"))
+        conns = parse_connections(data)
+        assert conns == ["CONTENTS/MODULES/4/CONTENTS/CUTOFF"]  # deduped

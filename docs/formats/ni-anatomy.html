@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / native instruments anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* ni palette: brick value, teal flag, graphite anchor */
+  --enum:#7A3A2A;  --enum-soft:#E3D3CD;
+  --flag:#3F6462;  --flag-soft:#D2DEDC;
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03);
+  --sync:#4A4E58;  --sync-soft:#D8D9DE;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
+.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.75rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500;letter-spacing:0.02em}
+.region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px;vertical-align:middle}
+.region .rbody{padding:0.6rem 1rem 1.2rem 3rem;border-top:1px solid var(--hair)}
+
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.32rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
+.detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title">
+        <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
+        <h1>Native Instruments Anatomy</h1>
+      </div>
+      <div class="stamp"><b>NISound + kin</b>.nmsv . .nabs . .ksd . .nksf<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"hsin" @0x0C</b></div>
+      <div>families <b>hsin . ksd . nksf</b></div>
+      <div>endian <b>little (hsin)</b></div>
+      <div>sample <b>68 73 69 6E</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="lede">Native Instruments presets are three containers wearing one badge. The <b>NISound "hsin"</b> tree carries Massive <b>.nmsv</b>, Absynth <b>.nabs</b>, FM8, Reaktor, and modern Kontakt <b>.nki</b>; the older <b>.ksd</b> document shell (old Absynth, KORE, FM8) wraps zlib chunks around plain XML; and <b>.nksf</b> is a RIFF form full of MessagePack. The formats are community-documented; everything below was re-derived from byte-level facts against real presets, nothing else. The metadata a producer wants is plain in all three: no decompression is needed to read an hsin preset name. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind: <span class="k-en">brick</span> is a decoded value, <span class="k-fl">teal</span> is a flag, graphite is a structural anchor, faint is reserved.</p>
+  <aside class="sig" aria-hidden="true"></aside>
+  </div>
+
+  <div class="sec">family 1 . NISound "hsin" container</div>
+  <p class="note">An EBML-like tree of size-prefixed frames, everything little-endian. Each frame opens with a 0x30-byte header (its own size, the "hsin" magic, a UUID), then a stack of DSIN-domain item records, then child frames. The item chain in every preset examined:</p>
+  <div class="tree"><b>hsin</b> root frame . frame_size = file size<br>&nbsp;&nbsp;<b>DSIN 118</b> RepositoryRoot<br>&nbsp;&nbsp;&nbsp;&nbsp;<b>DSIN 101</b> Authoring Application &nbsp;.&nbsp; appID 7 = Massive . version "1.3.1.0"<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>DSIN 108</b> SoundInfoItem &nbsp;.&nbsp; "nicecombo" . author . vendor . description . "Massive"<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>DSIN 121</b> ControllerAssignments<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>DSIN 116</b> EncryptionItem<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>DSIN 115</b> SubtreeItem &nbsp;.&nbsp; FastLZ payload, a whole hsin container inside</div>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">hsin frame header</span><span class="rspan">0x00 . 48 bytes . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">The root frame of nicecombo.nmsv, byte for byte. The magic sits at 0x0C, not 0x00: sniff there. NI writes its four-char codes byte-reversed ("hsin" reads NIsh backwards), a habit that repeats through all three families.</p>
+        <div id="block-hsin"></div>
+        <div class="kv">
+          <div><span class="k">extensions</span><span class="v">.nmsv (Massive) . .nabs (Absynth) . FM8 . Reaktor . modern Kontakt .nki/.nkm</span></div>
+          <div><span class="k">worked example</span><span class="v">nicecombo.nmsv: name "nicecombo", product Massive, version 1.3.1.0</span></div>
+          <div><span class="k">second sample</span><span class="v">John ananew.nabs: name "John ananew", product Absynth, version 5.0.0.0</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">DSIN item frames</span><span class="rspan">0x30 . 20 bytes each . stacked</span></summary>
+      <div class="rbody">
+        <p class="note">At 0x30 the item stack begins: each record is a 4cc domain, a u32 item ID, a u32 version, and a u64 inner size. Records nest by size until the innermost item's own data begins. Drawn below: the RepositoryRoot record that opens nicecombo.nmsv.</p>
+        <div id="block-dsin"></div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">UTF-16LE metadata strings</span><span class="rspan">items 101 + 108 . no decompression</span></summary>
+      <div class="rbody">
+        <p class="note">The metadata is stored as pascal strings: a u32 character count, then that many UTF-16LE code units. Item 101 holds the app ID (7 = Massive, 6 = Absynth) and the writing version string; item 108 holds the preset name, author, vendor, description, and finally the app name. Drawn below: the name field of nicecombo.nmsv.</p>
+        <div id="block-pascal"></div>
+        <div class="kv">
+          <div><span class="k">item 101 layout</span><span class="v">u32 appID, u32, version pascal string, e.g. 7 . "1.3.1.0"</span></div>
+          <div><span class="k">item 108 layout</span><span class="v">name . author . vendor . description . app name, in that order; empty fields are a bare zero count</span></div>
+          <div><span class="k">acidcat reads</span><span class="v">name, product, version, author, vendor; positional, bounds-checked, mostly-ASCII filter against binary noise</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region opt">
+      <summary><span class="chev">&#9656;</span><span class="rname">FastLZ subtree</span><span class="rspan">item 115 . synth state . opaque by default</span></summary>
+      <div class="rbody">
+        <p class="note">The SubtreeItem holds the actual patch. Its payload header is drawn below (nicecombo.nmsv); after it comes a FastLZ level-1 stream that decompresses to a complete nested hsin container of raw synth parameter state. acidcat inspect --verbose runs the decompression and reports the inner container; by default it stays opaque, because the metadata never needed it.</p>
+        <div id="block-fastlz"></div>
+        <div class="kv">
+          <div><span class="k">worked example</span><span class="v">nicecombo.nmsv: 1595 bytes of FastLZ open to a 6017-byte inner hsin; John ananew.nabs opens to 13442 bytes</span></div>
+          <div><span class="k">hardening</span><span class="v">decompression output is capped, so a forged size field cannot balloon memory</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="sec">family 2 . ksd document shell</div>
+  <p class="note">Old Absynth, KORE, and FM8 saved through the "SoundShell" document layer: an ASCII "-in-" magic, a class path string, then a run of chunked zlib streams. The 4ccs are byte-reversed again: atad is data, ofni is info, bilz is zlib. Richest metadata of the three families.</p>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">header + chunk stream</span><span class="rspan">"-in-" @0x00 . atad/bilz chunks</span></summary>
+      <div class="rbody">
+        <p class="note">After the magic and a u32 version comes the ASCII class path "#NI#CS#Document##NI#SoundShell#Sound#", then the atad chunks. Each names a stream and wraps it in a bilz envelope with both sizes up front. Drawn below: the info chunk of Trance Sequenz.ksd.</p>
+        <div id="block-ksd"></div>
+        <div class="kv">
+          <div><span class="k">magic</span><span class="v">"-in-" at 0x00, then u32 version (2 here)</span></div>
+          <div><span class="k">class path</span><span class="v">"#NI#CS#Document##NI#SoundShell#Sound#", plain ASCII</span></div>
+          <div><span class="k">streams seen</span><span class="v">ofni (the metadata XML) . dnss (sound data); each is one zlib inflate away</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">decoded info XML</span><span class="rspan">NI_DOC_HEADER . inside the ofni chunk</span></summary>
+      <div class="rbody">
+        <p class="note">The ofni stream inflates to a small blob tagged " LMX" (XML, reversed once more) holding a plain NI_DOC_HEADER document. Trance Sequenz.ksd, decoded:</p>
+        <div class="kv">
+          <div><span class="k">doc_name</span><span class="v">"Trance Sequenz"; doc_type com.native-instruments.SoundShell.sound</span></div>
+          <div><span class="k">commonAttr</span><span class="v">Author ("not set" here, filtered out) . Vendor . Bankname . Comment . Rating (2) . Color</span></div>
+          <div><span class="k">TechnicalAttr</span><span class="v">DeviceType "Instrument" . Plugins/Plugin "FM8" . CPU/memory hints</span></div>
+          <div><span class="k">MusicalAttr</span><span class="v">Tempo (0 = unset) . Genre . Key . Scale . TimeSignature</span></div>
+          <div><span class="k">acidcat reads</span><span class="v">name, author, vendor, bank, comment, plugin, device_type, tempo, genre, key; regex over the XML, no entity expansion possible</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="sec">family 3 . nksf (NKS)</div>
+  <p class="note">The modern cross-vendor preset wrapper is just RIFF with form type NIKS. The metadata chunk NISI is a u32 version followed by one MessagePack map; the plugin state rides along raw in PCHK.</p>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">RIFF form + NISI chunk</span><span class="rspan">0x00 . little-endian sizes . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">The opening bytes of New_Init_2.nksf: standard RIFF header, then NISI lands first with the whole browser card in one msgpack map.</p>
+        <div id="block-nksf"></div>
+        <div class="kv">
+          <div><span class="k">NISI map keys</span><span class="v">author . bankchain (array) . comment . deviceType . name . uuid . vendor</span></div>
+          <div><span class="k">worked example</span><span class="v">name "New Init 2" . vendor "Native Instruments" . deviceType INST . bankchain ["Massive X"] . uuid d4aeae07-af01-45a4-9b10-9e76fa3be911</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">one msgpack entry</span><span class="rspan">inside NISI . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">MessagePack packs its type and length into the lead byte, so short strings cost one byte of framing. The name entry from New_Init_2.nksf:</p>
+        <div id="block-msgpack"></div>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">NICA . PLID . PCHK</span><span class="rspan">the rest of the form</span></summary>
+      <div class="rbody">
+        <div class="kv">
+          <div><span class="k">NICA</span><span class="v">controller assignment stub; 5 bytes in this file</span></div>
+          <div><span class="k">PLID</span><span class="v">msgpack again: VST.magic, VST3.uid, pluginName "Massive X"; pins the preset to its plugin</span></div>
+          <div><span class="k">PCHK</span><span class="v">the raw plugin state chunk; a zlib stream sits inside. acidcat leaves it opaque</span></div>
+          <div><span class="k">acidcat reads</span><span class="v">name, author, vendor, comment, device_type, bankchain (joined as bank); the msgpack decoder is depth-capped and bounds-checked</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <footer>
+    <span>acidcat / native instruments anatomy</span>
+    <span>hsin . -in- . RIFF NIKS . name "nicecombo"</span>
+  <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // hsin frame header: the first 0x30 bytes of nicecombo.nmsv
+  build("block-hsin", 'byte',
+    [0x86,0x09,0x00,0x00,0x00,0x00,0x00,0x00,
+     0x01,0x00,0x00,0x00,
+     0x68,0x73,0x69,0x6E,
+     0x01,0x00,0x00,0x00,
+     0x00,0x00,0x00,0x00,
+     0xEB,0x36,0xCC,0x0E,0x4C,0xE2,0x41,0x49,0xA9,0xD9,0x79,0x59,0xE0,0x3B,0x96,0x16,
+     0x96,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
+    [
+      {label:"frame_size",k:"enum",r:[0,7],val:"0x986 = 2438",
+       body:"u64 little-endian: the total size of this frame, children included. For the root frame it equals the file size, which is the cheapest sanity check the format offers.",
+       note:"every frame in the tree, at every depth, opens with its own u64 size."},
+      {label:"header_version",k:"sync",r:[8,11],val:"1",
+       body:"u32 little-endian header version. Every file examined reads 1."},
+      {label:"magic",k:"sync",r:[12,15],val:"\"hsin\"",
+       body:"The magic sits at offset 0x0C, behind the frame size, so a sniffer that only reads offset 0 misses it. Four ASCII bytes, byte-reversed as NI likes to write its codes.",
+       note:"shared by .nmsv, .nabs, FM8, Reaktor, and modern Kontakt .nki/.nkm files."},
+      {label:"const",k:"rsv",r:[16,19],val:"1",
+       body:"u32 constant 1 in every frame examined. Left uninterpreted."},
+      {label:"const",k:"rsv",r:[20,23],val:"0",
+       body:"u32 constant 0 in every frame examined. Left uninterpreted."},
+      {label:"uuid",k:"enum",r:[24,39],val:"16-byte uuid",
+       body:"Sixteen bytes of frame identity. Differs per frame and per file; useful as a fingerprint, not needed to walk the tree."},
+      {label:"data_size",k:"enum",r:[40,47],val:"0x96 = 150",
+       body:"u64 little-endian: the size of this frame's own item stack and data. Whatever remains of frame_size after it is child frames. Here 0x30 + 150 lands exactly on the next frame's first byte.",
+       note:"frame_size and data_size disagreeing with the file length is how acidcat rejects truncated or forged files."}
+    ]);
+
+  // one DSIN item record: RepositoryRoot, item 118
+  build("block-dsin", 'byte',
+    [0x44,0x53,0x49,0x4E,
+     0x76,0x00,0x00,0x00,
+     0x01,0x00,0x00,0x00,
+     0x48,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
+    [
+      {label:"domain",k:"sync",r:[0,3],val:"\"DSIN\"",sel:0,branch:[
+        ["DSIN","native item domain, reversed \"NISD\""],
+        ["4KIN","Kontakt item domain, reversed \"NIK4\""]],
+       body:"Four ASCII bytes naming the item domain. DSIN carries the shared NISound items; Kontakt-specific items arrive under 4KIN.",
+       note:"reversed again: DSIN reads NISD backwards."},
+      {label:"itemID",k:"enum",r:[4,7],val:"118 RepositoryRoot",sel:0,branch:[
+        ["118","RepositoryRoot: the trunk of the preset"],
+        ["101","Authoring Application: appID + version string"],
+        ["108","SoundInfoItem: name, author, vendor, description"],
+        ["121","ControllerAssignments"],
+        ["116","EncryptionItem: wrapper, no encryption observed"],
+        ["115","SubtreeItem: FastLZ payload, the synth state"]],
+       body:"u32 little-endian item type. The stack nests these by size until the innermost item's data begins; the six IDs in the table cover every preset examined.",
+       note:"0x76 = 118: this record is the RepositoryRoot."},
+      {label:"version",k:"sync",r:[8,11],val:"1",
+       body:"u32 item version. Reads 1 throughout the corpus."},
+      {label:"inner_size",k:"enum",r:[12,19],val:"0x48 = 72",
+       body:"u64 little-endian: how many bytes this item record wraps, the next record included. Walking the stack is nothing but chasing these sizes inward."}
+    ]);
+
+  // one UTF-16LE pascal string: the preset name in item 108
+  build("block-pascal", 'byte',
+    [0x09,0x00,0x00,0x00,
+     0x6E,0x00,0x69,0x00,0x63,0x00,0x65,0x00,0x63,0x00,0x6F,0x00,0x6D,0x00,0x62,0x00,0x6F,0x00],
+    [
+      {label:"char_count",k:"sync",r:[0,3],val:"9",
+       body:"u32 little-endian: the number of UTF-16LE code units that follow, not bytes. An empty field is a bare zero count, four bytes and gone.",
+       note:"acidcat bounds-checks every count before reading and requires mostly-ASCII printable text, so binary noise that happens to decode is not mistaken for metadata."},
+      {label:"chars",k:"enum",r:[4,21],val:"\"nicecombo\"",
+       body:"Nine UTF-16LE code units: the preset name as the browser shows it. Author, vendor, and description follow positionally in item 108, then the app name closes the run."}
+    ]);
+
+  // SubtreeItem payload header: item 115, in front of the FastLZ stream
+  build("block-fastlz", 'byte',
+    [0x01,0x00,0x00,0x00,
+     0x01,
+     0x81,0x17,0x00,0x00,
+     0x3B,0x06,0x00,0x00],
+    [
+      {label:"marker",k:"sync",r:[0,3],val:"1",
+       body:"u32 constant 1 opening the SubtreeItem payload."},
+      {label:"compressed",k:"flag",r:[4,4],val:"0x01",
+       body:"One byte flagging the payload as compressed. Every subtree in the corpus carries it."},
+      {label:"uncompressed_size",k:"enum",r:[5,8],val:"0x1781 = 6017",
+       body:"u32 little-endian: the size the FastLZ stream must decompress to. acidcat treats a mismatch as a failed candidate and moves on.",
+       note:"the decompressor is output-capped, so a forged size cannot be used as a decompression bomb."},
+      {label:"compressed_size",k:"enum",r:[9,12],val:"0x63B = 1595",
+       body:"u32 little-endian: the length of the FastLZ level-1 stream that follows. Those 1595 bytes open into a complete nested hsin container, a preset within the preset, holding the raw synth parameter state."}
+    ]);
+
+  // one ksd atad chunk header: the ofni (info) stream of Trance Sequenz.ksd
+  build("block-ksd", 'byte',
+    [0x61,0x74,0x61,0x64,
+     0x02,0x00,0x00,0x00,
+     0x6F,0x66,0x6E,0x69,
+     0x62,0x69,0x6C,0x7A,
+     0xF4,0x01,0x00,0x00,
+     0x12,0x04,0x00,0x00],
+    [
+      {label:"chunk",k:"sync",r:[0,3],val:"\"atad\"",
+       body:"Four ASCII bytes opening a data chunk: \"data\", byte-reversed, same habit as hsin."},
+      {label:"const",k:"rsv",r:[4,7],val:"2",
+       body:"u32 reading 2 on both chunks in this file. Left uninterpreted."},
+      {label:"stream tag",k:"enum",r:[8,11],val:"\"ofni\"",sel:0,branch:[
+        ["ofni","info: the NI_DOC_HEADER metadata XML"],
+        ["dnss","sound data stream, also seen in this file"]],
+       body:"Four reversed ASCII bytes naming the stream. ofni is info, the chunk a metadata reader wants; the synth payload rides in its sibling."},
+      {label:"envelope",k:"sync",r:[12,15],val:"\"bilz\"",
+       body:"\"zlib\", reversed. Announces the compression envelope: two sizes, then a standard zlib stream."},
+      {label:"compressed_size",k:"enum",r:[16,19],val:"500",
+       body:"u32 little-endian: the length of the zlib stream that follows the two size fields."},
+      {label:"uncompressed_size",k:"enum",r:[20,23],val:"1042",
+       body:"u32 little-endian: what the stream inflates to. Here, 1042 bytes tagged \" LMX\" (XML, reversed a third time) holding the plain NI_DOC_HEADER document.",
+       note:"acidcat inflates with an output cap and requires NI_DOC_HEADER in the result before trusting the stream."}
+    ]);
+
+  // nksf opening: RIFF header + the NISI chunk head, New_Init_2.nksf
+  build("block-nksf", 'byte',
+    [0x52,0x49,0x46,0x46,
+     0xF6,0x62,0x00,0x00,
+     0x4E,0x49,0x4B,0x53,
+     0x4E,0x49,0x53,0x49,
+     0x92,0x00,0x00,0x00,
+     0x01,0x00,0x00,0x00,
+     0x87],
+    [
+      {label:"riff magic",k:"sync",r:[0,3],val:"\"RIFF\"",
+       body:"Plain RIFF, nothing exotic: the same container that carries WAV. Chunk sizes are little-endian u32s and odd-sized chunks pad to even."},
+      {label:"riff size",k:"enum",r:[4,7],val:"0x62F6 = 25334",
+       body:"u32 little-endian: bytes remaining after this field. Plus eight equals the file size."},
+      {label:"form type",k:"sync",r:[8,11],val:"\"NIKS\"",
+       body:"The form type is the real signature: RIFF with form NIKS is a .nksf preset. Everything after it is chunks."},
+      {label:"chunk id",k:"sync",r:[12,15],val:"\"NISI\"",
+       body:"The NI Sound Info chunk, first in every file examined. Carries the whole browser card in one MessagePack map."},
+      {label:"chunk size",k:"enum",r:[16,19],val:"0x92 = 146",
+       body:"u32 little-endian NISI payload size: a u32 version plus 142 bytes of msgpack."},
+      {label:"NISI version",k:"sync",r:[20,23],val:"1",
+       body:"u32 chunk-format version in front of the msgpack data."},
+      {label:"map head",k:"enum",r:[24,24],val:"fixmap, 7 pairs",
+       body:"0x87: a MessagePack fixmap of seven key/value pairs. In this file: author, bankchain, comment, deviceType, name, uuid, vendor.",
+       note:"acidcat decodes it with a minimal depth-capped msgpack reader; only the types this map uses are implemented."}
+    ]);
+
+  // one msgpack entry from the NISI map: name = "New Init 2"
+  build("block-msgpack", 'byte',
+    [0xA4,0x6E,0x61,0x6D,0x65,
+     0xAA,0x4E,0x65,0x77,0x20,0x49,0x6E,0x69,0x74,0x20,0x32],
+    [
+      {label:"key head",k:"flag",r:[0,0],val:"fixstr, 4",sel:0,branch:[
+        ["a0-bf","fixstr: length in the low 5 bits"],
+        ["d9","str8: u8 length follows; the 36-char uuid uses it"],
+        ["80-8f","fixmap: pair count in the low 4 bits"],
+        ["90-9f","fixarray: bankchain is one of these"]],
+       body:"0xA4: a fixstr of four bytes. MessagePack folds type and length into the lead byte, so short strings cost one byte of framing.",
+       note:"the empty strings in this map (author, comment) are a bare 0xA0."},
+      {label:"key",k:"enum",r:[1,4],val:"\"name\"",
+       body:"Four UTF-8 bytes: the map key."},
+      {label:"value head",k:"flag",r:[5,5],val:"fixstr, 10",
+       body:"0xAA: a fixstr of ten bytes follows."},
+      {label:"value",k:"enum",r:[6,15],val:"\"New Init 2\"",
+       body:"Ten UTF-8 bytes: the preset name as every NKS browser shows it. Together the entry reads name = \"New Init 2\"."}
+    ]);
+})();
+</script>
+</body>
+</html>
