@@ -315,7 +315,7 @@ class TestInspectMidi:
         assert "note on" in kinds
         assert "meta end of track" in kinds
         note_on = next(r for r in trk["rows"] if r["event"] == "note on")
-        assert "C4" in note_on["detail"]
+        assert "C3" in note_on["detail"]  # MIDI 60 = C3 (DAW convention)
 
     def test_default_midi_has_no_rows(self, tmp_path):
         path = _smf(tmp_path, [_TRACK])
