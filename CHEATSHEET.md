@@ -90,3 +90,27 @@ pipx upgrade acidcat          # get the newest (reinstall does NOT upgrade)
 pip install -U acidcat        # with pip
 pip install -e .              # editable, from a checkout (runs live source)
 ```
+
+## edit / write metadata
+
+    acidcat write FILE... --set field=value [--set ...] [-o OUT] [--dry-run]
+
+WYSIWYG: the fields `inspect --pretty` shows are the fields you edit. In-place by
+default after a `<name>_original` backup; `-o` writes a copy; `--dry-run` shows
+the diff and writes nothing; multiple files = batch. Atomic (never a half file).
+
+    # tag an audio file (wav/mp3/flac/ogg/m4a)
+    acidcat write loop.wav --set title="Deep Kick" --set artist="me" --set genre=Techno
+
+    # set tempo + key on a WAV (writes the acid chunk)
+    acidcat write loop.wav --set bpm=128 --set key=Am
+
+    # sampler root note (smpl chunk) and broadcast-wav header fields
+    acidcat write oneshot.wav --set root=C3
+    acidcat write field.wav --set originator="me" --set bext_description="night frogs"
+
+    # batch, preview first
+    acidcat write *.wav --set genre=Foley --dry-run
+
+    # rename a Vital preset / set its author
+    acidcat write Bass.vital --set name="Reese Bass" --set author=me
