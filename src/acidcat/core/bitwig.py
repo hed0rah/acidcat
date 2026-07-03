@@ -18,6 +18,9 @@ import zipfile
 
 MAGIC = b"BtWg"
 _MAX_LEN = 1 << 20  # sanity cap on any declared length
+# bound byte-by-byte scans so a huge preset with no embedded zip cannot force a
+# multi-second full-buffer scan (the meta/params/tree all sit early).
+_SCAN_CAP = 16 * 1024 * 1024
 
 # string-valued meta keys worth surfacing, in display order (key, label)
 _META_FIELDS = [
@@ -114,6 +117,7 @@ def parse_parameters(data, cap=4000):
     end = data.find(b"PK\x03\x04")
     if end < 0:
         end = len(data)
+    end = min(end, _SCAN_CAP)
     out = []
     i = 14
     while i + 4 < end and len(out) < cap:
@@ -154,6 +158,7 @@ def parse_connections(data, cap=500):
     end = data.find(b"PK\x03\x04")
     if end < 0:
         end = len(data)
+    end = min(end, _SCAN_CAP)
     seen, out = set(), []
     i = 14
     while i + 4 < end and len(out) < cap:
@@ -177,6 +182,7 @@ def _collect_paths(data, cap=4000):
     end = data.find(b"PK\x03\x04")
     if end < 0:
         end = len(data)
+    end = min(end, _SCAN_CAP)
     out, seen = [], set()
     i = 14
     while i + 4 < end and len(out) < cap:
@@ -247,12 +253,12 @@ def _nearest_f64(data, anchor, pat, lo, hi):
     within [anchor+lo, anchor+hi] (the record window), or None."""
     a, b = max(0, anchor + lo), min(len(data), anchor + hi)
     best = None
-    i = data.find(pat, a)
-    while 0 <= i < b:
+    i = data.find(pat, a, b)  # bound the search to the window (no scan to EOF)
+    while i >= 0:
         d = abs(i - anchor)
         if best is None or d < best[0]:
             best = (d, _f64_at(data, i + len(pat)))
-        i = data.find(pat, i + 1)
+        i = data.find(pat, i + 1, b)
     return best[1] if best else None
 
 
@@ -269,8 +275,9 @@ def parse_notes(data, cap=200000):
         anchors.append(i)
         i = data.find(_NOTE_CHANCE, i + 1)
     footers, i = [], data.find(_NOTE_PITCH)
-    while i >= 0:
-        footers.append((i, data[i + 5]))
+    while i >= 0 and len(footers) < cap:
+        if i + 5 < len(data):  # the pitch byte must exist
+            footers.append((i, data[i + 5]))
         i = data.find(_NOTE_PITCH, i + 1)
     if not anchors or not footers:
         return []
@@ -297,6 +304,7 @@ def parse_structure(data, max_tokens=50000):
     end = data.find(b"PK\x03\x04")
     if end < 0:
         end = len(data)
+    end = min(end, _SCAN_CAP)
     toks = []
     i = 14
     while i + 4 < end and len(toks) < max_tokens:
@@ -313,28 +321,28 @@ def parse_structure(data, max_tokens=50000):
             and "/" not in toks[j] and ":" not in toks[j]]
 
 
-def list_assets(data, cap=32 * 1024 * 1024):
-    """List the entries in the embedded DEFLATE zip: [(name, size, raw)], where
-    raw is the decompressed bytes (read with a hard cap so a zip bomb cannot
-    exhaust memory) or None if too large / unreadable. [] if there is no zip."""
+def list_assets(data, prefix=65536, max_entries=512):
+    """List the entries in the embedded DEFLATE zip: [(name, declared_size,
+    head)], where head is only the first `prefix` decompressed bytes (enough to
+    identify the format and read audio params). Reading a prefix, not the whole
+    entry, means a zip bomb (few compressed bytes, gigabytes inflated) cannot
+    exhaust memory: total held is at most max_entries * prefix. [] if no zip."""
     z = data.find(b"PK\x03\x04")
     if z < 0:
         return []
     out = []
     try:
         zf = zipfile.ZipFile(io.BytesIO(data[z:]))
-        for info in zf.infolist():
+        for info in zf.infolist()[:max_entries]:
             if info.is_dir():
                 continue
-            raw = None
+            head = None
             try:
                 with zf.open(info) as fh:
-                    raw = fh.read(cap + 1)
-                if len(raw) > cap:
-                    raw = None  # exceeds the cap: refuse
+                    head = fh.read(prefix)  # streamed: inflates ~prefix bytes only
             except (zipfile.BadZipFile, OSError, RuntimeError, EOFError):
-                raw = None
-            out.append((info.filename, info.file_size, raw))
+                head = None
+            out.append((info.filename, info.file_size, head))
     except (zipfile.BadZipFile, OSError):
         return []
     return out

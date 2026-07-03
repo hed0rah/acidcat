@@ -74,8 +74,9 @@ def edit_aiff(data, changes):
         out += cid + struct.pack(">I", len(payload)) + payload
         if len(payload) & 1:
             out += b"\x00"
+    form_size = len(out) - 8  # container covers header+chunks, NOT trailing junk
     out += trailing
-    struct.pack_into(">I", out, 4, len(out) - 8)
+    struct.pack_into(">I", out, 4, form_size)
 
     if next(c[1] for c in _iter_chunks(bytes(out))[0] if c[0] == b"SSND") != audio:
         raise EditError("internal: audio data changed during rewrite (aborted)")

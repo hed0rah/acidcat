@@ -36,13 +36,23 @@ def run(args):
         print(f"acidcat convert: {path}: not a Bitwig clip "
               f"(only .bwclip is supported so far)", file=sys.stderr)
         return 1
-    notes = bwmod.parse_notes(data)
+    try:
+        notes = bwmod.parse_notes(data)
+    except Exception as e:
+        print(f"acidcat convert: {path}: could not parse notes "
+              f"({e.__class__.__name__})", file=sys.stderr)
+        return 1
     if not notes:
         print(f"acidcat convert: {path}: no notes found in clip",
               file=sys.stderr)
         return 1
     bpm = bwmod.parse_numeric(data).get("bpm") or 120.0
-    smf = notes_to_smf(notes, bpm=bpm, division=args.division)
+    try:
+        smf = notes_to_smf(notes, bpm=bpm, division=args.division)
+    except Exception as e:
+        print(f"acidcat convert: {path}: could not build MIDI "
+              f"({e.__class__.__name__})", file=sys.stderr)
+        return 1
     out = args.output or (os.path.splitext(path)[0] + ".mid")
     with open(out, "wb") as f:
         f.write(smf)

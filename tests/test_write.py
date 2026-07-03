@@ -218,3 +218,20 @@ def test_ni_hsin_roundtrip():
     # same-name edit is byte-identical (no CRC, sizes stable)
     same, _ = ni.edit_hsin(data, {"name": "nicecombo"})
     assert same == data
+
+
+def test_wav_edit_preserves_trailing_bytes_outside_riff():
+    """MED-2: bytes after the RIFF container are preserved and NOT folded into
+    the recomputed riff_size."""
+    import struct
+    from acidcat.core import edit_riff
+
+    def _chunk(cid, p):
+        return cid + struct.pack("<I", len(p)) + p + (b"\x00" if len(p) % 2 else b"")
+    body = b"WAVE" + _chunk(b"fmt ", struct.pack("<HHIIHH", 1, 2, 44100, 176400, 4, 16)) \
+        + _chunk(b"data", b"\x00" * 16)
+    wav = b"RIFF" + struct.pack("<I", len(body)) + body + b"PAD!"  # 4-byte tail past RIFF
+    out, _ = edit_riff.edit_wav(wav, {"title": "x"})
+    assert out.endswith(b"PAD!")                      # trailing preserved verbatim
+    riff_size = struct.unpack_from("<I", out, 4)[0]
+    assert riff_size == len(out) - 8 - 4              # excludes the 4 trailing bytes

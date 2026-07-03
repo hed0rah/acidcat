@@ -105,20 +105,21 @@ def decompress_subtree(data, max_attempts=64):
     return its decompressed inner container, or None. The payload header is
     u32=1, u8=1, u32 uncompressed_size, u32 compressed_size, then FastLZ."""
     attempts = 0
-    for m in range(0x30, len(data) - 13):
-        if data[m:m + 5] != b"\x01\x00\x00\x00\x01":
-            continue
+    # locate the sentinel with a C-level find (not a Python byte-by-byte scan,
+    # which a crafted sentinel-free file could stretch to seconds).
+    m = data.find(b"\x01\x00\x00\x00\x01", 0x30)
+    while 0 <= m <= len(data) - 13:
         uncomp = struct.unpack_from("<I", data, m + 5)[0]
         comp = struct.unpack_from("<I", data, m + 9)[0]
-        if not (16 < comp < len(data) and 16 < uncomp < 64 * 1024 * 1024
+        if (16 < comp < len(data) and 16 < uncomp < 64 * 1024 * 1024
                 and m + 13 + comp <= len(data)):
-            continue
-        attempts += 1
-        if attempts > max_attempts:
-            break
-        out = fastlz_decompress(data[m + 13:m + 13 + comp], uncomp + 16)
-        if out is not None and len(out) == uncomp:
-            return out
+            attempts += 1
+            if attempts > max_attempts:
+                break
+            out = fastlz_decompress(data[m + 13:m + 13 + comp], uncomp + 16)
+            if out is not None and len(out) == uncomp:
+                return out
+        m = data.find(b"\x01\x00\x00\x00\x01", m + 1)
     return None
 
 
@@ -134,10 +135,12 @@ _HSIN_EDIT = {"name": 0, "title": 0, "author": 1, "creator": 1,
               "vendor": 2, "comment": 3, "description": 3}
 
 
-def _hsin_walk(data, off, fields):
+def _hsin_walk(data, off, fields, depth=0):
     """Walk the hsin frame at off, recording every size field as
     (field_offset, width, span_start, span_end). Returns
     [(item_id, frame_off, data_start, data_end, payload_start), ...]."""
+    if depth > 128:
+        raise ValueError("hsin nesting too deep")
     frames = []
     fs = struct.unpack_from("<Q", data, off)[0]
     if data[off + 12:off + 16] != b"hsin" or off + fs > len(data):
@@ -170,7 +173,7 @@ def _hsin_walk(data, off, fields):
             raise ValueError("bad child prefix")
         child_off = pos + 12
         cfs = struct.unpack_from("<Q", data, child_off)[0]
-        frames.extend(_hsin_walk(data, child_off, fields))
+        frames.extend(_hsin_walk(data, child_off, fields, depth + 1))
         pos = child_off + cfs
     if pos != frame_end:
         raise ValueError("children do not fill frame")
@@ -478,7 +481,11 @@ def edit_ksd(data, changes):
     if not is_ni_ksd(data):
         raise ValueError("not a .ksd preset")
     z = blob = comp_len = None
+    attempts = 0
     for m in re.finditer(rb'\x78[\x01\x9c\xda]', data):
+        attempts += 1
+        if attempts > 32:
+            break
         d = zlib.decompressobj()
         try:
             dec = d.decompress(data[m.start():])
@@ -528,7 +535,11 @@ def parse_ksd(data):
     if not is_ni_ksd(data):
         return None
     xml = None
+    attempts = 0
     for m in re.finditer(rb'\x78[\x01\x9c\xda]', data):  # zlib stream markers
+        attempts += 1
+        if attempts > 32:  # bound inflate cost on a marker-flooded file
+            break
         dec = _safe_inflate(data[m.start():])
         if dec and b"NI_DOC_HEADER" in dec:
             s = dec.find(b"<?xml")
