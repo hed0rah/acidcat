@@ -58,6 +58,9 @@ def _edit(path, changes):
         except ImportError:
             raise edits.EditError("WAV editing is not available in this build")
         return ("WAV",) + edit_riff.edit_wav(data, changes)
+    if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
+        from acidcat.core import edit_aiff
+        return ("AIFF",) + edit_aiff.edit_aiff(data, changes)
     tagged = (head[:4] == b"fLaC" or head[:3] == b"ID3" or head[:4] == b"OggS"
               or head[4:8] == b"ftyp"
               or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
