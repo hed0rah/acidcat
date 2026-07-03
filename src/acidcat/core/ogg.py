@@ -87,6 +87,22 @@ def _decode_vorbis_comment(body):
     return vendor, tags
 
 
+def identification(data):
+    """(codec, {sample_rate, channels}) from the Ogg identification header
+    (the first packet), or None. Vorbis and Opus carry the audio params here."""
+    packets = _first_packets(data)
+    if not packets:
+        return None
+    p = packets[0]
+    if p[:7] == b"\x01vorbis" and len(p) >= 16:
+        return "Vorbis", {"channels": p[11],
+                          "sample_rate": struct.unpack_from("<I", p, 12)[0]}
+    if p[:8] == b"OpusHead" and len(p) >= 16:
+        return "Opus", {"channels": p[9],
+                        "sample_rate": struct.unpack_from("<I", p, 12)[0]}
+    return None
+
+
 def comment_header(data):
     """(codec, vendor, {TAG: value}) from the Ogg comment header, or None."""
     packets = _first_packets(data)

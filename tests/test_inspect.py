@@ -264,8 +264,8 @@ def _smf(tmp_path, tracks, division=480, ntrks=None, name="t.mid"):
 _TRACK = (
     b"\x00\xFF\x03\x04Bass"            # track name
     b"\x00\xFF\x51\x03\x07\xA1\x20"    # tempo 120
-    b"\x00\x90\x3C\x64"                # note on C4
-    b"\x00\x40\x6E"                    # running status note on E4
+    b"\x00\x90\x3C\x64"                # note on C3
+    b"\x00\x40\x6E"                    # running status note on E3
     b"\x00\xFF\x2F\x00"                # end of track
 )
 
@@ -1699,6 +1699,14 @@ class TestOggWalker:
         codec, vendor, tags = ogg.comment_header(self._ogg([p1, p2]))
         assert codec == "Vorbis" and vendor == "libVorbis"
         assert tags["ARTIST"] == "아버지" and tags["TITLE"] == "x"
+
+    def test_ogg_identification(self):
+        from acidcat.core import ogg
+        ident = b"vorbis" + struct.pack("<I", 0) + bytes([2]) + struct.pack("<I", 44100)
+        p2 = b"vorbis" + self._vc("v", {})
+        codec, params = ogg.identification(self._ogg([ident, p2]))
+        assert codec == "Vorbis"
+        assert params["channels"] == 2 and params["sample_rate"] == 44100
 
     def test_ogg_malformed_no_crash(self):
         from acidcat.core import ogg
