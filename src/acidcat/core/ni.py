@@ -54,6 +54,104 @@ def is_ni_ksd(data):
     return data[:4] == KSD_MAGIC
 
 
+def is_ni_nksf(data):
+    return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"NIKS"
+
+
+# ── minimal MessagePack decoder (only what the NISI metadata map uses) ──
+
+
+def _mp_str(b, pos, n):
+    if pos + n > len(b):
+        raise ValueError("mp str overruns")
+    return b[pos:pos + n].decode("utf-8", errors="replace"), pos + n
+
+
+def _mp_decode(b, pos=0, depth=0):
+    if depth > 32 or pos >= len(b):
+        return None, pos
+    t = b[pos]
+    pos += 1
+    if t < 0x80:
+        return t, pos                      # positive fixint
+    if t >= 0xe0:
+        return t - 256, pos                # negative fixint
+    if 0x80 <= t <= 0x8f:
+        return _mp_map(b, pos, t & 0x0F, depth)
+    if 0x90 <= t <= 0x9f:
+        return _mp_array(b, pos, t & 0x0F, depth)
+    if 0xa0 <= t <= 0xbf:
+        return _mp_str(b, pos, t & 0x1F)
+    if t == 0xc0:
+        return None, pos                   # nil
+    if t == 0xc2:
+        return False, pos
+    if t == 0xc3:
+        return True, pos
+    if t == 0xd9:                          # str8
+        return _mp_str(b, pos + 1, b[pos])
+    if t == 0xda:                          # str16
+        return _mp_str(b, pos + 2, struct.unpack_from(">H", b, pos)[0])
+    if t == 0xdb:                          # str32
+        return _mp_str(b, pos + 4, struct.unpack_from(">I", b, pos)[0])
+    if t == 0xde:                          # map16
+        return _mp_map(b, pos + 2, struct.unpack_from(">H", b, pos)[0], depth)
+    if t == 0xdc:                          # array16
+        return _mp_array(b, pos + 2, struct.unpack_from(">H", b, pos)[0], depth)
+    raise ValueError(f"unsupported msgpack type 0x{t:02x}")
+
+
+def _mp_map(b, pos, count, depth):
+    out = {}
+    for _ in range(count):
+        k, pos = _mp_decode(b, pos, depth + 1)
+        v, pos = _mp_decode(b, pos, depth + 1)
+        out[k] = v
+    return out, pos
+
+
+def _mp_array(b, pos, count, depth):
+    out = []
+    for _ in range(count):
+        v, pos = _mp_decode(b, pos, depth + 1)
+        out.append(v)
+    return out, pos
+
+
+def parse_nksf(data):
+    """RIFF/NIKS (.nksf): decode the NISI MessagePack metadata (name, author,
+    vendor, comment, device type, bankchain), or None if not a .nksf."""
+    if not is_ni_nksf(data):
+        return None
+    pos = 12
+    while pos + 8 <= len(data):
+        cid = data[pos:pos + 4]
+        sz = struct.unpack_from("<I", data, pos + 4)[0]
+        if cid == b"NISI" and pos + 8 + sz <= len(data):
+            mp = data[pos + 12:pos + 8 + sz]  # after the u32 version
+            try:
+                obj, _ = _mp_decode(mp)
+            except (ValueError, IndexError, struct.error):
+                return None
+            if not isinstance(obj, dict):
+                return None
+            meta = {}
+            for src, dst in (("name", "name"), ("author", "author"),
+                             ("vendor", "vendor"), ("comment", "comment"),
+                             ("deviceType", "device_type")):
+                v = obj.get(src)
+                if v:
+                    meta[dst] = v
+            bc = obj.get("bankchain")
+            if isinstance(bc, list):
+                bc = [str(x) for x in bc if x]
+                if bc:
+                    meta["bank"] = " / ".join(bc)
+            return meta or None
+        pos += 8 + sz + (sz & 1)
+    return None
+
+
 def _safe_inflate(chunk, maxlen=8 * 1024 * 1024):
     """zlib-inflate with an output cap so a decompression bomb cannot exhaust
     memory. Returns the bytes, or None on error or if the stream exceeds the
