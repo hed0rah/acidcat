@@ -1490,8 +1490,8 @@ class TestBitwigDeep:
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("big", b"\x00" * (200 * 1024))
         data = b"BtWg" + b"\x00" * 8 + buf.getvalue()
-        assets = list_assets(data, cap=1024)  # 1 KB cap
-        assert assets[0][2] is None  # exceeds cap, refused
+        assets = list_assets(data, prefix=1024)  # only inflate a 1 KB prefix
+        assert assets[0][2] is not None and len(assets[0][2]) <= 1024
 
     def test_no_zip_no_assets(self):
         from acidcat.core.bitwig import list_assets
@@ -1705,3 +1705,23 @@ class TestOggWalker:
         for bad in (b"OggS", b"OggS" + b"\xff" * 60, b"OggS\x00\x02" + b"\x00" * 30):
             list(ogg.iter_pages(bad))
             ogg.comment_header(bad)  # must not raise
+
+
+class TestUnicodeMetadata:
+    """Regression: inspect must not mangle non-Latin text metadata to U+FFFD
+    (the ascii/errors='replace' bug that turned Korean/CJK/etc. into '?')."""
+
+    def test_dtext_utf8_and_latin1_fallback(self):
+        from acidcat.commands.inspect import _dtext
+        assert _dtext("아버지".encode("utf-8")) == "아버지"
+        assert _dtext("⣎⡇ꉪლ".encode("utf-8")) == "⣎⡇ꉪლ"
+        assert _dtext(b"caf\xe9") == "café"          # invalid utf-8 -> latin-1, no raise
+        assert "�" not in _dtext("아버지".encode("utf-8"))
+
+    def test_wav_info_utf8_roundtrips_through_parse(self):
+        from acidcat.commands.inspect import _parse_list
+        val = "아버지".encode("utf-8")
+        info = b"INFO" + b"INAM" + struct.pack("<I", len(val)) + val
+        _, fields, _ = _parse_list(info, {})
+        assert any(f["value"] == "아버지" for f in fields)
+        assert not any("�" in str(f["value"]) for f in fields)
