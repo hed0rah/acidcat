@@ -152,6 +152,26 @@ def _region(chunk, ri):
     )
 
 
+def _lsb_heatmap(lsb):
+    """Render the per-window LSB entropy as a color strip: calm blue = low
+    (signal-correlated), hot red = near-uniform (possible hidden payload)."""
+    if not lsb or not lsb.get("windows"):
+        return ""
+    cells = []
+    for e in lsb["windows"]:
+        hue = int((1.0 - e) * 205)  # e=0 -> blue 205, e=1 -> red 0
+        cells.append(f'<span class="lcell" style="background:hsl({hue},70%,45%)" '
+                     f'title="{e:.3f}"></span>')
+    verdict = ("SUSPICIOUS: uniform-high LSB entropy, possible hidden payload"
+               if lsb.get("suspicious")
+               else "LSB entropy tracks the signal (expected for natural audio)")
+    cap = f" (first {lsb['region'][1]:,} bytes)" if lsb.get("capped") else ""
+    return (f'<section class="lsb"><h2>LSB entropy heat-map{cap}</h2>'
+            f'<div class="lstrip">{"".join(cells)}</div>'
+            f'<div class="lmeta">min {lsb["min"]} . mean {lsb["mean"]} . '
+            f'max {lsb["max"]} . {_esc(verdict)}</div></section>')
+
+
 def build(record):
     fname = _esc(record.get("file", "file"))
     fmt = _esc(record.get("format", ""))
@@ -168,7 +188,7 @@ def build(record):
         warnings = f'<section class="filewarns"><h2>warnings</h2><ul>{items}</ul></section>'
     return _PAGE.format(
         title=fname, fmt=fmt, size=f"{size:,}", tints=_tint_css(max_fields),
-        regions=regions, warnings=warnings,
+        regions=regions, warnings=warnings, lsb=_lsb_heatmap(record.get("lsb")),
     )
 
 
@@ -214,6 +234,11 @@ table.fields{{border-collapse:collapse;flex:1 1 260px;min-width:260px}}
 .trunc{{color:var(--soft);font-size:0.8rem;margin-top:0.3rem}}
 footer{{margin-top:2rem;color:var(--soft);font-size:0.8rem;
   border-top:1px solid var(--line);padding-top:0.6rem}}
+.lsb{{margin:1.2rem 0;border:1px solid var(--line);background:var(--panel);padding:0.8rem 1rem}}
+.lsb h2{{margin:0 0 0.5rem;font-size:0.95rem}}
+.lstrip{{display:flex;gap:1px;height:26px;border:1px solid var(--line)}}
+.lcell{{flex:1;min-width:1px}}
+.lmeta{{color:var(--soft);font-size:0.8rem;margin-top:0.45rem}}
 {tints}
 </style>
 </head>
@@ -223,6 +248,7 @@ footer{{margin-top:2rem;color:var(--soft);font-size:0.8rem;
 <div class="spec">{fmt} . {size} bytes</div>
 </header>
 {regions}
+{lsb}
 {warnings}
 <footer>built by build_explorer.py from an acidcat inspect --full dump.
 hover a byte or a field to link the two.</footer>

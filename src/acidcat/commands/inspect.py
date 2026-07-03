@@ -32,6 +32,7 @@ from acidcat.core import mp4 as mp4mod
 from acidcat.core import ni as nimod
 from acidcat.core import ogg as oggmod
 from acidcat.core import anomalies as anomaliesmod
+from acidcat.core import lsb as lsbmod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -2789,6 +2790,21 @@ def run(args):
             shown = _select_chunks(chunks, only, exclude)
             findings = (anomaliesmod.scan(filepath, fmt_label, chunks, file_warns)
                         if getattr(args, "anomalies", False) else None)
+            lsb_info = None
+            if getattr(args, "anomalies", False) or full:
+                try:
+                    lsb_info = lsbmod.analyze(filepath, fmt_label, chunks)
+                except Exception:
+                    lsb_info = None
+            if findings is not None and lsb_info and lsb_info["suspicious"]:
+                findings.append({
+                    "severity": "alert", "offset": lsb_info["region"][0],
+                    "rule": "lsb_stego",
+                    "message": f"uniform-high LSB entropy (min {lsb_info['min']}, "
+                               f"mean {lsb_info['mean']}): possible LSB-stego payload"})
+                findings.sort(key=lambda x: (
+                    -{"alert": 3, "warn": 2, "notice": 1}.get(x["severity"], 0),
+                    x["offset"]))
 
             if as_json:
                 # NDJSON: one compact record per file per line, so the stream
@@ -2806,6 +2822,7 @@ def run(args):
                     "chunks": out_chunks,
                     "warnings": file_warns,
                     **({"anomalies": findings} if findings is not None else {}),
+                    **({"lsb": lsb_info} if lsb_info else {}),
                 }) + "\n")
             else:
                 pretty = getattr(args, "pretty", False)

@@ -54,3 +54,24 @@ def test_trailing_junk_flagged_without_polyglot(tmp_path):
     findings = _scan(path)
     rules = {f["rule"] for f in findings}
     assert "trailing_data" in rules and "polyglot" not in rules
+
+
+def test_lsb_clean_vs_stego(tmp_path):
+    import math
+    import random
+    from acidcat.core import lsb
+
+    def wav(samples):
+        pcm = b"".join(struct.pack("<h", max(-32768, min(32767, int(s)))) for s in samples)
+        return _wav(_chunk(b"fmt ", struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)),
+                    _chunk(b"data", pcm))
+    N = 20000
+    clean = [6000 * math.sin(2 * math.pi * 220 * i / 44100) if i < N // 2 else 0
+             for i in range(N)]
+    rnd = random.Random(1)
+    stego = [int(v) & ~1 | rnd.getrandbits(1) for v in clean]
+    for name, samples, expect in (("c.wav", clean, False), ("s.wav", stego, True)):
+        path = _write(tmp_path, name, wav(samples))
+        fmt, chunks, warns = I._walk_file(path, deep=False)
+        r = lsb.analyze(path, fmt, chunks)
+        assert r is not None and r["suspicious"] is expect
