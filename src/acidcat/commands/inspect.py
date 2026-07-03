@@ -1423,12 +1423,22 @@ def inspect_bitwig(filepath, deep=False):
     meta = bwmod.parse_meta(data)
     fields = [_f(None, 0, label, meta[key][:200])
               for key, label in bwmod._META_FIELDS if key in meta]
+    nums = bwmod.parse_numeric(data)
+    if "bpm" in nums:
+        fields.append(_f(None, 0, "bpm", f"{nums['bpm']:g}"))
+    if "beat_length" in nums:
+        beats = nums["beat_length"]
+        note = f"{beats / 4:g} bars at 4/4" if beats else ""
+        fields.append(_f(None, 0, "beat_length", f"{beats:g} beats", note))
     for label, count in bwmod.parse_references(data).items():
         fields.append(_f(None, 0, label, count))
-    if meta:
-        name = meta.get("device_name", "?")
-        cat = meta.get("device_category", "?")
-        summary = f"{name} ({cat})"
+    if meta.get("device_name"):
+        summary = f"{meta['device_name']} ({meta.get('device_category', '?')})"
+    elif meta.get("type", "").endswith("note-clip"):
+        bpm = nums.get("bpm")
+        summary = "note clip" + (f", {bpm:g} bpm" if bpm else "")
+    elif meta:
+        summary = meta.get("type", "Bitwig data")
     else:
         summary = "no meta block decoded"
         file_warns.append("BtWg meta block not decoded")
