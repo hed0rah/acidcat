@@ -165,3 +165,16 @@ def test_wav_smpl_root_note():
     smpl = _payload(out, b"smpl")
     assert struct.unpack_from("<I", smpl, 12)[0] == 60  # C3 sampler root
     assert _payload(out, b"data") == _payload(src, b"data")  # audio intact
+
+
+def test_aiff_edit_preserves_audio_big_endian():
+    from acidcat.core import edit_aiff
+    def bc(cid, p):
+        return cid + struct.pack(">I", len(p)) + p + (b"\x00" if len(p) % 2 else b"")
+    body = b"AIFF" + bc(b"COMM", b"\x00" * 18) + bc(b"SSND", b"\x01" * 7)
+    aiff = b"FORM" + struct.pack(">I", len(body)) + body
+    out, _ = edit_aiff.edit_aiff(aiff, {"title": "Snare", "artist": "Me"})
+    chs = {c[0]: c[1] for c in edit_aiff._iter_chunks(out)[0]}
+    assert chs[b"NAME"] == b"Snare" and chs[b"AUTH"] == b"Me"
+    assert chs[b"SSND"] == b"\x01" * 7  # audio intact
+    assert struct.unpack_from(">I", out, 4)[0] == len(out) - 8  # BE FORM size
