@@ -14,6 +14,11 @@ once it leaves alpha.
   PNG/... after the audio), structural size mismatches (surfaced from the
   walker), and control bytes smuggled into text fields. Findings carry a
   severity, byte offset, and rule; also emitted in `-f json`.
+- LSB-steganography detection: `--anomalies` computes the per-window entropy of
+  the low bit-plane of PCM WAV samples and flags a uniform-high floor (the tell
+  of an encrypted hidden payload; natural audio dips low in quiet passages).
+  `inspect --full` emits the entropy map and `build_explorer.py` renders it as a
+  color heat-map in the byte explorer.
 
 ## [0.13.0] - 2026-07-03
 
