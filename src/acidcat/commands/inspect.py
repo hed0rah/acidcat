@@ -1474,8 +1474,17 @@ def inspect_mp4(filepath):
 
     ts, dur = mp4mod.movie_timescale_duration(moov_data)
     dur_s = dur / ts if ts and dur else None
+    ainfo = mp4mod.audio_info(moov_data)
     meta = mp4mod.parse_ilst(moov_data)
     mfields = []
+    if ainfo:
+        codec, ch, rate = ainfo
+        codec_names = {"mp4a": "AAC", "alac": "Apple Lossless", "Opus": "Opus",
+                       "fLaC": "FLAC", "ac-3": "AC-3", "ec-3": "E-AC-3"}
+        desc = codec_names.get(codec, codec)
+        if ch:
+            desc += f", {ch}ch {rate} Hz"
+        mfields.append(_f(None, 0, "codec", desc))
     if dur_s:
         mfields.append(_f(None, 0, "duration", f"{dur_s:.3f} s"))
     for label in ("title", "artist", "album_artist", "album", "year", "genre",

@@ -132,6 +132,30 @@ def find_moov(filepath, file_size):
     return None, None
 
 
+def audio_info(data):
+    """From stsd's first audio SampleEntry: (codec_fourcc_str, channels,
+    sample_rate). Returns None if not found. Codec is e.g. 'mp4a' (AAC),
+    'alac' (Apple Lossless), 'Opus', 'fLaC'."""
+    for b in iter_boxes(data):
+        if b["type"] != b"stsd" or b["truncated"]:
+            continue
+        # FullBox: 4-byte version/flags, 4-byte entry_count, then the entry box
+        ep = b["offset"] + b["hdr"] + 8
+        eh = _box_header(data, ep, b["offset"] + b["size"])
+        if eh is None:
+            return None
+        codec, ehdr, _ = eh
+        ap = ep + ehdr  # AudioSampleEntry payload
+        # 6 reserved + 2 data_ref_index + 8 reserved, then channelcount(2),
+        # samplesize(2), 2+2, samplerate(4, 16.16 fixed).
+        if ap + 28 > len(data):
+            return codec.decode("latin-1", errors="replace"), None, None
+        channels = struct.unpack_from(">H", data, ap + 16)[0]
+        rate = struct.unpack_from(">I", data, ap + 24)[0] >> 16
+        return codec.decode("latin-1", errors="replace"), channels, rate
+    return None
+
+
 def _decode_data_box(data, start, end):
     """Decode a 'data' box payload (type indicator u32, locale u32, value)."""
     if end - start < 16:
