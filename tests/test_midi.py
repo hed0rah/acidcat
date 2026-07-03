@@ -40,9 +40,9 @@ def test_running_status_keeps_note_count_and_range(tmp_path):
     Track contents (one explicit note-on followed by two running-status
     note-ons, then EOT):
 
-        delta=0, 0x90 0x3C 0x64  -- note on C4 (60) vel 100, status 0x90
-        delta=0,      0x40 0x6E  -- running, note on E4 (64) vel 110
-        delta=0,      0x43 0x78  -- running, note on G4 (67) vel 120
+        delta=0, 0x90 0x3C 0x64  -- note on C3 (60) vel 100, status 0x90
+        delta=0,      0x40 0x6E  -- running, note on E3 (64) vel 110
+        delta=0,      0x43 0x78  -- running, note on G3 (67) vel 120
         delta=0, 0xFF 0x2F 0x00  -- end of track
 
     Expected after parse: 3 note-ons, lowest=60, highest=67. With the
@@ -51,9 +51,9 @@ def test_running_status_keeps_note_count_and_range(tmp_path):
     note_min collapses toward 0 and note_max blows past 67.
     """
     track = (
-        b"\x00\x90\x3C\x64"  # note on C4 vel 100, status 0x90 captured
-        b"\x00\x40\x6E"      # running: note on E4 vel 110
-        b"\x00\x43\x78"      # running: note on G4 vel 120
+        b"\x00\x90\x3C\x64"  # note on C3 vel 100, status 0x90 captured
+        b"\x00\x40\x6E"      # running: note on E3 vel 110
+        b"\x00\x43\x78"      # running: note on G3 vel 120
         b"\x00\xFF\x2F\x00"  # end of track
     )
     f = tmp_path / "running_status.mid"

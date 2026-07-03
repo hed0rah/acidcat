@@ -40,6 +40,7 @@ acidcat inspect FILE... [-f table|json] [--pretty] [--hex] [--frames]
 | `--only fmt,bext` | show only these chunks (case-insensitive); compose with `--hex` |
 | `--exclude data` | hide these chunks |
 | `--full` | self-contained JSON dump (raw region bytes + absolute field offsets) |
+| `--verbose` | deep deconstruction (Bitwig device tree + parameters + notes, Vital modulation matrix, NI hsin FastLZ subtree) |
 | `-f json` | JSON output; multiple files become NDJSON (one record per line) |
 | `--color` | auto (TTY) / always / never; honors NO_COLOR |
 | multiple files | each under a `File:` banner |
@@ -89,6 +90,9 @@ pipx install acidcat          # first time
 pipx upgrade acidcat          # get the newest (reinstall does NOT upgrade)
 pip install -U acidcat        # with pip
 pip install -e .              # editable, from a checkout (runs live source)
+pip install -e .[mcp]         # + MCP stdio server (acidcat-mcp)
+pip install -e .[mcp-http]    # + MCP streamable-HTTP transport (acidcat-mcp --transport http)
+pip install -e .[all]         # everything
 ```
 
 ## edit / write metadata

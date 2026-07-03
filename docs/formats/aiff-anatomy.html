@@ -294,6 +294,6 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
 })();
 </script>
 <button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme"></button>
-<script>(function(){var t=document.getElementById("themeToggle");function cur(){return document.documentElement.getAttribute("data-theme")||"light";}function ap(m){document.documentElement.setAttribute("data-theme",m);try{localStorage.setItem("acidcat-theme",m);}catch(e){}t.textContent=(m==="dark"?"light":"dark");}t.addEventListener("click",function(){ap(cur()==="dark"?"light":"dark");});ap(cur());})();</script>
+<script>(function(){var t=document.getElementById("themeToggle");function cur(){return document.documentElement.getAttribute("data-theme")||"light";}function label(m){t.textContent=(m==="dark"?"light":"dark");}function set(m,p){document.documentElement.setAttribute("data-theme",m);if(p){try{localStorage.setItem("acidcat-theme",m);}catch(e){}}label(m);}t.addEventListener("click",function(){set(cur()==="dark"?"light":"dark",true);});label(cur());})();</script>
 </body>
 </html>
