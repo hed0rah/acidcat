@@ -1350,10 +1350,40 @@ def inspect_serum(filepath):
 # ── bitwig walk ────────────────────────────────────────────────────
 
 
-def inspect_bitwig(filepath):
-    """Structural view of a Bitwig BtWg container (.bwpreset/.bwclip): the
-    header, the decoded metadata block, and a note for any embedded-asset
-    zip. The device/module tree is left opaque."""
+def _flac_audio_params(raw):
+    """(channels, rate, seconds) from a FLAC STREAMINFO, or None."""
+    if len(raw) < 42 or raw[:4] != b"fLaC":
+        return None
+    packed = struct.unpack_from(">Q", raw, 18)[0]  # STREAMINFO@8, packed field@+10
+    rate = (packed >> 44) & 0xFFFFF
+    ch = ((packed >> 41) & 0x07) + 1
+    total = packed & 0xFFFFFFFFF
+    return ch, rate, (total / rate if rate else 0)
+
+
+def _summarize_embedded(raw):
+    """One-line format identity of an embedded asset's bytes."""
+    if not raw:
+        return "unreadable / too large"
+    if raw[:4] == b"fLaC":
+        p = _flac_audio_params(raw)
+        return f"FLAC, {p[0]}ch {p[1]} Hz, {p[2]:.2f} s" if p else "FLAC"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WAVE":
+        return "WAV"
+    if raw[:4] == b"OggS":
+        return "OGG"
+    if raw[:4] == b"BtWg":
+        return "Bitwig preset (nested)"
+    if raw[:2] == b"PK":
+        return "zip"
+    return f"{len(raw):,} bytes (opaque)"
+
+
+def inspect_bitwig(filepath, deep=False):
+    """Structural view of a Bitwig BtWg container (.bwpreset/.bwclip): header,
+    metadata block, and a note for the embedded-asset zip. With deep (--verbose
+    or --frames) it also deconstructs the device/module tree and unzips and
+    identifies every embedded asset."""
     file_size = os.path.getsize(filepath)
     # read the whole preset (bounded) so the embedded-asset zip, which can sit
     # past the first few MB, is found. the meta scan is bounded internally.
@@ -1381,13 +1411,29 @@ def inspect_bitwig(filepath):
     chunks.append({"id": "meta", "offset": 0, "size": 0,
                    "summary": summary, "fields": fields, "warnings": []})
 
+    if deep:
+        modules = bwmod.parse_structure(data)
+        if modules:
+            mfields = [_f(None, 0, f"module {i + 1}", m)
+                       for i, m in enumerate(modules)]
+            chunks.append({"id": "modules", "offset": 0, "size": 0,
+                           "summary": f"{len(modules)} devices/modules in the "
+                                      "chain (pre-order)",
+                           "fields": mfields, "warnings": []})
+
     zoff = data.find(b"PK\x03\x04")
     if zoff >= 0:
+        afields, asum = [], ("embedded asset zip (deflate); unzip for the "
+                             "referenced samples/impulses")
+        if deep:
+            assets = bwmod.list_assets(data)
+            afields = [_f(None, 0, name, f"{size:,} bytes, "
+                          f"{_summarize_embedded(raw)}")
+                       for name, size, raw in assets]
+            asum = f"{len(assets)} embedded file(s) (deflate zip)"
         chunks.append({"id": "assets", "offset": zoff,
-                       "size": file_size - zoff,
-                       "summary": "embedded asset zip (deflate); unzip for the "
-                                  "referenced samples/impulses",
-                       "fields": [], "warnings": []})
+                       "size": file_size - zoff, "summary": asum,
+                       "fields": afields, "warnings": []})
     return chunks, file_warns
 
 
@@ -2431,7 +2477,7 @@ def _walk_file(filepath, deep):
     if magic[:8] == b"XferJson":
         return ("Xfer Serum preset", *inspect_serum(filepath))
     if magic[:4] == b"BtWg":
-        return ("Bitwig preset", *inspect_bitwig(filepath))
+        return ("Bitwig preset", *inspect_bitwig(filepath, deep=deep))
     if magic[:4] == ncwmod.MAGIC:
         return ("NI Compressed Wave", *inspect_ncw(filepath))
     if magic[:1] == b"{":
@@ -2490,7 +2536,7 @@ def run(args):
         print("acidcat inspect: no target file given", file=sys.stderr)
         return 1
 
-    deep = getattr(args, "frames", False)
+    deep = getattr(args, "frames", False) or getattr(args, "verbose", False)
     full = getattr(args, "full", False)
     as_json = args.format == "json" or full  # --full is a JSON dump
     multi = len(targets) > 1
