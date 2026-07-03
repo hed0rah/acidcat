@@ -19,6 +19,7 @@ A low-level audio and preset metadata tool. readelf/exiftool for audio.
 | `acidcat similar CSV find\|cluster` | similarity search / clustering |
 | `acidcat index DIR` | upsert into the global SQLite index |
 | `acidcat query [flags]` | filter the index by bpm/key/tag/text |
+| `acidcat convert clip.bwclip -o out.mid` | export a DAW clip's notes to Standard MIDI |
 | `acidcat --version` | version |
 
 Read from stdin: `acidcat -` or `cat f.wav | acidcat`.
@@ -74,6 +75,9 @@ acidcat inspect --frames beat.mid
 # index a library, then query it
 acidcat index ~/samples
 acidcat query --bpm 120:130 --key Am
+
+# pull the notes out of a Bitwig clip as MIDI
+acidcat convert MyClip.bwclip -o MyClip.mid
 acidcat query --device Polysynth --category Reverb   # search preset metadata
 acidcat query --product Vital --creator someone
 ```
