@@ -1496,3 +1496,23 @@ class TestBitwigDeep:
     def test_no_zip_no_assets(self):
         from acidcat.core.bitwig import list_assets
         assert list_assets(b"BtWg0003000200no zip here") == []
+
+
+class TestNiFastLZ:
+    def test_fastlz_literal_and_match(self):
+        from acidcat.core.ni import fastlz_decompress
+        # 04=literal run of 5 ("ABCDE"); 20 04=match len 3 at offset 4 -> "ABC"
+        assert fastlz_decompress(b"\x04ABCDE\x20\x04") == b"ABCDEABC"
+
+    def test_fastlz_empty(self):
+        from acidcat.core.ni import fastlz_decompress
+        assert fastlz_decompress(b"") == b""
+
+    def test_fastlz_bomb_capped(self):
+        from acidcat.core.ni import fastlz_decompress
+        # literal "A", then a 259-byte match from offset 0: refused at the cap
+        assert fastlz_decompress(b"\x00A\xe0\xfa\x00", max_out=8) is None
+
+    def test_decompress_subtree_none_on_garbage(self):
+        from acidcat.core.ni import decompress_subtree
+        assert decompress_subtree(b"\x00" * 200) is None
