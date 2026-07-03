@@ -1521,25 +1521,29 @@ def inspect_mp4(filepath):
 
 
 def inspect_ni(filepath):
-    """Structural view of a Native Instruments hsin preset (Massive .nmsv,
-    Absynth .nabs, modern Kontakt .nki): the readable SoundInfoItem metadata.
-    The FastLZ-compressed preset payload is left opaque."""
+    """Structural view of a Native Instruments preset: the readable metadata.
+    Handles the hsin container (Massive .nmsv, Absynth .nabs, modern Kontakt
+    .nki) and the older zlib-XML .ksd (Absynth/KORE). Compressed payloads are
+    left opaque."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
         data = f.read(min(file_size, 16 * 1024 * 1024))
-    meta = nimod.parse_hsin(data)
-    if meta is None:
-        raise _Unsupported("not a Native Instruments hsin container")
-    fields = []
-    for k, label in (("product", "product"), ("name", "name"),
-                     ("version", "app_version")):
-        if meta.get(k):
-            fields.append(_f(None, 0, label, meta[k]))
-    summary = (f"{meta.get('product', 'NI')} preset "
-               f"'{meta.get('name', '(unnamed)')}'")
-    chunks = [{"id": "hsin", "offset": 0, "size": file_size,
-               "summary": summary, "fields": fields, "warnings": [],
-               "payload_base": 0}]
+    if nimod.is_ni_ksd(data):
+        meta, kind = nimod.parse_ksd(data), "ksd"
+    else:
+        meta, kind = nimod.parse_hsin(data), "hsin"
+    if not meta:
+        raise _Unsupported("not a recognized Native Instruments preset")
+    order = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
+             "device_type", "version", "tempo", "genre", "key"]
+    fields = [_f(None, 0, k, str(meta[k])) for k in order if meta.get(k)]
+    for k in meta:
+        if k not in order:
+            fields.append(_f(None, 0, k, str(meta[k])))
+    prod = meta.get("product") or meta.get("plugin") or "NI"
+    summary = f"{prod} preset '{meta.get('name', '(unnamed)')}'"
+    chunks = [{"id": kind, "offset": 0, "size": file_size, "summary": summary,
+               "fields": fields, "warnings": [], "payload_base": 0}]
     return chunks, []
 
 
@@ -2432,7 +2436,7 @@ def _walk_file(filepath, deep):
         return ("Vital preset", *inspect_vital(filepath))
     if magic[4:8] == b"ftyp":
         return ("MP4/M4A", *inspect_mp4(filepath))
-    if magic[12:16] == b"hsin":
+    if magic[12:16] == b"hsin" or magic[:4] == b"-in-":
         return ("Native Instruments preset", *inspect_ni(filepath))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))

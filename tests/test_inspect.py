@@ -1407,3 +1407,27 @@ class TestNiHsinWalker:
         chunks, _ = inspect_ni(str(p))
         vals = {f["name"]: f["value"] for f in chunks[0]["fields"]}
         assert vals["product"] == "Massive" and vals["name"] == "Bass01"
+
+
+class TestNiKsdWalker:
+    def test_parse_ksd_xml_metadata(self):
+        import zlib
+        from acidcat.core.ni import parse_ksd
+        xml = (b'<?xml version="1.0"?><NI_DOC_HEADER><doc_name>Waltz</doc_name>'
+               b'<info><commonAttr><Author>me</Author><Bankname>Bank1</Bankname>'
+               b'</commonAttr><Plugins><Plugin>FM8</Plugin></Plugins></info>'
+               b'</NI_DOC_HEADER>')
+        data = b"-in-" + b"\x00" * 16 + zlib.compress(xml)
+        m = parse_ksd(data)
+        assert m["name"] == "Waltz" and m["author"] == "me"
+        assert m["bank"] == "Bank1" and m["plugin"] == "FM8"
+
+    def test_ksd_decompression_bomb_bounded(self):
+        import zlib
+        from acidcat.core.ni import _safe_inflate
+        bomb = zlib.compress(b"\x00" * (50 * 1024 * 1024))  # 50 MB inflated
+        assert _safe_inflate(bomb, maxlen=1024 * 1024) is None  # capped, refused
+
+    def test_non_ksd_rejected(self):
+        from acidcat.core.ni import parse_ksd
+        assert parse_ksd(b"RIFF____WAVE") is None
