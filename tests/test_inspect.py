@@ -1186,3 +1186,196 @@ class TestInspectFull:
         data = next(c for c in d["chunks"] if c["id"] == "data")
         if "raw" in data:
             assert len(bytes.fromhex(data["raw"])) <= _FULL_RAW_CAP
+
+
+class TestBitwigBWBM:
+    def test_bwbm_beats_duration_bpm(self):
+        import struct as _s
+        from acidcat.commands.inspect import _parse_bwbm
+        payload = (_s.pack("<I", 1) + _s.pack("<I", 2) + b"\x00" * 16
+                   + _s.pack("<d", 6.0) + _s.pack("<d", 2.5714285714))
+        summary, fields, warns = _parse_bwbm(payload, {})
+        d = {f["name"]: f["value"] for f in fields}
+        assert d["version"] == 1
+        assert d["beats"] == 6.0
+        assert "2.5714" in d["duration"]
+        assert d["derived_bpm"] == 140.0  # 6 / 2.5714 * 60
+        assert "140" in summary and warns == []
+
+    def test_bwbm_truncated(self):
+        from acidcat.commands.inspect import _parse_bwbm
+        s, _, w = _parse_bwbm(b"\x00" * 20, {})
+        assert s == "truncated" and w
+
+
+class TestBitwigWalker:
+    def _bw(self, *pairs):
+        import struct as _s
+        def tok(b): return _s.pack(">I", len(b)) + b
+        def meta(k, v): return tok(k) + b"\x08" + _s.pack(">I", len(v)) + v
+        body = b"".join(meta(k, v) for k, v in pairs)
+        return b"BtWg" + b"0003000200" + body
+
+    def test_parse_meta_extracts_string_fields(self):
+        from acidcat.core.bitwig import parse_meta
+        data = self._bw((b"device_name", b"Polysynth"), (b"tags", b"bass wide"),
+                        (b"comment", b"secret msg"))
+        m = parse_meta(data)
+        assert m["device_name"] == "Polysynth"
+        assert m["tags"] == "bass wide"
+        assert m["comment"] == "secret msg"
+
+    def test_inspect_bitwig_surfaces_description(self, tmp_path):
+        from acidcat.commands.inspect import inspect_bitwig
+        p = tmp_path / "t.bwpreset"
+        p.write_bytes(self._bw((b"device_name", b"Convolution"),
+                               (b"comment", b"wussssuppppp")))
+        chunks, warns = inspect_bitwig(str(p))
+        meta = next(c for c in chunks if c["id"] == "meta")
+        vals = {f["name"]: f["value"] for f in meta["fields"]}
+        assert vals["device"] == "Convolution"
+        assert vals["description"] == "wussssuppppp"
+
+    def test_bitwig_hostile_length_ignored(self):
+        # a forged u32 length must not read past the buffer
+        from acidcat.core.bitwig import parse_meta
+        data = b"BtWg" + b"0003000200" + b"\xff\xff\xff\xff" + b"junk"
+        assert parse_meta(data) == {}  # no crash, nothing decoded
+
+
+class TestVitalWalker:
+    def test_parse_vital_metadata(self):
+        import json
+        from acidcat.core.vital import parse_vital
+        data = json.dumps({"synth_version": "1.0.7", "preset_name": "Test",
+                           "author": "Me", "settings": {"a": 1}}).encode()
+        obj = parse_vital(data)
+        assert obj["preset_name"] == "Test" and obj["author"] == "Me"
+
+    def test_non_vital_json_rejected(self):
+        from acidcat.core.vital import parse_vital
+        assert parse_vital(b'{"hello":"world"}') is None   # lacks Vital keys
+        assert parse_vital(b'not json') is None
+
+    def test_inspect_vital_surfaces_name(self, tmp_path):
+        import json
+        from acidcat.commands.inspect import inspect_vital
+        p = tmp_path / "t.vital"
+        p.write_bytes(json.dumps({"synth_version": "1.0", "preset_name": "P",
+                                  "author": "A", "settings": {}}).encode())
+        chunks, _ = inspect_vital(str(p))
+        vals = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+        assert vals["preset_name"] == "P" and vals["author"] == "A"
+
+
+class TestNcwWalker:
+    def _ncw(self, ch=2, bits=24, rate=48000, n=44100):
+        import struct as _s
+        from acidcat.core.ncw import MAGIC
+        return (MAGIC + b"\x31\x01\x00\x00" + _s.pack("<HHII", ch, bits, rate, n)
+                + b"\x00" * 40)
+
+    def test_parse_ncw_header(self):
+        from acidcat.core.ncw import parse_header
+        h = parse_header(self._ncw())
+        assert h == {"channels": 2, "bits": 24, "sample_rate": 48000,
+                     "num_samples": 44100}
+
+    def test_ncw_bad_params_rejected(self):
+        from acidcat.core.ncw import parse_header, MAGIC
+        import struct as _s
+        # bits=7 is invalid -> not trusted as NCW
+        bad = MAGIC + b"\x00" * 4 + _s.pack("<HHII", 2, 7, 48000, 100) + b"\x00" * 40
+        assert parse_header(bad) is None
+        assert parse_header(b"nope" + b"\x00" * 40) is None
+
+
+class TestMp4Walker:
+    def _box(self, t, payload):
+        import struct as _s
+        return _s.pack(">I", 8 + len(payload)) + t + payload
+
+    def _m4a_with_title(self, title):
+        import struct as _s
+        data_box = self._box(b"data", _s.pack(">II", 1, 0) + title.encode())
+        nam = self._box(b"\xa9nam", data_box)
+        ilst = self._box(b"ilst", nam)
+        meta = self._box(b"meta", b"\x00\x00\x00\x00" + ilst)  # FullBox prefix
+        udta = self._box(b"udta", meta)
+        moov = self._box(b"moov", udta)
+        ftyp = self._box(b"ftyp", b"M4A \x00\x00\x00\x00")
+        return ftyp + moov
+
+    def test_iter_boxes_tree_and_ilst(self):
+        from acidcat.core.mp4 import iter_boxes, parse_ilst, is_mp4
+        data = self._m4a_with_title("Hello")
+        assert is_mp4(data)
+        types = [b["type"] for b in iter_boxes(data)]
+        assert b"ftyp" in types and b"moov" in types and b"ilst" in types
+        assert parse_ilst(data) == {"title": "Hello"}
+
+    def test_truncated_box_flagged_not_crash(self):
+        import struct as _s
+        from acidcat.core.mp4 import iter_boxes
+        # a box claiming more than the buffer holds
+        data = _s.pack(">I", 999999) + b"moov" + b"\x00" * 4
+        boxes = list(iter_boxes(data))
+        assert boxes and boxes[0]["truncated"]
+
+    def test_inspect_mp4_surfaces_title(self, tmp_path):
+        from acidcat.commands.inspect import inspect_mp4
+        p = tmp_path / "t.m4a"
+        p.write_bytes(self._m4a_with_title("Song"))
+        chunks, _ = inspect_mp4(str(p))
+        tags = next(c for c in chunks if c["id"] == "tags")
+        assert any(f["value"] == "Song" for f in tags["fields"])
+
+
+class TestPrettyMode:
+    def test_pretty_bitwig_no_byte_offsets(self, tmp_path, capsys):
+        from types import SimpleNamespace
+        def tok(b): return struct.pack(">I", len(b)) + b
+        def meta(k, v): return tok(k) + b"\x08" + struct.pack(">I", len(v)) + v
+        p = tmp_path / "t.bwpreset"
+        p.write_bytes(b"BtWg0003000200" + meta(b"device_name", b"Conv")
+                      + meta(b"tags", b"reverb wide"))
+        args = SimpleNamespace(target=str(p), format="table", show_hex=False,
+                               quiet=False, verbose=False, pretty=True,
+                               color="never")
+        assert run(args) == 0
+        out = capsys.readouterr().out
+        assert "Conv" in out and "reverb wide" in out
+        assert "+0x" not in out  # pretty view drops byte offsets
+
+
+class TestReviewHardening:
+    """regression tests for the pre-0.11.0 adversarial-review findings."""
+    def _box(self, t, p):
+        return struct.pack(">I", 8 + len(p)) + t + p
+
+    def test_mp4_tmpo_int_bomb_gated(self):
+        # a hostile type-21 'data' box with a huge payload must not become a
+        # bignum (which str() would crash on Python 3.11+).
+        from acidcat.core.mp4 import _decode_data_box
+        big = self._box(b"data", struct.pack(">II", 21, 0) + b"\x00" * 2048)
+        v = _decode_data_box(big, 0, len(big))
+        assert not isinstance(v, int)
+
+    def test_mp4_ilst_ancestor_aware(self):
+        # a a9nam box that is NOT inside an ilst must not be read as a tag.
+        from acidcat.core.mp4 import parse_ilst
+        nam = self._box(b"\xa9nam",
+                        self._box(b"data", struct.pack(">II", 1, 0) + b"Fake"))
+        moov = self._box(b"moov", self._box(b"trak", self._box(b"mdia", nam)))
+        assert parse_ilst(moov) == {}
+
+    def test_vital_requires_synth_version(self):
+        from acidcat.core.vital import parse_vital
+        assert parse_vital(b'{"settings":{}}') is None       # too generic
+        assert parse_vital(b'{"synth_version":"1"}') is not None
+
+    def test_ncw_absurd_num_samples_rejected(self):
+        from acidcat.core.ncw import parse_header, MAGIC
+        bad = (MAGIC + b"\x00" * 4
+               + struct.pack("<HHII", 2, 24, 48000, 0xFFFFFFFF) + b"\x00" * 40)
+        assert parse_header(bad) is None

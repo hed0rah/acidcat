@@ -25,6 +25,10 @@ from acidcat.core import midi as midimod
 from acidcat.core.midi import _read_vlq
 from acidcat.core import flac as flacmod
 from acidcat.core import mp3 as mp3mod
+from acidcat.core import bitwig as bwmod
+from acidcat.core import vital as vitalmod
+from acidcat.core import ncw as ncwmod
+from acidcat.core import mp4 as mp4mod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -76,6 +80,7 @@ _INFO_TAGS = {
     "INAM": "title", "IART": "artist", "ICMT": "comment", "ISFT": "software",
     "ICRD": "date", "IGNR": "genre", "ICOP": "copyright", "IKEY": "keywords",
     "ISBJ": "subject", "IENG": "engineer", "ITCH": "technician", "IPRD": "product",
+    "IBPM": "bpm",  # non-standard, written by Bitwig
 }
 
 
@@ -95,6 +100,9 @@ def register(subparsers):
                    help="Output format (default: table).")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Chunk table only, no per-chunk field detail.")
+    p.add_argument("--pretty", action="store_true",
+                   help="Human-friendly view of the decoded tags and metadata "
+                        "(no byte offsets), ideal for presets and tagged files.")
     p.add_argument("-F", "--frames", action="store_true",
                    help="Per-element deep dump: every MPEG frame (MP3) or "
                         "MIDI event. No effect on formats without per-element "
@@ -450,6 +458,29 @@ def _parse_bext(b, ctx):
     return f"BWF v{version}, {_cstr(b, 256, 32) or 'no originator'}", fields, warns
 
 
+def _parse_bwbm(b, ctx):
+    """Bitwig Beat Map: the loop tempo/beat metadata Bitwig writes into a WAV
+    bounce in place of a Sony acid chunk. version u32, then two doubles at
+    0x18/0x20 holding the loop length in beats and its duration in seconds.
+    Verified against a Bitwig Studio 6.0.6 bounce."""
+    fields, warns = [], []
+    if len(b) < 40:
+        return "truncated", fields, [f"BWBM payload is {len(b)} bytes, expected 40"]
+    version = _u32(b, 0)
+    beats = struct.unpack_from("<d", b, 0x18)[0]
+    dur = struct.unpack_from("<d", b, 0x20)[0]
+    fields.append(_f(0x00, 4, "version", version))
+    fields.append(_f(0x18, 8, "beats", round(beats, 4)))
+    fields.append(_f(0x20, 8, "duration", f"{dur:.4f} s"))
+    bpm = beats / dur * 60 if dur else None
+    if bpm and bpm > 0:
+        fields.append(_f(None, 0, "derived_bpm", round(bpm, 2), "beats / duration * 60"))
+    summary = f"Bitwig beat map, {beats:g} beats, {dur:.3f} s"
+    if bpm and bpm > 0:
+        summary += f", ~{bpm:.1f} bpm"
+    return summary, fields, warns
+
+
 _PARSERS = {
     "fmt ": _parse_fmt,
     "fact": _parse_fact,
@@ -459,6 +490,7 @@ _PARSERS = {
     "cue ": _parse_cue,
     "LIST": _parse_list,
     "bext": _parse_bext,
+    "BWBM": _parse_bwbm,
 }
 
 
@@ -1314,6 +1346,176 @@ def inspect_serum(filepath):
     return chunks, file_warns
 
 
+# ── bitwig walk ────────────────────────────────────────────────────
+
+
+def inspect_bitwig(filepath):
+    """Structural view of a Bitwig BtWg container (.bwpreset/.bwclip): the
+    header, the decoded metadata block, and a note for any embedded-asset
+    zip. The device/module tree is left opaque."""
+    file_size = os.path.getsize(filepath)
+    # read the whole preset (bounded) so the embedded-asset zip, which can sit
+    # past the first few MB, is found. the meta scan is bounded internally.
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 64 * 1024 * 1024))
+    chunks, file_warns = [], []
+
+    ver = bwmod.read_header(data)
+    chunks.append({"id": "BtWg", "offset": 0, "size": 14,
+                   "summary": f"Bitwig container, format {ver}",
+                   "fields": [_f(0x00, 4, "magic", "BtWg"),
+                              _f(0x04, 10, "version", ver)],
+                   "warnings": [], "payload_base": 0})
+
+    meta = bwmod.parse_meta(data)
+    fields = [_f(None, 0, label, meta[key][:200])
+              for key, label in bwmod._META_FIELDS if key in meta]
+    if meta:
+        name = meta.get("device_name", "?")
+        cat = meta.get("device_category", "?")
+        summary = f"{name} ({cat})"
+    else:
+        summary = "no meta block decoded"
+        file_warns.append("BtWg meta block not decoded")
+    chunks.append({"id": "meta", "offset": 0, "size": 0,
+                   "summary": summary, "fields": fields, "warnings": []})
+
+    zoff = data.find(b"PK\x03\x04")
+    if zoff >= 0:
+        chunks.append({"id": "assets", "offset": zoff,
+                       "size": file_size - zoff,
+                       "summary": "embedded asset zip (deflate); unzip for the "
+                                  "referenced samples/impulses",
+                       "fields": [], "warnings": []})
+    return chunks, file_warns
+
+
+# ── vital walk ─────────────────────────────────────────────────────
+
+
+def inspect_vital(filepath):
+    """Structural view of a Vital preset (bare JSON): the top-level metadata
+    plus a note that the synth state under 'settings' is opaque."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 32 * 1024 * 1024))
+    # a fast bytes search for the marker before the full JSON parse: an
+    # arbitrary large JSON file that merely starts with '{' is rejected without
+    # paying for json.loads. the substring may sit anywhere (some presets emit
+    # the big 'settings' object before synth_version).
+    if b'"synth_version"' not in data:
+        raise _Unsupported("not a Vital preset (no synth_version marker)")
+    obj = vitalmod.parse_vital(data)
+    if obj is None:
+        raise _Unsupported("not a Vital preset (JSON did not parse or lacks "
+                           "the synth_version key)")
+    fields = []
+    for k in vitalmod.META_KEYS:
+        v = obj.get(k)
+        if v is not None and not isinstance(v, (dict, list)):
+            fields.append(_f(None, 0, k, str(v)[:200]))
+    settings = obj.get("settings")
+    nkeys = len(settings) if isinstance(settings, dict) else 0
+    name = obj.get("preset_name") or "unnamed"
+    chunks = [{"id": "vital", "offset": 0, "size": file_size,
+               "summary": f"'{name}' by {obj.get('author', '?')}, "
+                          f"{nkeys} settings keys",
+               "fields": fields, "warnings": []}]
+    return chunks, []
+
+
+# ── ncw walk ───────────────────────────────────────────────────────
+
+
+def inspect_ncw(filepath):
+    """Structural view of an NI Compressed Wave (.ncw) file: the audio
+    parameters from the header. The compressed blocks are opaque."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        head = f.read(64)
+    hdr = ncwmod.parse_header(head)
+    if hdr is None:
+        raise _Unsupported("not a valid NCW header")
+    dur = hdr["num_samples"] / hdr["sample_rate"] if hdr["sample_rate"] else 0
+    fields = [
+        _f(0x08, 2, "channels", hdr["channels"]),
+        _f(0x0A, 2, "bits_per_sample", hdr["bits"]),
+        _f(0x0C, 4, "sample_rate", hdr["sample_rate"], "Hz"),
+        _f(0x10, 4, "num_samples", hdr["num_samples"],
+           f"{dur:.3f} s" if dur else ""),
+    ]
+    chunks = [{"id": "NCW", "offset": 0, "size": file_size,
+               "summary": f"NI Compressed Wave, {hdr['bits']}-bit "
+                          f"{hdr['channels']}ch {hdr['sample_rate']} Hz, "
+                          f"{dur:.3f} s (compressed audio opaque)",
+               "fields": fields, "warnings": [], "payload_base": 0}]
+    return chunks, []
+
+
+# ── mp4 walk ───────────────────────────────────────────────────────
+
+
+def inspect_mp4(filepath):
+    """Structural view of an ISO-BMFF MP4/M4A file: the decoded metadata (from
+    udta > meta > ilst and the movie duration) followed by the box tree."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 8 * 1024 * 1024))  # box tree from the head
+        # metadata lives in moov; non-faststart files (most Apple/ffmpeg output)
+        # put moov at EOF, past the head window. locate and read just moov then.
+        moov_data = data
+        if not any(b["type"] == b"moov" for b in mp4mod.iter_boxes(data)) \
+                and file_size > len(data):
+            moff, msz = mp4mod.find_moov(filepath, file_size)
+            if moff is not None:
+                f.seek(moff)
+                moov_data = f.read(min(msz, 32 * 1024 * 1024))
+    chunks, warns = [], []
+
+    ts, dur = mp4mod.movie_timescale_duration(moov_data)
+    dur_s = dur / ts if ts and dur else None
+    ainfo = mp4mod.audio_info(moov_data)
+    meta = mp4mod.parse_ilst(moov_data)
+    mfields = []
+    if ainfo:
+        codec, ch, rate = ainfo
+        codec_names = {"mp4a": "AAC", "alac": "Apple Lossless", "Opus": "Opus",
+                       "fLaC": "FLAC", "ac-3": "AC-3", "ec-3": "E-AC-3"}
+        desc = codec_names.get(codec, codec)
+        if ch:
+            desc += f", {ch}ch {rate} Hz"
+        mfields.append(_f(None, 0, "codec", desc))
+    if dur_s:
+        mfields.append(_f(None, 0, "duration", f"{dur_s:.3f} s"))
+    for label in ("title", "artist", "album_artist", "album", "year", "genre",
+                  "bpm", "composer", "encoder", "comment", "track", "disc",
+                  "cover_art", "compilation"):
+        if label in meta:
+            mfields.append(_f(None, 0, label, str(meta[label])[:200]))
+    if mfields:
+        title = meta.get("title", "")
+        chunks.append({"id": "tags", "offset": 0, "size": 0,
+                       "summary": f"'{title}'" if title else "iTunes metadata",
+                       "fields": mfields, "warnings": []})
+
+    for b in mp4mod.iter_boxes(data):
+        t = b["type"].decode("latin-1", errors="replace")
+        summary = ". " * b["depth"] + t
+        fields = []
+        if b["truncated"]:
+            warns.append(f"box {t!r} at 0x{b['offset']:08x} overruns its parent")
+            summary += " (overruns parent)"
+        elif b["type"] == b"ftyp" and b["depth"] == 0:
+            brand = data[b["offset"] + b["hdr"]:b["offset"] + b["hdr"] + 4]
+            summary += f"  major brand {brand.decode('latin-1', errors='replace')}"
+            fields.append(_f(0x00, 4, "major_brand",
+                             brand.decode("latin-1", errors="replace")))
+        chunks.append({"id": t[:8], "offset": b["offset"], "size": b["size"],
+                       "summary": summary, "fields": fields, "warnings": [],
+                       "payload_base": b["offset"] + b["hdr"]})
+    return chunks, warns
+
+
 # ── flac walk ──────────────────────────────────────────────────────
 
 
@@ -2036,6 +2238,45 @@ def _render_rows(rows, paint):
         print("    " + "  ".join(f"{str(r.get(c, '')):<{widths[c]}}" for c in cols))
 
 
+def _human_size(n):
+    x = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if x < 1024 or unit == "TB":
+            return f"{int(x)} {unit}" if unit == "B" else f"{x:.1f} {unit}"
+        x /= 1024
+
+
+def _render_pretty(filepath, fmt_label, chunks, file_warns, args):
+    """A clean, human-friendly view of the decoded tags/metadata: section per
+    chunk, aligned key/value, no byte offsets. Made for presets and tagged
+    files (Bitwig, Vital, Serum, MP4 tags, WAV/FLAC/MP3 metadata)."""
+    p = _Paint(_color_enabled(args))
+    size = os.path.getsize(filepath)
+    print(p("id", os.path.basename(filepath)))
+    print(p("dim", f"{fmt_label}, {_human_size(size)}"))
+    for c in chunks:
+        fields = [f for f in c["fields"]
+                  if f["value"] not in (None, "") and str(f["value"]).strip()]
+        if not fields:
+            continue
+        print()
+        head = c["id"].strip()
+        meta = f"  {p('dim', c['summary'])}" if c.get("summary") else ""
+        print(p("id", head) + meta)
+        w = max(len(f["name"]) for f in fields)
+        for f in fields:
+            key = p("dim", f"{f['name']:<{w}}")
+            note = f"  {p('dim', '(' + str(f['note']) + ')')}" if f["note"] else ""
+            print(f"  {key}  {p('val', f['value'])}{note}")
+    all_warns = list(file_warns) + [w for c in chunks for w in c["warnings"]]
+    if all_warns:
+        print()
+        print(p("warn", "warnings:"))
+        for w in all_warns:
+            print(p("warn", f"  ! {w}"))
+    return 0
+
+
 def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None):
     file_size = os.path.getsize(filepath)
     p = _Paint(_color_enabled(args))
@@ -2156,6 +2397,14 @@ def _walk_file(filepath, deep):
         return ("RF64/WAVE", *inspect_rf64(filepath))
     if magic[:8] == b"XferJson":
         return ("Xfer Serum preset", *inspect_serum(filepath))
+    if magic[:4] == b"BtWg":
+        return ("Bitwig preset", *inspect_bitwig(filepath))
+    if magic[:4] == ncwmod.MAGIC:
+        return ("NI Compressed Wave", *inspect_ncw(filepath))
+    if magic[:1] == b"{":
+        return ("Vital preset", *inspect_vital(filepath))
+    if magic[4:8] == b"ftyp":
+        return ("MP4/M4A", *inspect_mp4(filepath))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
     if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
@@ -2163,7 +2412,8 @@ def _walk_file(filepath, deep):
     if magic[:3] == b"ID3" or (len(magic) >= 4
                                and mp3mod.decode_frame_header(magic[:4]) is not None):
         return ("MP3/MPEG audio", *inspect_mp3(filepath, deep=deep))
-    raise _Unsupported("not a WAV, RF64, AIFF, MIDI, Serum preset, MP3, or FLAC")
+    raise _Unsupported("not a WAV, RF64, AIFF, MIDI, Serum, Bitwig, Vital, NCW, "
+                       "MP4/M4A, MP3, or FLAC")
 
 
 def _full_chunk(chunk, filepath):
@@ -2250,9 +2500,15 @@ def run(args):
                     "warnings": file_warns,
                 }) + "\n")
             else:
-                if multi:
+                pretty = getattr(args, "pretty", False)
+                if multi and not pretty:
                     print(f"\nFile: {filepath}")  # readelf-style per-file banner
-                _render_table(filepath, fmt_label, shown, file_warns, args, total)
+                elif multi:
+                    print()  # separate files; --pretty prints its own name header
+                if pretty:
+                    _render_pretty(filepath, fmt_label, shown, file_warns, args)
+                else:
+                    _render_table(filepath, fmt_label, shown, file_warns, args, total)
     except BrokenPipeError:
         # a downstream pager or `head` closed the pipe: exit quietly the way
         # cat and grep do, without a traceback.

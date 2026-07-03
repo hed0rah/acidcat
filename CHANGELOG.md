@@ -5,6 +5,27 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.11.0] - 2026-07-02
+
+### Added
+
+- New format walkers for `inspect`, all pure-Python and bounds/DoS-hardened:
+  - MP4/M4A (ISO-BMFF): walks the box tree (bounds- and depth-checked) and
+    decodes ftyp brands, movie duration, the audio codec (AAC / Apple Lossless /
+    Opus / ...) with channels and rate from stsd, and the iTunes metadata under
+    udta > meta > ilst (title, artist, album, bpm, cover-art, ...). moov is
+    found even when it sits at the end of a non-faststart file.
+  - Bitwig `.bwpreset` / `.bwclip`: the BtWg tagged meta block (device, creator,
+    category, tags, description, version) plus a note for any embedded-asset zip.
+  - Vital `.vital`: the bare-JSON preset metadata (preset_name, author, comments,
+    style, synth_version, macros).
+  - NI Compressed Wave `.ncw` (Kontakt samples): header audio parameters
+    (channels, bits, sample rate, sample count, duration).
+- Bitwig WAV bounces: the `BWBM` beat-map chunk (beats, duration, derived bpm)
+  and the `IBPM` tempo tag are decoded.
+- `inspect --pretty`: a human-friendly view of the decoded tags and metadata
+  (no byte offsets), for presets and tagged files.
+
 ## [0.10.1] - 2026-07-02
 
 ### Fixed
