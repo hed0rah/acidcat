@@ -75,3 +75,28 @@ def test_lsb_clean_vs_stego(tmp_path):
         fmt, chunks, warns = I._walk_file(path, deep=False)
         r = lsb.analyze(path, fmt, chunks)
         assert r is not None and r["suspicious"] is expect
+
+
+def _id3_dup_mp3():
+    def fr(fid, text):
+        b = b"\x03" + text.encode()
+        return fid + struct.pack(">I", len(b)) + b"\x00\x00" + b
+    frames = fr(b"TIT2", "one") + fr(b"TIT2", "two") + fr(b"TPE1", "a")
+    n = len(frames)
+    ss = bytes([(n >> 21) & 0x7f, (n >> 14) & 0x7f, (n >> 7) & 0x7f, n & 0x7f])
+    return b"ID3\x03\x00\x00" + ss + frames + (b"\xff\xfb\x90\x00" + b"\x00" * 413) * 8
+
+
+def test_duplicate_id3_frame_flagged(tmp_path):
+    path = _write(tmp_path, "dup.mp3", _id3_dup_mp3())
+    findings = _scan(path)
+    dups = [f for f in findings if f["rule"] == "duplicate_frame" and "TIT2" in f["message"]]
+    assert dups
+
+
+def test_nonzero_padding_flagged(tmp_path):
+    # a synthetic FLAC-shaped PADDING chunk whose content is non-zero
+    path = _write(tmp_path, "pad.bin", b"\xaa" * 16)
+    chunks = [{"id": "PADDING", "offset": 0, "size": 16, "payload_base": 0, "fields": []}]
+    findings = anomalies.scan(path, "FLAC", chunks, [])
+    assert any(f["rule"] == "cavity_content" for f in findings)

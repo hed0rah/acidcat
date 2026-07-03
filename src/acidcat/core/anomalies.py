@@ -27,6 +27,15 @@ _MAGICS = [
 
 _SEVERITY = {"alert": 3, "warn": 2, "notice": 1}
 
+# ID3 frames that legitimately repeat (so duplicates are not suspicious), plus
+# the synthetic header fields inspect emits for the tag itself.
+_ID3_REPEATABLE = {"TXXX", "WXXX", "APIC", "PIC", "PRIV", "GEOB", "COMM", "UFID",
+                   "USLT", "SYLT", "WCOM", "WOAR", "WXXX", "version", "flags",
+                   "tag_size"}
+
+# spec-ignorable regions: content there is a classic smuggling spot
+_CAVITY = {"PADDING": "FLAC PADDING", "FREE": "MP4 free box", "SKIP": "MP4 skip box"}
+
 
 def _declared_end(head):
     """The offset a conformant reader stops at, from the container's size field.
@@ -88,6 +97,52 @@ def scan(filepath, fmt_label, chunks, warns):
                         "rule": "nonprintable_text",
                         "message": f"{str(c.get('id', '?')).strip()}/{fl.get('name')}: "
                                    f"{ctrl} control bytes in a text field"})
+
+    # 4. duplicate non-repeatable ID3 frames (a tag-smuggling / bad-tooling tell)
+    for c in chunks:
+        if "ID3" not in str(c.get("id", "")):
+            continue
+        counts = {}
+        for fl in c.get("fields") or []:
+            nm = fl.get("name")
+            if nm and nm not in _ID3_REPEATABLE:
+                counts[nm] = counts.get(nm, 0) + 1
+        for nm, k in counts.items():
+            if k > 1:
+                findings.append({"severity": "notice", "offset": c.get("offset", 0) or 0,
+                                 "rule": "duplicate_frame",
+                                 "message": f"ID3 frame {nm} appears {k} times "
+                                            f"(should be unique)"})
+
+    # 5. non-zero content in a spec-ignorable padding / free region (dead space
+    # that is supposed to be zeros: content there is a hiding spot)
+    for c in chunks:
+        cid = str(c.get("id", "")).strip().upper()
+        label = _CAVITY.get(cid)
+        base = c.get("payload_base")
+        if not label or base is None:
+            continue
+        if cid == "PADDING":
+            clen = c.get("size") or 0
+        else:  # MP4 box: size includes the header, base is past it
+            clen = (c.get("size") or 0) - (base - (c.get("offset") or 0))
+        if clen <= 0:
+            continue
+        with open(filepath, "rb") as f:
+            f.seek(base)
+            blob = f.read(min(clen, 1 << 20))
+        if any(blob):
+            findings.append({"severity": "notice", "offset": base, "rule": "cavity_content",
+                             "message": f"non-zero bytes in {label} ({clen:,} bytes); "
+                                        f"this region is spec'd to be ignorable"})
+
+    # 6. FLAC APPLICATION block: 4-byte id + arbitrary freeform data
+    for c in chunks:
+        if str(c.get("id", "")).strip().upper() == "APPLICATION":
+            findings.append({"severity": "notice", "offset": c.get("offset", 0) or 0,
+                             "rule": "application_block",
+                             "message": f"FLAC APPLICATION block "
+                                        f"({c.get('size', 0):,} bytes of freeform data)"})
 
     findings.sort(key=lambda x: (-_SEVERITY.get(x["severity"], 0), x["offset"]))
     return findings
