@@ -1431,3 +1431,30 @@ class TestNiKsdWalker:
     def test_non_ksd_rejected(self):
         from acidcat.core.ni import parse_ksd
         assert parse_ksd(b"RIFF____WAVE") is None
+
+
+class TestNiNksfWalker:
+    def test_parse_nksf_msgpack(self):
+        import struct as _s
+        from acidcat.core.ni import parse_nksf
+        mp = (b"\x83" + b"\xa4name" + b"\xa4Bass" + b"\xa6vendor" + b"\xa2NI"
+              + b"\xa9bankchain" + b"\x92\xa9Massive X\xa0")  # map3, incl bankchain array
+        nisi = b"NISI" + _s.pack("<I", 4 + len(mp)) + _s.pack("<I", 1) + mp
+        riff = b"RIFF" + _s.pack("<I", 4 + len(nisi)) + b"NIKS" + nisi
+        m = parse_nksf(riff)
+        assert m["name"] == "Bass" and m["vendor"] == "NI"
+        assert m["bank"] == "Massive X"
+
+    def test_nksf_bad_msgpack_no_crash(self):
+        import struct as _s
+        from acidcat.core.ni import parse_nksf
+        mp = b"\xc1\xc1\xc1"  # 0xc1 is a reserved/unsupported type
+        nisi = b"NISI" + _s.pack("<I", 4 + len(mp)) + _s.pack("<I", 1) + mp
+        riff = b"RIFF" + _s.pack("<I", 4 + len(nisi)) + b"NIKS" + nisi
+        assert parse_nksf(riff) is None  # degrades, no crash
+
+    def test_msgpack_depth_capped(self):
+        from acidcat.core.ni import _mp_decode
+        deep = b"\x91" * 100  # 100 nested 1-element arrays
+        v, _ = _mp_decode(deep)  # must not RecursionError
+        assert v is None or isinstance(v, list)

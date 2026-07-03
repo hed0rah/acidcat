@@ -1530,6 +1530,8 @@ def inspect_ni(filepath):
         data = f.read(min(file_size, 16 * 1024 * 1024))
     if nimod.is_ni_ksd(data):
         meta, kind = nimod.parse_ksd(data), "ksd"
+    elif nimod.is_ni_nksf(data):
+        meta, kind = nimod.parse_nksf(data), "nksf"
     else:
         meta, kind = nimod.parse_hsin(data), "hsin"
     if not meta:
@@ -2436,7 +2438,8 @@ def _walk_file(filepath, deep):
         return ("Vital preset", *inspect_vital(filepath))
     if magic[4:8] == b"ftyp":
         return ("MP4/M4A", *inspect_mp4(filepath))
-    if magic[12:16] == b"hsin" or magic[:4] == b"-in-":
+    if magic[12:16] == b"hsin" or magic[:4] == b"-in-" \
+            or (magic[:4] == b"RIFF" and magic[8:12] == b"NIKS"):
         return ("Native Instruments preset", *inspect_ni(filepath))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
