@@ -36,12 +36,20 @@ from acidcat.core.serum import is_serum_preset, parse_serum_preset
 from acidcat.core.tagged import is_tagged_format
 
 
+# synth/DAW preset formats whose metadata we index (device, product, creator,
+# category, preset name, tags)
+PRESET_EXTENSIONS = {
+    ".bwpreset", ".bwclip", ".bwmodulator",       # Bitwig
+    ".nmsv", ".nabs", ".nki", ".nkm", ".ksd", ".nksf",  # Native Instruments
+    ".vital",                                       # Vital
+}
+
 INDEXABLE_EXTENSIONS = {
     ".wav", ".aif", ".aiff",
     ".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4", ".aac",
     ".mid", ".midi",
     ".serumpreset",
-}
+} | PRESET_EXTENSIONS
 
 # OS sidecar / metadata junk that shows up in copied libraries.
 JUNK_FILES = {".ds_store", "thumbs.db", "desktop.ini"}
@@ -865,11 +873,16 @@ def _sniff_format(filepath):
     """
     try:
         with open(filepath, "rb") as f:
-            head = f.read(12)
+            head = f.read(16)
     except OSError:
         return None
     if len(head) < 4:
         return None
+    # synth/DAW presets (content-sniffed): Bitwig, NI hsin/ksd/nksf
+    if head[0:4] == b"BtWg" or head[0:4] == b"-in-" \
+            or head[12:16] == b"hsin" \
+            or (head[0:4] == b"RIFF" and head[8:12] == b"NIKS"):
+        return "preset"
     if head[0:4] == b"MThd":
         return "midi"
     if head[0:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
@@ -927,6 +940,8 @@ def _extract_for_index(filepath, scan_root, mtime, size, walk_start,
             return _from_aiff(filepath, row)
         if sniffed == "serum" or (sniffed is None and ext == ".serumpreset"):
             return _from_serum(filepath, row)
+        if sniffed == "preset" or (sniffed is None and ext in PRESET_EXTENSIONS):
+            return _from_preset(filepath, row)
         if sniffed in ("flac", "ogg", "mp3", "mp4"):
             return _from_tagged(filepath, row, do_deep=do_deep)
         if sniffed is None and is_tagged_format(filepath) and ext != ".wav":
@@ -1052,6 +1067,32 @@ def _from_serum(filepath, row):
         row["_tags"] = tags
     elif isinstance(tags, str) and tags:
         row["_tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+    return row
+
+
+def _from_preset(filepath, row):
+    """Index a synth/DAW preset's metadata (Bitwig, Native Instruments, Vital).
+    Reads a bounded prefix (all preset metadata lives near the start), normalizes
+    via core.preset_meta, and maps into the preset columns + tags."""
+    from acidcat.core import preset_meta
+    with open(filepath, "rb") as f:
+        data = f.read(min(row["size"], 8 * 1024 * 1024))
+    meta = preset_meta.extract(data)
+    if not meta:
+        return None
+    ext = os.path.splitext(filepath)[1].lower().lstrip(".")
+    row["format"] = ext or "preset"
+    row["preset_name"] = meta.get("preset_name")
+    row["device"] = meta.get("device")
+    row["product"] = meta.get("product")
+    row["creator"] = meta.get("creator")
+    row["category"] = meta.get("category")
+    # mirror into the common columns so existing text/title views still work
+    row["title"] = meta.get("preset_name")
+    row["artist"] = meta.get("creator")
+    row["comment"] = meta.get("description")
+    if meta.get("tags"):
+        row["_tags"] = meta["tags"]
     return row
 
 
