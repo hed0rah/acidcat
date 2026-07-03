@@ -1669,3 +1669,39 @@ class TestAiffEmbeddedID3:
     def test_aiff_id3_ignores_non_id3(self):
         from acidcat.commands.inspect import _aiff_id3_fields
         assert _aiff_id3_fields(b"not an id3 tag") == []
+
+
+class TestOggWalker:
+    def _vc(self, vendor, tags):
+        b = struct.pack("<I", len(vendor)) + vendor.encode("utf-8")
+        b += struct.pack("<I", len(tags))
+        for k, v in tags.items():
+            c = f"{k}={v}".encode("utf-8")
+            b += struct.pack("<I", len(c)) + c
+        return b
+
+    def _ogg(self, packets):
+        seg_table, body = [], b""
+        for p in packets:
+            body += p
+            rem = len(p)
+            while rem >= 255:
+                seg_table.append(255); rem -= 255
+            seg_table.append(rem)
+        hdr = (b"OggS\x00\x02" + b"\x00" * 8 + struct.pack("<I", 999)
+               + b"\x00" * 4 + b"\x00" * 4 + bytes([len(seg_table)]) + bytes(seg_table))
+        return hdr + body
+
+    def test_ogg_vorbis_comments(self):
+        from acidcat.core import ogg
+        p1 = b"\x01vorbis" + b"\x00" * 20
+        p2 = b"\x03vorbis" + self._vc("libVorbis", {"ARTIST": "아버지", "TITLE": "x"})
+        codec, vendor, tags = ogg.comment_header(self._ogg([p1, p2]))
+        assert codec == "Vorbis" and vendor == "libVorbis"
+        assert tags["ARTIST"] == "아버지" and tags["TITLE"] == "x"
+
+    def test_ogg_malformed_no_crash(self):
+        from acidcat.core import ogg
+        for bad in (b"OggS", b"OggS" + b"\xff" * 60, b"OggS\x00\x02" + b"\x00" * 30):
+            list(ogg.iter_pages(bad))
+            ogg.comment_header(bad)  # must not raise
