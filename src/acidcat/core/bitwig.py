@@ -22,6 +22,7 @@ _MAX_LEN = 1 << 20  # sanity cap on any declared length
 # string-valued meta keys worth surfacing, in display order (key, label)
 _META_FIELDS = [
     ("device_name", "device"),
+    ("device_id", "device_id"),
     ("device_creator", "device_creator"),
     ("device_category", "category"),
     ("device_type", "device_type"),
@@ -29,6 +30,9 @@ _META_FIELDS = [
     ("creator", "creator"),
     ("comment", "description"),
     ("tags", "tags"),
+    ("type", "content_type"),
+    ("branch", "branch"),
+    ("revision_id", "revision"),
     ("application_version_name", "bitwig_version"),
 ]
 _META_KEYS_BYTES = {k.encode(): k for k, _ in _META_FIELDS}
@@ -79,6 +83,7 @@ _REF_KEYS = [
     (b"referenced_device_ids", "referenced_devices"),
     (b"referenced_module_ids", "referenced_modules"),
     (b"referenced_modulator_ids", "referenced_modulators"),
+    (b"referenced_packaged_file_ids", "referenced_files"),
 ]
 
 
