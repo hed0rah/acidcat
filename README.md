@@ -7,7 +7,9 @@
 Audio metadata explorer and analysis tool -- like exiftool, but for audio.
 
 Reads BPM, key, duration, tags, and format info from WAV, AIFF, MP3, FLAC,
-OGG, Opus, M4A, MIDI, and Serum presets. Zero dependencies for core metadata.
+OGG, Opus, M4A, MIDI, and Serum presets. Also structurally decodes Bitwig
+(.bwpreset/.bwclip), Native Instruments (Massive/Absynth/Kontakt/NKS/KORE),
+Vital, NCW, and MP4 containers via `inspect`. Zero dependencies for core metadata.
 Optional librosa analysis for BPM/key detection and ML feature extraction.
 
 Also ships per-library SQLite indexes (`acidcat index`) tracked in a
@@ -22,7 +24,8 @@ full-text.
     pip install -e .                # core + mutagen (WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A)
     pip install -e .[analysis]      # + librosa BPM/key detection
     pip install -e .[ml]            # + sklearn similarity/clustering
-    pip install -e .[mcp]           # + MCP server (acidcat-mcp)
+    pip install -e .[mcp]           # + MCP server (acidcat-mcp, stdio)
+    pip install -e .[mcp-http]      # + MCP streamable-HTTP transport (acidcat-mcp --transport http)
     pip install -e .[all]           # everything
 
 ## Quick Start
@@ -58,6 +61,11 @@ full-text.
 | M4A    | `.m4a`    | BPM, key, title, artist, album, genre (iTunes atoms) |
 | MIDI   | `.mid`    | BPM, key sig, time sig, tracks, note count/range |
 | Serum  | `.SerumPreset` | Preset name, author, tags, description |
+| Bitwig | `.bwpreset`, `.bwclip` | Device tree, parameters, clip notes (inspect + index) |
+| Native Instruments | `.nmsv`, `.nabs`, `.ksd`, `.nksf`, `.nki` | Preset metadata, NKS tags, FastLZ subtree (inspect + index) |
+| Vital  | `.vital`  | Patch name, author, tags, modulation matrix (inspect + index) |
+| NCW    | `.ncw`    | NI Compressed Wave header, channel/block info (inspect) |
+| MP4    | `.mp4`    | Box tree, codec info, iTunes tags (inspect) |
 
 ## Commands
 
@@ -106,7 +114,8 @@ Most commands accept `table`, `json`, and `csv` (default `table`, but
 | `[viz]` | + matplotlib, seaborn | optional plotting |
 | `[notebook]` | + jupyter, ipykernel | optional notebook env |
 | `[mcp]` | mcp SDK | `acidcat-mcp` stdio server |
-| `[all]` | everything | all commands, all formats |
+| `[mcp-http]` | starlette + uvicorn | `acidcat-mcp --transport http` (streamable-HTTP transport) |
+| `[all]` | everything (includes `[mcp-http]`) | all commands, all formats |
 
 ## Examples
 

@@ -60,9 +60,30 @@ def _detect_format(filepath):
         return "midi"
     if ext.lower() == ".serumpreset":
         return "serum"
+    if _is_preset(filepath, ext):
+        return "preset"
     if is_tagged_format(filepath):
         return "tagged"
     return "wav"
+
+
+_PRESET_EXTS = (".bwpreset", ".bwclip", ".vital", ".nmsv", ".nabs", ".nksf",
+                ".nki", ".ncw", ".nrkt", ".nfm8", ".nbkt")
+
+
+def _is_preset(filepath, ext):
+    """Synth/DAW preset containers that `inspect` decodes but `info` (which is
+    WAV/tag centric) does not. Detected by magic where reliable, else extension.
+    Prevents a preset from being silently mis-parsed as a headerless WAV."""
+    if ext in _PRESET_EXTS:
+        return True
+    try:
+        with open(filepath, "rb") as f:
+            head = f.read(16)
+    except OSError:
+        return False
+    return (head[:4] == b"BtWg" or head[12:16] == b"hsin" or head[:4] == b"-in-"
+            or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"))
 
 
 def _info_wav(filepath, args):
@@ -393,6 +414,13 @@ def run(args):
 
     try:
         fmt_type = _detect_format(filepath)
+
+        if fmt_type == "preset":
+            print(f"acidcat info: {os.path.basename(filepath)} is a synth/DAW "
+                  f"preset. `info` reads audio and tags; use `acidcat inspect "
+                  f"{os.path.basename(filepath)}` to decode preset structure.",
+                  file=sys.stderr)
+            return 2
 
         if fmt_type == "aiff":
             rec = _info_aiff(filepath, args)
