@@ -167,6 +167,8 @@ def edit_tagged(data, suffix, changes):
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
+            f.flush()
+            os.fsync(f.fileno())  # ensure mutagen re-reads a fully-written file
         audio = mutagen.File(tmp, easy=True)
         if audio is None:
             raise EditError("mutagen could not read this audio file")

@@ -52,11 +52,12 @@ def _edit(path, changes):
     head = data[:16]
     if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
         return ("Vital preset",) + edits.edit_vital(data, changes)
-    if head[:4] == b"BtWg":
-        return ("Bitwig preset (experimental)",) + edits.edit_bitwig(data, changes)
-    if head[12:16] == b"hsin" or head[:4] == b"-in-" \
+    if head[:4] == b"BtWg" or head[12:16] == b"hsin" or head[:4] == b"-in-" \
             or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"):
-        return ("NI preset (experimental)",) + edits.edit_ni(data, changes)
+        raise edits.EditError(
+            "writing Bitwig/NI preset metadata is experimental and not enabled "
+            "in this release: the container size-cascade needs app-reload "
+            "verification first. Reading (inspect) is fully supported.")
     if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
         try:
             from acidcat.core import edit_riff

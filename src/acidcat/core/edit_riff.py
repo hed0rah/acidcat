@@ -234,8 +234,9 @@ def edit_wav(data, changes):
         out += cid + struct.pack("<I", len(payload)) + payload
         if len(payload) & 1:
             out += b"\x00"
+    riff_size = len(out) - 8  # container covers header+chunks, NOT trailing junk
     out += trailing
-    struct.pack_into("<I", out, 4, len(out) - 8)
+    struct.pack_into("<I", out, 4, riff_size)
 
     # verify audio survived untouched
     data_after = next(c[1] for c in _iter_chunks(bytes(out))[0] if c[0] == b"data")
