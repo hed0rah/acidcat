@@ -54,6 +54,9 @@ def _edit(path, changes):
         return ("Vital preset",) + edits.edit_vital(data, changes)
     if head[:4] == b"BtWg":
         return ("Bitwig preset (experimental)",) + edits.edit_bitwig(data, changes)
+    if head[12:16] == b"hsin" or head[:4] == b"-in-" \
+            or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"):
+        return ("NI preset (experimental)",) + edits.edit_ni(data, changes)
     if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
         try:
             from acidcat.core import edit_riff

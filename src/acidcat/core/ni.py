@@ -190,6 +190,108 @@ def _mp_array(b, pos, count, depth):
     return out, pos
 
 
+def _mp_encode(obj):
+    """Minimal MessagePack encoder (inverse of _mp_decode): dict/str/list/int/
+    nil/bool. Any valid encoding decodes to the same values, so re-encoding the
+    NISI map is spec-safe."""
+    out = bytearray()
+
+    def enc(o):
+        if o is None:
+            out.append(0xC0)
+        elif o is True:
+            out.append(0xC3)
+        elif o is False:
+            out.append(0xC2)
+        elif isinstance(o, int):
+            if 0 <= o < 128:
+                out.append(o)
+            elif -32 <= o < 0:
+                out.append(o & 0xFF)
+            elif 0 <= o < 256:
+                out.extend((0xCC, o))
+            elif 0 <= o < 65536:
+                out.extend(b"\xcd" + struct.pack(">H", o))
+            else:
+                out.extend(b"\xce" + struct.pack(">I", o & 0xFFFFFFFF))
+        elif isinstance(o, str):
+            b = o.encode("utf-8")
+            if len(b) < 32:
+                out.append(0xA0 | len(b))
+            elif len(b) < 256:
+                out.extend((0xD9, len(b)))
+            else:
+                out.extend(b"\xda" + struct.pack(">H", len(b)))
+            out.extend(b)
+        elif isinstance(o, list):
+            if len(o) < 16:
+                out.append(0x90 | len(o))
+            else:
+                out.extend(b"\xdc" + struct.pack(">H", len(o)))
+            for x in o:
+                enc(x)
+        elif isinstance(o, dict):
+            if len(o) < 16:
+                out.append(0x80 | len(o))
+            else:
+                out.extend(b"\xde" + struct.pack(">H", len(o)))
+            for k, v in o.items():
+                enc(k)
+                enc(v)
+        else:
+            raise ValueError(f"cannot encode {type(o).__name__}")
+    enc(obj)
+    return bytes(out)
+
+
+_NKSF_EDIT = {
+    "name": "name", "title": "name",
+    "author": "author", "creator": "author",
+    "vendor": "vendor",
+    "comment": "comment", "description": "comment",
+}
+
+
+def edit_nksf(data, changes):
+    """Edit the NISI MessagePack metadata in a .nksf (RIFF/NIKS): decode the
+    full map, edit fields, re-encode, rewrite the RIFF with correct sizes.
+    Returns (new_bytes, applied)."""
+    if not is_ni_nksf(data):
+        raise ValueError("not a .nksf preset")
+    n = len(data)
+    pos, chunks = 12, []
+    while pos + 8 <= n:
+        cid = data[pos:pos + 4]
+        sz = struct.unpack_from("<I", data, pos + 4)[0]
+        if pos + 8 + sz > n:
+            raise ValueError(f"nksf chunk {cid!r} overruns file")
+        chunks.append([cid, data[pos + 8:pos + 8 + sz]])
+        pos += 8 + sz + (sz & 1)
+    nisi = next((c for c in chunks if c[0] == b"NISI"), None)
+    if nisi is None:
+        raise ValueError("no NISI chunk to edit")
+    ver = struct.unpack_from("<I", nisi[1], 0)[0]
+    obj, _ = _mp_decode(nisi[1][4:])
+    if not isinstance(obj, dict):
+        raise ValueError("NISI payload is not a map")
+    applied = []
+    for field, value in changes.items():
+        key = _NKSF_EDIT.get(field.lower())
+        if key is None:
+            raise ValueError(f"nksf has no editable field {field!r}")
+        old = obj.get(key)
+        obj[key] = "" if value is None else str(value)
+        applied.append((field, old, obj[key]))
+    nisi[1] = struct.pack("<I", ver) + _mp_encode(obj)
+    out = bytearray(b"RIFF\x00\x00\x00\x00NIKS")
+    for cid, payload in chunks:
+        out += cid + struct.pack("<I", len(payload)) + payload
+        if len(payload) & 1:
+            out += b"\x00"
+    struct.pack_into("<I", out, 4, len(out) - 8)
+    return bytes(out), applied
+
+
 def parse_nksf(data):
     """RIFF/NIKS (.nksf): decode the NISI MessagePack metadata (name, author,
     vendor, comment, device type, bankchain), or None if not a .nksf."""
@@ -251,6 +353,70 @@ _KSD_FIELDS = [
     ("genre", r"<Genre>(.*?)</Genre>"),
     ("key", r"<Key>(.*?)</Key>"),
 ]
+
+
+# field -> (xml tag) for .ksd NI_DOC_HEADER editing
+_KSD_EDIT = {
+    "name": "doc_name", "title": "doc_name",
+    "author": "Author", "creator": "Author",
+    "vendor": "Vendor",
+    "bank": "Bankname",
+    "comment": "Comment", "description": "Comment",
+}
+
+
+def _xml_escape(s):
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def edit_ksd(data, changes):
+    """Edit a .ksd (KORE/Absynth): decompress the NI_DOC_HEADER XML blob, patch
+    the requested tags, re-compress, and update the cascading size fields
+    (internal XML length, uncompSize, compSize). Returns (new_bytes, applied)."""
+    if not is_ni_ksd(data):
+        raise ValueError("not a .ksd preset")
+    z = blob = comp_len = None
+    for m in re.finditer(rb'\x78[\x01\x9c\xda]', data):
+        d = zlib.decompressobj()
+        try:
+            dec = d.decompress(data[m.start():])
+        except zlib.error:
+            continue
+        if b"NI_DOC_HEADER" in dec:
+            z, blob = m.start(), dec
+            comp_len = len(data[m.start():]) - len(d.unused_data)
+            break
+    if z is None:
+        raise ValueError("no NI_DOC_HEADER blob found")
+    xstart = blob.find(b"<?xml")
+    if xstart < 0:
+        raise ValueError("no XML in the doc header")
+    header = blob[:xstart]
+    xml = blob[xstart:].decode("utf-8", "replace")
+    applied = []
+    for field, value in changes.items():
+        tag = _KSD_EDIT.get(field.lower())
+        if tag is None:
+            raise ValueError(f".ksd has no editable field {field!r}")
+        pat = re.compile(rf"(<{tag}>)(.*?)(</{tag}>)", re.S)
+        mo = pat.search(xml)
+        if mo is None:
+            raise ValueError(f"tag <{tag}> not present in this preset")
+        old = mo.group(2)
+        repl = _xml_escape("" if value is None else str(value))
+        xml = pat.sub(lambda m2: m2.group(1) + repl + m2.group(3), xml, count=1)
+        applied.append((field, old, value))
+    xml_b = xml.encode("utf-8")
+    new_header = bytearray(header)
+    if header[:4] == b" LMX" and len(header) >= 12:  # reversed 'XML ' + ver + len
+        struct.pack_into("<I", new_header, 8, len(xml_b))
+    new_blob = bytes(new_header) + xml_b
+    new_zlib = zlib.compress(new_blob, 9)
+    out = bytearray(data)
+    out[z:z + comp_len] = new_zlib
+    struct.pack_into("<I", out, z - 8, len(new_zlib))   # compSize
+    struct.pack_into("<I", out, z - 4, len(new_blob))   # uncompSize
+    return bytes(out), applied
 
 
 def parse_ksd(data):
