@@ -26,6 +26,13 @@ once it leaves alpha.
   `inspect --full` emits the entropy map and `build_explorer.py` renders it as a
   color heat-map in the byte explorer.
 
+### Fixed
+
+- MP4/M4A: a large `mdat` (or any box) whose contents extend past the inspector's
+  read window was wrongly flagged as overrunning its parent. Box sizes are now
+  reconciled against the real file size, so a valid large box reads as "content
+  beyond read window", not an error. (Found by `--anomalies` on a real ALAC file.)
+
 ## [0.13.0] - 2026-07-03
 
 ### Added

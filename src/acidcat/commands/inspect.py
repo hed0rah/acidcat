@@ -1738,13 +1738,17 @@ def inspect_mp4(filepath):
                        "summary": f"'{title}'" if title else "iTunes metadata",
                        "fields": mfields, "warnings": []})
 
-    for b in mp4mod.iter_boxes(data):
+    for b in mp4mod.iter_boxes(data, file_size=file_size):
         t = b["type"].decode("latin-1", errors="replace")
         summary = ". " * b["depth"] + t
         fields = []
         if b["truncated"]:
             warns.append(f"box {t!r} at 0x{b['offset']:08x} overruns its parent")
             summary += " (overruns parent)"
+        elif b.get("beyond_cap"):
+            # a valid box (e.g. a large mdat) whose contents run past the read
+            # window: not an error, just not fully read.
+            summary += " (content beyond read window)"
         elif b["type"] == b"ftyp" and b["depth"] == 0:
             brand = data[b["offset"] + b["hdr"]:b["offset"] + b["hdr"] + 4]
             summary += f"  major brand {brand.decode('latin-1', errors='replace')}"
