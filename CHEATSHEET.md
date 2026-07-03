@@ -74,6 +74,8 @@ acidcat inspect --frames beat.mid
 # index a library, then query it
 acidcat index ~/samples
 acidcat query --bpm 120:130 --key Am
+acidcat query --device Polysynth --category Reverb   # search preset metadata
+acidcat query --product Vital --creator someone
 ```
 
 ## install / upgrade

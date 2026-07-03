@@ -17,8 +17,11 @@ import sqlite3
 import time
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
+
+# preset-metadata columns added in schema v2 (Bitwig/NI/Vital/etc.)
+PRESET_COLUMNS = ("device", "product", "creator", "category", "preset_name")
 
 SAMPLE_COLUMNS = (
     "path", "scan_root", "mtime", "size",
@@ -27,6 +30,7 @@ SAMPLE_COLUMNS = (
     "acid_beats", "root_note",
     "sample_rate", "channels", "bits_per_sample",
     "chunks",
+    "device", "product", "creator", "category", "preset_name",
     "indexed_at", "last_seen_at",
 )
 
@@ -145,15 +149,32 @@ def _apply_schema(conn):
             f"acidcat build only knows version {SCHEMA_VERSION}. Upgrade "
             f"acidcat or open the DB with a newer client."
         )
-    # on_disk < SCHEMA_VERSION: a real migration registry would dispatch
-    # by version here. Today the only known version is 1 so this branch
-    # is unreachable; keeping the error explicit so a future bump
-    # without a migration registers as a clean failure rather than a
-    # silent run of old SQL against an old schema.
-    raise SchemaVersionError(
-        f"per-library DB at schema_version {on_disk} needs migration to "
-        f"{SCHEMA_VERSION}; no migration registered."
+    _migrate(conn, cur, on_disk)
+
+
+def _migrate(conn, cur, on_disk):
+    """Forward-only schema migration. Each step brings the DB up one version."""
+    if on_disk < 2:
+        # add the preset-metadata columns and widen the FTS index to cover them.
+        for col in PRESET_COLUMNS:
+            cur.execute(f"ALTER TABLE samples ADD COLUMN {col} TEXT")
+        cur.execute("DROP TABLE IF EXISTS samples_fts")
+        cur.execute(_SAMPLES_FTS_DDL)
+        for r in cur.execute("SELECT path FROM samples").fetchall():
+            rebuild_fts_for_path(conn, r["path"])
+    cur.execute(
+        "UPDATE meta SET v = ? WHERE k = 'schema_version'", (str(SCHEMA_VERSION),)
     )
+    conn.commit()
+
+
+_SAMPLES_FTS_DDL = """
+    CREATE VIRTUAL TABLE IF NOT EXISTS samples_fts USING fts5(
+        path, title, artist, album, genre, comment, description, tags,
+        preset_name, device, product, creator, category,
+        tokenize='porter'
+    )
+"""
 
 
 def _create_tables(cur):
@@ -178,6 +199,11 @@ def _create_tables(cur):
             channels INTEGER,
             bits_per_sample INTEGER,
             chunks TEXT,
+            device TEXT,
+            product TEXT,
+            creator TEXT,
+            category TEXT,
+            preset_name TEXT,
             indexed_at REAL,
             last_seen_at REAL
         )
@@ -213,12 +239,12 @@ def _create_tables(cur):
         )
     """)
 
-    cur.execute("""
-        CREATE VIRTUAL TABLE IF NOT EXISTS samples_fts USING fts5(
-            path, title, artist, album, genre, comment, description, tags,
-            tokenize='porter'
-        )
-    """)
+    cur.execute(_SAMPLES_FTS_DDL)
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_device ON samples(device)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_category ON samples(category)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_creator ON samples(creator)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_product ON samples(product)")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS features (
@@ -342,7 +368,8 @@ def rebuild_fts_for_path(conn, path):
     """
     conn.execute("DELETE FROM samples_fts WHERE path = ?", (path,))
     sample = conn.execute(
-        "SELECT title, artist, album, genre, comment "
+        "SELECT title, artist, album, genre, comment, "
+        "preset_name, device, product, creator, category "
         "FROM samples WHERE path = ?",
         (path,),
     ).fetchone()
@@ -358,8 +385,9 @@ def rebuild_fts_for_path(conn, path):
     tags_text = " ".join(r["tag"] for r in tag_rows)
     conn.execute(
         "INSERT INTO samples_fts "
-        "(path, title, artist, album, genre, comment, description, tags) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "(path, title, artist, album, genre, comment, description, tags, "
+        "preset_name, device, product, creator, category) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             path,
             sample["title"] or "",
@@ -369,6 +397,11 @@ def rebuild_fts_for_path(conn, path):
             sample["comment"] or "",
             description or "",
             tags_text,
+            sample["preset_name"] or "",
+            sample["device"] or "",
+            sample["product"] or "",
+            sample["creator"] or "",
+            sample["category"] or "",
         ),
     )
 
