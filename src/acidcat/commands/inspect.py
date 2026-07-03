@@ -29,6 +29,8 @@ from acidcat.core import bitwig as bwmod
 from acidcat.core import vital as vitalmod
 from acidcat.core import ncw as ncwmod
 from acidcat.core import mp4 as mp4mod
+from acidcat.core import ni as nimod
+from acidcat.core import ogg as oggmod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -146,8 +148,19 @@ def _f32(b, off):
     return struct.unpack_from("<f", b, off)[0]
 
 
+def _dtext(raw):
+    """Decode metadata text: UTF-8, falling back to latin-1. Modern DAWs (and
+    bandcamp) write RIFF/AIFF text as UTF-8; ascii/errors='replace' silently
+    destroyed non-Latin tags (Korean, CJK, the whole non-ASCII world) into
+    U+FFFD. latin-1 never raises, so a real cp1252 tag still round-trips."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
 def _cstr(b, off, length):
-    return b[off:off + length].split(b"\x00")[0].decode("ascii", errors="replace").strip()
+    return _dtext(b[off:off + length].split(b"\x00")[0]).strip()
 
 
 def _flag_names(value, table):
@@ -670,7 +683,7 @@ def _aiff_mark(b, ctx):
         mid = struct.unpack_from(">h", b, pos)[0]
         position = _bu32(b, pos + 2)
         name_len = b[pos + 6]
-        name = b[pos + 7:pos + 7 + name_len].decode("ascii", errors="replace")
+        name = _dtext(b[pos + 7:pos + 7 + name_len])
         fields.append(_f(pos, 7 + name_len, f"marker[{i}]", position,
                          f"id {mid}" + (f", '{name}'" if name else "")))
         ids[mid] = position
@@ -754,7 +767,7 @@ def _aiff_comt(b):
         if pos + 8 + count > len(b):
             warns.append(f"comment[{i}] text overruns payload")
             break
-        text = b[pos + 8:pos + 8 + count].decode("ascii", errors="replace").strip()
+        text = _dtext(b[pos + 8:pos + 8 + count]).strip()
         note = f"marker {marker}" if marker else ""
         fields.append(_f(pos, 8 + count + (count & 1), f"comment[{i}]",
                          text[:60], note))
@@ -798,6 +811,62 @@ def _aiff_appl(b):
         fields.append(_f(0x04, 1 + nlen, "name", name, "pstring"))
     fields.append(_f(None, 0, "data", f"{len(b) - 4:,} bytes"))
     return f"app '{sig}', {len(b) - 4:,} bytes", fields, warns
+
+
+def inspect_ogg(filepath):
+    """Structural view of an Ogg stream: page count/codec and the Vorbis/Opus
+    comment header (vendor + tags). The audio packets are opaque."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 16 * 1024 * 1024))
+    pages = list(oggmod.iter_pages(data))
+    ch = oggmod.comment_header(data)
+    codec = ch[0] if ch else "unknown"
+    serial = pages[0]["serial"] if pages else 0
+    chunks = [{"id": "OggS", "offset": 0, "size": file_size,
+               "summary": f"Ogg {codec}, {len(pages)} page(s)",
+               "fields": [_f(0x00, 4, "codec", codec),
+                          _f(None, 0, "pages", len(pages)),
+                          _f(None, 0, "bitstream_serial", serial)],
+               "warnings": [], "payload_base": 0}]
+    if ch and ch[2]:
+        _, vendor, tags = ch
+        fields = []
+        if vendor:
+            fields.append(_f(None, 0, "vendor", vendor[:200]))
+        for k, v in list(tags.items())[:200]:
+            fields.append(_f(None, 0, k, str(v)[:200]))
+        if len(tags) > 200:
+            fields.append(_f(None, 0, "...", f"{len(tags) - 200} more comments"))
+        chunks.append({"id": "comments", "offset": 0, "size": 0,
+                       "summary": f"{len(tags)} Vorbis comment(s)",
+                       "fields": fields, "warnings": []})
+    return chunks, []
+
+
+def _aiff_id3_fields(tag_bytes):
+    """Decode an embedded ID3v2 tag (AIFF 'ID3 ' chunk) by reusing the MP3 ID3
+    parser: the chunk payload is a complete ID3 tag, so write it to a temp file
+    and run the same frame decoder. Returns [] if it is not a valid tag."""
+    if tag_bytes[:3] != b"ID3":
+        return []
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix=".id3")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(tag_bytes)
+        hdr = mp3mod.read_id3v2(tmp)
+        if not hdr:
+            return []
+        flds, _ = _id3v2_frames(tmp, hdr)
+        return flds
+    except Exception:
+        return []
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def inspect_aiff(filepath, form_type):
@@ -864,10 +933,11 @@ def inspect_aiff(filepath, form_type):
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_appl(payload)
                 elif cid in ("NAME", "AUTH", "(c) ", "ANNO"):
-                    text = payload.decode("ascii", errors="replace").strip("\x00").strip()
+                    text = _dtext(payload).strip("\x00").strip()
                     entry["summary"] = text[:60]
                     entry["fields"] = [_f(0x00, size, "text", text[:200])]
                 elif cid == "ID3 ":
+                    entry["fields"] = _aiff_id3_fields(payload)
                     entry["summary"] = f"embedded ID3v2 tag, {size:,} bytes"
                 elif cid == "cate":
                     entry["summary"] = "apple loops category data"
@@ -973,7 +1043,7 @@ def _scan_track(trk, ctx, collect=False):
                 detail = (f"{hr & 0x1F:02d}:{edata[1]:02d}:{edata[2]:02d}:"
                           f"{edata[3]:02d}.{edata[4]:02d} @ {fps} fps")
             elif etype in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07):
-                text = edata.decode("ascii", errors="replace").strip()
+                text = _dtext(edata).strip()
                 if etype == 0x03 and text:
                     names.append(text)
                 detail = text[:48]
@@ -1349,10 +1419,62 @@ def inspect_serum(filepath):
 # ── bitwig walk ────────────────────────────────────────────────────
 
 
-def inspect_bitwig(filepath):
-    """Structural view of a Bitwig BtWg container (.bwpreset/.bwclip): the
-    header, the decoded metadata block, and a note for any embedded-asset
-    zip. The device/module tree is left opaque."""
+def _flac_audio_params(raw):
+    """(channels, rate, seconds) from a FLAC STREAMINFO, or None."""
+    if len(raw) < 42 or raw[:4] != b"fLaC":
+        return None
+    packed = struct.unpack_from(">Q", raw, 18)[0]  # STREAMINFO@8, packed field@+10
+    rate = (packed >> 44) & 0xFFFFF
+    ch = ((packed >> 41) & 0x07) + 1
+    total = packed & 0xFFFFFFFFF
+    return ch, rate, (total / rate if rate else 0)
+
+
+def _wav_audio_params(raw):
+    """(channels, rate, seconds) from a WAV's fmt/data chunks, or None."""
+    if len(raw) < 12 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        return None
+    i, ch, rate, bits, datasz = 12, 0, 0, 0, 0
+    while i + 8 <= len(raw):
+        cid = raw[i:i + 4]
+        sz = struct.unpack_from("<I", raw, i + 4)[0]
+        if cid == b"fmt " and i + 24 <= len(raw):
+            ch = struct.unpack_from("<H", raw, i + 10)[0]
+            rate = struct.unpack_from("<I", raw, i + 12)[0]
+            bits = struct.unpack_from("<H", raw, i + 22)[0]
+        elif cid == b"data":
+            datasz = sz
+        i += 8 + sz + (sz & 1)
+    if not rate:
+        return None
+    frame = ch * max(1, bits // 8)
+    return ch, rate, (datasz / (rate * frame) if frame else 0)
+
+
+def _summarize_embedded(raw):
+    """One-line format identity of an embedded asset's bytes."""
+    if not raw:
+        return "unreadable / too large"
+    if raw[:4] == b"fLaC":
+        p = _flac_audio_params(raw)
+        return f"FLAC, {p[0]}ch {p[1]} Hz, {p[2]:.2f} s" if p else "FLAC"
+    if raw[:4] == b"RIFF" and raw[8:12] == b"WAVE":
+        p = _wav_audio_params(raw)
+        return f"WAV, {p[0]}ch {p[1]} Hz, {p[2]:.2f} s" if p else "WAV"
+    if raw[:4] == b"OggS":
+        return "OGG"
+    if raw[:4] == b"BtWg":
+        return "Bitwig preset (nested)"
+    if raw[:2] == b"PK":
+        return "zip"
+    return f"{len(raw):,} bytes (opaque)"
+
+
+def inspect_bitwig(filepath, deep=False):
+    """Structural view of a Bitwig BtWg container (.bwpreset/.bwclip): header,
+    metadata block, and a note for the embedded-asset zip. With deep (--verbose
+    or --frames) it also deconstructs the device/module tree and unzips and
+    identifies every embedded asset."""
     file_size = os.path.getsize(filepath)
     # read the whole preset (bounded) so the embedded-asset zip, which can sit
     # past the first few MB, is found. the meta scan is bounded internally.
@@ -1370,32 +1492,108 @@ def inspect_bitwig(filepath):
     meta = bwmod.parse_meta(data)
     fields = [_f(None, 0, label, meta[key][:200])
               for key, label in bwmod._META_FIELDS if key in meta]
-    if meta:
-        name = meta.get("device_name", "?")
-        cat = meta.get("device_category", "?")
-        summary = f"{name} ({cat})"
+    nums = bwmod.parse_numeric(data)
+    if "bpm" in nums:
+        fields.append(_f(None, 0, "bpm", f"{nums['bpm']:g}"))
+    if "beat_length" in nums:
+        beats = nums["beat_length"]
+        note = f"{beats / 4:g} bars at 4/4" if beats else ""
+        fields.append(_f(None, 0, "beat_length", f"{beats:g} beats", note))
+    for label, count in bwmod.parse_references(data).items():
+        fields.append(_f(None, 0, label, count))
+    if meta.get("device_name"):
+        summary = f"{meta['device_name']} ({meta.get('device_category', '?')})"
+    elif meta.get("type", "").endswith("note-clip"):
+        bpm = nums.get("bpm")
+        summary = "note clip" + (f", {bpm:g} bpm" if bpm else "")
+    elif meta:
+        summary = meta.get("type", "Bitwig data")
     else:
         summary = "no meta block decoded"
         file_warns.append("BtWg meta block not decoded")
     chunks.append({"id": "meta", "offset": 0, "size": 0,
                    "summary": summary, "fields": fields, "warnings": []})
 
+    if meta.get("type", "").endswith("note-clip"):
+        notes = bwmod.parse_notes(data)
+        pitches = [n["pitch"] for n in notes if n["pitch"] is not None]
+        if pitches:
+            lo, hi = min(pitches), max(pitches)
+            rng = f"{midi_note_to_name(lo)}-{midi_note_to_name(hi)}"
+            nfields = [_f(None, 0, "note count", len(notes)),
+                       _f(None, 0, "pitch range", rng)]
+            if deep:
+                _inf = float("inf")
+
+                def _fin(x):  # finite value or 0 (a crafted clip can carry NaN/Inf)
+                    return x if isinstance(x, (int, float)) and -_inf < x < _inf else 0
+                for n in notes[:500]:
+                    nm = (midi_note_to_name(n["pitch"])
+                          if n["pitch"] is not None else "?")
+                    vel = round(_fin(n["velocity"]) * 127)
+                    start, dur = _fin(n["start"]), _fin(n["duration"])
+                    nfields.append(_f(None, 0, f"{nm} @ {start:g}",
+                                      f"dur {dur:g}, vel {vel}"))
+                if len(notes) > 500:
+                    nfields.append(_f(None, 0, "...",
+                                      f"{len(notes) - 500} more notes"))
+            chunks.append({"id": "notes", "offset": 0, "size": 0,
+                           "summary": f"{len(notes)} notes, {rng}",
+                           "fields": nfields, "warnings": []})
+
+    if deep:
+        modules = bwmod.parse_structure(data)
+        if modules:
+            mfields = [_f(None, 0, f"module {i + 1}", m)
+                       for i, m in enumerate(modules)]
+            chunks.append({"id": "modules", "offset": 0, "size": 0,
+                           "summary": f"{len(modules)} devices/modules in the "
+                                      "chain (pre-order)",
+                           "fields": mfields, "warnings": []})
+        params = bwmod.parse_parameters(data)
+        if params:
+            def _fmt(v):
+                return f"{v:g}"
+            pfields = [_f(None, 0, name, _fmt(val)) for name, val in params]
+            chunks.append({"id": "parameters", "offset": 0, "size": 0,
+                           "summary": f"{len(params)} device parameters "
+                                      "(raw internal units)",
+                           "fields": pfields, "warnings": []})
+        rows = bwmod.flatten_tree(bwmod.parse_tree(data))
+        if rows:
+            leaves = sum(1 for _, _, leaf in rows if leaf)
+            tfields = [_f(None, 0, ("  " * d) + seg, "param" if leaf else "+")
+                       for d, seg, leaf in rows]
+            chunks.append({"id": "tree", "offset": 0, "size": 0,
+                           "summary": f"addressable structure tree "
+                                      f"({len(rows)} nodes, {leaves} wired "
+                                      f"parameters, from Grid paths)",
+                           "fields": tfields, "warnings": []})
+
     zoff = data.find(b"PK\x03\x04")
     if zoff >= 0:
+        afields, asum = [], ("embedded asset zip (deflate); unzip for the "
+                             "referenced samples/impulses")
+        if deep:
+            assets = bwmod.list_assets(data)
+            afields = [_f(None, 0, name, f"{size:,} bytes, "
+                          f"{_summarize_embedded(raw)}")
+                       for name, size, raw in assets]
+            asum = f"{len(assets)} embedded file(s) (deflate zip)"
         chunks.append({"id": "assets", "offset": zoff,
-                       "size": file_size - zoff,
-                       "summary": "embedded asset zip (deflate); unzip for the "
-                                  "referenced samples/impulses",
-                       "fields": [], "warnings": []})
+                       "size": file_size - zoff, "summary": asum,
+                       "fields": afields, "warnings": []})
     return chunks, file_warns
 
 
 # ── vital walk ─────────────────────────────────────────────────────
 
 
-def inspect_vital(filepath):
-    """Structural view of a Vital preset (bare JSON): the top-level metadata
-    plus a note that the synth state under 'settings' is opaque."""
+def inspect_vital(filepath, deep=False):
+    """Structural view of a Vital preset (bare JSON): the top-level metadata,
+    and with deep (--verbose or --frames) the full synth structure, active
+    oscillators + wavetables, LFO inventory, effects chain, and the modulation
+    matrix."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
         data = f.read(min(file_size, 32 * 1024 * 1024))
@@ -1421,6 +1619,33 @@ def inspect_vital(filepath):
                "summary": f"'{name}' by {obj.get('author', '?')}, "
                           f"{nkeys} settings keys",
                "fields": fields, "warnings": []}]
+    if deep:
+        st = vitalmod.deep_structure(obj)
+        engine = []
+        if st.get("oscillators"):
+            wt = ", ".join(st["wavetables"]) if st.get("wavetables") else ""
+            engine.append(_f(None, 0, "oscillators",
+                             ", ".join(st["oscillators"]), wt))
+        if st.get("lfos"):
+            engine.append(_f(None, 0, "lfos",
+                             f"{len(st['lfos'])}: " + ", ".join(st["lfos"])))
+        if st.get("effects"):
+            engine.append(_f(None, 0, "effects chain",
+                             " > ".join(st["effects"])))
+        if engine:
+            chunks.append({"id": "engine", "offset": 0, "size": 0,
+                           "summary": "active synth structure",
+                           "fields": engine, "warnings": []})
+        mods = st.get("modulations") or []
+        if mods:
+            mfields = []
+            for src, dst, amt in mods:
+                note = f"amount {amt:g}" if isinstance(amt, (int, float)) else ""
+                mfields.append(_f(None, 0, src, f"-> {dst}", note))
+            chunks.append({"id": "modulation", "offset": 0, "size": 0,
+                           "summary": f"{len(mods)} wired modulations "
+                                      "(source -> destination)",
+                           "fields": mfields, "warnings": []})
     return chunks, []
 
 
@@ -1514,6 +1739,51 @@ def inspect_mp4(filepath):
                        "summary": summary, "fields": fields, "warnings": [],
                        "payload_base": b["offset"] + b["hdr"]})
     return chunks, warns
+
+
+# ── native instruments walk ────────────────────────────────────────
+
+
+def inspect_ni(filepath, deep=False):
+    """Structural view of a Native Instruments preset: the readable metadata.
+    Handles the hsin container (Massive .nmsv, Absynth .nabs, modern Kontakt
+    .nki) and the older zlib-XML .ksd (Absynth/KORE). With deep (--verbose or
+    --frames) it also FastLZ-decompresses the hsin subtree to report the inner
+    preset-state container."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 16 * 1024 * 1024))
+    if nimod.is_ni_ksd(data):
+        meta, kind = nimod.parse_ksd(data), "ksd"
+    elif nimod.is_ni_nksf(data):
+        meta, kind = nimod.parse_nksf(data), "nksf"
+    else:
+        meta, kind = nimod.parse_hsin(data), "hsin"
+    if not meta:
+        raise _Unsupported("not a recognized Native Instruments preset")
+    order = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
+             "description", "device_type", "version", "tempo", "genre", "key"]
+    fields = [_f(None, 0, k, str(meta[k])) for k in order if meta.get(k)]
+    for k in meta:
+        if k not in order:
+            fields.append(_f(None, 0, k, str(meta[k])))
+    prod = meta.get("product") or meta.get("plugin") or "NI"
+    summary = f"{prod} preset '{meta.get('name', '(unnamed)')}'"
+    chunks = [{"id": kind, "offset": 0, "size": file_size, "summary": summary,
+               "fields": fields, "warnings": [], "payload_base": 0}]
+    if deep and kind == "hsin":
+        inner = nimod.decompress_subtree(data)
+        if inner is not None:
+            nested = nimod.is_ni_hsin(inner)
+            chunks.append({"id": "payload", "offset": 0, "size": 0,
+                           "summary": "FastLZ-compressed preset state",
+                           "fields": [_f(None, 0, "decompressed_size",
+                                         f"{len(inner):,} bytes"),
+                                      _f(None, 0, "inner_container",
+                                         "nested hsin (synth parameter state)"
+                                         if nested else "opaque")],
+                           "warnings": []})
+    return chunks, []
 
 
 # ── flac walk ──────────────────────────────────────────────────────
@@ -2385,7 +2655,7 @@ def _walk_file(filepath, deep):
     Returns (fmt_label, chunks, file_warns); raises _Unsupported for a
     file inspect does not decode."""
     with open(filepath, "rb") as f:
-        magic = f.read(14)
+        magic = f.read(16)
     if len(magic) >= 12 and magic[:4] == b"RIFF" and magic[8:12] == b"WAVE":
         return ("RIFF/WAVE", *inspect_wav(filepath))
     if len(magic) >= 12 and magic[:4] == b"FORM" and magic[8:12] in (b"AIFF", b"AIFC"):
@@ -2398,15 +2668,20 @@ def _walk_file(filepath, deep):
     if magic[:8] == b"XferJson":
         return ("Xfer Serum preset", *inspect_serum(filepath))
     if magic[:4] == b"BtWg":
-        return ("Bitwig preset", *inspect_bitwig(filepath))
+        return ("Bitwig preset", *inspect_bitwig(filepath, deep=deep))
     if magic[:4] == ncwmod.MAGIC:
         return ("NI Compressed Wave", *inspect_ncw(filepath))
     if magic[:1] == b"{":
-        return ("Vital preset", *inspect_vital(filepath))
+        return ("Vital preset", *inspect_vital(filepath, deep=deep))
     if magic[4:8] == b"ftyp":
         return ("MP4/M4A", *inspect_mp4(filepath))
+    if magic[12:16] == b"hsin" or magic[:4] == b"-in-" \
+            or (magic[:4] == b"RIFF" and magic[8:12] == b"NIKS"):
+        return ("Native Instruments preset", *inspect_ni(filepath, deep=deep))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
+    if magic[:4] == b"OggS":
+        return ("Ogg", *inspect_ogg(filepath))
     if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
         raise _Unsupported("ID3 tag wraps a non-MP3 container; not supported")
     if magic[:3] == b"ID3" or (len(magic) >= 4
@@ -2454,7 +2729,7 @@ def run(args):
         print("acidcat inspect: no target file given", file=sys.stderr)
         return 1
 
-    deep = getattr(args, "frames", False)
+    deep = getattr(args, "frames", False) or getattr(args, "verbose", False)
     full = getattr(args, "full", False)
     as_json = args.format == "json" or full  # --full is a JSON dump
     multi = len(targets) > 1

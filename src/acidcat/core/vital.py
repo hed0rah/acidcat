@@ -29,3 +29,33 @@ def parse_vital(data):
     if "synth_version" not in obj:
         return None
     return obj
+
+
+_VITAL_EFFECTS = ("chorus", "compressor", "delay", "distortion", "eq",
+                  "filter_fx", "flanger", "phaser", "reverb")
+
+
+def deep_structure(obj):
+    """Deconstruct a Vital preset's synth structure from the parsed dict:
+    active oscillators, wavetable names, the LFO inventory, the effects chain,
+    and the modulation matrix (source -> destination : amount). Returns a dict of
+    lists, empty if there is no usable settings object."""
+    s = obj.get("settings")
+    if not isinstance(s, dict):
+        return {}
+    out = {}
+    out["oscillators"] = sorted(
+        {k[:-3] for k in s if k.startswith("osc_") and k.endswith("_on") and s[k]})
+    wt = s.get("wavetables") or []
+    out["wavetables"] = [w.get("name") for w in wt
+                         if isinstance(w, dict) and w.get("name")]
+    lfos = s.get("lfos") or []
+    out["lfos"] = [l.get("name") for l in lfos if isinstance(l, dict)]
+    out["effects"] = [fx for fx in _VITAL_EFFECTS if s.get(fx + "_on")]
+    wired = []
+    for i, m in enumerate(s.get("modulations") or [], 1):
+        if isinstance(m, dict) and m.get("source") and m.get("destination"):
+            amt = s.get(f"modulation_{i}_amount")
+            wired.append((m["source"], m["destination"], amt))
+    out["modulations"] = wired
+    return out

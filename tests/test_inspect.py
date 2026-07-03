@@ -315,7 +315,7 @@ class TestInspectMidi:
         assert "note on" in kinds
         assert "meta end of track" in kinds
         note_on = next(r for r in trk["rows"] if r["event"] == "note on")
-        assert "C4" in note_on["detail"]
+        assert "C3" in note_on["detail"]  # MIDI 60 = C3 (DAW convention)
 
     def test_default_midi_has_no_rows(self, tmp_path):
         path = _smf(tmp_path, [_TRACK])
@@ -1379,3 +1379,349 @@ class TestReviewHardening:
         bad = (MAGIC + b"\x00" * 4
                + struct.pack("<HHII", 2, 24, 48000, 0xFFFFFFFF) + b"\x00" * 40)
         assert parse_header(bad) is None
+
+
+class TestNiHsinWalker:
+    def _hsin(self, name, product, version):
+        import struct as _s
+        def p16(s): return _s.pack("<I", len(s)) + s.encode("utf-16-le")
+        body = bytearray(0x30)
+        body[0x0C:0x10] = b"hsin"
+        body += p16(version) + p16(name) + p16(product)
+        _s.pack_into("<Q", body, 0, len(body))
+        return bytes(body)
+
+    def test_parse_hsin_metadata(self):
+        from acidcat.core.ni import parse_hsin
+        m = parse_hsin(self._hsin("MyPreset", "Massive", "2.0.1"))
+        assert m == {"product": "Massive", "version": "2.0.1", "name": "MyPreset"}
+
+    def test_non_hsin_rejected(self):
+        from acidcat.core.ni import parse_hsin
+        assert parse_hsin(b"not an hsin file at all" * 4) is None
+
+    def test_inspect_ni_surfaces_name(self, tmp_path):
+        from acidcat.commands.inspect import inspect_ni
+        p = tmp_path / "t.nmsv"
+        p.write_bytes(self._hsin("Bass01", "Massive", "1.5"))
+        chunks, _ = inspect_ni(str(p))
+        vals = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+        assert vals["product"] == "Massive" and vals["name"] == "Bass01"
+
+
+class TestNiKsdWalker:
+    def test_parse_ksd_xml_metadata(self):
+        import zlib
+        from acidcat.core.ni import parse_ksd
+        xml = (b'<?xml version="1.0"?><NI_DOC_HEADER><doc_name>Waltz</doc_name>'
+               b'<info><commonAttr><Author>me</Author><Bankname>Bank1</Bankname>'
+               b'</commonAttr><Plugins><Plugin>FM8</Plugin></Plugins></info>'
+               b'</NI_DOC_HEADER>')
+        data = b"-in-" + b"\x00" * 16 + zlib.compress(xml)
+        m = parse_ksd(data)
+        assert m["name"] == "Waltz" and m["author"] == "me"
+        assert m["bank"] == "Bank1" and m["plugin"] == "FM8"
+
+    def test_ksd_decompression_bomb_bounded(self):
+        import zlib
+        from acidcat.core.ni import _safe_inflate
+        bomb = zlib.compress(b"\x00" * (50 * 1024 * 1024))  # 50 MB inflated
+        assert _safe_inflate(bomb, maxlen=1024 * 1024) is None  # capped, refused
+
+    def test_non_ksd_rejected(self):
+        from acidcat.core.ni import parse_ksd
+        assert parse_ksd(b"RIFF____WAVE") is None
+
+
+class TestNiNksfWalker:
+    def test_parse_nksf_msgpack(self):
+        import struct as _s
+        from acidcat.core.ni import parse_nksf
+        mp = (b"\x83" + b"\xa4name" + b"\xa4Bass" + b"\xa6vendor" + b"\xa2NI"
+              + b"\xa9bankchain" + b"\x92\xa9Massive X\xa0")  # map3, incl bankchain array
+        nisi = b"NISI" + _s.pack("<I", 4 + len(mp)) + _s.pack("<I", 1) + mp
+        riff = b"RIFF" + _s.pack("<I", 4 + len(nisi)) + b"NIKS" + nisi
+        m = parse_nksf(riff)
+        assert m["name"] == "Bass" and m["vendor"] == "NI"
+        assert m["bank"] == "Massive X"
+
+    def test_nksf_bad_msgpack_no_crash(self):
+        import struct as _s
+        from acidcat.core.ni import parse_nksf
+        mp = b"\xc1\xc1\xc1"  # 0xc1 is a reserved/unsupported type
+        nisi = b"NISI" + _s.pack("<I", 4 + len(mp)) + _s.pack("<I", 1) + mp
+        riff = b"RIFF" + _s.pack("<I", 4 + len(nisi)) + b"NIKS" + nisi
+        assert parse_nksf(riff) is None  # degrades, no crash
+
+    def test_msgpack_depth_capped(self):
+        from acidcat.core.ni import _mp_decode
+        deep = b"\x91" * 100  # 100 nested 1-element arrays
+        v, _ = _mp_decode(deep)  # must not RecursionError
+        assert v is None or isinstance(v, list)
+
+
+class TestBitwigDeep:
+    def _tok(self, s):
+        import struct as _s
+        b = s.encode() if isinstance(s, str) else s
+        return _s.pack(">I", len(b)) + b
+
+    def test_parse_structure_device_tree(self):
+        from acidcat.core.bitwig import parse_structure
+        data = (b"BtWg0003000200" + self._tok("Filter+") + self._tok("CONTENTS")
+                + self._tok("CUTOFF") + self._tok("Reverb") + self._tok("CONTENTS"))
+        assert parse_structure(data) == ["Filter+", "Reverb"]
+
+    def test_list_assets_unzips(self):
+        import io, zipfile
+        from acidcat.core.bitwig import list_assets
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("impulses/x.bwimpulse", b"fLaC" + b"\x00" * 100)
+        data = b"BtWg0003000200" + b"\x00" * 8 + buf.getvalue()
+        assets = list_assets(data)
+        assert len(assets) == 1 and assets[0][0] == "impulses/x.bwimpulse"
+        assert assets[0][2][:4] == b"fLaC"
+
+    def test_list_assets_caps_bomb(self):
+        import io, zipfile
+        from acidcat.core.bitwig import list_assets
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("big", b"\x00" * (200 * 1024))
+        data = b"BtWg" + b"\x00" * 8 + buf.getvalue()
+        assets = list_assets(data, prefix=1024)  # only inflate a 1 KB prefix
+        assert assets[0][2] is not None and len(assets[0][2]) <= 1024
+
+    def test_no_zip_no_assets(self):
+        from acidcat.core.bitwig import list_assets
+        assert list_assets(b"BtWg0003000200no zip here") == []
+
+
+class TestNiFastLZ:
+    def test_fastlz_literal_and_match(self):
+        from acidcat.core.ni import fastlz_decompress
+        # 04=literal run of 5 ("ABCDE"); 20 04=match len 3 at offset 4 -> "ABC"
+        assert fastlz_decompress(b"\x04ABCDE\x20\x04") == b"ABCDEABC"
+
+    def test_fastlz_empty(self):
+        from acidcat.core.ni import fastlz_decompress
+        assert fastlz_decompress(b"") == b""
+
+    def test_fastlz_bomb_capped(self):
+        from acidcat.core.ni import fastlz_decompress
+        # literal "A", then a 259-byte match from offset 0: refused at the cap
+        assert fastlz_decompress(b"\x00A\xe0\xfa\x00", max_out=8) is None
+
+    def test_decompress_subtree_none_on_garbage(self):
+        from acidcat.core.ni import decompress_subtree
+        assert decompress_subtree(b"\x00" * 200) is None
+
+
+class TestBitwigReferences:
+    def test_parse_references_counts(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_references
+        data = (b"BtWg0003000200" + b"referenced_module_ids" + b"\x19"
+                + _s.pack(">I", 3) + b"referenced_device_ids" + b"\x19"
+                + _s.pack(">I", 5))
+        refs = parse_references(data)
+        assert refs["referenced_modules"] == 3
+        assert refs["referenced_devices"] == 5
+
+    def test_parse_connections_paths(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_connections
+
+        def tok(s):
+            return _s.pack(">I", len(s)) + s.encode()
+        data = (b"BtWg0003000200" + tok("CONTENTS/MODULES/4/CONTENTS/CUTOFF")
+                + tok("plain string") + tok("CONTENTS/MODULES/4/CONTENTS/CUTOFF"))
+        conns = parse_connections(data)
+        assert conns == ["CONTENTS/MODULES/4/CONTENTS/CUTOFF"]  # deduped
+
+
+class TestBitwigTree:
+    def _tok(self, s):
+        import struct as _s
+        return _s.pack(">I", len(s)) + s.encode()
+
+    def test_parse_tree_builds_hierarchy(self):
+        from acidcat.core.bitwig import parse_tree, flatten_tree
+        data = (b"BtWg0003000200"
+                + self._tok("CONTENTS/MODULES/8/CONTENTS/OUT")
+                + self._tok("CONTENTS/MODULES/8/CONTENTS/LEVEL_1")
+                + self._tok("CONTENTS/MODULES/2/CONTENTS/TIME")
+                + self._tok("application/bitwig-preset"))  # noise: excluded
+        tree = parse_tree(data)
+        assert set(tree) == {"CONTENTS"}  # MIME path filtered out
+        rows = flatten_tree(tree)
+        segs = [seg for _, seg, _ in rows]
+        assert "MODULES" in segs and "8" in segs
+        leaves = {seg for _, seg, leaf in rows if leaf}
+        assert leaves == {"OUT", "LEVEL_1", "TIME"}  # params are the leaves
+
+    def test_flatten_tree_numeric_sort(self):
+        from acidcat.core.bitwig import parse_tree, flatten_tree
+        data = (b"BtWg0003000200"
+                + self._tok("CONTENTS/MODULES/10/CONTENTS/X")
+                + self._tok("CONTENTS/MODULES/2/CONTENTS/X"))
+        rows = flatten_tree(parse_tree(data))
+        idxs = [seg for _, seg, _ in rows if seg.isdigit()]
+        assert idxs == ["2", "10"]  # numeric, not lexical
+
+
+class TestBitwigNumeric:
+    def test_parse_numeric_f64(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_numeric
+        # bpm key (length-prefixed) + type 0x07 + f64 BE 140.0
+        data = (b"BtWg0003000200" + _s.pack(">I", 3) + b"bpm" + b"\x07"
+                + _s.pack(">d", 140.0) + _s.pack(">I", 11) + b"beat_length"
+                + b"\x07" + _s.pack(">d", 16.0))
+        nums = parse_numeric(data)
+        assert nums["bpm"] == 140.0 and nums["beat_length"] == 16.0
+
+    def test_parse_numeric_substring_safe(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_numeric
+        # 'bpm' appearing inside another word must not match (length-prefixed)
+        data = b"BtWg0003000200somebpmword" + _s.pack(">d", 999.0)
+        assert "bpm" not in parse_numeric(data)
+
+
+class TestBitwigParameters:
+    def test_parse_parameters_named_f64(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_parameters
+        data = (b"BtWg0003000200"
+                + _s.pack(">I", 10) + b"GLIDE_TIME" + _s.pack(">I", 0x136)
+                + b"\x07" + _s.pack(">d", 1.0)
+                + _s.pack(">I", 6) + b"F1FREQ" + _s.pack(">I", 0x136)
+                + b"\x07" + _s.pack(">d", 142.1))
+        params = dict(parse_parameters(data))
+        assert params["GLIDE_TIME"] == 1.0
+        assert abs(params["F1FREQ"] - 142.1) < 0.001
+
+
+class TestVitalDeep:
+    def test_deep_structure(self):
+        from acidcat.core.vital import deep_structure
+        obj = {"synth_version": "1", "settings": {
+            "osc_1_on": 1.0, "osc_2_on": 0.0, "osc_3_on": 1.0,
+            "wavetables": [{"name": "Saw"}, {"name": "Sine"}],
+            "lfos": [{"name": "Sin"}, {"name": "Tri"}],
+            "reverb_on": 1.0, "delay_on": 0.0, "distortion_on": 1.0,
+            "modulations": [{"source": "lfo_1", "destination": "osc_1_level"},
+                            {"source": "", "destination": ""}],
+            "modulation_1_amount": 0.5,
+        }}
+        st = deep_structure(obj)
+        assert st["oscillators"] == ["osc_1", "osc_3"]
+        assert st["wavetables"] == ["Saw", "Sine"]
+        assert st["effects"] == ["distortion", "reverb"]
+        assert st["modulations"] == [("lfo_1", "osc_1_level", 0.5)]
+
+    def test_deep_structure_no_settings(self):
+        from acidcat.core.vital import deep_structure
+        assert deep_structure({"synth_version": "1"}) == {}
+
+
+class TestBitwigNotes:
+    def _note_clip(self, pitch, pos, dur, vel01):
+        def f(idb, val):
+            return idb + b"\x07" + struct.pack(">d", val)
+        rec = (f(b"\x00\x00\x02\xaf", pos) + f(b"\x00\x00\x00\x26", dur)
+               + f(b"\x00\x00\x2d\xfc", 1.0) + f(b"\x00\x00\x00\xef", vel01))
+        footer = b"\x00\x00\x00\xee\x01" + bytes([pitch])
+        return b"BtWg0003000200" + rec + footer
+
+    def test_parse_notes(self):
+        from acidcat.core.bitwig import parse_notes
+        notes = parse_notes(self._note_clip(60, 2.0, 0.5, 100 / 127))
+        assert len(notes) == 1
+        n = notes[0]
+        assert n["pitch"] == 60 and n["start"] == 2.0 and n["duration"] == 0.5
+        assert round(n["velocity"] * 127) == 100
+
+    def test_parse_notes_empty_without_lanes(self):
+        from acidcat.core.bitwig import parse_notes
+        assert parse_notes(b"BtWg0003000200 no note lanes here") == []
+
+
+class TestAiffEmbeddedID3:
+    def _id3v23(self, frames):
+        body = b""
+        for fid, text in frames:
+            p = b"\x03" + text.encode("utf-8")  # utf-8 encoding byte
+            body += fid + struct.pack(">I", len(p)) + b"\x00\x00" + p
+        n = len(body)
+        ss = bytes([(n >> 21) & 0x7f, (n >> 14) & 0x7f, (n >> 7) & 0x7f, n & 0x7f])
+        return b"ID3\x03\x00\x00" + ss + body
+
+    def test_aiff_decodes_embedded_id3(self):
+        from acidcat.commands.inspect import _aiff_id3_fields
+        tag = self._id3v23([(b"TPE1", "아버지"), (b"TIT2", "untitled")])
+        fields = _aiff_id3_fields(tag)
+        vals = {f["value"] for f in fields}
+        assert "아버지" in vals and "untitled" in vals
+
+    def test_aiff_id3_ignores_non_id3(self):
+        from acidcat.commands.inspect import _aiff_id3_fields
+        assert _aiff_id3_fields(b"not an id3 tag") == []
+
+
+class TestOggWalker:
+    def _vc(self, vendor, tags):
+        b = struct.pack("<I", len(vendor)) + vendor.encode("utf-8")
+        b += struct.pack("<I", len(tags))
+        for k, v in tags.items():
+            c = f"{k}={v}".encode("utf-8")
+            b += struct.pack("<I", len(c)) + c
+        return b
+
+    def _ogg(self, packets):
+        seg_table, body = [], b""
+        for p in packets:
+            body += p
+            rem = len(p)
+            while rem >= 255:
+                seg_table.append(255); rem -= 255
+            seg_table.append(rem)
+        hdr = (b"OggS\x00\x02" + b"\x00" * 8 + struct.pack("<I", 999)
+               + b"\x00" * 4 + b"\x00" * 4 + bytes([len(seg_table)]) + bytes(seg_table))
+        return hdr + body
+
+    def test_ogg_vorbis_comments(self):
+        from acidcat.core import ogg
+        p1 = b"\x01vorbis" + b"\x00" * 20
+        p2 = b"\x03vorbis" + self._vc("libVorbis", {"ARTIST": "아버지", "TITLE": "x"})
+        codec, vendor, tags = ogg.comment_header(self._ogg([p1, p2]))
+        assert codec == "Vorbis" and vendor == "libVorbis"
+        assert tags["ARTIST"] == "아버지" and tags["TITLE"] == "x"
+
+    def test_ogg_malformed_no_crash(self):
+        from acidcat.core import ogg
+        for bad in (b"OggS", b"OggS" + b"\xff" * 60, b"OggS\x00\x02" + b"\x00" * 30):
+            list(ogg.iter_pages(bad))
+            ogg.comment_header(bad)  # must not raise
+
+
+class TestUnicodeMetadata:
+    """Regression: inspect must not mangle non-Latin text metadata to U+FFFD
+    (the ascii/errors='replace' bug that turned Korean/CJK/etc. into '?')."""
+
+    def test_dtext_utf8_and_latin1_fallback(self):
+        from acidcat.commands.inspect import _dtext
+        assert _dtext("아버지".encode("utf-8")) == "아버지"
+        assert _dtext("⣎⡇ꉪლ".encode("utf-8")) == "⣎⡇ꉪლ"
+        assert _dtext(b"caf\xe9") == "café"          # invalid utf-8 -> latin-1, no raise
+        assert "�" not in _dtext("아버지".encode("utf-8"))
+
+    def test_wav_info_utf8_roundtrips_through_parse(self):
+        from acidcat.commands.inspect import _parse_list
+        val = "아버지".encode("utf-8")
+        info = b"INFO" + b"INAM" + struct.pack("<I", len(val)) + val
+        _, fields, _ = _parse_list(info, {})
+        assert any(f["value"] == "아버지" for f in fields)
+        assert not any("�" in str(f["value"]) for f in fields)
