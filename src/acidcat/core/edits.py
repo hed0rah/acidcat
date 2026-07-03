@@ -152,6 +152,70 @@ def _register_easyid3_comment():
     _easyid3_ready = True
 
 
+def _apply_custom_frames(tmp, suffix, changes):
+    """Set custom frames on the temp file. Keys look like 'txxx:MOOD' (a
+    user-defined ID3 text frame) or 'wxxx:URL'. Maps to the per-format
+    equivalent: ID3 TXXX/WXXX for mp3/aiff, a plain Vorbis comment for flac/ogg
+    (which are natively arbitrary key=value), a freeform atom for m4a.
+    Returns [(field, old, new)]."""
+    import mutagen
+    m = mutagen.File(tmp)
+    if m is None:
+        raise EditError("mutagen could not read this audio file")
+    cls = m.__class__.__name__
+    is_id3 = cls in ("MP3", "AIFF", "WAVE") or (
+        getattr(m, "tags", None) is not None
+        and m.tags.__class__.__name__ == "ID3")
+    applied = []
+    for field, value in changes.items():
+        kind, _, desc = field.partition(":")
+        kind = kind.lower()
+        if not desc:
+            raise EditError(f"custom frame {field!r} needs a name, e.g. txxx:MOOD=value")
+        clearing = value is None or value == ""
+        old = None
+        if is_id3:
+            from mutagen.id3 import TXXX, WXXX
+            if m.tags is None:
+                m.add_tags()
+            key = "TXXX" if kind == "txxx" else "WXXX"
+            keep = []
+            for fr in m.tags.getall(key):
+                if fr.desc == desc:
+                    val = getattr(fr, "text", None) or getattr(fr, "url", None)
+                    old = val[0] if isinstance(val, list) and val else val
+                else:
+                    keep.append(fr)
+            m.tags.delall(key)
+            for fr in keep:
+                m.tags.add(fr)
+            if not clearing:
+                m.tags.add(TXXX(encoding=3, desc=desc, text=[str(value)])
+                           if kind == "txxx" else
+                           WXXX(encoding=3, desc=desc, url=str(value)))
+        elif cls in ("FLAC", "OggVorbis", "OggOpus", "OggFLAC"):
+            cur = m.get(desc)
+            old = cur[0] if isinstance(cur, list) and cur else cur
+            if clearing:
+                m.pop(desc, None)
+            else:
+                m[desc] = [str(value)]
+        elif cls == "MP4":
+            from mutagen.mp4 import MP4FreeForm
+            key = f"----:com.acidcat:{desc}"
+            cur = m.get(key)
+            old = bytes(cur[0]).decode("utf-8", "replace") if cur else None
+            if clearing:
+                m.pop(key, None)
+            else:
+                m[key] = [MP4FreeForm(str(value).encode("utf-8"))]
+        else:
+            raise EditError(f"custom frames are not supported for {cls}")
+        applied.append((field, old, value))
+    m.save()
+    return applied
+
+
 def edit_tagged(data, suffix, changes):
     """Edit tags on an mp3/flac/ogg/opus/m4a via mutagen (which owns the on-disk
     tag spec). Round-trips through a temp file so the caller still gets bytes."""
@@ -169,27 +233,36 @@ def edit_tagged(data, suffix, changes):
             f.write(data)
             f.flush()
             os.fsync(f.fileno())  # ensure mutagen re-reads a fully-written file
-        audio = mutagen.File(tmp, easy=True)
-        if audio is None:
-            raise EditError("mutagen could not read this audio file")
+        # custom frames (txxx:DESC / wxxx:DESC) go through the full interface;
+        # everything else through the normalized "easy" one.
+        custom = {k: v for k, v in changes.items()
+                  if k.lower().startswith(("txxx:", "wxxx:"))}
+        easy = {k: v for k, v in changes.items() if k not in custom}
         applied = []
-        for field, value in changes.items():
-            key = _EASY_FIELDS.get(field.lower())
-            if key is None:
-                raise EditError(f"tagged audio has no editable field {field!r}")
-            old = audio.get(key)
-            old = old[0] if isinstance(old, list) and old else old
-            try:
-                if value is None or value == "":
-                    audio.pop(key, None)
-                else:
-                    audio[key] = [str(value)]
-            except (KeyError, ValueError, TypeError):
-                raise EditError(
-                    f"{suffix.lstrip('.') or 'this format'} cannot store "
-                    f"field {field!r}")
-            applied.append((field, old, value))
-        audio.save()
+        if easy:
+            audio = mutagen.File(tmp, easy=True)
+            if audio is None:
+                raise EditError("mutagen could not read this audio file")
+            for field, value in easy.items():
+                key = _EASY_FIELDS.get(field.lower())
+                if key is None:
+                    raise EditError(f"tagged audio has no editable field {field!r} "
+                                    f"(custom ID3 frames use txxx:NAME=value)")
+                old = audio.get(key)
+                old = old[0] if isinstance(old, list) and old else old
+                try:
+                    if value is None or value == "":
+                        audio.pop(key, None)
+                    else:
+                        audio[key] = [str(value)]
+                except (KeyError, ValueError, TypeError):
+                    raise EditError(
+                        f"{suffix.lstrip('.') or 'this format'} cannot store "
+                        f"field {field!r}")
+                applied.append((field, old, value))
+            audio.save()
+        if custom:
+            applied += _apply_custom_frames(tmp, suffix, custom)
         with open(tmp, "rb") as r:
             return r.read(), applied
     finally:

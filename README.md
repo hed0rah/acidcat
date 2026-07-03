@@ -88,7 +88,8 @@ full-text.
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
 | `acidcat convert clip.bwclip -o out.mid` | Export a DAW clip's notes to a Standard MIDI File |
-| `acidcat write FILE --set field=value` | Edit metadata in place (exiftool-style: `_original` backup, `-o` copy, `--dry-run`) |
+| `acidcat write FILE --set field=value` | Edit metadata in place (exiftool-style: `_original` backup, `-o` copy, `--dry-run`; custom frames via `txxx:NAME=value`) |
+| `acidcat cover FILE [-o art.jpg] [--set img] [--remove]` | Extract, embed, or remove embedded cover art (MP3/FLAC/MP4/Ogg) |
 
 ## Global Flags
 

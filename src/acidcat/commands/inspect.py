@@ -2136,6 +2136,27 @@ def _decode_id3_text(raw):
     return text.replace("\x00", " ").strip()
 
 
+def _decode_txxx(raw, fid):
+    """Decode a user-defined TXXX/WXXX frame as 'description = value'. TXXX is
+    [enc][description NUL][value]; WXXX's value is always latin-1 (a URL)."""
+    if not raw:
+        return ""
+    enc = raw[0]
+    body = raw[1:]
+    codecs = {0: "latin-1", 1: "utf-16", 2: "utf-16-be", 3: "utf-8"}
+    codec = codecs.get(enc, "latin-1")
+    sep = b"\x00\x00" if enc in (1, 2) else b"\x00"
+    idx = body.find(sep)
+    if idx < 0:
+        desc, val = body, b""
+    else:
+        desc, val = body[:idx], body[idx + len(sep):]
+    d = desc.decode(codec, "replace").strip()
+    vcodec = "latin-1" if fid == "WXXX" else codec
+    v = val.decode(vcodec, "replace").replace("\x00", " ").strip()
+    return f"{d} = {v}" if d else v
+
+
 def _id3v2_frames(filepath, hdr):
     """Enumerate ID3v2 frames into display fields. Decodes common text
     frames to their values; lists every frame id and size otherwise."""
@@ -2216,7 +2237,10 @@ def _id3v2_frames(filepath, hdr):
             break
         raw = body[data_start:data_start + fsize]
         note = (_ID3V22_TEXT_FRAMES if is_v22 else _ID3_TEXT_FRAMES).get(fid_s, "")
-        if fid_s.startswith("T") and note:
+        if fid_s in ("TXXX", "WXXX"):
+            value = _decode_txxx(raw, fid_s)
+            note = "user-defined text" if fid_s == "TXXX" else "user-defined URL"
+        elif fid_s.startswith("T") and note:
             value = _decode_id3_text(raw)
         elif fid_s == "APIC" or fid_s == "PIC":
             value = f"{fsize:,} bytes"
