@@ -1346,3 +1346,36 @@ class TestPrettyMode:
         out = capsys.readouterr().out
         assert "Conv" in out and "reverb wide" in out
         assert "+0x" not in out  # pretty view drops byte offsets
+
+
+class TestReviewHardening:
+    """regression tests for the pre-0.11.0 adversarial-review findings."""
+    def _box(self, t, p):
+        return struct.pack(">I", 8 + len(p)) + t + p
+
+    def test_mp4_tmpo_int_bomb_gated(self):
+        # a hostile type-21 'data' box with a huge payload must not become a
+        # bignum (which str() would crash on Python 3.11+).
+        from acidcat.core.mp4 import _decode_data_box
+        big = self._box(b"data", struct.pack(">II", 21, 0) + b"\x00" * 2048)
+        v = _decode_data_box(big, 0, len(big))
+        assert not isinstance(v, int)
+
+    def test_mp4_ilst_ancestor_aware(self):
+        # a a9nam box that is NOT inside an ilst must not be read as a tag.
+        from acidcat.core.mp4 import parse_ilst
+        nam = self._box(b"\xa9nam",
+                        self._box(b"data", struct.pack(">II", 1, 0) + b"Fake"))
+        moov = self._box(b"moov", self._box(b"trak", self._box(b"mdia", nam)))
+        assert parse_ilst(moov) == {}
+
+    def test_vital_requires_synth_version(self):
+        from acidcat.core.vital import parse_vital
+        assert parse_vital(b'{"settings":{}}') is None       # too generic
+        assert parse_vital(b'{"synth_version":"1"}') is not None
+
+    def test_ncw_absurd_num_samples_rejected(self):
+        from acidcat.core.ncw import parse_header, MAGIC
+        bad = (MAGIC + b"\x00" * 4
+               + struct.pack("<HHII", 2, 24, 48000, 0xFFFFFFFF) + b"\x00" * 40)
+        assert parse_header(bad) is None

@@ -473,10 +473,10 @@ def _parse_bwbm(b, ctx):
     fields.append(_f(0x18, 8, "beats", round(beats, 4)))
     fields.append(_f(0x20, 8, "duration", f"{dur:.4f} s"))
     bpm = beats / dur * 60 if dur else None
-    if bpm:
+    if bpm and bpm > 0:
         fields.append(_f(None, 0, "derived_bpm", round(bpm, 2), "beats / duration * 60"))
     summary = f"Bitwig beat map, {beats:g} beats, {dur:.3f} s"
-    if bpm:
+    if bpm and bpm > 0:
         summary += f", ~{bpm:.1f} bpm"
     return summary, fields, warns
 
@@ -1354,8 +1354,10 @@ def inspect_bitwig(filepath):
     header, the decoded metadata block, and a note for any embedded-asset
     zip. The device/module tree is left opaque."""
     file_size = os.path.getsize(filepath)
+    # read the whole preset (bounded) so the embedded-asset zip, which can sit
+    # past the first few MB, is found. the meta scan is bounded internally.
     with open(filepath, "rb") as f:
-        data = f.read(min(file_size, 4 * 1024 * 1024))
+        data = f.read(min(file_size, 64 * 1024 * 1024))
     chunks, file_warns = [], []
 
     ver = bwmod.read_header(data)
@@ -1397,10 +1399,16 @@ def inspect_vital(filepath):
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
         data = f.read(min(file_size, 32 * 1024 * 1024))
+    # a fast bytes search for the marker before the full JSON parse: an
+    # arbitrary large JSON file that merely starts with '{' is rejected without
+    # paying for json.loads. the substring may sit anywhere (some presets emit
+    # the big 'settings' object before synth_version).
+    if b'"synth_version"' not in data:
+        raise _Unsupported("not a Vital preset (no synth_version marker)")
     obj = vitalmod.parse_vital(data)
     if obj is None:
         raise _Unsupported("not a Vital preset (JSON did not parse or lacks "
-                           "Vital keys)")
+                           "the synth_version key)")
     fields = []
     for k in vitalmod.META_KEYS:
         v = obj.get(k)
@@ -1452,12 +1460,21 @@ def inspect_mp4(filepath):
     udta > meta > ilst and the movie duration) followed by the box tree."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
-        data = f.read(min(file_size, 8 * 1024 * 1024))  # boxes/tags are early
+        data = f.read(min(file_size, 8 * 1024 * 1024))  # box tree from the head
+        # metadata lives in moov; non-faststart files (most Apple/ffmpeg output)
+        # put moov at EOF, past the head window. locate and read just moov then.
+        moov_data = data
+        if not any(b["type"] == b"moov" for b in mp4mod.iter_boxes(data)) \
+                and file_size > len(data):
+            moff, msz = mp4mod.find_moov(filepath, file_size)
+            if moff is not None:
+                f.seek(moff)
+                moov_data = f.read(min(msz, 32 * 1024 * 1024))
     chunks, warns = [], []
 
-    ts, dur = mp4mod.movie_timescale_duration(data)
+    ts, dur = mp4mod.movie_timescale_duration(moov_data)
     dur_s = dur / ts if ts and dur else None
-    meta = mp4mod.parse_ilst(data)
+    meta = mp4mod.parse_ilst(moov_data)
     mfields = []
     if dur_s:
         mfields.append(_f(None, 0, "duration", f"{dur_s:.3f} s"))
@@ -1479,7 +1496,7 @@ def inspect_mp4(filepath):
         if b["truncated"]:
             warns.append(f"box {t!r} at 0x{b['offset']:08x} overruns its parent")
             summary += " (overruns parent)"
-        elif b["type"] == b"ftyp":
+        elif b["type"] == b"ftyp" and b["depth"] == 0:
             brand = data[b["offset"] + b["hdr"]:b["offset"] + b["hdr"] + 4]
             summary += f"  major brand {brand.decode('latin-1', errors='replace')}"
             fields.append(_f(0x00, 4, "major_brand",
@@ -2386,7 +2403,8 @@ def _walk_file(filepath, deep):
     if magic[:3] == b"ID3" or (len(magic) >= 4
                                and mp3mod.decode_frame_header(magic[:4]) is not None):
         return ("MP3/MPEG audio", *inspect_mp3(filepath, deep=deep))
-    raise _Unsupported("not a WAV, RF64, AIFF, MIDI, Serum preset, MP3, or FLAC")
+    raise _Unsupported("not a WAV, RF64, AIFF, MIDI, Serum, Bitwig, Vital, NCW, "
+                       "MP4/M4A, MP3, or FLAC")
 
 
 def _full_chunk(chunk, filepath):
@@ -2473,9 +2491,12 @@ def run(args):
                     "warnings": file_warns,
                 }) + "\n")
             else:
-                if multi:
+                pretty = getattr(args, "pretty", False)
+                if multi and not pretty:
                     print(f"\nFile: {filepath}")  # readelf-style per-file banner
-                if getattr(args, "pretty", False):
+                elif multi:
+                    print()  # separate files; --pretty prints its own name header
+                if pretty:
                     _render_pretty(filepath, fmt_label, shown, file_warns, args)
                 else:
                     _render_table(filepath, fmt_label, shown, file_warns, args, total)

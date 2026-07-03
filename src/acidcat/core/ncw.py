@@ -21,7 +21,8 @@ def parse_header(data):
     rate = struct.unpack_from("<I", data, 0x0C)[0]
     num_samples = struct.unpack_from("<I", data, 0x10)[0]
     if not (1 <= channels <= 32) or bits not in (8, 16, 24, 32) \
-            or not (8000 <= rate <= 384000):
+            or not (8000 <= rate <= 384000) \
+            or not (1 <= num_samples <= 2_000_000_000):  # ~11 h at 48 kHz; rejects the 0xffffffff sentinel
         return None
     return {"channels": channels, "bits": bits, "sample_rate": rate,
             "num_samples": num_samples}

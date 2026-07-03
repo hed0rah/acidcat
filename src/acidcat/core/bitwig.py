@@ -50,7 +50,10 @@ def parse_meta(data):
     length is bounds-checked against the buffer, so a hostile length is
     ignored rather than trusted. Returns {key: value}."""
     meta = {}
-    i, n = 4, len(data)
+    # start after the 14-byte header; bound the scan (the meta block is always
+    # near the start, so a hostile BtWg-magic file cannot force a full-buffer
+    # byte-at-a-time scan).
+    i, n = 14, min(len(data), 14 + 262144)
     while i + 4 <= n and len(meta) < len(_META_KEYS_BYTES):
         ln = struct.unpack_from(">I", data, i)[0]
         if 1 <= ln <= 256 and i + 4 + ln <= n:

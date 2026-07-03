@@ -20,11 +20,12 @@ def parse_vital(data):
     deeply nested object) is caught, matching the Serum walker."""
     try:
         obj = json.loads(data)
-    except (ValueError, RecursionError, UnicodeDecodeError):
+    except (ValueError, RecursionError, UnicodeDecodeError, MemoryError):
         return None
     if not isinstance(obj, dict):
         return None
-    # distinguish a Vital preset from arbitrary JSON
-    if "synth_version" not in obj and "settings" not in obj:
+    # distinguish a Vital preset from arbitrary JSON: require the Vital-specific
+    # synth_version key ('settings' alone is too generic).
+    if "synth_version" not in obj:
         return None
     return obj

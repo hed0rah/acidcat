@@ -76,7 +76,7 @@ def iter_boxes(data, start=0, end=None, depth=0):
                "depth": depth, "truncated": False}
         if btype in _CONTAINERS and depth < _MAX_DEPTH:
             yield from iter_boxes(data, pos + hdr, pos + size, depth + 1)
-        elif btype == b"meta" and depth < _MAX_DEPTH:
+        elif btype == b"meta" and size >= hdr + 4 and depth < _MAX_DEPTH:
             # FullBox container: 4-byte version/flags before the children
             yield from iter_boxes(data, pos + hdr + 4, pos + size, depth + 1)
         pos += size
@@ -103,6 +103,35 @@ def movie_timescale_duration(data):
     return None, None
 
 
+def find_moov(filepath, file_size):
+    """Locate the top-level moov box by reading only box headers (8-16 bytes
+    each, no payload), so it is found regardless of file size or position.
+    Non-faststart files (most Apple/ffmpeg output) put moov at EOF. Returns
+    (offset, size) or (None, None)."""
+    with open(filepath, "rb") as f:
+        pos = 0
+        while pos + 8 <= file_size:
+            f.seek(pos)
+            hdr = f.read(8)
+            if len(hdr) < 8:
+                break
+            size = struct.unpack(">I", hdr[:4])[0]
+            btype = hdr[4:8]
+            if size == 1:
+                ext = f.read(8)
+                if len(ext) < 8:
+                    break
+                size = struct.unpack(">Q", ext)[0]
+            elif size == 0:
+                size = file_size - pos
+            if size < 8 or pos + size > file_size:
+                break
+            if btype == b"moov":
+                return pos, size
+            pos += size
+    return None, None
+
+
 def _decode_data_box(data, start, end):
     """Decode a 'data' box payload (type indicator u32, locale u32, value)."""
     if end - start < 16:
@@ -113,28 +142,33 @@ def _decode_data_box(data, start, end):
         return val.decode("utf-8", errors="replace")
     if type_ind in (13, 14):  # jpeg / png image
         return f"{len(val):,}-byte {'jpeg' if type_ind == 13 else 'png'} image"
-    if type_ind == 21 and val:  # signed int (bpm, track counts, ...)
+    if type_ind == 21 and 1 <= len(val) <= 8:  # int (bpm, track); real ones fit 8 bytes
         return int.from_bytes(val, "big")
     return f"{len(val):,} bytes (type {type_ind})"
 
 
 def parse_ilst(data):
     """Extract the iTunes metadata under udta > meta > ilst as {label: value}.
-    Each ilst child's type is the tag; it holds a 'data' box with the value."""
+    Only boxes that are direct children of an actual 'ilst' box are treated as
+    tags (an ancestry check, not a depth heuristic, so a stray a9-prefixed box
+    elsewhere in the tree cannot masquerade as a tag). Each tag box holds a
+    'data' box with the value."""
     meta = {}
     for b in iter_boxes(data):
-        if b["depth"] < 3 or b["truncated"]:
+        if b["type"] != b"ilst" or b["truncated"]:
             continue
-        label = _ILST_TAGS.get(b["type"])
-        if not label:
-            continue
-        # find the 'data' child box inside this tag box
-        inner_start = b["offset"] + b["hdr"]
-        inner_end = b["offset"] + b["size"]
-        for c in iter_boxes(data, inner_start, inner_end, depth=b["depth"] + 1):
-            if c["type"] == b"data" and not c["truncated"]:
-                v = _decode_data_box(data, c["offset"], c["offset"] + c["size"])
-                if v is not None and label not in meta:
-                    meta[label] = v
-                break
+        istart, iend = b["offset"] + b["hdr"], b["offset"] + b["size"]
+        for tag in iter_boxes(data, istart, iend, depth=b["depth"] + 1):
+            if tag["depth"] != b["depth"] + 1:  # direct children of ilst only
+                continue
+            label = _ILST_TAGS.get(tag["type"])
+            if not label or label in meta:
+                continue
+            tstart, tend = tag["offset"] + tag["hdr"], tag["offset"] + tag["size"]
+            for c in iter_boxes(data, tstart, tend, depth=tag["depth"] + 1):
+                if c["type"] == b"data" and not c["truncated"]:
+                    v = _decode_data_box(data, c["offset"], c["offset"] + c["size"])
+                    if v is not None:
+                        meta[label] = v
+                    break
     return meta
