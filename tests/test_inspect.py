@@ -1569,3 +1569,22 @@ class TestBitwigTree:
         rows = flatten_tree(parse_tree(data))
         idxs = [seg for _, seg, _ in rows if seg.isdigit()]
         assert idxs == ["2", "10"]  # numeric, not lexical
+
+
+class TestBitwigNumeric:
+    def test_parse_numeric_f64(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_numeric
+        # bpm key (length-prefixed) + type 0x07 + f64 BE 140.0
+        data = (b"BtWg0003000200" + _s.pack(">I", 3) + b"bpm" + b"\x07"
+                + _s.pack(">d", 140.0) + _s.pack(">I", 11) + b"beat_length"
+                + b"\x07" + _s.pack(">d", 16.0))
+        nums = parse_numeric(data)
+        assert nums["bpm"] == 140.0 and nums["beat_length"] == 16.0
+
+    def test_parse_numeric_substring_safe(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_numeric
+        # 'bpm' appearing inside another word must not match (length-prefixed)
+        data = b"BtWg0003000200somebpmword" + _s.pack(">d", 999.0)
+        assert "bpm" not in parse_numeric(data)

@@ -87,6 +87,25 @@ _REF_KEYS = [
 ]
 
 
+_NUM_FIELDS = [("bpm", "bpm"), ("beat_length", "beat_length")]
+
+
+def parse_numeric(data):
+    """Top-level f64 fields (type 0x07 = big-endian double), e.g. a note clip's
+    bpm and beat length. The key is matched length-prefixed so a short name like
+    'bpm' cannot match a substring. Returns {label: float}."""
+    out = {}
+    for key, label in _NUM_FIELDS:
+        kb = struct.pack(">I", len(key)) + key.encode()
+        idx = data.find(kb)
+        if idx < 0:
+            continue
+        vp = idx + len(kb)
+        if vp + 9 <= len(data) and data[vp] == 0x07:
+            out[label] = struct.unpack_from(">d", data, vp + 1)[0]
+    return out
+
+
 def parse_references(data):
     """Counts from the referenced_*_ids arrays (type 0x19 = u32 count + items):
     the preset's dependency graph (how many devices/modules/modulators it wires
