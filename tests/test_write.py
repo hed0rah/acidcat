@@ -178,3 +178,15 @@ def test_aiff_edit_preserves_audio_big_endian():
     assert chs[b"NAME"] == b"Snare" and chs[b"AUTH"] == b"Me"
     assert chs[b"SSND"] == b"\x01" * 7  # audio intact
     assert struct.unpack_from(">I", out, 4)[0] == len(out) - 8  # BE FORM size
+
+
+def test_bitwig_meta_splice():
+    from acidcat.core import edits
+    def field(key, val):
+        return (struct.pack(">I", len(key)) + key + b"\x08"
+                + struct.pack(">I", len(val)) + val)
+    data = (b"BtWg0003000200" + field(b"creator", b"relo")
+            + field(b"tags", b"old"))
+    out, applied = edits.edit_bitwig(data, {"creator": "me", "tags": "a b c"})
+    m = __import__("acidcat.core.bitwig", fromlist=["parse_meta"]).parse_meta(out)
+    assert m["creator"] == "me" and m["tags"] == "a b c"
