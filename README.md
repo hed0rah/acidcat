@@ -76,7 +76,7 @@ full-text.
 | `acidcat similar CSV cluster` | Cluster samples by audio characteristics |
 | `acidcat search CSV query TEXT` | Text-based sample search (legacy CSV) |
 | `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
-| `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--color]` | readelf-style structural dump (WAV, RF64, AIFF, MIDI, Serum, MP3, FLAC) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump for `build_explorer.py`, `--color` to syntax-highlight |
+| `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--pretty] [--color]` | readelf-style structural dump (WAV, RF64, AIFF, MIDI, Serum, MP3, FLAC, MP4/M4A, Bitwig, Vital, NCW) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump for `build_explorer.py`, `--pretty` a human-friendly metadata view, `--color` to syntax-highlight |
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
 
