@@ -1625,3 +1625,25 @@ class TestVitalDeep:
     def test_deep_structure_no_settings(self):
         from acidcat.core.vital import deep_structure
         assert deep_structure({"synth_version": "1"}) == {}
+
+
+class TestBitwigNotes:
+    def _note_clip(self, pitch, pos, dur, vel01):
+        def f(idb, val):
+            return idb + b"\x07" + struct.pack(">d", val)
+        rec = (f(b"\x00\x00\x02\xaf", pos) + f(b"\x00\x00\x00\x26", dur)
+               + f(b"\x00\x00\x2d\xfc", 1.0) + f(b"\x00\x00\x00\xef", vel01))
+        footer = b"\x00\x00\x00\xee\x01" + bytes([pitch])
+        return b"BtWg0003000200" + rec + footer
+
+    def test_parse_notes(self):
+        from acidcat.core.bitwig import parse_notes
+        notes = parse_notes(self._note_clip(60, 2.0, 0.5, 100 / 127))
+        assert len(notes) == 1
+        n = notes[0]
+        assert n["pitch"] == 60 and n["start"] == 2.0 and n["duration"] == 0.5
+        assert round(n["velocity"] * 127) == 100
+
+    def test_parse_notes_empty_without_lanes(self):
+        from acidcat.core.bitwig import parse_notes
+        assert parse_notes(b"BtWg0003000200 no note lanes here") == []
