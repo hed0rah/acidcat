@@ -5,7 +5,7 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
-## [Unreleased]
+## [0.14.0] - 2026-07-03
 
 ### Added
 
@@ -13,7 +13,7 @@ once it leaves alpha.
   declared container end, appended-format magic (polyglot detection: ZIP/PDF/
   PNG/... after the audio), structural size mismatches (surfaced from the
   walker), and control bytes smuggled into text fields. Findings carry a
-  severity, byte offset, and rule; also emitted in `-f json`.
+  severity, byte offset, and rule; also emitted in `-f json`. Also flags duplicate ID3 frames, non-zero content in spec-ignorable padding/free regions, and FLAC APPLICATION blocks.
 - `cover` command: extract, embed, or remove embedded cover art across MP3,
   FLAC, MP4/M4A, and Ogg (`acidcat cover FILE -o art.jpg`, `--set art.png`,
   `--remove`); embed/remove are atomic with a `_original` backup.
