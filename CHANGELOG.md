@@ -5,6 +5,30 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.13.0] - 2026-07-03
+
+### Added
+
+- MCP: a **streamable-HTTP transport** (`acidcat-mcp --transport http`, mounted at
+  /mcp, stateless), the modern replacement for SSE; stdio stays the default. New
+  `mcp-http` extra (starlette + uvicorn).
+- A distributable **Claude skill** under `skills/acidcat/` (copy to
+  `~/.claude/skills`) covering inspect/write/convert/index/query, build_explorer,
+  and the MCP server.
+- Ogg: `inspect` now decodes the identification header, reporting `sample_rate`
+  and `channels` (previously only the comment header was read).
+
+### Fixed
+
+- `info` on a Bitwig/NI/Vital preset silently parsed it as a headerless WAV; it
+  now detects presets and points to `acidcat inspect`.
+- build_explorer: the hover highlight holds briefly so dragging across the gaps
+  between byte cells reads as continuous; the dark/light toggle applies on load
+  without pinning the OS preference in localStorage.
+- Docs: README overview + Supported Formats table now list Bitwig/NI/Vital/NCW/
+  MP4; CHEATSHEET documents `--verbose` and the `mcp-http` extra. Removed an
+  unreachable code branch in `write`.
+
 ## [0.12.0] - 2026-07-03
 
 ### Added
