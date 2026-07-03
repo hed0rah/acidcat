@@ -87,6 +87,28 @@ def edit_bitwig(data, changes):
     return bytes(out), applied
 
 
+# ── Native Instruments presets ─────────────────────────────────────
+
+
+def edit_ni(data, changes):
+    """Edit NI preset metadata. Dispatches by container: nksf (RIFF/msgpack),
+    ksd (zlib/XML), hsin (Massive/Absynth, cascading frame sizes)."""
+    from acidcat.core import ni
+    try:
+        if ni.is_ni_nksf(data):
+            return ni.edit_nksf(data, changes)
+        if ni.is_ni_ksd(data):
+            return ni.edit_ksd(data, changes)
+        if ni.is_ni_hsin(data):
+            if not hasattr(ni, "edit_hsin"):
+                raise EditError("hsin (Massive/Absynth) writing is not available "
+                                "yet in this build")
+            return ni.edit_hsin(data, changes)
+    except ValueError as e:
+        raise EditError(str(e))
+    raise EditError("unrecognized Native Instruments preset")
+
+
 # ── tagged audio (mp3/flac/ogg/m4a via mutagen) ────────────────────
 
 # field -> mutagen "easy" key (the normalized cross-format interface)

@@ -190,3 +190,14 @@ def test_bitwig_meta_splice():
     out, applied = edits.edit_bitwig(data, {"creator": "me", "tags": "a b c"})
     m = __import__("acidcat.core.bitwig", fromlist=["parse_meta"]).parse_meta(out)
     assert m["creator"] == "me" and m["tags"] == "a b c"
+
+
+def test_ni_nksf_roundtrip():
+    from acidcat.core import ni
+    data = open("data/test_formats/corpus/synth/New_Init_2.nksf", "rb").read() \
+        if __import__("os").path.exists("data/test_formats/corpus/synth/New_Init_2.nksf") else None
+    if data is None:
+        import pytest as _pt; _pt.skip("corpus nksf not present")
+    out, _ = ni.edit_nksf(data, {"name": "X", "author": "y"})
+    m = ni.parse_nksf(out)
+    assert m["name"] == "X" and m["author"] == "y"
