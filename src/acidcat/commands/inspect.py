@@ -30,6 +30,7 @@ from acidcat.core import vital as vitalmod
 from acidcat.core import ncw as ncwmod
 from acidcat.core import mp4 as mp4mod
 from acidcat.core import ni as nimod
+from acidcat.core import ogg as oggmod
 from acidcat.util.midi import midi_note_to_name
 
 _PAYLOAD_CAP = 65536
@@ -799,6 +800,35 @@ def _aiff_appl(b):
         fields.append(_f(0x04, 1 + nlen, "name", name, "pstring"))
     fields.append(_f(None, 0, "data", f"{len(b) - 4:,} bytes"))
     return f"app '{sig}', {len(b) - 4:,} bytes", fields, warns
+
+
+def inspect_ogg(filepath):
+    """Structural view of an Ogg stream: page count/codec and the Vorbis/Opus
+    comment header (vendor + tags). The audio packets are opaque."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 16 * 1024 * 1024))
+    pages = list(oggmod.iter_pages(data))
+    ch = oggmod.comment_header(data)
+    codec = ch[0] if ch else "unknown"
+    serial = pages[0]["serial"] if pages else 0
+    chunks = [{"id": "OggS", "offset": 0, "size": file_size,
+               "summary": f"Ogg {codec}, {len(pages)} page(s)",
+               "fields": [_f(0x00, 4, "codec", codec),
+                          _f(None, 0, "pages", len(pages)),
+                          _f(None, 0, "bitstream_serial", serial)],
+               "warnings": [], "payload_base": 0}]
+    if ch and ch[2]:
+        _, vendor, tags = ch
+        fields = []
+        if vendor:
+            fields.append(_f(None, 0, "vendor", vendor[:200]))
+        for k, v in tags.items():
+            fields.append(_f(None, 0, k, str(v)[:200]))
+        chunks.append({"id": "comments", "offset": 0, "size": 0,
+                       "summary": f"{len(tags)} Vorbis comment(s)",
+                       "fields": fields, "warnings": []})
+    return chunks, []
 
 
 def _aiff_id3_fields(tag_bytes):
@@ -2634,6 +2664,8 @@ def _walk_file(filepath, deep):
         return ("Native Instruments preset", *inspect_ni(filepath, deep=deep))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
+    if magic[:4] == b"OggS":
+        return ("Ogg", *inspect_ogg(filepath))
     if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
         raise _Unsupported("ID3 tag wraps a non-MP3 container; not supported")
     if magic[:3] == b"ID3" or (len(magic) >= 4
