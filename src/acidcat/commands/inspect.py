@@ -1493,9 +1493,11 @@ def inspect_bitwig(filepath, deep=False):
 # ── vital walk ─────────────────────────────────────────────────────
 
 
-def inspect_vital(filepath):
-    """Structural view of a Vital preset (bare JSON): the top-level metadata
-    plus a note that the synth state under 'settings' is opaque."""
+def inspect_vital(filepath, deep=False):
+    """Structural view of a Vital preset (bare JSON): the top-level metadata,
+    and with deep (--verbose or --frames) the full synth structure, active
+    oscillators + wavetables, LFO inventory, effects chain, and the modulation
+    matrix."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
         data = f.read(min(file_size, 32 * 1024 * 1024))
@@ -1521,6 +1523,33 @@ def inspect_vital(filepath):
                "summary": f"'{name}' by {obj.get('author', '?')}, "
                           f"{nkeys} settings keys",
                "fields": fields, "warnings": []}]
+    if deep:
+        st = vitalmod.deep_structure(obj)
+        engine = []
+        if st.get("oscillators"):
+            wt = ", ".join(st["wavetables"]) if st.get("wavetables") else ""
+            engine.append(_f(None, 0, "oscillators",
+                             ", ".join(st["oscillators"]), wt))
+        if st.get("lfos"):
+            engine.append(_f(None, 0, "lfos",
+                             f"{len(st['lfos'])}: " + ", ".join(st["lfos"])))
+        if st.get("effects"):
+            engine.append(_f(None, 0, "effects chain",
+                             " > ".join(st["effects"])))
+        if engine:
+            chunks.append({"id": "engine", "offset": 0, "size": 0,
+                           "summary": "active synth structure",
+                           "fields": engine, "warnings": []})
+        mods = st.get("modulations") or []
+        if mods:
+            mfields = []
+            for src, dst, amt in mods:
+                note = f"amount {amt:g}" if isinstance(amt, (int, float)) else ""
+                mfields.append(_f(None, 0, src, f"-> {dst}", note))
+            chunks.append({"id": "modulation", "offset": 0, "size": 0,
+                           "summary": f"{len(mods)} wired modulations "
+                                      "(source -> destination)",
+                           "fields": mfields, "warnings": []})
     return chunks, []
 
 
@@ -2547,7 +2576,7 @@ def _walk_file(filepath, deep):
     if magic[:4] == ncwmod.MAGIC:
         return ("NI Compressed Wave", *inspect_ncw(filepath))
     if magic[:1] == b"{":
-        return ("Vital preset", *inspect_vital(filepath))
+        return ("Vital preset", *inspect_vital(filepath, deep=deep))
     if magic[4:8] == b"ftyp":
         return ("MP4/M4A", *inspect_mp4(filepath))
     if magic[12:16] == b"hsin" or magic[:4] == b"-in-" \
