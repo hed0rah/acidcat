@@ -1458,3 +1458,41 @@ class TestNiNksfWalker:
         deep = b"\x91" * 100  # 100 nested 1-element arrays
         v, _ = _mp_decode(deep)  # must not RecursionError
         assert v is None or isinstance(v, list)
+
+
+class TestBitwigDeep:
+    def _tok(self, s):
+        import struct as _s
+        b = s.encode() if isinstance(s, str) else s
+        return _s.pack(">I", len(b)) + b
+
+    def test_parse_structure_device_tree(self):
+        from acidcat.core.bitwig import parse_structure
+        data = (b"BtWg0003000200" + self._tok("Filter+") + self._tok("CONTENTS")
+                + self._tok("CUTOFF") + self._tok("Reverb") + self._tok("CONTENTS"))
+        assert parse_structure(data) == ["Filter+", "Reverb"]
+
+    def test_list_assets_unzips(self):
+        import io, zipfile
+        from acidcat.core.bitwig import list_assets
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("impulses/x.bwimpulse", b"fLaC" + b"\x00" * 100)
+        data = b"BtWg0003000200" + b"\x00" * 8 + buf.getvalue()
+        assets = list_assets(data)
+        assert len(assets) == 1 and assets[0][0] == "impulses/x.bwimpulse"
+        assert assets[0][2][:4] == b"fLaC"
+
+    def test_list_assets_caps_bomb(self):
+        import io, zipfile
+        from acidcat.core.bitwig import list_assets
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("big", b"\x00" * (200 * 1024))
+        data = b"BtWg" + b"\x00" * 8 + buf.getvalue()
+        assets = list_assets(data, cap=1024)  # 1 KB cap
+        assert assets[0][2] is None  # exceeds cap, refused
+
+    def test_no_zip_no_assets(self):
+        from acidcat.core.bitwig import list_assets
+        assert list_assets(b"BtWg0003000200no zip here") == []

@@ -11,7 +11,9 @@ a u32-BE length followed by that many bytes. A meta entry is a key token whose
 value is a type byte (0x08 = string) then a u32-BE length then the value bytes.
 """
 
+import io
 import struct
+import zipfile
 
 MAGIC = b"BtWg"
 _MAX_LEN = 1 << 20  # sanity cap on any declared length
@@ -70,3 +72,54 @@ def parse_meta(data):
                         continue
         i += 1
     return meta
+
+
+def parse_structure(data, max_tokens=50000):
+    """Best-effort device/module tree: the object class names in the preset,
+    in pre-order (Grid modules and device-chain containers like Filter+, LFO,
+    Reverb, Chain, MODULATORS). A class name is a length-prefixed ASCII token
+    immediately followed by a 'CONTENTS' token. Returns a list of class names.
+    Bounded so a hostile file cannot force an unbounded scan."""
+    end = data.find(b"PK\x03\x04")
+    if end < 0:
+        end = len(data)
+    toks = []
+    i = 14
+    while i + 4 < end and len(toks) < max_tokens:
+        ln = struct.unpack_from(">I", data, i)[0]
+        if 2 <= ln <= 64 and i + 4 + ln <= end:
+            s = data[i + 4:i + 4 + ln]
+            if all(32 <= b < 127 for b in s):
+                toks.append(s.decode("latin-1"))
+                i += 4 + ln
+                continue
+        i += 1
+    return [toks[j] for j in range(len(toks) - 1)
+            if toks[j + 1] == "CONTENTS" and toks[j] != "CONTENTS"]
+
+
+def list_assets(data, cap=32 * 1024 * 1024):
+    """List the entries in the embedded DEFLATE zip: [(name, size, raw)], where
+    raw is the decompressed bytes (read with a hard cap so a zip bomb cannot
+    exhaust memory) or None if too large / unreadable. [] if there is no zip."""
+    z = data.find(b"PK\x03\x04")
+    if z < 0:
+        return []
+    out = []
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data[z:]))
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            raw = None
+            try:
+                with zf.open(info) as fh:
+                    raw = fh.read(cap + 1)
+                if len(raw) > cap:
+                    raw = None  # exceeds the cap: refuse
+            except (zipfile.BadZipFile, OSError, RuntimeError, EOFError):
+                raw = None
+            out.append((info.filename, info.file_size, raw))
+    except (zipfile.BadZipFile, OSError):
+        return []
+    return out
