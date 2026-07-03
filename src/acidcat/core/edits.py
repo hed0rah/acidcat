@@ -46,6 +46,47 @@ def edit_vital(data, changes):
     return json.dumps(obj).encode("utf-8"), applied
 
 
+# ── Bitwig preset metadata (length-prefixed tagged block) ──────────
+
+import struct as _struct
+
+_BITWIG_FIELDS = {
+    "creator": b"creator", "author": b"creator",
+    "comment": b"comment", "description": b"comment",
+    "tags": b"tags",
+    "name": b"device_name", "device": b"device_name",
+    "category": b"device_category", "preset_category": b"preset_category",
+}
+
+
+def edit_bitwig(data, changes):
+    """Edit a Bitwig preset's meta strings by splicing the value and updating its
+    u32-BE length prefix. EXPERIMENTAL: the file must be confirmed to reload in
+    Bitwig; the caller keeps a backup. Only the first (top-level) occurrence of
+    each key is touched."""
+    if data[:4] != b"BtWg":
+        raise EditError("not a Bitwig preset")
+    out = bytearray(data)
+    applied = []
+    for field, value in changes.items():
+        key = _BITWIG_FIELDS.get(field.lower())
+        if key is None:
+            raise EditError(f"Bitwig preset has no editable field {field!r}")
+        marker = _struct.pack(">I", len(key)) + key + b"\x08"
+        idx = out.find(marker)
+        if idx < 0:
+            raise EditError(f"field {field!r} not present in this preset")
+        vp = idx + len(marker)
+        vlen = _struct.unpack_from(">I", out, vp)[0]
+        if vp + 4 + vlen > len(out):
+            raise EditError(f"field {field!r} value overruns the file")
+        old = out[vp + 4:vp + 4 + vlen].decode("utf-8", "replace")
+        new_val = ("" if value is None else str(value)).encode("utf-8")
+        out[vp:vp + 4 + vlen] = _struct.pack(">I", len(new_val)) + new_val
+        applied.append((field, old, value))
+    return bytes(out), applied
+
+
 # ── tagged audio (mp3/flac/ogg/m4a via mutagen) ────────────────────
 
 # field -> mutagen "easy" key (the normalized cross-format interface)
