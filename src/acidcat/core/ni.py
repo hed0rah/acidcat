@@ -54,6 +54,74 @@ def _u16le_pascals(data, limit=1 << 20):
     return out
 
 
+def fastlz_decompress(src, max_out=32 * 1024 * 1024):
+    """FastLZ level-1 decompression (pure Python). NI compresses the hsin
+    subtree payload (item 115) with this. Returns the decompressed bytes, or
+    None if the output would exceed max_out (a decompression-bomb guard)."""
+    dst = bytearray()
+    ip, n = 0, len(src)
+    if n == 0:
+        return b""
+    ctrl = src[ip]
+    ip += 1
+    while True:
+        if ctrl >= 32:  # back-reference
+            length = ctrl >> 5
+            ofs = (ctrl & 0x1F) << 8
+            if length == 7:
+                if ip >= n:
+                    break
+                length += src[ip]
+                ip += 1
+            if ip >= n:
+                break
+            ofs += src[ip]
+            ip += 1
+            length += 2
+            ref = len(dst) - ofs - 1
+            if ref < 0:
+                break
+            for _ in range(length):
+                if ref >= len(dst):
+                    break
+                dst.append(dst[ref])
+                ref += 1
+        else:  # literal run of ctrl+1 bytes
+            length = ctrl + 1
+            dst.extend(src[ip:ip + length])
+            ip += length
+        if len(dst) > max_out:
+            return None
+        if ip < n:
+            ctrl = src[ip]
+            ip += 1
+        else:
+            break
+    return bytes(dst)
+
+
+def decompress_subtree(data, max_attempts=64):
+    """Locate the FastLZ-compressed subtree (item 115) in an hsin preset and
+    return its decompressed inner container, or None. The payload header is
+    u32=1, u8=1, u32 uncompressed_size, u32 compressed_size, then FastLZ."""
+    attempts = 0
+    for m in range(0x30, len(data) - 13):
+        if data[m:m + 5] != b"\x01\x00\x00\x00\x01":
+            continue
+        uncomp = struct.unpack_from("<I", data, m + 5)[0]
+        comp = struct.unpack_from("<I", data, m + 9)[0]
+        if not (16 < comp < len(data) and 16 < uncomp < 64 * 1024 * 1024
+                and m + 13 + comp <= len(data)):
+            continue
+        attempts += 1
+        if attempts > max_attempts:
+            break
+        out = fastlz_decompress(data[m + 13:m + 13 + comp], uncomp + 16)
+        if out is not None and len(out) == uncomp:
+            return out
+    return None
+
+
 def is_ni_ksd(data):
     return data[:4] == KSD_MAGIC
 

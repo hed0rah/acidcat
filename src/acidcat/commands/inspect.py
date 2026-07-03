@@ -1566,11 +1566,12 @@ def inspect_mp4(filepath):
 # ── native instruments walk ────────────────────────────────────────
 
 
-def inspect_ni(filepath):
+def inspect_ni(filepath, deep=False):
     """Structural view of a Native Instruments preset: the readable metadata.
     Handles the hsin container (Massive .nmsv, Absynth .nabs, modern Kontakt
-    .nki) and the older zlib-XML .ksd (Absynth/KORE). Compressed payloads are
-    left opaque."""
+    .nki) and the older zlib-XML .ksd (Absynth/KORE). With deep (--verbose or
+    --frames) it also FastLZ-decompresses the hsin subtree to report the inner
+    preset-state container."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
         data = f.read(min(file_size, 16 * 1024 * 1024))
@@ -1592,6 +1593,18 @@ def inspect_ni(filepath):
     summary = f"{prod} preset '{meta.get('name', '(unnamed)')}'"
     chunks = [{"id": kind, "offset": 0, "size": file_size, "summary": summary,
                "fields": fields, "warnings": [], "payload_base": 0}]
+    if deep and kind == "hsin":
+        inner = nimod.decompress_subtree(data)
+        if inner is not None:
+            nested = nimod.is_ni_hsin(inner)
+            chunks.append({"id": "payload", "offset": 0, "size": 0,
+                           "summary": "FastLZ-compressed preset state",
+                           "fields": [_f(None, 0, "decompressed_size",
+                                         f"{len(inner):,} bytes"),
+                                      _f(None, 0, "inner_container",
+                                         "nested hsin (synth parameter state)"
+                                         if nested else "opaque")],
+                           "warnings": []})
     return chunks, []
 
 
@@ -2486,7 +2499,7 @@ def _walk_file(filepath, deep):
         return ("MP4/M4A", *inspect_mp4(filepath))
     if magic[12:16] == b"hsin" or magic[:4] == b"-in-" \
             or (magic[:4] == b"RIFF" and magic[8:12] == b"NIKS"):
-        return ("Native Instruments preset", *inspect_ni(filepath))
+        return ("Native Instruments preset", *inspect_ni(filepath, deep=deep))
     if magic[:4] == b"fLaC":
         return ("FLAC", *inspect_flac(filepath))
     if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
