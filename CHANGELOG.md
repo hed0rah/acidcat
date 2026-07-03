@@ -5,6 +5,60 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.12.0] - 2026-07-03
+
+### Added
+
+- Native Instruments preset support (`inspect`): the NISound `hsin` container
+  (Massive `.nmsv`, Absynth `.nabs`, FM8, Reaktor, modern Kontakt `.nki`), the
+  older `.ksd` (KORE/Absynth, zlib+XML), and `.nksf` (NKS, RIFF+MessagePack).
+  Reads product, name, author, vendor, category, tags; `--verbose` FastLZ-
+  decompresses the hsin subtree. Pure Python, from byte-level facts only.
+- Ogg (`inspect`): page structure + the Vorbis/Opus comment header (vendor,
+  tags), bounds-checked.
+- Bitwig deep deconstruction (`inspect --verbose`): the device/module tree, the
+  named parameter table with values, the Grid wiring paths, the reference graph,
+  and the embedded-asset zip unzipped with each file identified. `.bwclip` note
+  clips report bpm + beat length and read every note (pitch / position /
+  duration / velocity), reverse-engineered via a known-plaintext attack.
+- Vital deep deconstruction: oscillators + wavetables, LFO inventory, effects
+  chain, and the modulation matrix (source -> destination with amounts).
+- AIFF: decode the embedded ID3v2 chunk (as bandcamp and some tools write it).
+- `convert` command: export a DAW clip's notes to a Standard MIDI File
+  (`acidcat convert clip.bwclip -o out.mid`).
+- `write` command: edit metadata in place (exiftool-style) after a `_original`
+  backup, or a `-o` copy; `--dry-run` and batch. Covers WAV (INFO tags, acid
+  bpm/key, bext, smpl root), AIFF (NAME/AUTH/ANNO), MP3/FLAC/OGG/M4A (via
+  mutagen), and Vital presets. Atomic writes; refuses RF64/malformed; verifies
+  audio is byte-identical after a WAV rewrite. (Bitwig/NI preset writing is
+  implemented but held as experimental pending in-app reload verification.)
+- Index / query / MCP: synth/DAW preset metadata (device, product, creator,
+  category, tags) is indexed and searchable (`query --device/--category/
+  --creator/--product`, full-text, and the MCP `search_samples` tool). Schema v2
+  with a safe v1 -> v2 migration.
+- `inspect --pretty` (human-friendly metadata view) and `--verbose` (deep
+  deconstruction). CHEATSHEET.md.
+
+### Changed
+
+- MIDI note names now use the DAW octave convention (middle C = C3), matching
+  Bitwig / Ableton / FL / Cubase / Logic (previously scientific, C4).
+
+### Fixed
+
+- inspect decoded WAV/AIFF text metadata (INFO tags, NAME/AUTH/ANNO, comments,
+  MIDI text events) as ASCII with errors='replace', mangling every non-Latin tag
+  (Korean, CJK, mixed-script) into U+FFFD. Now decodes UTF-8 with a latin-1
+  fallback, so non-ASCII metadata displays correctly.
+- Hardening from two adversarial pre-release reviews of the new code: bounded the
+  Bitwig note/parameter/path/wiring scanners and the NI .ksd / FastLZ-subtree
+  scanners (a crafted preset could force quadratic or multi-second scans); capped
+  the embedded-zip asset reader to a per-entry prefix (zip-bomb memory guard);
+  guarded the note reader against NaN/Inf fields and an out-of-range pitch footer;
+  added a recursion-depth limit to the hsin walker; gave `convert` proper error
+  handling. Write path: RIFF/AIFF no longer fold trailing bytes into the container
+  size, and the tagged-file editor fsyncs its temp file before re-reading it.
+
 ## [0.11.0] - 2026-07-02
 
 ### Added
