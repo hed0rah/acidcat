@@ -106,6 +106,30 @@ def parse_numeric(data):
     return out
 
 
+def parse_parameters(data, cap=4000):
+    """Every named device parameter and its value. A parameter is stored as
+    [u32 keylen][UPPER_SNAKE key][u32 marker][0x07][f64 big-endian]. Values are
+    in Bitwig's internal units (seconds, semitones, or normalized 0..1 depending
+    on the parameter), reported raw. Returns [(name, value)]."""
+    end = data.find(b"PK\x03\x04")
+    if end < 0:
+        end = len(data)
+    out = []
+    i = 14
+    while i + 4 < end and len(out) < cap:
+        kl = struct.unpack_from(">I", data, i)[0]
+        if 2 <= kl <= 40 and i + 4 + kl + 13 <= end:
+            key = data[i + 4:i + 4 + kl]
+            if all(65 <= b <= 90 or b == 95 or 48 <= b <= 57 for b in key) \
+                    and data[i + 4 + kl + 4] == 0x07:
+                val = struct.unpack_from(">d", data, i + 4 + kl + 5)[0]
+                out.append((key.decode(), val))
+                i = i + 4 + kl + 13
+                continue
+        i += 1
+    return out
+
+
 def parse_references(data):
     """Counts from the referenced_*_ids arrays (type 0x19 = u32 count + items):
     the preset's dependency graph (how many devices/modules/modulators it wires
