@@ -1445,6 +1445,30 @@ def inspect_bitwig(filepath, deep=False):
     chunks.append({"id": "meta", "offset": 0, "size": 0,
                    "summary": summary, "fields": fields, "warnings": []})
 
+    if meta.get("type", "").endswith("note-clip"):
+        notes = bwmod.parse_notes(data)
+        pitches = [n["pitch"] for n in notes if n["pitch"] is not None]
+        if pitches:
+            lo, hi = min(pitches), max(pitches)
+            rng = f"{midi_note_to_name(lo)}-{midi_note_to_name(hi)}"
+            nfields = [_f(None, 0, "note count", len(notes)),
+                       _f(None, 0, "pitch range", rng)]
+            if deep:
+                for n in notes[:500]:
+                    nm = (midi_note_to_name(n["pitch"])
+                          if n["pitch"] is not None else "?")
+                    vel = round((n["velocity"] or 0) * 127)
+                    start = n["start"] if n["start"] is not None else 0
+                    dur = n["duration"] if n["duration"] is not None else 0
+                    nfields.append(_f(None, 0, f"{nm} @ {start:g}",
+                                      f"dur {dur:g}, vel {vel}"))
+                if len(notes) > 500:
+                    nfields.append(_f(None, 0, "...",
+                                      f"{len(notes) - 500} more notes"))
+            chunks.append({"id": "notes", "offset": 0, "size": 0,
+                           "summary": f"{len(notes)} notes, {rng}",
+                           "fields": nfields, "warnings": []})
+
     if deep:
         modules = bwmod.parse_structure(data)
         if modules:

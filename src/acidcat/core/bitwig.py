@@ -228,6 +228,66 @@ def flatten_tree(tree, depth=0, out=None, cap=600):
     return out
 
 
+# note-clip field ids. type 0x07 = f64 big-endian; type 0x01 = 1-byte int.
+_NOTE_CHANCE = b"\x00\x00\x2d\xfc\x07"   # per-note anchor (chance value)
+_NOTE_PITCH = b"\x00\x00\x00\xee\x01"    # lane footer: raw MIDI pitch (u8)
+_NOTE_POS = b"\x00\x00\x02\xaf\x07"      # position, in beats
+_NOTE_DUR = b"\x00\x00\x00\x26\x07"      # duration, in beats
+_NOTE_VEL = b"\x00\x00\x00\xef\x07"      # velocity, 0..1 (= MIDI velocity / 127)
+
+
+def _f64_at(data, off):
+    if 0 <= off <= len(data) - 8:
+        return struct.unpack_from(">d", data, off)[0]
+    return None
+
+
+def _nearest_f64(data, anchor, pat, lo, hi):
+    """The f64 payload of the `pat` field whose id sits closest to `anchor`
+    within [anchor+lo, anchor+hi] (the record window), or None."""
+    a, b = max(0, anchor + lo), min(len(data), anchor + hi)
+    best = None
+    i = data.find(pat, a)
+    while 0 <= i < b:
+        d = abs(i - anchor)
+        if best is None or d < best[0]:
+            best = (d, _f64_at(data, i + len(pat)))
+        i = data.find(pat, i + 1)
+    return best[1] if best else None
+
+
+def parse_notes(data, cap=200000):
+    """Extract notes from a Bitwig note clip as [{pitch, start, duration,
+    velocity}]. Notes are grouped into per-pitch lanes (footer field 0xee = raw
+    MIDI note, serialized in descending pitch order); each note is a record
+    anchored by the chance field 0x2dfc. start/duration are in beats, velocity
+    is 0..1 (MIDI velocity / 127). Fields are located by id near each anchor
+    (not fixed byte offsets), so varying record layouts are tolerated. [] if the
+    clip carries no note lanes."""
+    anchors, i = [], data.find(_NOTE_CHANCE)
+    while i >= 0 and len(anchors) < cap:
+        anchors.append(i)
+        i = data.find(_NOTE_CHANCE, i + 1)
+    footers, i = [], data.find(_NOTE_PITCH)
+    while i >= 0:
+        footers.append((i, data[i + 5]))
+        i = data.find(_NOTE_PITCH, i + 1)
+    if not anchors or not footers:
+        return []
+    notes, fi = [], 0
+    for a in anchors:
+        while fi < len(footers) and footers[fi][0] < a:  # lane footer follows
+            fi += 1                                        # its notes
+        pitch = footers[fi][1] if fi < len(footers) else None
+        notes.append({
+            "pitch": pitch,
+            "start": _nearest_f64(data, a, _NOTE_POS, -168, -8),
+            "duration": _nearest_f64(data, a, _NOTE_DUR, -168, -8),
+            "velocity": _nearest_f64(data, a, _NOTE_VEL, 8, 168),
+        })
+    return notes
+
+
 def parse_structure(data, max_tokens=50000):
     """Best-effort device/module tree: the object class names in the preset,
     in pre-order (Grid modules and device-chain containers like Filter+, LFO,
