@@ -1588,3 +1588,17 @@ class TestBitwigNumeric:
         # 'bpm' appearing inside another word must not match (length-prefixed)
         data = b"BtWg0003000200somebpmword" + _s.pack(">d", 999.0)
         assert "bpm" not in parse_numeric(data)
+
+
+class TestBitwigParameters:
+    def test_parse_parameters_named_f64(self):
+        import struct as _s
+        from acidcat.core.bitwig import parse_parameters
+        data = (b"BtWg0003000200"
+                + _s.pack(">I", 10) + b"GLIDE_TIME" + _s.pack(">I", 0x136)
+                + b"\x07" + _s.pack(">d", 1.0)
+                + _s.pack(">I", 6) + b"F1FREQ" + _s.pack(">I", 0x136)
+                + b"\x07" + _s.pack(">d", 142.1))
+        params = dict(parse_parameters(data))
+        assert params["GLIDE_TIME"] == 1.0
+        assert abs(params["F1FREQ"] - 142.1) < 0.001

@@ -1454,6 +1454,15 @@ def inspect_bitwig(filepath, deep=False):
                            "summary": f"{len(modules)} devices/modules in the "
                                       "chain (pre-order)",
                            "fields": mfields, "warnings": []})
+        params = bwmod.parse_parameters(data)
+        if params:
+            def _fmt(v):
+                return f"{v:g}"
+            pfields = [_f(None, 0, name, _fmt(val)) for name, val in params]
+            chunks.append({"id": "parameters", "offset": 0, "size": 0,
+                           "summary": f"{len(params)} device parameters "
+                                      "(raw internal units)",
+                           "fields": pfields, "warnings": []})
         rows = bwmod.flatten_tree(bwmod.parse_tree(data))
         if rows:
             leaves = sum(1 for _, _, leaf in rows if leaf)
