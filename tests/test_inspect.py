@@ -1539,3 +1539,33 @@ class TestBitwigReferences:
                 + tok("plain string") + tok("CONTENTS/MODULES/4/CONTENTS/CUTOFF"))
         conns = parse_connections(data)
         assert conns == ["CONTENTS/MODULES/4/CONTENTS/CUTOFF"]  # deduped
+
+
+class TestBitwigTree:
+    def _tok(self, s):
+        import struct as _s
+        return _s.pack(">I", len(s)) + s.encode()
+
+    def test_parse_tree_builds_hierarchy(self):
+        from acidcat.core.bitwig import parse_tree, flatten_tree
+        data = (b"BtWg0003000200"
+                + self._tok("CONTENTS/MODULES/8/CONTENTS/OUT")
+                + self._tok("CONTENTS/MODULES/8/CONTENTS/LEVEL_1")
+                + self._tok("CONTENTS/MODULES/2/CONTENTS/TIME")
+                + self._tok("application/bitwig-preset"))  # noise: excluded
+        tree = parse_tree(data)
+        assert set(tree) == {"CONTENTS"}  # MIME path filtered out
+        rows = flatten_tree(tree)
+        segs = [seg for _, seg, _ in rows]
+        assert "MODULES" in segs and "8" in segs
+        leaves = {seg for _, seg, leaf in rows if leaf}
+        assert leaves == {"OUT", "LEVEL_1", "TIME"}  # params are the leaves
+
+    def test_flatten_tree_numeric_sort(self):
+        from acidcat.core.bitwig import parse_tree, flatten_tree
+        data = (b"BtWg0003000200"
+                + self._tok("CONTENTS/MODULES/10/CONTENTS/X")
+                + self._tok("CONTENTS/MODULES/2/CONTENTS/X"))
+        rows = flatten_tree(parse_tree(data))
+        idxs = [seg for _, seg, _ in rows if seg.isdigit()]
+        assert idxs == ["2", "10"]  # numeric, not lexical
