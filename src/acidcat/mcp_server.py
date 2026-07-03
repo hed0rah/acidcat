@@ -1620,20 +1620,19 @@ def dispatch(name, arguments):
     raise ToolError(f"unknown tool: {name}")
 
 
-# ── stdio entrypoint ──────────────────────────────────────────────
+# ── server construction (shared by the stdio + http transports) ──────
+
+_MCP_MISSING = ("acidcat-mcp: the mcp package is not installed. "
+                "Install with: pip install acidcat[mcp]")
 
 
-async def _run_stdio():
-    try:
-        from mcp.server import Server
-        from mcp.server.stdio import stdio_server
-        import mcp.types as mcp_types
-    except ImportError:
-        print("acidcat-mcp: the mcp package is not installed. "
-              "Install with: pip install acidcat[mcp]", file=sys.stderr)
-        sys.exit(1)
+def _build_app():
+    """Build the low-level MCP Server with acidcat's tools wired to dispatch().
+    Shared by both transports. Imports mcp lazily so the package stays optional."""
+    from mcp.server import Server
+    import mcp.types as mcp_types
 
-    app = Server("acidcat")
+    app = Server("acidcat", version=__version__)
 
     @app.list_tools()
     async def _list_tools():
@@ -1669,8 +1668,55 @@ async def _run_stdio():
             payload = {"error": f"internal: {e.__class__.__name__}: {e}"}
             return [mcp_types.TextContent(type="text", text=json.dumps(payload))]
 
+    return app
+
+
+async def _run_stdio():
+    try:
+        from mcp.server.stdio import stdio_server
+    except ImportError:
+        print(_MCP_MISSING, file=sys.stderr)
+        sys.exit(1)
+    app = _build_app()
     async with stdio_server() as (read, write):
         await app.run(read, write, app.create_initialization_options())
+
+
+def _run_http(host, port, json_response):
+    """Serve over Streamable HTTP (the modern replacement for the SSE transport).
+    Stateless (no server-side session state), mounted at /mcp, so it can sit
+    behind a proxy. Needs the http extra (starlette + uvicorn)."""
+    try:
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    except ImportError:
+        print(_MCP_MISSING, file=sys.stderr)
+        sys.exit(1)
+    try:
+        import contextlib
+        from starlette.applications import Starlette
+        from starlette.routing import Mount
+        import uvicorn
+    except ImportError:
+        print("acidcat-mcp: the http transport needs starlette + uvicorn. "
+              "Install with: pip install acidcat[mcp-http]", file=sys.stderr)
+        sys.exit(1)
+
+    app = _build_app()
+    manager = StreamableHTTPSessionManager(
+        app=app, event_store=None, json_response=json_response, stateless=True)
+
+    async def handle(scope, receive, send):
+        await manager.handle_request(scope, receive, send)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_star):
+        async with manager.run():
+            yield
+
+    star = Starlette(routes=[Mount("/mcp", app=handle)], lifespan=lifespan)
+    print(f"acidcat-mcp: streamable HTTP on http://{host}:{port}/mcp",
+          file=sys.stderr)
+    uvicorn.run(star, host=host, port=port, log_level="warning")
 
 
 def _warn_legacy_db():
@@ -1684,12 +1730,24 @@ def main(argv=None):
     global _REGISTRY_PATH
     parser = argparse.ArgumentParser(
         prog="acidcat-mcp",
-        description="MCP server exposing the acidcat per-library index over stdio.",
+        description="MCP server exposing the acidcat per-library index "
+                    "(stdio or streamable HTTP).",
     )
     parser.add_argument("--registry",
                         help="Override registry DB path "
                              "(default: $ACIDCAT_REGISTRY or "
                              "~/.acidcat/registry.db).")
+    parser.add_argument("--transport", choices=["stdio", "http"], default="stdio",
+                        help="Transport: stdio (default, for local MCP clients) "
+                             "or http (streamable HTTP at /mcp).")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="HTTP bind host (default: 127.0.0.1; use 0.0.0.0 to "
+                             "expose beyond localhost).")
+    parser.add_argument("--port", type=int, default=8765,
+                        help="HTTP port (default: 8765).")
+    parser.add_argument("--json-response", action="store_true",
+                        help="HTTP: reply with one JSON response per call instead "
+                             "of an SSE stream.")
     parser.add_argument("--version", action="version",
                         version=f"acidcat-mcp {__version__}")
     args = parser.parse_args(argv)
@@ -1697,8 +1755,11 @@ def main(argv=None):
 
     _warn_legacy_db()
 
-    import asyncio
-    asyncio.run(_run_stdio())
+    if args.transport == "http":
+        _run_http(args.host, args.port, args.json_response)
+    else:
+        import asyncio
+        asyncio.run(_run_stdio())
 
 
 if __name__ == "__main__":
