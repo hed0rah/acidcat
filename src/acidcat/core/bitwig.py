@@ -74,6 +74,54 @@ def parse_meta(data):
     return meta
 
 
+_REF_KEYS = [
+    (b"referenced_device_ids", "referenced_devices"),
+    (b"referenced_module_ids", "referenced_modules"),
+    (b"referenced_modulator_ids", "referenced_modulators"),
+]
+
+
+def parse_references(data):
+    """Counts from the referenced_*_ids arrays (type 0x19 = u32 count + items):
+    the preset's dependency graph (how many devices/modules/modulators it wires
+    together). Returns {label: count}."""
+    out = {}
+    for key, label in _REF_KEYS:
+        idx = data.find(key)
+        if idx < 0:
+            continue
+        vp = idx + len(key)
+        if vp < len(data) and data[vp] == 0x19 and vp + 5 <= len(data):
+            count = struct.unpack_from(">I", data, vp + 1)[0]
+            if 0 <= count <= 100000:
+                out[label] = count
+    return out
+
+
+def parse_connections(data, cap=500):
+    """Grid routing paths (e.g. 'CONTENTS/MODULES/4/CONTENTS/CUTOFF'), each
+    naming a destination module and parameter. Deduped, order-preserving,
+    bounded. This is the patch wiring."""
+    end = data.find(b"PK\x03\x04")
+    if end < 0:
+        end = len(data)
+    seen, out = set(), []
+    i = 14
+    while i + 4 < end and len(out) < cap:
+        ln = struct.unpack_from(">I", data, i)[0]
+        if 8 <= ln <= 200 and i + 4 + ln <= end:
+            s = data[i + 4:i + 4 + ln]
+            if b"MODULES/" in s and all(32 <= b < 127 for b in s):
+                v = s.decode("latin-1")
+                if v not in seen:
+                    seen.add(v)
+                    out.append(v)
+                i += 4 + ln
+                continue
+        i += 1
+    return out
+
+
 def parse_structure(data, max_tokens=50000):
     """Best-effort device/module tree: the object class names in the preset,
     in pre-order (Grid modules and device-chain containers like Filter+, LFO,
@@ -95,7 +143,8 @@ def parse_structure(data, max_tokens=50000):
                 continue
         i += 1
     return [toks[j] for j in range(len(toks) - 1)
-            if toks[j + 1] == "CONTENTS" and toks[j] != "CONTENTS"]
+            if toks[j + 1] == "CONTENTS" and toks[j] != "CONTENTS"
+            and "/" not in toks[j] and ":" not in toks[j]]
 
 
 def list_assets(data, cap=32 * 1024 * 1024):

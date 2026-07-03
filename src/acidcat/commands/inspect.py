@@ -1361,6 +1361,27 @@ def _flac_audio_params(raw):
     return ch, rate, (total / rate if rate else 0)
 
 
+def _wav_audio_params(raw):
+    """(channels, rate, seconds) from a WAV's fmt/data chunks, or None."""
+    if len(raw) < 12 or raw[:4] != b"RIFF" or raw[8:12] != b"WAVE":
+        return None
+    i, ch, rate, bits, datasz = 12, 0, 0, 0, 0
+    while i + 8 <= len(raw):
+        cid = raw[i:i + 4]
+        sz = struct.unpack_from("<I", raw, i + 4)[0]
+        if cid == b"fmt " and i + 24 <= len(raw):
+            ch = struct.unpack_from("<H", raw, i + 10)[0]
+            rate = struct.unpack_from("<I", raw, i + 12)[0]
+            bits = struct.unpack_from("<H", raw, i + 22)[0]
+        elif cid == b"data":
+            datasz = sz
+        i += 8 + sz + (sz & 1)
+    if not rate:
+        return None
+    frame = ch * max(1, bits // 8)
+    return ch, rate, (datasz / (rate * frame) if frame else 0)
+
+
 def _summarize_embedded(raw):
     """One-line format identity of an embedded asset's bytes."""
     if not raw:
@@ -1369,7 +1390,8 @@ def _summarize_embedded(raw):
         p = _flac_audio_params(raw)
         return f"FLAC, {p[0]}ch {p[1]} Hz, {p[2]:.2f} s" if p else "FLAC"
     if raw[:4] == b"RIFF" and raw[8:12] == b"WAVE":
-        return "WAV"
+        p = _wav_audio_params(raw)
+        return f"WAV, {p[0]}ch {p[1]} Hz, {p[2]:.2f} s" if p else "WAV"
     if raw[:4] == b"OggS":
         return "OGG"
     if raw[:4] == b"BtWg":
@@ -1401,6 +1423,8 @@ def inspect_bitwig(filepath, deep=False):
     meta = bwmod.parse_meta(data)
     fields = [_f(None, 0, label, meta[key][:200])
               for key, label in bwmod._META_FIELDS if key in meta]
+    for label, count in bwmod.parse_references(data).items():
+        fields.append(_f(None, 0, label, count))
     if meta:
         name = meta.get("device_name", "?")
         cat = meta.get("device_category", "?")
@@ -1420,6 +1444,15 @@ def inspect_bitwig(filepath, deep=False):
                            "summary": f"{len(modules)} devices/modules in the "
                                       "chain (pre-order)",
                            "fields": mfields, "warnings": []})
+        conns = bwmod.parse_connections(data)
+        if conns:
+            shown = conns[:120]
+            cfields = [_f(None, 0, f"[{i + 1}]", c) for i, c in enumerate(shown)]
+            extra = "" if len(conns) <= 120 else f" (first 120 of {len(conns)})"
+            chunks.append({"id": "wiring", "offset": 0, "size": 0,
+                           "summary": f"{len(conns)} Grid routing paths "
+                                      f"(module/parameter targets){extra}",
+                           "fields": cfields, "warnings": []})
 
     zoff = data.find(b"PK\x03\x04")
     if zoff >= 0:

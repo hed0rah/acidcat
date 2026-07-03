@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / vital anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* vital palette: plum value, teal flag, graphite anchor */
+  --enum:#5E4A7D;  --enum-soft:#DCD5E3;
+  --flag:#3F6E68;  --flag-soft:#D2DEDB;
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03);
+  --sync:#4A4E58;  --sync-soft:#D8D9DE;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
+.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.75rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500;letter-spacing:0.02em}
+.region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px;vertical-align:middle}
+.region .rbody{padding:0.6rem 1rem 1.2rem 3rem;border-top:1px solid var(--hair)}
+
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.32rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
+.detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title">
+        <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
+        <h1>Vital Anatomy</h1>
+      </div>
+      <div class="stamp"><b>bare JSON</b>.vital<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"{" 0x7B</b></div>
+      <div>encoding <b>UTF-8 JSON</b></div>
+      <div>container <b>single object</b></div>
+      <div>marker <b>"synth_version"</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="lede">A Vital preset has no binary header. The whole file is one bare UTF-8 JSON object: nine metadata keys at the top, then <b>settings</b>, the entire synth state, with the wavetable audio riding inside it as base64. Vital is open source (Matt Tytel), so every key can be checked against the synth's own load code; everything below is verified against a real 1.0.7 preset. acidcat dispatches on the <b>0x7B</b> magic plus a fast search for the <b>"synth_version"</b> marker before paying for a full parse. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind, the way syntax highlighting does: <span class="k-en">plum</span> is a decoded value, <span class="k-fl">teal</span> is a flag, graphite is a structural anchor, faint is reserved.</p>
+  <aside class="sig" aria-hidden="true"></aside>
+  </div>
+
+  <div class="sec">file regions</div>
+  <p class="note">Regions here are JSON keys, not byte offsets. The writer sorts keys alphabetically, which puts the huge settings object before synth_version: in the sample the marker sits at byte 96,285 of 96,309, so a dispatcher has to search the whole file, not just the head.</p>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">top-level metadata</span><span class="rspan">byte 0 . nine keys + settings</span></summary>
+      <div class="rbody">
+        <p class="note">Byte zero is the opening brace, and because keys sort alphabetically the first entry is always author. The opening bytes of the sample, Future_EGuitar.vital:</p>
+        <div id="block-header"></div>
+        <div class="kv">
+          <div><span class="k">preset_name</span><span class="v">"Future EGuitar"</span></div>
+          <div><span class="k">author</span><span class="v">"Flamedragonz"</span></div>
+          <div><span class="k">comments</span><span class="v">the browser description; here "Control the dynamics of your guitar with Velocity..."</span></div>
+          <div><span class="k">preset_style</span><span class="v">browser category, e.g. Experiment . Bass . Keys . Lead</span></div>
+          <div><span class="k">synth_version</span><span class="v">writing Vital version, "1.0.7" here; the dispatch marker</span></div>
+          <div><span class="k">macro1 .. macro4</span><span class="v">the four macro knob labels; "MACRO 1" .. "MACRO 4" when the author never renamed them</span></div>
+          <div><span class="k">settings</span><span class="v">one object holding the entire engine; everything else on this page lives inside it</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">settings: the engine</span><span class="rspan">776 keys in the sample . mostly flat</span></summary>
+      <div class="rbody">
+        <p class="note">The synth state is almost entirely flat: 772 of the 776 keys in the sample are plain numbers, alphabetical, one per parameter. Even switches are floats (chorus_on = 0.0). The four structured keys are lfos, modulations, sample, and wavetables.</p>
+        <div class="kv">
+          <div><span class="k">scalar parameters</span><span class="v">filter_1_cutoff = 54.68 . distortion_drive = -11.1 . env_1_attack = 0.166 ... hundreds of them, every knob in the UI</span></div>
+          <div><span class="k">osc_1 .. osc_3</span><span class="v">29 flat keys each: level, tune, wave_frame, unison, phase, spectral morph; the table each one plays lives under wavetables</span></div>
+          <div><span class="k">wavetables</span><span class="v">three objects with name, author, and the wave-shaping groups/components; here "EG6StringR(M)" and two "6StringR(M)"</span></div>
+          <div><span class="k">sample</span><span class="v">the sample oscillator: name, length, sample_rate, base64 audio; loaded but off in this patch (sample_on = 0.0)</span></div>
+          <div><span class="k">filter_1 / filter_2 / filter_fx</span><span class="v">16 keys each: model, style, cutoff, resonance, drive, keytrack, formant x/y; only filter_1 is on here</span></div>
+          <div><span class="k">lfos</span><span class="v">array of 8 shape objects: name, num_points, points (x,y pairs), powers, smooth; "Sin" and "Triangle" in the sample</span></div>
+          <div><span class="k">env_1 .. env_6</span><span class="v">DAHDSR each: delay, attack, hold, decay, sustain, release plus per-stage power curves</span></div>
+          <div><span class="k">random_1 .. random_4</span><span class="v">random LFO parameters: style, frequency, sync, stereo, keytrack</span></div>
+          <div><span class="k">effects chain</span><span class="v">chorus, compressor, delay, distortion, eq, filter_fx, flanger, phaser, reverb, each with an _on plus effect_chain_order; this patch runs compressor + distortion + eq + filter_fx</span></div>
+          <div><span class="k">modulations</span><span class="v">the modulation matrix: the region below</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">modulation matrix</span><span class="rspan">64 slots . the patch's wiring</span></summary>
+      <div class="rbody">
+        <p class="note">The most human-meaningful deep content in the file. modulations is an array of 64 slot objects, each naming a source and a destination; the slot's depth lives back in the flat parameters as modulation_N_amount (with _bipolar, _power, _stereo, _bypass beside it). One real entry from the sample, slot 3, drawn byte for byte:</p>
+        <div id="block-mod"></div>
+        <div class="kv">
+          <div><span class="k">env_1 -&gt; osc_1_wave_frame</span><span class="v">amount 1.0: the envelope scans the wavetable across the attack; same wiring on osc_2</span></div>
+          <div><span class="k">env_2 -&gt; osc_1_level</span><span class="v">amount 0.293: the slot drawn above</span></div>
+          <div><span class="k">env_3 -&gt; osc_1_tune</span><span class="v">a pitch envelope, with random_1 -&gt; osc_1_tune adding drift on the same parameter</span></div>
+          <div><span class="k">lfo_1 -&gt; distortion_drive</span><span class="v">an LFO working the effects chain, while lfo_2 -&gt; lfo_1_tempo modulates the modulator</span></div>
+          <div><span class="k">velocity -&gt; modulation_9_amount</span><span class="v">meta-modulation: velocity scales another slot's depth; this is the "control the dynamics with Velocity" the comments promise</span></div>
+          <div><span class="k">empty slots</span><span class="v">18 of the 64 carry empty source/destination strings; 46 are wired</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region opt">
+      <summary><span class="chev">&#9656;</span><span class="rname">wavetable payload</span><span class="rspan">base64 inside settings</span></summary>
+      <div class="rbody">
+        <p class="note">Each wavetable nests groups &gt; components &gt; keyframes, and every keyframe carries the raw audio of one single-cycle frame as base64. This is where the bytes go: the first wavetable alone is 22 KB of the sample's 96 KB.</p>
+        <div class="kv">
+          <div><span class="k">wavetable</span><span class="v">name, author, version, full_normalize, remove_all_dc, groups[]</span></div>
+          <div><span class="k">component</span><span class="v">type (e.g. "Wave Source"), interpolation, interpolation_style, keyframes[]</span></div>
+          <div><span class="k">keyframe</span><span class="v">position plus wave_data: base64 of one 2048-sample float frame, 10,924 chars for 8 KB of audio in the sample</span></div>
+          <div><span class="k">sample audio</span><span class="v">the sample oscillator stores its audio the same way, under samples / samples_stereo</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="sec">reading it with acidcat</div>
+  <p class="note">Plain JSON means the reader's job is dispatch and selection, not decoding.</p>
+  <div>
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">inspect behavior</span><span class="rspan">--pretty . deep</span></summary>
+      <div class="rbody">
+        <div class="kv">
+          <div><span class="k">dispatch</span><span class="v">0x7B magic plus a bytes search for "synth_version" before json.loads; arbitrary JSON that merely starts with a brace is rejected without a parse</span></div>
+          <div><span class="k">inspect --pretty</span><span class="v">preset_name, author, comments, preset_style, synth_version, and the four macro labels; one region spanning the whole file</span></div>
+          <div><span class="k">deep mode</span><span class="v">enumerates osc_1..3 with their wavetable names, the LFO/envelope/effect inventory, and walks the modulation matrix as source -&gt; destination : amount lines</span></div>
+          <div><span class="k">hardening</span><span class="v">a forged deeply nested object raises RecursionError and is caught, matching the Serum walker; the threat model for a JSON preset is DoS, not code execution</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <footer>
+    <span>acidcat / vital anatomy</span>
+    <span>json . synth_version 1.0.7 . preset_name "Future EGuitar"</span>
+  <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // opening bytes of Future_EGuitar.vital: the brace magic and the first key
+  build("block-header", 'byte',
+    [0x7B,
+     0x22,0x61,0x75,0x74,0x68,0x6F,0x72,0x22,0x3A,
+     0x22,0x46,0x6C,0x61,0x6D,0x65,0x64,0x72,0x61,0x67,0x6F,0x6E,0x7A,0x22],
+    [
+      {label:"magic",k:"sync",r:[0,0],val:"\"{\" 0x7B",
+       body:"The entire header is one byte: the opening brace of a bare JSON object. There is no version field, no length, no chunk table; the format is the object.",
+       note:"0x7B alone is too generic, so acidcat also requires the \"synth_version\" key before treating the file as Vital."},
+      {label:"first key",k:"enum",r:[1,9],val:"\"author\":",
+       body:"Keys are written in alphabetical order, so author always leads. The same ordering pushes settings, 95 percent of the bytes, ahead of synth_version at the tail.",
+       note:"in the sample the synth_version marker sits at byte 96,285 of 96,309: search the whole file, not the head."},
+      {label:"value",k:"enum",r:[10,23],val:"\"Flamedragonz\"",
+       body:"A plain JSON string. All nine top-level metadata values are strings; the numbers live inside settings."}
+    ]);
+
+  // one real modulation slot from the sample: settings.modulations[2]
+  build("block-mod", 'byte',
+    [0x7B,
+     0x22,0x64,0x65,0x73,0x74,0x69,0x6E,0x61,0x74,0x69,0x6F,0x6E,0x22,0x3A,
+     0x22,0x6F,0x73,0x63,0x5F,0x31,0x5F,0x6C,0x65,0x76,0x65,0x6C,0x22,
+     0x2C,0x22,0x73,0x6F,0x75,0x72,0x63,0x65,0x22,0x3A,
+     0x22,0x65,0x6E,0x76,0x5F,0x32,0x22,
+     0x7D],
+    [
+      {label:"slot open",k:"sync",r:[0,0],val:"{",
+       body:"One of 64 slot objects in the modulations array. A slot is pure wiring: which modulator drives which parameter."},
+      {label:"destination key",k:"sync",r:[1,14],val:"\"destination\":",
+       body:"Names the parameter being driven. Destinations are the same flat parameter names that appear as scalar keys in settings."},
+      {label:"destination",k:"enum",r:[15,27],val:"osc_1_level",
+       body:"Oscillator 1's level. Any knob in the engine is a legal destination, including another slot's depth: velocity -> modulation_9_amount in this same patch is modulation modulating modulation."},
+      {label:"source key",k:"sync",r:[28,37],val:",\"source\":",
+       body:"Names the modulator on the other end of the wire."},
+      {label:"source",k:"enum",r:[38,44],val:"env_2",sel:0,branch:[
+        ["env_1..6","the six DAHDSR envelopes"],
+        ["lfo_1..8","the eight LFO shapes"],
+        ["random_1..4","the random LFOs"],
+        ["macro_...","macro_control_1..4, the four macro knobs"],
+        ["voice","velocity . note . aftertouch . slide"],
+        ["perform","mod_wheel . pitch_wheel"]],
+       body:"Envelope 2 drives oscillator 1's level. An empty string here means the slot is unused: 18 of the 64 in the sample are.",
+       note:"acidcat's deep mode prints the wired slots as source -> destination : amount lines."},
+      {label:"slot close",k:"sync",r:[45,45],val:"}",
+       body:"The depth is not in the slot. This is slot 3, and its amount lives back in the flat parameters: modulation_3_amount = 0.2928932, with modulation_3_bipolar, _power, _stereo, and _bypass beside it.",
+       note:"reading the matrix therefore takes two lookups: the wiring from the array, the depth from the scalars."}
+    ]);
+})();
+</script>
+</body>
+</html>
