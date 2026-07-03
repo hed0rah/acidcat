@@ -126,6 +126,108 @@ def is_ni_ksd(data):
     return data[:4] == KSD_MAGIC
 
 
+# ── hsin writing (frame-size cascade; verified against Massive + Absynth) ──
+
+_HSIN_DOMAINS = (b"DSIN", b"4KIN", b"NISD")
+# field -> index of the UTF-16LE pascal string in the SoundInfoItem(108) payload
+_HSIN_EDIT = {"name": 0, "title": 0, "author": 1, "creator": 1,
+              "vendor": 2, "comment": 3, "description": 3}
+
+
+def _hsin_walk(data, off, fields):
+    """Walk the hsin frame at off, recording every size field as
+    (field_offset, width, span_start, span_end). Returns
+    [(item_id, frame_off, data_start, data_end, payload_start), ...]."""
+    frames = []
+    fs = struct.unpack_from("<Q", data, off)[0]
+    if data[off + 12:off + 16] != b"hsin" or off + fs > len(data):
+        raise ValueError(f"bad hsin frame at {off:#x}")
+    ds = struct.unpack_from("<Q", data, off + 0x28)[0]
+    data_start, data_end, frame_end = off + 0x30, off + 0x30 + ds, off + fs
+    if data_end > frame_end:
+        raise ValueError("data section overruns frame")
+    fields.append((off, 8, off, frame_end))               # frame_size (inclusive)
+    fields.append((off + 0x28, 8, data_start, data_end))  # data_size (exclusive)
+    item_id, payload_start, pos = None, data_start, data_start
+    while pos + 12 <= data_end and data[pos:pos + 4] in _HSIN_DOMAINS:
+        iid = struct.unpack_from("<I", data, pos + 4)[0]
+        if item_id is None:
+            item_id = iid
+        if iid == 1:
+            payload_start = max(payload_start, pos + 24)
+            break
+        inner = struct.unpack_from("<Q", data, pos + 12)[0]
+        inner_start, inner_end = pos + 20, pos + 20 + inner
+        if inner_end > data_end:
+            raise ValueError("stack inner_size overruns data")
+        fields.append((pos + 12, 8, inner_start, inner_end))
+        payload_start = max(payload_start, inner_end)
+        pos = inner_start
+    frames.append((item_id, off, data_start, data_end, payload_start))
+    pos = data_end
+    while pos < frame_end:
+        if pos + 20 > frame_end or data[pos + 4:pos + 8] not in _HSIN_DOMAINS:
+            raise ValueError("bad child prefix")
+        child_off = pos + 12
+        cfs = struct.unpack_from("<Q", data, child_off)[0]
+        frames.extend(_hsin_walk(data, child_off, fields))
+        pos = child_off + cfs
+    if pos != frame_end:
+        raise ValueError("children do not fill frame")
+    return frames
+
+
+def _edit_hsin_string(data, index, new_value):
+    """Replace the index-th SoundInfoItem string (0 name, 1 author, 2 vendor,
+    3 description) and bump every enclosing size field. Returns (new_bytes, old)."""
+    fields = []
+    frames = _hsin_walk(data, 0, fields)
+    info = [f for f in frames if f[0] == 108]
+    if len(info) != 1:
+        raise ValueError(f"expected one SoundInfoItem(108), found {len(info)}")
+    _, _, _, d_end, payload = info[0]
+    if payload + 8 > d_end or struct.unpack_from("<I", data, payload)[0] != 1:
+        raise ValueError("unexpected SoundInfoItem payload")
+    off = payload + 8
+    for i in range(index + 1):
+        if off + 4 > d_end:
+            raise ValueError("info string index out of range")
+        count = struct.unpack_from("<I", data, off)[0]
+        if count > 0x10000 or off + 4 + count * 2 > d_end:
+            raise ValueError("info string overruns SoundInfoItem")
+        if i == index:
+            break
+        off += 4 + count * 2
+    str_end = off + 4 + count * 2
+    old = data[off + 4:str_end].decode("utf-16-le", "replace")
+    enc = new_value.encode("utf-16-le")
+    new_field = struct.pack("<I", len(enc) // 2) + enc
+    delta = len(new_field) - (4 + count * 2)
+    out = bytearray(data)
+    out[off:str_end] = new_field
+    for foff, width, s0, s1 in fields:
+        if s0 <= off and str_end <= s1:
+            v = struct.unpack_from("<Q", data, foff)[0]
+            struct.pack_into("<Q", out, foff, v + delta)
+    return bytes(out), old
+
+
+def edit_hsin(data, changes):
+    """Edit hsin (Massive/Absynth) preset metadata: name, author, vendor,
+    description. Cascades the enclosing frame-size fields. Returns
+    (new_bytes, applied). EXPERIMENTAL: confirm reload in the app."""
+    if not is_ni_hsin(data):
+        raise ValueError("not an hsin preset")
+    out, applied = bytes(data), []
+    for field, value in changes.items():
+        idx = _HSIN_EDIT.get(field.lower())
+        if idx is None:
+            raise ValueError(f"hsin preset has no editable field {field!r}")
+        out, old = _edit_hsin_string(out, idx, "" if value is None else str(value))
+        applied.append((field, old, value))
+    return out, applied
+
+
 def is_ni_nksf(data):
     return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"NIKS"
 

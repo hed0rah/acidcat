@@ -201,3 +201,20 @@ def test_ni_nksf_roundtrip():
     out, _ = ni.edit_nksf(data, {"name": "X", "author": "y"})
     m = ni.parse_nksf(out)
     assert m["name"] == "X" and m["author"] == "y"
+
+
+def test_ni_hsin_roundtrip():
+    import os
+    from acidcat.core import ni
+    p = "data/test_formats/corpus/synth/nicecombo.nmsv"
+    if not os.path.exists(p):
+        import pytest as _pt; _pt.skip("corpus nmsv not present")
+    data = open(p, "rb").read()
+    out, _ = ni.edit_hsin(data, {"name": "Renamed Patch", "author": "me"})
+    m = ni.parse_hsin(out)
+    assert m["name"] == "Renamed Patch" and m["author"] == "me"
+    assert m["product"] == "Massive"  # product preserved
+    assert struct.unpack_from("<Q", out, 0)[0] == len(out)  # root size cascade
+    # same-name edit is byte-identical (no CRC, sizes stable)
+    same, _ = ni.edit_hsin(data, {"name": "nicecombo"})
+    assert same == data
