@@ -227,18 +227,33 @@ footer{{margin-top:2rem;color:var(--soft);font-size:0.8rem;
 <footer>built by build_explorer.py from an acidcat inspect --full dump.
 hover a byte or a field to link the two.</footer>
 <button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme"></button>
-<script>(function(){{var t=document.getElementById("themeToggle");function cur(){{return document.documentElement.getAttribute("data-theme")||"light";}}function ap(m){{document.documentElement.setAttribute("data-theme",m);try{{localStorage.setItem("acidcat-theme",m);}}catch(e){{}}t.textContent=(m==="dark"?"light":"dark");}}t.addEventListener("click",function(){{ap(cur()==="dark"?"light":"dark");}});ap(cur());}})();</script>
+<script>(function(){{var t=document.getElementById("themeToggle");function cur(){{return document.documentElement.getAttribute("data-theme")||"light";}}function label(m){{t.textContent=(m==="dark"?"light":"dark");}}function set(m,p){{document.documentElement.setAttribute("data-theme",m);if(p){{try{{localStorage.setItem("acidcat-theme",m);}}catch(e){{}}}}label(m);}}t.addEventListener("click",function(){{set(cur()==="dark"?"light":"dark",true);}});label(cur());}})();</script>
 <script>
 document.querySelectorAll(".region").forEach(function(region){{
-  function set(fi, on){{
+  var curFi = null, timer = null;
+  function paint(fi, on){{
     region.classList.toggle("hot-" + fi, on);
     region.querySelectorAll('.frow[data-fi="' + fi + '"]').forEach(function(r){{
       r.classList.toggle("hot", on);
     }});
   }}
+  function show(fi){{
+    if (timer) {{ clearTimeout(timer); timer = null; }}
+    if (curFi !== null && curFi !== fi) paint(curFi, false);
+    curFi = fi; paint(fi, true);
+  }}
+  function scheduleHide(){{
+    if (timer) clearTimeout(timer);
+    // hold the highlight briefly so dragging across the margin slivers between
+    // bytes (which fire mouseleave) reads as one continuous hover.
+    timer = setTimeout(function(){{
+      if (curFi !== null) paint(curFi, false);
+      curFi = null; timer = null;
+    }}, 250);
+  }}
   region.querySelectorAll("[data-fi]").forEach(function(el){{
-    el.addEventListener("mouseenter", function(){{ set(el.dataset.fi, true); }});
-    el.addEventListener("mouseleave", function(){{ set(el.dataset.fi, false); }});
+    el.addEventListener("mouseenter", function(){{ show(el.dataset.fi); }});
+    el.addEventListener("mouseleave", function(){{ scheduleHide(); }});
   }});
 }});
 </script>
