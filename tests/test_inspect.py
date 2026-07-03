@@ -1700,6 +1700,14 @@ class TestOggWalker:
         assert codec == "Vorbis" and vendor == "libVorbis"
         assert tags["ARTIST"] == "아버지" and tags["TITLE"] == "x"
 
+    def test_ogg_identification(self):
+        from acidcat.core import ogg
+        ident = b"vorbis" + struct.pack("<I", 0) + bytes([2]) + struct.pack("<I", 44100)
+        p2 = b"vorbis" + self._vc("v", {})
+        codec, params = ogg.identification(self._ogg([ident, p2]))
+        assert codec == "Vorbis"
+        assert params["channels"] == 2 and params["sample_rate"] == 44100
+
     def test_ogg_malformed_no_crash(self):
         from acidcat.core import ogg
         for bad in (b"OggS", b"OggS" + b"\xff" * 60, b"OggS\x00\x02" + b"\x00" * 30):
