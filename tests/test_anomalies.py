@@ -4,7 +4,7 @@ import struct
 import zipfile
 
 from acidcat.core import anomalies
-from acidcat.commands import inspect as I
+from acidcat.core.walk import walk_file
 
 
 def _chunk(cid, p):
@@ -26,7 +26,7 @@ def _write(tmp_path, name, data):
 
 
 def _scan(path):
-    fmt, chunks, warns = I._walk_file(path, deep=False)
+    fmt, chunks, warns = walk_file(path, deep=False)
     return anomalies.scan(path, fmt, chunks, warns)
 
 
@@ -72,7 +72,7 @@ def test_lsb_clean_vs_stego(tmp_path):
     stego = [int(v) & ~1 | rnd.getrandbits(1) for v in clean]
     for name, samples, expect in (("c.wav", clean, False), ("s.wav", stego, True)):
         path = _write(tmp_path, name, wav(samples))
-        fmt, chunks, warns = I._walk_file(path, deep=False)
+        fmt, chunks, warns = walk_file(path, deep=False)
         r = lsb.analyze(path, fmt, chunks)
         assert r is not None and r["uniform_high"] is expect
 
@@ -112,7 +112,7 @@ def test_appended_zip_polyglot_on_headerless_format(tmp_path):
         z.writestr("x.txt", b"hi")
     path = _write(tmp_path, "poly.mp3", carrier + buf.getvalue())
     try:
-        fmt, chunks, warns = I._walk_file(path, deep=False)
+        fmt, chunks, warns = walk_file(path, deep=False)
     except Exception:
         fmt, chunks, warns = "?", [], []
     findings = anomalies.scan(path, fmt, chunks, warns)

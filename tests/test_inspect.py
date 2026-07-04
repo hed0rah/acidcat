@@ -4,7 +4,10 @@ import struct
 from types import SimpleNamespace
 
 import pytest
-from acidcat.commands.inspect import inspect_aiff, inspect_midi, inspect_wav, run
+from acidcat.commands.inspect import run
+from acidcat.core.walk.midi import inspect_midi
+from acidcat.core.walk.aiff import inspect_aiff
+from acidcat.core.walk.wav import inspect_wav
 
 
 def _wav(tmp_path, *chunks, riff_size=None, name="t.wav"):
@@ -358,7 +361,7 @@ class TestInspectMidi:
 
 class TestInspectRf64:
     def _rf64(self, tmp_path, data_bytes=8, sentinel_ok=True):
-        from acidcat.commands.inspect import inspect_rf64  # noqa: F401
+        from acidcat.core.walk.rf64 import inspect_rf64  # noqa: F401
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * data_bytes
@@ -378,7 +381,7 @@ class TestInspectRf64:
         return str(p)
 
     def test_ds64_resolves_data_size(self, tmp_path):
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         path = self._rf64(tmp_path)
         chunks, warns = inspect_rf64(path)
         ids = [c["id"] for c in chunks]
@@ -388,7 +391,7 @@ class TestInspectRf64:
         assert warns == []
 
     def test_header_sentinel_violation_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         path = self._rf64(tmp_path, sentinel_ok=False)
         _, warns = inspect_rf64(path)
         assert any("sentinel" in w for w in warns)
@@ -396,7 +399,7 @@ class TestInspectRf64:
     def test_ds64_override_table_resolves_nondata_sentinel(self, tmp_path):
         # a non-data chunk carrying the sentinel is resolved through the
         # ds64 override table, not broken on.
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         bigx = b"bigx" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 16
@@ -417,7 +420,7 @@ class TestInspectRf64:
         # an RF64 fact chunk stores 0xFFFFFFFF; the real sample count
         # lives in ds64. duration must derive from the ds64 count, not
         # the sentinel (which read as ~97,000 s for a 1 s file).
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         data_bytes = 88200  # 1.0 s of 16-bit mono at 44100 Hz
@@ -441,7 +444,7 @@ class TestInspectRf64:
     def test_ds64_data_size_beyond_file_linted(self, tmp_path):
         # a ds64 claiming exabytes of data cannot be honest about a
         # small file; lint it at the source, not just at the data chunk.
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 8
@@ -471,7 +474,7 @@ class TestInspectRf64:
 
 class TestInspectSerum:
     def test_json_and_blob(self, tmp_path):
-        from acidcat.commands.inspect import inspect_serum
+        from acidcat.core.walk.serum import inspect_serum
         meta = b'{"presetName": "Growl X", "presetAuthor": "u", "tags": "bass, growl"}'
         p = tmp_path / "g.serumpreset"
         p.write_bytes(b"XferJson" + meta + b"\x01\x02" * 64)
@@ -483,7 +486,7 @@ class TestInspectSerum:
         assert warns == []
 
     def test_missing_json_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_serum
+        from acidcat.core.walk.serum import inspect_serum
         p = tmp_path / "bad.serumpreset"
         p.write_bytes(b"XferJson" + b"\x00" * 32)
         _, warns = inspect_serum(str(p))
@@ -493,7 +496,7 @@ class TestInspectSerum:
         # the json scanner recurses per nesting level; a forged preset
         # with thousands of nested objects raised RecursionError past
         # the ValueError-only handler and crashed the command.
-        from acidcat.commands.inspect import inspect_serum
+        from acidcat.core.walk.serum import inspect_serum
         p = tmp_path / "deep.serumpreset"
         p.write_bytes(b"XferJson{" + b'"k":{' * 5000)
         chunks, warns = inspect_serum(str(p))  # must not raise
@@ -510,7 +513,7 @@ class TestInspectSerum:
         # raw_decode returns a CHARACTER offset; using it as a byte
         # offset shifted the blob chunk left by one byte per multibyte
         # UTF-8 character in the JSON metadata.
-        from acidcat.commands.inspect import inspect_serum
+        from acidcat.core.walk.serum import inspect_serum
         meta = '{"presetName": "Gröwl ééé"}'.encode("utf-8")
         p = tmp_path / "umlaut.serumpreset"
         p.write_bytes(b"XferJson" + meta + b"\x01" * 64)
@@ -549,7 +552,7 @@ def _flac(tmp_path, *blocks, name="t.flac"):
 
 class TestInspectFlac:
     def test_streaminfo_and_comments(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         path = _flac(tmp_path,
                      _flac_block(0, _streaminfo(channels=2, total=88200)),
                      _flac_block(4, _vorbis_comment(), last=True),
@@ -567,19 +570,19 @@ class TestInspectFlac:
         assert warns == []
 
     def test_first_block_not_streaminfo_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         path = _flac(tmp_path, _flac_block(4, _vorbis_comment(), last=True))
         _, warns = inspect_flac(path)
         assert any("not STREAMINFO" in w for w in warns)
 
     def test_missing_last_flag_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         path = _flac(tmp_path, _flac_block(0, _streaminfo()))
         _, warns = inspect_flac(path)
         assert any("last-metadata-block" in w for w in warns)
 
     def test_metadata_block_overrun_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         # a PADDING block declares 8192 bytes but only 8 are present.
         bogus = bytes([0x80 | 1]) + struct.pack(">I", 8192)[1:] + b"\x00" * 8
         path = _flac(tmp_path, _flac_block(0, _streaminfo()), bogus)
@@ -588,7 +591,7 @@ class TestInspectFlac:
         assert any("overruns the file" in w for w in pad["warnings"])
 
     def test_picture_forged_mime_length(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         # PICTURE with a mime length claiming 4 GB: must warn and stop,
         # not decode the rest of the block as a garbage mime string.
         pic = struct.pack(">I", 3) + struct.pack(">I", 0xFFFFFFFF) + b"\x00" * 64
@@ -600,7 +603,7 @@ class TestInspectFlac:
         assert any("mime_type length" in w for w in p["warnings"])
 
     def test_picture_forged_description_length(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         pic = (struct.pack(">I", 3)
                + struct.pack(">I", 9) + b"image/png"
                + struct.pack(">I", 0xFFFFFF00) + b"\x00" * 64)
@@ -612,7 +615,7 @@ class TestInspectFlac:
         assert any("description length" in w for w in p["warnings"])
 
     def test_picture_valid_still_decodes(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         img = b"\x89PNG\r\n"
         pic = (struct.pack(">I", 3)
                + struct.pack(">I", 9) + b"image/png"
@@ -645,7 +648,7 @@ def _id3_text_frame(fid, text):
 
 class TestInspectMp3:
     def test_frames_counted_cbr(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         p = tmp_path / "t.mp3"
         p.write_bytes(_MP3_FRAME * 3)
         chunks, warns = inspect_mp3(str(p))
@@ -661,7 +664,7 @@ class TestInspectMp3:
         assert warns == []
 
     def test_id3v22_text_frames_decode(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
 
         def v22(fid, text):  # v2.2: 3-char id + 3-byte size
             payload = b"\x00" + text.encode("latin-1")
@@ -676,7 +679,7 @@ class TestInspectMp3:
         assert vals.get("TP1") == ("Band", "artist")
 
     def test_id3v2_extended_header_skipped(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
 
         def v23(fid, text):
             payload = b"\x00" + text.encode("latin-1")
@@ -693,7 +696,7 @@ class TestInspectMp3:
         assert any(f["name"] == "TIT2" for f in id3["fields"])  # frame past it still read
 
     def test_id3v2_unsync_warns(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
 
         def v23(fid, payload):
             return fid + struct.pack(">I", len(payload)) + b"\x00\x00" + payload
@@ -706,7 +709,7 @@ class TestInspectMp3:
         assert any("unsynchronised" in w for w in id3["warnings"])
 
     def test_mp3_vbri_header_parsed(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         # inject a VBRI header at the fixed offset 36 into a valid frame
         vbri = b"VBRI" + struct.pack(">HHH", 1, 0, 100) + struct.pack(">II", 5000, 42)
         frame = bytearray(_MP3_FRAME)
@@ -723,7 +726,7 @@ class TestInspectMp3:
                    for f in frames["fields"])
 
     def test_id3v2_frames_decoded(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         tag = _id3v2(_id3_text_frame(b"TIT2", "My Title"),
                      _id3_text_frame(b"TPE1", "Some Artist"))
         p = tmp_path / "t.mp3"
@@ -736,7 +739,7 @@ class TestInspectMp3:
         assert warns == []
 
     def test_xing_frame_count_divergence_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         # forge a Xing header (offset 21 for MPEG1 mono) declaring 9999
         # frames while only 3 are actually present.
         fr = bytearray(_MP3_FRAME)
@@ -752,7 +755,7 @@ class TestInspectMp3:
     def test_info_tag_is_cbr(self, tmp_path):
         # is_vbr_header was true for both Xing and Info; an Info tag is
         # LAME's CBR marker and must not force the VBR label.
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         fr = bytearray(_MP3_FRAME)
         fr[21:25] = b"Info"
         fr[25:29] = struct.pack(">I", 0x01)      # frames flag
@@ -766,7 +769,7 @@ class TestInspectMp3:
         assert vbr["value"] is False
 
     def test_xing_tag_forces_vbr_even_with_uniform_bitrates(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         fr = bytearray(_MP3_FRAME)
         fr[21:25] = b"Xing"
         fr[25:29] = struct.pack(">I", 0x01)
@@ -778,7 +781,7 @@ class TestInspectMp3:
         assert "VBR" in frames["summary"]
 
     def test_truncated_xing_header_no_crash(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         # a first frame that declares a Xing tag with the frames flag set but
         # ends right after the flags: the frame_count read must not run past
         # the buffer (previously an uncaught struct.error crashed inspect).
@@ -789,7 +792,7 @@ class TestInspectMp3:
         assert any("truncated" in w.lower() for w in allw)
 
     def test_id3v1_trailer_detected(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         v1 = b"TAG" + b"My Title".ljust(30, b"\x00") \
             + b"My Artist".ljust(30, b"\x00") + b"\x00" * 65
         p = tmp_path / "t.mp3"
@@ -799,14 +802,14 @@ class TestInspectMp3:
         assert "My Title" in chunks[-1]["summary"]
 
     def test_no_frame_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         p = tmp_path / "t.mp3"
         p.write_bytes(_id3v2(_id3_text_frame(b"TIT2", "x")) + b"\x00" * 200)
         _, warns = inspect_mp3(str(p))
         assert any("no valid MPEG" in w for w in warns)
 
     def test_deep_frame_listing(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         p = tmp_path / "t.mp3"
         p.write_bytes(_MP3_FRAME * 3)
         chunks, _ = inspect_mp3(str(p), deep=True)
@@ -817,7 +820,7 @@ class TestInspectMp3:
         assert frames["rows"][0]["offset"] == "0x00000000"
 
     def test_default_has_no_rows(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         p = tmp_path / "t.mp3"
         p.write_bytes(_MP3_FRAME * 2)
         chunks, _ = inspect_mp3(str(p))
@@ -1005,7 +1008,7 @@ class TestRunCli:
 
 class TestParseFmtExtensible:
     def test_extensible_channel_mask_and_guid(self):
-        from acidcat.commands.inspect import _parse_fmt, _KSDATAFORMAT_TAIL
+        from acidcat.core.walk.wav import _parse_fmt, _KSDATAFORMAT_TAIL
         sub = struct.pack("<H", 1) + _KSDATAFORMAT_TAIL  # PCM subtype
         b = (struct.pack("<HHIIHH", 0xFFFE, 6, 48000, 48000 * 12, 12, 16)
              + struct.pack("<HH", 22, 16) + struct.pack("<I", 0x3F) + sub)
@@ -1016,7 +1019,7 @@ class TestParseFmtExtensible:
         assert warns == []
 
     def test_extensible_nonstandard_guid_warns(self):
-        from acidcat.commands.inspect import _parse_fmt
+        from acidcat.core.walk.wav import _parse_fmt
         b = (struct.pack("<HHIIHH", 0xFFFE, 2, 44100, 44100 * 4, 4, 16)
              + struct.pack("<HH", 22, 16) + struct.pack("<I", 0x03)
              + struct.pack("<H", 1) + b"\x00" * 14)  # wrong GUID tail
@@ -1024,7 +1027,7 @@ class TestParseFmtExtensible:
         assert any("KSDATAFORMAT" in w for w in warns)
 
     def test_nonextensible_extended_shows_cbsize(self):
-        from acidcat.commands.inspect import _parse_fmt
+        from acidcat.core.walk.wav import _parse_fmt
         b = struct.pack("<HHIIHH", 3, 2, 44100, 44100 * 8, 8, 32) + struct.pack("<H", 0)
         _, fields, _ = _parse_fmt(b, {})
         assert any(f["name"] == "cb_size" for f in fields)
@@ -1046,7 +1049,7 @@ class TestParseBext:
         return b + hist
 
     def test_v2_umid_loudness_and_history(self):
-        from acidcat.commands.inspect import _parse_bext
+        from acidcat.core.walk.wav import _parse_bext
         b = self._bext(2, umid=b"\x01\x02\x03",
                        loud=[-2265, 500, -150, 0x7FFF, -1000],
                        hist=b"A=PCM,F=48000,W=24,M=stereo\r\n\x00\x00")
@@ -1058,19 +1061,19 @@ class TestParseBext:
         assert d["coding_history"].startswith("A=PCM")
 
     def test_v0_has_no_umid_or_loudness(self):
-        from acidcat.commands.inspect import _parse_bext
+        from acidcat.core.walk.wav import _parse_bext
         _, fields, _ = _parse_bext(self._bext(0), {})
         assert not any(f["name"] in ("umid", "loudness_value") for f in fields)
 
     def test_v1_all_zero_umid(self):
-        from acidcat.commands.inspect import _parse_bext
+        from acidcat.core.walk.wav import _parse_bext
         _, fields, _ = _parse_bext(self._bext(1), {})
         assert next(f["value"] for f in fields if f["name"] == "umid") == "0 (no UMID)"
 
 
 class TestFlacCuesheet:
     def test_cuesheet_tracks_and_leadout(self):
-        from acidcat.commands.inspect import _flac_cuesheet
+        from acidcat.core.walk.flac import _flac_cuesheet
         b = b"1234567890123".ljust(128, b"\x00") + struct.pack(">Q", 88200)
         b += bytes([0x80]) + b"\x00" * 258 + bytes([2])  # is-CD, reserved, 2 tracks
         b += (struct.pack(">Q", 0) + bytes([1]) + b"USRC12300001".ljust(12, b"\x00")
@@ -1086,14 +1089,14 @@ class TestFlacCuesheet:
         assert warns == []
 
     def test_cuesheet_truncated(self):
-        from acidcat.commands.inspect import _flac_cuesheet
+        from acidcat.core.walk.flac import _flac_cuesheet
         s, _, w = _flac_cuesheet(b"\x00" * 100)
         assert s == "truncated" and w
 
 
 class TestAiffExtraChunks:
     def test_comt_marker_linked_comment(self):
-        from acidcat.commands.inspect import _aiff_comt
+        from acidcat.core.walk.aiff import _aiff_comt
         b = struct.pack(">H", 1) + struct.pack(">IhH", 0, 3, 5) + b"hello" + b"\x00"
         s, fields, warns = _aiff_comt(b)
         c = next(f for f in fields if f["name"] == "comment[0]")
@@ -1101,12 +1104,12 @@ class TestAiffExtraChunks:
         assert warns == []
 
     def test_aesd_channel_status_byte0(self):
-        from acidcat.commands.inspect import _aiff_aesd
+        from acidcat.core.walk.aiff import _aiff_aesd
         s, fields, _ = _aiff_aesd(bytes([0x81]) + b"\x00" * 23)  # pro, 44.1k
         assert "professional" in fields[0]["note"] and "44100" in fields[0]["note"]
 
     def test_appl_pdos_pstring(self):
-        from acidcat.commands.inspect import _aiff_appl
+        from acidcat.core.walk.aiff import _aiff_appl
         s, fields, _ = _aiff_appl(b"pdos" + bytes([4]) + b"MyAp" + b"\x00")
         assert any(f["name"] == "name" and f["value"] == "MyAp" for f in fields)
 
@@ -1127,7 +1130,7 @@ class TestMidiSmpteOffset:
 
 class TestId3v1AndLame:
     def test_id3v11_full_fields_and_genre(self):
-        from acidcat.commands.inspect import _id3v1_fields
+        from acidcat.core.walk.mp3 import _id3v1_fields
         tag = (b"TAG" + b"Title".ljust(30, b"\x00") + b"Artist".ljust(30, b"\x00")
                + b"Album".ljust(30, b"\x00") + b"2020" + b"Comment".ljust(28, b"\x00")
                + b"\x00" + bytes([7]) + bytes([34]))  # v1.1 track 7, genre 34
@@ -1139,7 +1142,7 @@ class TestId3v1AndLame:
         assert d["genre"] == (34, "Acid")
 
     def test_id3v10_has_no_track(self):
-        from acidcat.commands.inspect import _id3v1_fields
+        from acidcat.core.walk.mp3 import _id3v1_fields
         tag = (b"TAG" + b"T".ljust(30, b"\x00") + b"A".ljust(30, b"\x00")
                + b"Al".ljust(30, b"\x00") + b"2020" + b"C".ljust(30, b"\x00")
                + bytes([13]))  # full comment, genre 13
@@ -1148,7 +1151,7 @@ class TestId3v1AndLame:
         assert next(f["note"] for f in fields if f["name"] == "genre") == "Pop"
 
     def test_lame_replaygain_decode(self):
-        from acidcat.commands.inspect import _lame_replaygain
+        from acidcat.core.walk.mp3 import _lame_replaygain
         # name=1 (radio), sign=1 (neg), magnitude 60 -> -6.0 dB
         word = (1 << 13) | (1 << 9) | 60
         assert _lame_replaygain(word) == "-6.0 dB (radio)"
@@ -1191,7 +1194,7 @@ class TestInspectFull:
 class TestBitwigBWBM:
     def test_bwbm_beats_duration_bpm(self):
         import struct as _s
-        from acidcat.commands.inspect import _parse_bwbm
+        from acidcat.core.walk.wav import _parse_bwbm
         payload = (_s.pack("<I", 1) + _s.pack("<I", 2) + b"\x00" * 16
                    + _s.pack("<d", 6.0) + _s.pack("<d", 2.5714285714))
         summary, fields, warns = _parse_bwbm(payload, {})
@@ -1203,7 +1206,7 @@ class TestBitwigBWBM:
         assert "140" in summary and warns == []
 
     def test_bwbm_truncated(self):
-        from acidcat.commands.inspect import _parse_bwbm
+        from acidcat.core.walk.wav import _parse_bwbm
         s, _, w = _parse_bwbm(b"\x00" * 20, {})
         assert s == "truncated" and w
 
@@ -1226,7 +1229,7 @@ class TestBitwigWalker:
         assert m["comment"] == "secret msg"
 
     def test_inspect_bitwig_surfaces_description(self, tmp_path):
-        from acidcat.commands.inspect import inspect_bitwig
+        from acidcat.core.walk.bitwig import inspect_bitwig
         p = tmp_path / "t.bwpreset"
         p.write_bytes(self._bw((b"device_name", b"Convolution"),
                                (b"comment", b"wussssuppppp")))
@@ -1259,7 +1262,7 @@ class TestVitalWalker:
 
     def test_inspect_vital_surfaces_name(self, tmp_path):
         import json
-        from acidcat.commands.inspect import inspect_vital
+        from acidcat.core.walk.vital import inspect_vital
         p = tmp_path / "t.vital"
         p.write_bytes(json.dumps({"synth_version": "1.0", "preset_name": "P",
                                   "author": "A", "settings": {}}).encode())
@@ -1323,7 +1326,7 @@ class TestMp4Walker:
         assert boxes and boxes[0]["truncated"]
 
     def test_inspect_mp4_surfaces_title(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp4
+        from acidcat.core.walk.mp4 import inspect_mp4
         p = tmp_path / "t.m4a"
         p.write_bytes(self._m4a_with_title("Song"))
         chunks, _ = inspect_mp4(str(p))
@@ -1401,7 +1404,7 @@ class TestNiHsinWalker:
         assert parse_hsin(b"not an hsin file at all" * 4) is None
 
     def test_inspect_ni_surfaces_name(self, tmp_path):
-        from acidcat.commands.inspect import inspect_ni
+        from acidcat.core.walk.ni import inspect_ni
         p = tmp_path / "t.nmsv"
         p.write_bytes(self._hsin("Bass01", "Massive", "1.5"))
         chunks, _ = inspect_ni(str(p))
@@ -1660,14 +1663,14 @@ class TestAiffEmbeddedID3:
         return b"ID3\x03\x00\x00" + ss + body
 
     def test_aiff_decodes_embedded_id3(self):
-        from acidcat.commands.inspect import _aiff_id3_fields
+        from acidcat.core.walk.aiff import _aiff_id3_fields
         tag = self._id3v23([(b"TPE1", "아버지"), (b"TIT2", "untitled")])
         fields = _aiff_id3_fields(tag)
         vals = {f["value"] for f in fields}
         assert "아버지" in vals and "untitled" in vals
 
     def test_aiff_id3_ignores_non_id3(self):
-        from acidcat.commands.inspect import _aiff_id3_fields
+        from acidcat.core.walk.aiff import _aiff_id3_fields
         assert _aiff_id3_fields(b"not an id3 tag") == []
 
 
@@ -1720,14 +1723,14 @@ class TestUnicodeMetadata:
     (the ascii/errors='replace' bug that turned Korean/CJK/etc. into '?')."""
 
     def test_dtext_utf8_and_latin1_fallback(self):
-        from acidcat.commands.inspect import _dtext
+        from acidcat.core.walk.base import _dtext
         assert _dtext("아버지".encode("utf-8")) == "아버지"
         assert _dtext("⣎⡇ꉪლ".encode("utf-8")) == "⣎⡇ꉪლ"
         assert _dtext(b"caf\xe9") == "café"          # invalid utf-8 -> latin-1, no raise
         assert "�" not in _dtext("아버지".encode("utf-8"))
 
     def test_wav_info_utf8_roundtrips_through_parse(self):
-        from acidcat.commands.inspect import _parse_list
+        from acidcat.core.walk.wav import _parse_list
         val = "아버지".encode("utf-8")
         info = b"INFO" + b"INAM" + struct.pack("<I", len(val)) + val
         _, fields, _ = _parse_list(info, {})

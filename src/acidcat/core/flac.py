@@ -3,9 +3,8 @@ FLAC metadata-block iterator.
 
 FLAC is a clean chunked container: the four-byte ``fLaC`` magic, then a
 run of metadata blocks (each a 4-byte header + payload), then the audio
-frames. This module just walks the block boundaries; field decoding for
-the ``inspect`` command lives in commands/inspect.py, mirroring the
-riff.py / aiff.py split.
+frames. This module just walks the block boundaries; per-block field
+decoding lives in the core/walk/flac.py walker, like the other formats.
 """
 
 import os
