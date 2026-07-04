@@ -223,7 +223,10 @@ def scan(filepath, fmt_label, chunks, warns):
                                 sample_bytes += struct.unpack_from(">I", mdata, q)[0]
                                 q += 4
             gap = mdat_payload - sample_bytes
-            if saw_stsz and mdat_payload > 0 and gap > 256:
+            # only a payload-sized unreferenced run is a plausible cavity; small
+            # gaps are legit alignment/edit padding (thin real-MP4 calibration, so
+            # keep this conservative, the real PoC payload was ~5.8 KB).
+            if saw_stsz and mdat_payload > 0 and gap > 1024:
                 findings.append({"severity": "notice", "offset": 0,
                                  "rule": "mp4_mdat_coverage",
                                  "message": f"{gap:,} bytes in mdat referenced by no "
