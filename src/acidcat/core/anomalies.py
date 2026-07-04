@@ -34,7 +34,12 @@ _ID3_REPEATABLE = {"TXXX", "WXXX", "APIC", "PIC", "PRIV", "GEOB", "COMM", "UFID"
                    "tag_size"}
 
 # spec-ignorable regions: content there is a classic smuggling spot
-_CAVITY = {"PADDING": "FLAC PADDING", "FREE": "MP4 free box", "SKIP": "MP4 skip box"}
+_CAVITY = {"PADDING": "FLAC PADDING", "FREE": "MP4 free box", "SKIP": "MP4 skip box",
+           "JUNK": "RIFF JUNK chunk", "PAD": "RIFF PAD chunk"}
+
+# cavities whose reported size is the payload length (RIFF/FLAC), vs MP4 boxes
+# whose size includes the 8-byte header
+_CAVITY_PAYLOAD_SIZE = {"PADDING", "JUNK", "PAD"}
 
 
 def _declared_end(head):
@@ -119,10 +124,15 @@ def scan(filepath, fmt_label, chunks, warns):
     for c in chunks:
         cid = str(c.get("id", "")).strip().upper()
         label = _CAVITY.get(cid)
-        base = c.get("payload_base")
-        if not label or base is None:
+        if not label:
             continue
-        if cid == "PADDING":
+        base = c.get("payload_base")
+        if base is None and cid in ("JUNK", "PAD"):
+            # RIFF chunk data always starts 8 bytes past the chunk header
+            base = (c.get("offset") or 0) + 8
+        if base is None:
+            continue
+        if cid in _CAVITY_PAYLOAD_SIZE:
             clen = c.get("size") or 0
         else:  # MP4 box: size includes the header, base is past it
             clen = (c.get("size") or 0) - (base - (c.get("offset") or 0))

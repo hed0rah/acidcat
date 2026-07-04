@@ -15,6 +15,8 @@ once it leaves alpha.
 - `inspect` decodes the manufacturer id of MIDI SysEx events, and `--anomalies`
   warns when a SysEx uses the non-commercial id 0x7D (no synth acts on it) or
   carries an oversized payload, a MIDI payload-cavity tell.
+- `inspect --anomalies` flags non-zero content in a RIFF JUNK/PAD chunk (spec'd
+  as ignorable padding, and the RF64/BW64 ds64 placeholder), a WAV cavity.
 
 ## [0.15.0] - 2026-07-03
 
