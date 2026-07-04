@@ -5,7 +5,7 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
-## [Unreleased]
+## [0.15.0] - 2026-07-03
 
 ### Added
 
@@ -22,6 +22,19 @@ once it leaves alpha.
   encoder emits correct signed and 64-bit ints, floats, and str32 (it had
   wrapped negatives to unsigned and truncated large values). Adds test_ni.py
   covering the codec, FastLZ, and the hsin walker.
+
+- The "unsupported file" error and `inspect` help now list Ogg and Native
+  Instruments (they were supported but omitted from the message).
+
+### Changed
+
+- Internal: the thirteen format walkers moved out of `commands/inspect.py`
+  (2,878 lines) into `core/walk/*` behind a registry, with a canonical format
+  sniffer in `core/sniff.py`; `commands/inspect.py` (~400 lines) now holds only
+  rendering, selection, and the CLI. Adding a format is one magic + one walker +
+  one registry entry. No behavior change: byte-for-byte identical `inspect`
+  output (verified across formats and output modes), and the suite stayed green
+  at every step.
 
 ## [0.14.1] - 2026-07-03
 

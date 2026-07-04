@@ -33,11 +33,12 @@ _FULL_RAW_CAP = 8192
 def register(subparsers):
     p = subparsers.add_parser(
         "inspect",
-        help="readelf-style structural dump of a WAV, AIFF, MIDI, MP3, or FLAC file.",
+        help="readelf-style structural dump of an audio or synth/DAW preset file.",
     )
     p.add_argument("targets", nargs="+", metavar="target",
-                   help="One or more WAV, RF64, AIFF, MIDI, Serum, MP3, or FLAC "
-                        "files. With more than one, each is printed under a "
+                   help="One or more audio/preset files (WAV, RF64, AIFF, MIDI, MP3, "
+                        "FLAC, Ogg, MP4/M4A, Serum, Bitwig, Vital, NCW, NI). "
+                        "With more than one, each is printed under a "
                         "'File:' banner; JSON output becomes NDJSON (one record "
                         "per line).")
     p.add_argument("--hex", action="store_true", dest="show_hex",
@@ -63,7 +64,7 @@ def register(subparsers):
     p.add_argument("--full", action="store_true",
                    help="Emit a self-contained structural dump (implies -f json): "
                         "each chunk with its raw region bytes and every field's "
-                        "absolute byte offset, so build_explorer.py can render a "
+                        "absolute byte offset, so `acidcat explore` can render a "
                         "standalone HTML explorer for the file.")
     p.add_argument("--anomalies", action="store_true",
                    help="Forensic scan: flag trailing data past the container, "
@@ -281,7 +282,7 @@ def _select_chunks(chunks, only, exclude):
 def _full_chunk(chunk, filepath):
     """Enrich a chunk for --full into a self-contained record: its absolute
     payload base, the raw region bytes as hex (capped), and every field's
-    absolute byte offset. build_explorer.py needs nothing but this JSON."""
+    absolute byte offset. `acidcat explore` needs nothing but this JSON."""
     c = {k: v for k, v in chunk.items() if k != "_idx"}
     pb = chunk.get("payload_base", chunk["offset"] + 8)
     c["payload_base"] = pb
