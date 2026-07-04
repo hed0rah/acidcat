@@ -28,6 +28,15 @@ def inspect_ogg(filepath):
         if sr:
             fields.append(_f(None, 0, "sample_rate", sr))
             rate_txt = f", {chn}ch {sr} Hz"
+        # duration from the last page's granule position (a running sample count).
+        # opus always counts granules at 48 kHz regardless of the decode rate.
+        gran_rate = 48000 if "opus" in codec.lower() else sr
+        last_gran = max((p["granule"] for p in pages if p.get("granule", -1) >= 0),
+                        default=0)
+        if gran_rate and last_gran > 0:
+            duration = last_gran / gran_rate
+            fields.append(_f(None, 0, "duration", f"{duration:.3f} s"))
+            rate_txt += f", {duration:.3f} s"
     chunks = [{"id": "OggS", "offset": 0, "size": file_size,
                "summary": f"Ogg {codec}, {len(pages)} page(s){rate_txt}",
                "fields": fields, "warnings": [], "payload_base": 0}]
