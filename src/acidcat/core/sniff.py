@@ -42,6 +42,10 @@ def sniff_bytes(head):
         return "serum"
     if head[:4] == b"BtWg":
         return "bitwig"
+    if head[:4] == b"CcnK":
+        return "fxp"
+    if head[:4] == b"CAT " and head[8:12] == b"REX2":
+        return "rx2"
     if head[:4] == ncwmod.MAGIC:
         return "ncw"
     if head[:1] == b"{":
