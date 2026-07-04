@@ -189,5 +189,43 @@ def scan(filepath, fmt_label, chunks, warns):
         except Exception:
             pass
 
+    # 9. MP4 mdat coverage gap: bytes inside mdat that no sample references. Sum
+    # every stsz sample size across tracks and compare to the mdat payload; an
+    # unreferenced run is a cavity (a payload appended at mdat's tail with only
+    # the box size grown, so no chunk offset points at it and the audio is intact).
+    if fmt_label and fmt_label.startswith("MP4"):
+        try:
+            from acidcat.core import mp4 as _mp4
+            fsz = os.path.getsize(filepath)
+            with open(filepath, "rb") as f:
+                mdata = f.read(16 * 1024 * 1024)
+            mdat_payload = sample_bytes = 0
+            saw_stsz = False
+            for b in _mp4.iter_boxes(mdata, file_size=fsz):
+                if b["type"] == b"mdat" and not b["truncated"]:
+                    mdat_payload += b["size"] - b["hdr"]
+                elif b["type"] == b"stsz" and not b["beyond_cap"]:
+                    p = b["offset"] + b["hdr"]
+                    if p + 12 <= len(mdata):
+                        saw_stsz = True
+                        ssize = struct.unpack_from(">I", mdata, p + 4)[0]
+                        scount = struct.unpack_from(">I", mdata, p + 8)[0]
+                        if ssize:
+                            sample_bytes += ssize * scount
+                        else:
+                            q = p + 12
+                            for _ in range(min(scount, (len(mdata) - q) // 4)):
+                                sample_bytes += struct.unpack_from(">I", mdata, q)[0]
+                                q += 4
+            gap = mdat_payload - sample_bytes
+            if saw_stsz and mdat_payload > 0 and gap > 256:
+                findings.append({"severity": "notice", "offset": 0,
+                                 "rule": "mp4_mdat_coverage",
+                                 "message": f"{gap:,} bytes in mdat referenced by no "
+                                            f"sample (stsz sums {sample_bytes:,} of "
+                                            f"{mdat_payload:,}); possible cavity"})
+        except Exception:
+            pass
+
     findings.sort(key=lambda x: (-_SEVERITY.get(x["severity"], 0), x["offset"]))
     return findings

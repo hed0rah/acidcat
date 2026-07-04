@@ -17,6 +17,9 @@ once it leaves alpha.
   carries an oversized payload, a MIDI payload-cavity tell.
 - `inspect --anomalies` flags non-zero content in a RIFF JUNK/PAD chunk (spec'd
   as ignorable padding, and the RF64/BW64 ds64 placeholder), a WAV cavity.
+- `inspect --anomalies` flags an MP4/M4A `mdat` coverage gap: bytes inside `mdat`
+  that no `stsz` sample references (a payload grown onto the box's tail while the
+  sample tables still validate), a container cavity most tools miss.
 
 ### Fixed
 
