@@ -1,9 +1,8 @@
 # Changelog
 
-All notable changes to acidcat. Format loosely follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
-project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
-once it leaves alpha.
+All notable changes to acidcat. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
+adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
