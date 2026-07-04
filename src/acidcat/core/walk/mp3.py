@@ -14,7 +14,10 @@ _ID3_TEXT_FRAMES = {
     "TIT2": "title", "TPE1": "artist", "TALB": "album", "TCON": "genre",
     "TBPM": "bpm", "TKEY": "initial key", "TYER": "year", "TDRC": "year",
     "TRCK": "track", "TSSE": "encoder settings", "TENC": "encoded by",
-    "COMM": "comment",
+    "COMM": "comment", "TPE2": "album artist", "TPE3": "conductor",
+    "TCOM": "composer", "TPOS": "disc", "TPUB": "publisher",
+    "TCOP": "copyright", "TSRC": "ISRC", "TEXT": "lyricist",
+    "TCMP": "compilation", "TIT1": "grouping", "TIT3": "subtitle",
 }
 
 # ID3v2.2 used 3-character frame ids. without this map a v2.2 tag lists frame
@@ -217,7 +220,7 @@ def _id3v2_frames(filepath, hdr):
         if fid_s in ("TXXX", "WXXX"):
             value = _decode_txxx(raw, fid_s)
             note = "user-defined text" if fid_s == "TXXX" else "user-defined URL"
-        elif fid_s.startswith("T") and note:
+        elif fid_s.startswith("T"):        # every T*** frame is text (id3 spec)
             value = _decode_id3_text(raw)
         elif fid_s == "APIC" or fid_s == "PIC":
             value = f"{fsize:,} bytes"
