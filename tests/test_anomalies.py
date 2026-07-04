@@ -117,3 +117,40 @@ def test_appended_zip_polyglot_on_headerless_format(tmp_path):
         fmt, chunks, warns = "?", [], []
     findings = anomalies.scan(path, fmt, chunks, warns)
     assert any(f["rule"] == "polyglot" for f in findings)
+
+
+def _ogg_two_bos():
+    # two BOS pages (header_type bit 0x02) with distinct serials -> two logical
+    # bitstreams. built with bytes([...]) to stay heredoc/backslash-safe.
+    def page(serial, htype, packet):
+        seg = []
+        rem = len(packet)
+        while rem >= 255:
+            seg.append(255)
+            rem -= 255
+        seg.append(rem)
+        hdr = (b"OggS" + bytes([0, htype]) + bytes(8) + struct.pack("<I", serial)
+               + struct.pack("<I", 0) + bytes(4) + bytes([len(seg)]) + bytes(seg))
+        return hdr + packet
+    vorbis = bytes([1]) + b"vorbis" + bytes(20)
+    opus = b"OpusHead" + bytes(11)
+    return page(1, 2, vorbis) + page(2, 2, opus)
+
+
+def test_ogg_multistream_flagged(tmp_path):
+    path = _write(tmp_path, "dual.ogg", _ogg_two_bos())
+    findings = anomalies.scan(path, "Ogg Vorbis", [], [])
+    assert any(f["rule"] == "ogg_multistream" for f in findings)
+
+
+def test_ogg_single_stream_not_flagged(tmp_path):
+    # one BOS page only -> no multistream flag
+    def page(serial, htype, packet):
+        seg = [len(packet)]
+        hdr = (b"OggS" + bytes([0, htype]) + bytes(8) + struct.pack("<I", serial)
+               + struct.pack("<I", 0) + bytes(4) + bytes([1]) + bytes(seg))
+        return hdr + packet
+    data = page(1, 2, bytes([1]) + b"vorbis" + bytes(20))
+    path = _write(tmp_path, "solo.ogg", data)
+    findings = anomalies.scan(path, "Ogg Vorbis", [], [])
+    assert not any(f["rule"] == "ogg_multistream" for f in findings)

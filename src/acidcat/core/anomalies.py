@@ -159,5 +159,25 @@ def scan(filepath, fmt_label, chunks, warns):
                              "message": "possible polyglot: appended ZIP archive "
                                         "(end-of-central-directory record near EOF)"})
 
+    # 8. Ogg: multiple logical bitstreams. A conformant single-track Ogg has one
+    # BOS page; more than one distinct BOS serial means several logical streams
+    # multiplexed into one file, a place to carry content most players never
+    # surface (a Vorbis-only player hears only its stream, etc.).
+    if fmt_label and fmt_label.startswith("Ogg"):
+        try:
+            from acidcat.core import ogg as _ogg
+            with open(filepath, "rb") as f:
+                ogg_data = f.read(16 * 1024 * 1024)
+            serials = {pg["serial"] for pg in _ogg.iter_pages(ogg_data)
+                       if pg["header_type"] & 0x02}
+            if len(serials) > 1:
+                findings.append({"severity": "notice", "offset": 0,
+                                 "rule": "ogg_multistream",
+                                 "message": f"{len(serials)} logical bitstreams in "
+                                            f"one Ogg; a single-codec player surfaces "
+                                            f"only one (possible hidden stream)"})
+        except Exception:
+            pass
+
     findings.sort(key=lambda x: (-_SEVERITY.get(x["severity"], 0), x["offset"]))
     return findings
