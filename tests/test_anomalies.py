@@ -154,3 +154,29 @@ def test_ogg_single_stream_not_flagged(tmp_path):
     path = _write(tmp_path, "solo.ogg", data)
     findings = anomalies.scan(path, "Ogg Vorbis", [], [])
     assert not any(f["rule"] == "ogg_multistream" for f in findings)
+
+
+def _wav_with_junk(junk_body):
+    junk = b"JUNK" + struct.pack("<I", len(junk_body)) + junk_body
+    if len(junk) & 1:
+        junk += b"\x00"
+    fmt = b"fmt " + struct.pack("<I", 16) + struct.pack("<HHIIHH", 1, 1, 8000, 8000, 1, 8)
+    data = b"data" + struct.pack("<I", 4) + bytes(4)
+    body = b"WAVE" + junk + fmt + data
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def test_junk_cavity_nonzero_flagged(tmp_path):
+    from acidcat.core.walk import walk_file
+    path = _write(tmp_path, "junk.wav", _wav_with_junk(b"HIDDEN-PAYLOAD" + bytes(20)))
+    label, chunks, warns = walk_file(path)
+    findings = anomalies.scan(path, label, chunks, warns)
+    assert any(f["rule"] == "cavity_content" and "JUNK" in f["message"] for f in findings)
+
+
+def test_junk_all_zero_not_flagged(tmp_path):
+    from acidcat.core.walk import walk_file
+    path = _write(tmp_path, "pad.wav", _wav_with_junk(bytes(32)))
+    label, chunks, warns = walk_file(path)
+    findings = anomalies.scan(path, label, chunks, warns)
+    assert not any(f["rule"] == "cavity_content" for f in findings)
