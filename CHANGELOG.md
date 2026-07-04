@@ -4,7 +4,7 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
-## [Unreleased]
+## [0.16.0] - 2026-07-04
 
 ### Added
 
@@ -37,6 +37,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   encoder-delay-adjusted sample count, matching ffprobe.
 - MP4/M4A `trkn` and `disk` atoms decode to `index/total` (or `index`) instead
   of a raw byte count.
+
+### Changed
+
+- Docs: describe acidcat on its own terms (dropped the tool comparisons from
+  the README tagline, package description, and command help); refreshed a tight,
+  current SECURITY.md.
 
 ## [0.15.0] - 2026-07-03
 
