@@ -4,7 +4,8 @@
 
 # acidcat
 
-Audio metadata explorer and analysis tool -- like exiftool, but for audio.
+A pure-Python inspector for audio files and synth/DAW presets: read the
+metadata, decode the format structure byte by byte, and flag anomalies.
 
 Reads BPM, key, duration, tags, and format info from WAV, AIFF, MP3, FLAC,
 OGG, Opus, M4A, MIDI, and Serum presets. Also structurally decodes Bitwig
@@ -84,11 +85,11 @@ full-text.
 | `acidcat similar CSV cluster` | Cluster samples by audio characteristics |
 | `acidcat search CSV query TEXT` | Text-based sample search (legacy CSV) |
 | `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
-| `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--pretty] [--color]` | readelf-style structural dump (WAV, RF64, AIFF, MIDI, Serum, MP3, FLAC, OGG, MP4/M4A, Bitwig, Vital, NCW, Native Instruments (Massive/Absynth/Kontakt/NKS/KORE)) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump for `build_explorer.py`, `--pretty` a human-friendly metadata view, `--verbose` a deep deconstruction (Bitwig device tree/parameters/notes, Vital modulation matrix, ...), `--color` to syntax-highlight |
+| `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--pretty] [--color]` | Byte-level structural dump (WAV, RF64, AIFF, MIDI, Serum, MP3, FLAC, OGG, MP4/M4A, Bitwig, Vital, NCW, Native Instruments (Massive/Absynth/Kontakt/NKS/KORE)) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump feeding `acidcat explore`, `--pretty` a human-friendly metadata view, `--verbose` a deep deconstruction (Bitwig device tree/parameters/notes, Vital modulation matrix, ...), `--color` to syntax-highlight |
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
 | `acidcat convert clip.bwclip -o out.mid` | Export a DAW clip's notes to a Standard MIDI File |
-| `acidcat write FILE --set field=value` | Edit metadata in place (exiftool-style: `_original` backup, `-o` copy, `--dry-run`; custom frames via `txxx:NAME=value`) |
+| `acidcat write FILE --set field=value` | Edit metadata in place, with a `_original` backup, `-o` copy, and `--dry-run`; custom frames via `txxx:NAME=value` |
 | `acidcat cover FILE [-o art.jpg] [--set img] [--remove]` | Extract, embed, or remove embedded cover art (MP3/FLAC/MP4/Ogg) |
 | `acidcat explore FILE [-o out.html]` | Build a standalone interactive HTML byte-explorer (hex grid + tinted fields + LSB heat-map) |
 

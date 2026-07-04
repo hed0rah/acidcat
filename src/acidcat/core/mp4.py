@@ -180,6 +180,17 @@ def _decode_data_box(data, start, end):
     return f"{len(val):,} bytes (type {type_ind})"
 
 
+def _decode_index_pair(data, start, end):
+    """Decode a trkn/disk 'data' box (reserved u16, index u16, total u16, ...)
+    to 'index/total', or 'index' when no total is set. None if too short."""
+    val = data[start + 16:end]
+    if len(val) < 6:
+        return None
+    idx = struct.unpack_from(">H", val, 2)[0]
+    total = struct.unpack_from(">H", val, 4)[0]
+    return f"{idx}/{total}" if total else str(idx)
+
+
 def parse_ilst(data):
     """Extract the iTunes metadata under udta > meta > ilst as {label: value}.
     Only boxes that are direct children of an actual 'ilst' box are treated as
@@ -200,7 +211,11 @@ def parse_ilst(data):
             tstart, tend = tag["offset"] + tag["hdr"], tag["offset"] + tag["size"]
             for c in iter_boxes(data, tstart, tend, depth=tag["depth"] + 1):
                 if c["type"] == b"data" and not c["truncated"]:
-                    v = _decode_data_box(data, c["offset"], c["offset"] + c["size"])
+                    cs, ce = c["offset"], c["offset"] + c["size"]
+                    if label in ("track", "disc"):
+                        v = _decode_index_pair(data, cs, ce) or _decode_data_box(data, cs, ce)
+                    else:
+                        v = _decode_data_box(data, cs, ce)
                     if v is not None:
                         meta[label] = v
                     break

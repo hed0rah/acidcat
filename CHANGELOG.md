@@ -1,9 +1,48 @@
 # Changelog
 
-All notable changes to acidcat. Format loosely follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
-project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
-once it leaves alpha.
+All notable changes to acidcat. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
+adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
+
+## [0.16.0] - 2026-07-04
+
+### Added
+
+- `inspect --anomalies` flags an Ogg file carrying more than one logical
+  bitstream (multiple BOS serials), several codecs multiplexed into one file,
+  where a single-codec player surfaces only one and the others ride along hidden.
+- `inspect` decodes the manufacturer id of MIDI SysEx events, and `--anomalies`
+  warns when a SysEx uses the non-commercial id 0x7D (no synth acts on it) or
+  carries an oversized payload, a MIDI payload-cavity tell.
+- `inspect --anomalies` flags non-zero content in a RIFF JUNK/PAD chunk (spec'd
+  as ignorable padding, and the RF64/BW64 ds64 placeholder), a WAV cavity.
+- `inspect --anomalies` flags an MP4/M4A `mdat` coverage gap: bytes inside `mdat`
+  that no `stsz` sample references (a payload grown onto the box's tail while the
+  sample tables still validate), a container cavity most tools miss.
+- `inspect --anomalies` flags non-zero bytes in an ID3v2 tag's padding region
+  (after the last frame, within the declared tag size), a cavity, not trailing data.
+- `inspect --anomalies` flags dual-endianness 16-bit PCM: audio engineered so
+  both the little- and big-endian readings are structured (a WAV/AIFF twin that
+  plays a different sound each way). Real audio is structured only one way.
+
+### Fixed
+
+- Ogg files now report `duration`, computed from the last page's granule
+  position (Opus granules are counted at 48 kHz). Was previously absent.
+- Every ID3 `T***` text frame now decodes to its value; frames outside a
+  hardcoded set (e.g. `TPE2` album artist, `TCOM` composer) previously showed
+  as a raw byte count. All `T***` frames share the same text structure per spec.
+- MP3 duration is now the gapless/playable length: the LAME encoder delay and
+  padding are subtracted (was ~48 ms long): the standard
+  encoder-delay-adjusted sample count, matching ffprobe.
+- MP4/M4A `trkn` and `disk` atoms decode to `index/total` (or `index`) instead
+  of a raw byte count.
+
+### Changed
+
+- Docs: describe acidcat on its own terms (dropped the tool comparisons from
+  the README tagline, package description, and command help); refreshed a tight,
+  current SECURITY.md.
 
 ## [0.15.0] - 2026-07-03
 
