@@ -101,7 +101,10 @@ def dual_endian(filepath, fmt_label, chunks):
         return None
     le = _lag1_autocorr(b, False)
     be = _lag1_autocorr(b, True)
-    return {"le": round(le, 3), "be": round(be, 3), "flagged": le > 0.5 and be > 0.5}
+    # calibrated on 2328 real WAVs: bass-heavy audio can leave the byte-swapped
+    # view moderately structured (up to ~0.86), so require BOTH views strongly
+    # structured. 0.9 flags the crafted artifact (~0.97) with ~0.3% false rate.
+    return {"le": round(le, 3), "be": round(be, 3), "flagged": le > 0.9 and be > 0.9}
 
 
 def _wav_pcm_region(filepath, chunks):

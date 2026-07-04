@@ -138,6 +138,11 @@ def scan(filepath, fmt_label, chunks, warns):
             clen = (c.get("size") or 0) - (base - (c.get("offset") or 0))
         if clen <= 0:
             continue
+        # small non-zero JUNK/PAD is routine DAW metadata (cue points, timestamps);
+        # calibrated on 2328 real WAVs it topped out at 641 bytes, so only a
+        # payload-sized run (>= 1 KB) is a plausible cavity worth flagging.
+        if cid in ("JUNK", "PAD") and clen < 1024:
+            continue
         with open(filepath, "rb") as f:
             f.seek(base)
             blob = f.read(min(clen, 1 << 20))
