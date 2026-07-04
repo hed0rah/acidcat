@@ -552,7 +552,7 @@ def _flac(tmp_path, *blocks, name="t.flac"):
 
 class TestInspectFlac:
     def test_streaminfo_and_comments(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         path = _flac(tmp_path,
                      _flac_block(0, _streaminfo(channels=2, total=88200)),
                      _flac_block(4, _vorbis_comment(), last=True),
@@ -570,19 +570,19 @@ class TestInspectFlac:
         assert warns == []
 
     def test_first_block_not_streaminfo_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         path = _flac(tmp_path, _flac_block(4, _vorbis_comment(), last=True))
         _, warns = inspect_flac(path)
         assert any("not STREAMINFO" in w for w in warns)
 
     def test_missing_last_flag_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         path = _flac(tmp_path, _flac_block(0, _streaminfo()))
         _, warns = inspect_flac(path)
         assert any("last-metadata-block" in w for w in warns)
 
     def test_metadata_block_overrun_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         # a PADDING block declares 8192 bytes but only 8 are present.
         bogus = bytes([0x80 | 1]) + struct.pack(">I", 8192)[1:] + b"\x00" * 8
         path = _flac(tmp_path, _flac_block(0, _streaminfo()), bogus)
@@ -591,7 +591,7 @@ class TestInspectFlac:
         assert any("overruns the file" in w for w in pad["warnings"])
 
     def test_picture_forged_mime_length(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         # PICTURE with a mime length claiming 4 GB: must warn and stop,
         # not decode the rest of the block as a garbage mime string.
         pic = struct.pack(">I", 3) + struct.pack(">I", 0xFFFFFFFF) + b"\x00" * 64
@@ -603,7 +603,7 @@ class TestInspectFlac:
         assert any("mime_type length" in w for w in p["warnings"])
 
     def test_picture_forged_description_length(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         pic = (struct.pack(">I", 3)
                + struct.pack(">I", 9) + b"image/png"
                + struct.pack(">I", 0xFFFFFF00) + b"\x00" * 64)
@@ -615,7 +615,7 @@ class TestInspectFlac:
         assert any("description length" in w for w in p["warnings"])
 
     def test_picture_valid_still_decodes(self, tmp_path):
-        from acidcat.commands.inspect import inspect_flac
+        from acidcat.core.walk.flac import inspect_flac
         img = b"\x89PNG\r\n"
         pic = (struct.pack(">I", 3)
                + struct.pack(">I", 9) + b"image/png"
@@ -1073,7 +1073,7 @@ class TestParseBext:
 
 class TestFlacCuesheet:
     def test_cuesheet_tracks_and_leadout(self):
-        from acidcat.commands.inspect import _flac_cuesheet
+        from acidcat.core.walk.flac import _flac_cuesheet
         b = b"1234567890123".ljust(128, b"\x00") + struct.pack(">Q", 88200)
         b += bytes([0x80]) + b"\x00" * 258 + bytes([2])  # is-CD, reserved, 2 tracks
         b += (struct.pack(">Q", 0) + bytes([1]) + b"USRC12300001".ljust(12, b"\x00")
@@ -1089,7 +1089,7 @@ class TestFlacCuesheet:
         assert warns == []
 
     def test_cuesheet_truncated(self):
-        from acidcat.commands.inspect import _flac_cuesheet
+        from acidcat.core.walk.flac import _flac_cuesheet
         s, _, w = _flac_cuesheet(b"\x00" * 100)
         assert s == "truncated" and w
 
