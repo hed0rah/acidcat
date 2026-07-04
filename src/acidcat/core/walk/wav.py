@@ -5,7 +5,7 @@ import struct
 
 from acidcat.core.riff import iter_chunks
 from acidcat.core.walk.base import (
-    _PAYLOAD_CAP, _f, _u16, _u32, _cstr, _dtext, _flag_names,
+    _PAYLOAD_CAP, _f, _u16, _u32, _cstr, _flag_names,
 )
 from acidcat.util.midi import midi_note_to_name
 
