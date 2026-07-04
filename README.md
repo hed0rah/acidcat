@@ -62,6 +62,8 @@ full-text.
 | M4A    | `.m4a`    | BPM, key, title, artist, album, genre (iTunes atoms) |
 | MIDI   | `.mid`    | BPM, key sig, time sig, tracks, note count/range |
 | Serum  | `.SerumPreset` | Preset name, author, tags, description |
+| VST FXP | `.fxp` | Preset kind, plugin id, version, preset name (inspect) |
+| ReCycle | `.rx2` | CAT/REX2 chunks, creator, slice count (inspect) |
 | Bitwig | `.bwpreset`, `.bwclip` | Device tree, parameters, clip notes (inspect + index) |
 | Native Instruments | `.nmsv`, `.nabs`, `.ksd`, `.nksf`, `.nki` | Preset metadata, NKS tags, FastLZ subtree (inspect + index) |
 | Vital  | `.vital`  | Patch name, author, tags, modulation matrix (inspect + index) |
