@@ -74,7 +74,7 @@ def test_lsb_clean_vs_stego(tmp_path):
         path = _write(tmp_path, name, wav(samples))
         fmt, chunks, warns = I._walk_file(path, deep=False)
         r = lsb.analyze(path, fmt, chunks)
-        assert r is not None and r["suspicious"] is expect
+        assert r is not None and r["uniform_high"] is expect
 
 
 def _id3_dup_mp3():

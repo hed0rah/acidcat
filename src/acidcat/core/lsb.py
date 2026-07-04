@@ -88,10 +88,14 @@ def analyze(filepath, fmt_label, chunks):
         return None
     lo, hi = min(win), max(win)
     mean = sum(win) / len(win)
-    # encrypted payload: even the least-random window is near-uniform. A natural
-    # recording almost always has at least one low-entropy (quiet/patterned)
-    # window, so a high FLOOR across many windows is the signal.
-    suspicious = len(win) >= 16 and lo >= 0.92 and mean >= 0.97
+    # A uniformly high LSB entropy floor is CONSISTENT with an encrypted embedded
+    # payload, but entropy alone cannot separate that from a legitimate noise
+    # floor: real field recordings, dithered masters, and high-bit-depth captures
+    # also fill their low bits with near-random noise. So this is a descriptive
+    # flag, not a verdict; callers report it as a heuristic, not an alert.
+    # (A discriminating test, e.g. StegExpose-style sample-pair/chi-square, would
+    # be the next step to cut the false positives on noisy audio.)
+    uniform_high = len(win) >= 16 and lo >= 0.92 and mean >= 0.97
     return {
         "region": [off, len(pcm)],
         "sample_width": width,
@@ -99,6 +103,6 @@ def analyze(filepath, fmt_label, chunks):
         "min": round(lo, 3),
         "max": round(hi, 3),
         "mean": round(mean, 3),
-        "suspicious": suspicious,
+        "uniform_high": uniform_high,
         "capped": length > len(pcm),
     }

@@ -2824,12 +2824,14 @@ def run(args):
                     lsb_info = lsbmod.analyze(filepath, fmt_label, chunks)
                 except Exception:
                     lsb_info = None
-            if findings is not None and lsb_info and lsb_info["suspicious"]:
+            if findings is not None and lsb_info and lsb_info["uniform_high"]:
                 findings.append({
-                    "severity": "alert", "offset": lsb_info["region"][0],
-                    "rule": "lsb_stego",
-                    "message": f"uniform-high LSB entropy (min {lsb_info['min']}, "
-                               f"mean {lsb_info['mean']}): possible LSB-stego payload"})
+                    "severity": "notice", "offset": lsb_info["region"][0],
+                    "rule": "lsb_entropy",
+                    "message": f"uniformly high LSB entropy (min {lsb_info['min']}, "
+                               f"mean {lsb_info['mean']}): consistent with LSB "
+                               f"steganography, but also with a noisy/dithered/"
+                               f"high-bit-depth recording"})
                 findings.sort(key=lambda x: (
                     -{"alert": 3, "warn": 2, "notice": 1}.get(x["severity"], 0),
                     x["offset"]))
