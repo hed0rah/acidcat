@@ -34,7 +34,8 @@ once it leaves alpha.
   hardcoded set (e.g. `TPE2` album artist, `TCOM` composer) previously showed
   as a raw byte count. All `T***` frames share the same text structure per spec.
 - MP3 duration is now the gapless/playable length: the LAME encoder delay and
-  padding are subtracted (was ~48 ms long), matching ffprobe/mutagen.
+  padding are subtracted (was ~48 ms long): the standard
+  encoder-delay-adjusted sample count, matching ffprobe.
 - MP4/M4A `trkn` and `disk` atoms decode to `index/total` (or `index`) instead
   of a raw byte count.
 

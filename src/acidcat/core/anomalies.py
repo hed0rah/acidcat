@@ -202,36 +202,62 @@ def scan(filepath, fmt_label, chunks, warns):
         try:
             from acidcat.core import mp4 as _mp4
             fsz = os.path.getsize(filepath)
+            # header-only top-level scan: total mdat payload, and locate moov,
+            # which on non-faststart files (most ffmpeg/Apple output) sits at EOF,
+            # past any fixed read window. reads 8-16 bytes per top-level box.
+            mdat_payload = 0
+            moov_off = moov_size = None
             with open(filepath, "rb") as f:
-                mdata = f.read(16 * 1024 * 1024)
-            mdat_payload = sample_bytes = 0
-            saw_stsz = False
-            for b in _mp4.iter_boxes(mdata, file_size=fsz):
-                if b["type"] == b"mdat" and not b["truncated"]:
-                    mdat_payload += b["size"] - b["hdr"]
-                elif b["type"] == b"stsz" and not b["beyond_cap"]:
-                    p = b["offset"] + b["hdr"]
-                    if p + 12 <= len(mdata):
-                        saw_stsz = True
-                        ssize = struct.unpack_from(">I", mdata, p + 4)[0]
-                        scount = struct.unpack_from(">I", mdata, p + 8)[0]
-                        if ssize:
-                            sample_bytes += ssize * scount
-                        else:
-                            q = p + 12
-                            for _ in range(min(scount, (len(mdata) - q) // 4)):
-                                sample_bytes += struct.unpack_from(">I", mdata, q)[0]
-                                q += 4
-            gap = mdat_payload - sample_bytes
-            # only a payload-sized unreferenced run is a plausible cavity; small
-            # gaps are legit alignment/edit padding (thin real-MP4 calibration, so
-            # keep this conservative, the real PoC payload was ~5.8 KB).
-            if saw_stsz and mdat_payload > 0 and gap > 1024:
-                findings.append({"severity": "notice", "offset": 0,
-                                 "rule": "mp4_mdat_coverage",
-                                 "message": f"{gap:,} bytes in mdat referenced by no "
-                                            f"sample (stsz sums {sample_bytes:,} of "
-                                            f"{mdat_payload:,}); possible cavity"})
+                pos = 0
+                while pos + 8 <= fsz:
+                    f.seek(pos)
+                    hdr = f.read(8)
+                    if len(hdr) < 8:
+                        break
+                    size, hlen = struct.unpack(">I", hdr[:4])[0], 8
+                    if size == 1:
+                        ext = f.read(8)
+                        if len(ext) < 8:
+                            break
+                        size, hlen = struct.unpack(">Q", ext)[0], 16
+                    elif size == 0:
+                        size = fsz - pos
+                    if size < hlen or pos + size > fsz:
+                        break
+                    if hdr[4:8] == b"mdat":
+                        mdat_payload += size - hlen
+                    elif hdr[4:8] == b"moov":
+                        moov_off, moov_size = pos, size
+                    pos += size
+            if moov_off is not None and mdat_payload > 0:
+                with open(filepath, "rb") as f:
+                    f.seek(moov_off)
+                    moov = f.read(min(moov_size, 16 * 1024 * 1024))
+                sample_bytes = total_count = 0
+                for b in _mp4.iter_boxes(moov):
+                    if b["type"] == b"stsz" and not b["truncated"] and not b["beyond_cap"]:
+                        p = b["offset"] + b["hdr"]
+                        if p + 12 <= len(moov):
+                            ssize = struct.unpack_from(">I", moov, p + 4)[0]
+                            scount = struct.unpack_from(">I", moov, p + 8)[0]
+                            total_count += scount
+                            if ssize:
+                                sample_bytes += ssize * scount
+                            else:
+                                q = p + 12
+                                for _ in range(min(scount, (len(moov) - q) // 4)):
+                                    sample_bytes += struct.unpack_from(">I", moov, q)[0]
+                                    q += 4
+                gap = mdat_payload - sample_bytes
+                # require samples actually described (fragmented/DASH stsz has
+                # count 0 with the samples in moof/trun, not a cavity), and only a
+                # payload-sized run (small gaps are legit alignment/edit padding).
+                if total_count > 0 and gap > 1024:
+                    findings.append({"severity": "notice", "offset": 0,
+                                     "rule": "mp4_mdat_coverage",
+                                     "message": f"{gap:,} bytes in mdat referenced by no "
+                                                f"sample (stsz sums {sample_bytes:,} of "
+                                                f"{mdat_payload:,}); possible cavity"})
         except Exception:
             pass
 
@@ -242,11 +268,25 @@ def scan(filepath, fmt_label, chunks, warns):
         try:
             with open(filepath, "rb") as f:
                 th = f.read(10)
-                ver = th[3]
+                ver, flags = th[3], th[5]
                 tag_size = (((th[6] & 0x7F) << 21) | ((th[7] & 0x7F) << 14)
                             | ((th[8] & 0x7F) << 7) | (th[9] & 0x7F))
                 body = f.read(tag_size)
+            # whole-tag unsynchronisation (v2.2/2.3) escapes $FF00; de-escape
+            # before reading sizes.
+            if flags & 0x80 and ver != 4:
+                body = body.replace(b"\xff\x00", b"\xff")
             pos, pad_start = 0, tag_size
+            # skip the extended header (flag 0x40); its zero size bytes would
+            # otherwise be misread as the start of padding at offset 0.
+            if flags & 0x40 and ver != 2 and len(body) >= 4:
+                if ver == 4:
+                    ext = (((body[0] & 0x7F) << 21) | ((body[1] & 0x7F) << 14)
+                           | ((body[2] & 0x7F) << 7) | (body[3] & 0x7F))
+                else:
+                    ext = struct.unpack(">I", body[0:4])[0] + 4
+                if 0 < ext <= len(body):
+                    pos = ext
             while pos + 10 <= len(body):
                 if body[pos] == 0:                      # a null frame id = padding
                     pad_start = pos
@@ -257,7 +297,7 @@ def scan(filepath, fmt_label, chunks, warns):
                 else:
                     fsz = struct.unpack_from(">I", body, pos + 4)[0]
                 pos += 10 + fsz
-                if fsz < 0 or pos > len(body):
+                if pos > len(body):
                     break
             pad = body[pad_start:]
             if any(pad):
