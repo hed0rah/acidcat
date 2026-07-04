@@ -74,3 +74,17 @@ def test_ogg_opus_identity_and_duration(tmp_path):
     assert _field(chunks, "channels") == 2
     dur = _field(chunks, "duration")
     assert dur is not None and dur.startswith("1.000")        # opus granule at 48 kHz
+
+
+def test_fxp_vst_preset(tmp_path):
+    # VST2 .fxp: CcnK + FPCh (opaque-chunk preset), plugin id, 28-byte name
+    name = b"My Preset".ljust(28, b"\x00")
+    data = (b"CcnK" + struct.pack(">I", 100) + b"FPCh" + struct.pack(">I", 1)
+            + b"XfsX" + struct.pack(">I", 1) + struct.pack(">I", 1) + name
+            + struct.pack(">I", 8) + bytes(8))
+    f = tmp_path / "p.fxp"
+    f.write_bytes(data)
+    label, chunks, warns = walk_file(str(f))
+    assert "FXP" in label
+    assert "XfsX" in str(_field(chunks, "plugin_id"))
+    assert "My Preset" in str(_field(chunks, "preset_name"))

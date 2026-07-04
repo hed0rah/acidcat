@@ -11,7 +11,7 @@ in this package, and add one registry entry below.
 
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
-    aiff, bitwig, flac, midi, mp3, mp4, ncw, ni, ogg, rf64, serum, vital, wav,
+    aiff, bitwig, flac, fxp, midi, mp3, mp4, ncw, ni, ogg, rf64, serum, vital, wav,
 )
 from acidcat.core.walk.base import Unsupported
 
@@ -25,6 +25,7 @@ _WALKERS = {
     "midi": ("Standard MIDI File",
              lambda path, deep: midi.inspect_midi(path, deep=deep)),
     "serum": ("Xfer Serum preset", lambda path, deep: serum.inspect_serum(path)),
+    "fxp": ("VST FXP preset", lambda path, deep: fxp.inspect_fxp(path)),
     "bitwig": ("Bitwig preset",
                lambda path, deep: bitwig.inspect_bitwig(path, deep=deep)),
     "ncw": ("NI Compressed Wave", lambda path, deep: ncw.inspect_ncw(path)),
