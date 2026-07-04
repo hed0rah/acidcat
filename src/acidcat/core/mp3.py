@@ -5,7 +5,7 @@ Unlike RIFF/FLAC, MP3 is not a chunked container: it is an optional
 ID3v2 tag, a run of self-describing MPEG audio frames (each with its own
 4-byte header), and an optional ID3v1 trailer. This module provides the
 frame-header decoder, a frame walker, and the ID3v2 size reader. The
-``inspect`` command shapes these into its chunk model and decodes the
+walker in core/walk/mp3.py shapes these into the chunk model and decodes the
 Xing/LAME and ID3-frame detail for display.
 """
 
