@@ -646,7 +646,7 @@ def _id3_text_frame(fid, text):
 
 class TestInspectMp3:
     def test_frames_counted_cbr(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         p = tmp_path / "t.mp3"
         p.write_bytes(_MP3_FRAME * 3)
         chunks, warns = inspect_mp3(str(p))
@@ -662,7 +662,7 @@ class TestInspectMp3:
         assert warns == []
 
     def test_id3v22_text_frames_decode(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
 
         def v22(fid, text):  # v2.2: 3-char id + 3-byte size
             payload = b"\x00" + text.encode("latin-1")
@@ -677,7 +677,7 @@ class TestInspectMp3:
         assert vals.get("TP1") == ("Band", "artist")
 
     def test_id3v2_extended_header_skipped(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
 
         def v23(fid, text):
             payload = b"\x00" + text.encode("latin-1")
@@ -694,7 +694,7 @@ class TestInspectMp3:
         assert any(f["name"] == "TIT2" for f in id3["fields"])  # frame past it still read
 
     def test_id3v2_unsync_warns(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
 
         def v23(fid, payload):
             return fid + struct.pack(">I", len(payload)) + b"\x00\x00" + payload
@@ -707,7 +707,7 @@ class TestInspectMp3:
         assert any("unsynchronised" in w for w in id3["warnings"])
 
     def test_mp3_vbri_header_parsed(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         # inject a VBRI header at the fixed offset 36 into a valid frame
         vbri = b"VBRI" + struct.pack(">HHH", 1, 0, 100) + struct.pack(">II", 5000, 42)
         frame = bytearray(_MP3_FRAME)
@@ -724,7 +724,7 @@ class TestInspectMp3:
                    for f in frames["fields"])
 
     def test_id3v2_frames_decoded(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         tag = _id3v2(_id3_text_frame(b"TIT2", "My Title"),
                      _id3_text_frame(b"TPE1", "Some Artist"))
         p = tmp_path / "t.mp3"
@@ -737,7 +737,7 @@ class TestInspectMp3:
         assert warns == []
 
     def test_xing_frame_count_divergence_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         # forge a Xing header (offset 21 for MPEG1 mono) declaring 9999
         # frames while only 3 are actually present.
         fr = bytearray(_MP3_FRAME)
@@ -753,7 +753,7 @@ class TestInspectMp3:
     def test_info_tag_is_cbr(self, tmp_path):
         # is_vbr_header was true for both Xing and Info; an Info tag is
         # LAME's CBR marker and must not force the VBR label.
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         fr = bytearray(_MP3_FRAME)
         fr[21:25] = b"Info"
         fr[25:29] = struct.pack(">I", 0x01)      # frames flag
@@ -767,7 +767,7 @@ class TestInspectMp3:
         assert vbr["value"] is False
 
     def test_xing_tag_forces_vbr_even_with_uniform_bitrates(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         fr = bytearray(_MP3_FRAME)
         fr[21:25] = b"Xing"
         fr[25:29] = struct.pack(">I", 0x01)
@@ -779,7 +779,7 @@ class TestInspectMp3:
         assert "VBR" in frames["summary"]
 
     def test_truncated_xing_header_no_crash(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         # a first frame that declares a Xing tag with the frames flag set but
         # ends right after the flags: the frame_count read must not run past
         # the buffer (previously an uncaught struct.error crashed inspect).
@@ -790,7 +790,7 @@ class TestInspectMp3:
         assert any("truncated" in w.lower() for w in allw)
 
     def test_id3v1_trailer_detected(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         v1 = b"TAG" + b"My Title".ljust(30, b"\x00") \
             + b"My Artist".ljust(30, b"\x00") + b"\x00" * 65
         p = tmp_path / "t.mp3"
@@ -800,14 +800,14 @@ class TestInspectMp3:
         assert "My Title" in chunks[-1]["summary"]
 
     def test_no_frame_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         p = tmp_path / "t.mp3"
         p.write_bytes(_id3v2(_id3_text_frame(b"TIT2", "x")) + b"\x00" * 200)
         _, warns = inspect_mp3(str(p))
         assert any("no valid MPEG" in w for w in warns)
 
     def test_deep_frame_listing(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         p = tmp_path / "t.mp3"
         p.write_bytes(_MP3_FRAME * 3)
         chunks, _ = inspect_mp3(str(p), deep=True)
@@ -818,7 +818,7 @@ class TestInspectMp3:
         assert frames["rows"][0]["offset"] == "0x00000000"
 
     def test_default_has_no_rows(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp3
+        from acidcat.core.walk.mp3 import inspect_mp3
         p = tmp_path / "t.mp3"
         p.write_bytes(_MP3_FRAME * 2)
         chunks, _ = inspect_mp3(str(p))
@@ -1128,7 +1128,7 @@ class TestMidiSmpteOffset:
 
 class TestId3v1AndLame:
     def test_id3v11_full_fields_and_genre(self):
-        from acidcat.commands.inspect import _id3v1_fields
+        from acidcat.core.walk.mp3 import _id3v1_fields
         tag = (b"TAG" + b"Title".ljust(30, b"\x00") + b"Artist".ljust(30, b"\x00")
                + b"Album".ljust(30, b"\x00") + b"2020" + b"Comment".ljust(28, b"\x00")
                + b"\x00" + bytes([7]) + bytes([34]))  # v1.1 track 7, genre 34
@@ -1140,7 +1140,7 @@ class TestId3v1AndLame:
         assert d["genre"] == (34, "Acid")
 
     def test_id3v10_has_no_track(self):
-        from acidcat.commands.inspect import _id3v1_fields
+        from acidcat.core.walk.mp3 import _id3v1_fields
         tag = (b"TAG" + b"T".ljust(30, b"\x00") + b"A".ljust(30, b"\x00")
                + b"Al".ljust(30, b"\x00") + b"2020" + b"C".ljust(30, b"\x00")
                + bytes([13]))  # full comment, genre 13
@@ -1149,7 +1149,7 @@ class TestId3v1AndLame:
         assert next(f["note"] for f in fields if f["name"] == "genre") == "Pop"
 
     def test_lame_replaygain_decode(self):
-        from acidcat.commands.inspect import _lame_replaygain
+        from acidcat.core.walk.mp3 import _lame_replaygain
         # name=1 (radio), sign=1 (neg), magnitude 60 -> -6.0 dB
         word = (1 << 13) | (1 << 9) | 60
         assert _lame_replaygain(word) == "-6.0 dB (radio)"

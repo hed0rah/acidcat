@@ -43,6 +43,6 @@ def test_txxx_write_and_read_back(tmp_path):
 
 
 def test_decode_txxx_shows_description():
-    from acidcat.commands.inspect import _decode_txxx
+    from acidcat.core.walk.mp3 import _decode_txxx
     assert _decode_txxx(b"\x03MOOD\x00nocturnal", "TXXX") == "MOOD = nocturnal"
     assert _decode_txxx(b"\x03\x00justvalue", "TXXX") == "justvalue"
