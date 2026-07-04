@@ -5,6 +5,14 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [Unreleased]
+
+### Added
+
+- `inspect --anomalies` flags an Ogg file carrying more than one logical
+  bitstream (multiple BOS serials), several codecs multiplexed into one file,
+  where a single-codec player surfaces only one and the others ride along hidden.
+
 ## [0.15.0] - 2026-07-03
 
 ### Added
