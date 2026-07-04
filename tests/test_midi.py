@@ -168,3 +168,18 @@ def test_whole_file_read_is_capped(tmp_path, monkeypatch):
     meta = parse_midi(str(p))  # must not read past the cap or raise
     assert meta["format"] == 1
     assert meta["tempo_bpm"] == 120.0
+
+
+def test_sysex_noncommercial_id_flagged_as_cavity(tmp_path):
+    """A SysEx event with the 0x7D non-commercial manufacturer id (no synth acts
+    on it) is a payload-cavity tell; the walker warns."""
+    from acidcat.core.walk.midi import inspect_midi
+    body = bytes([0x7D]) + b"hidden-payload-bytes-nobody-plays"
+    sysex = bytes([0x00, 0xF0]) + bytes([len(body) + 1]) + body + bytes([0xF7])
+    track = (bytes([0x00, 0x90, 60, 64, 0x60, 0x80, 60, 0])
+             + sysex + bytes([0x00, 0xFF, 0x2F, 0x00]))
+    f = tmp_path / "sysex.mid"
+    f.write_bytes(_build_smf([track]))
+    chunks, warns = inspect_midi(str(f))
+    all_warns = list(warns) + [w for c in chunks for w in c.get("warnings", [])]
+    assert any("non-commercial" in w and "cavity" in w for w in all_warns)

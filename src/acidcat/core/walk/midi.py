@@ -43,6 +43,7 @@ def _scan_track(trk, ctx, collect=False):
     time_sig = key_sig = None
     has_eot = False
     events = []
+    sysex = []
 
     def emit(name, detail=""):
         if collect:
@@ -94,11 +95,14 @@ def _scan_track(trk, ctx, collect=False):
             emit("meta " + _META_NAMES.get(etype, f"0x{etype:02x}"), detail)
         elif status in (0xF0, 0xF7):
             running = 0
-            slen, pos = _read_vlq(trk, pos + 1)
-            if pos + slen > len(trk):
+            slen, dpos = _read_vlq(trk, pos + 1)
+            if dpos + slen > len(trk):
                 break
-            pos += slen
-            emit("sysex", f"{slen} bytes")
+            body = trk[dpos:dpos + slen]
+            pos = dpos + slen
+            mfr = _sysex_mfr(body)
+            emit("sysex", f"{mfr}, {slen} bytes")
+            sysex.append((mfr, slen, bool(body) and body[0] == 0x7D))
         elif status & 0x80:
             running = status
             pos += 1
@@ -147,7 +151,29 @@ def _scan_track(trk, ctx, collect=False):
     return {"ticks": ticks, "notes": notes, "nmin": nmin, "nmax": nmax,
             "channels": channels, "tempos": tempos, "names": names,
             "time_sig": time_sig, "key_sig": key_sig, "has_eot": has_eot,
-            "events": events}
+            "events": events, "sysex": sysex}
+
+
+# a few common MIDI manufacturer ids (System Exclusive id table); enough to name
+# the usual suspects. 0x7d/0x7e/0x7f are the reserved/universal ids.
+_MFR = {0x40: "Kawai", 0x41: "Roland", 0x42: "Korg", 0x43: "Yamaha",
+        0x44: "Casio", 0x47: "Akai", 0x00: "extended-id"}
+
+
+def _sysex_mfr(body):
+    """Name the SysEx manufacturer from the id byte(s) after F0."""
+    if not body:
+        return "empty"
+    b0 = body[0]
+    if b0 == 0x7D:
+        return "non-commercial (0x7D)"
+    if b0 == 0x7E:
+        return "universal non-realtime"
+    if b0 == 0x7F:
+        return "universal realtime"
+    if b0 == 0x00 and len(body) >= 3:
+        return f"ext id {body[0]:02X} {body[1]:02X} {body[2]:02X}"
+    return _MFR.get(b0, f"mfr 0x{b0:02X}")
 
 
 def _voice_detail(mtype, d1, d2, ch):
@@ -257,6 +283,12 @@ def inspect_midi(filepath, deep=False):
             flds.append(_f(None, 0, "key_sig", st["key_sig"]))
         if not st["has_eot"]:
             entry["warnings"].append("no end-of-track meta event")
+        for mfr, slen, reserved in st["sysex"]:
+            if reserved or slen > 256:
+                flds.append(_f(None, 0, "sysex", f"{mfr}, {slen:,} bytes"))
+                why = ("uses the non-commercial manufacturer id, no synth acts "
+                       "on it" if reserved else f"oversized ({slen:,} bytes)")
+                entry["warnings"].append(f"SysEx {why}: possible payload cavity")
         max_ticks = max(max_ticks, st["ticks"])
 
         bits = []
