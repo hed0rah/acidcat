@@ -117,3 +117,217 @@ def test_appended_zip_polyglot_on_headerless_format(tmp_path):
         fmt, chunks, warns = "?", [], []
     findings = anomalies.scan(path, fmt, chunks, warns)
     assert any(f["rule"] == "polyglot" for f in findings)
+
+
+def _ogg_two_bos():
+    # two BOS pages (header_type bit 0x02) with distinct serials -> two logical
+    # bitstreams. built with bytes([...]) to stay heredoc/backslash-safe.
+    def page(serial, htype, packet):
+        seg = []
+        rem = len(packet)
+        while rem >= 255:
+            seg.append(255)
+            rem -= 255
+        seg.append(rem)
+        hdr = (b"OggS" + bytes([0, htype]) + bytes(8) + struct.pack("<I", serial)
+               + struct.pack("<I", 0) + bytes(4) + bytes([len(seg)]) + bytes(seg))
+        return hdr + packet
+    vorbis = bytes([1]) + b"vorbis" + bytes(20)
+    opus = b"OpusHead" + bytes(11)
+    return page(1, 2, vorbis) + page(2, 2, opus)
+
+
+def test_ogg_multistream_flagged(tmp_path):
+    path = _write(tmp_path, "dual.ogg", _ogg_two_bos())
+    findings = anomalies.scan(path, "Ogg Vorbis", [], [])
+    assert any(f["rule"] == "ogg_multistream" for f in findings)
+
+
+def test_ogg_single_stream_not_flagged(tmp_path):
+    # one BOS page only -> no multistream flag
+    def page(serial, htype, packet):
+        seg = [len(packet)]
+        hdr = (b"OggS" + bytes([0, htype]) + bytes(8) + struct.pack("<I", serial)
+               + struct.pack("<I", 0) + bytes(4) + bytes([1]) + bytes(seg))
+        return hdr + packet
+    data = page(1, 2, bytes([1]) + b"vorbis" + bytes(20))
+    path = _write(tmp_path, "solo.ogg", data)
+    findings = anomalies.scan(path, "Ogg Vorbis", [], [])
+    assert not any(f["rule"] == "ogg_multistream" for f in findings)
+
+
+def _wav_with_junk(junk_body):
+    junk = b"JUNK" + struct.pack("<I", len(junk_body)) + junk_body
+    if len(junk) & 1:
+        junk += b"\x00"
+    fmt = b"fmt " + struct.pack("<I", 16) + struct.pack("<HHIIHH", 1, 1, 8000, 8000, 1, 8)
+    data = b"data" + struct.pack("<I", 4) + bytes(4)
+    body = b"WAVE" + junk + fmt + data
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def test_junk_cavity_nonzero_flagged(tmp_path):
+    # a payload-sized (>= 1 KB) non-zero JUNK chunk is a plausible cavity
+    from acidcat.core.walk import walk_file
+    path = _write(tmp_path, "junk.wav", _wav_with_junk(b"HIDDEN-PAYLOAD" * 100))
+    label, chunks, warns = walk_file(path)
+    findings = anomalies.scan(path, label, chunks, warns)
+    assert any(f["rule"] == "cavity_content" and "JUNK" in f["message"] for f in findings)
+
+
+def test_junk_all_zero_not_flagged(tmp_path):
+    from acidcat.core.walk import walk_file
+    path = _write(tmp_path, "pad.wav", _wav_with_junk(bytes(2048)))
+    label, chunks, warns = walk_file(path)
+    findings = anomalies.scan(path, label, chunks, warns)
+    assert not any(f["rule"] == "cavity_content" for f in findings)
+
+
+def test_junk_small_nonzero_not_flagged(tmp_path):
+    # routine small non-zero JUNK (DAW cue/timestamp metadata) is below the floor
+    from acidcat.core.walk import walk_file
+    path = _write(tmp_path, "meta.wav", _wav_with_junk(b"DAWMETA" + bytes(40)))
+    label, chunks, warns = walk_file(path)
+    findings = anomalies.scan(path, label, chunks, warns)
+    assert not any(f["rule"] == "cavity_content" for f in findings)
+
+
+def _mp4_box(t, payload):
+    return struct.pack(">I", 8 + len(payload)) + t + payload
+
+
+def _mp4_with_stsz(sample_size, count, mdat_payload):
+    stsz = _mp4_box(b"stsz", bytes(4) + struct.pack(">I", sample_size)
+                    + struct.pack(">I", count))
+    tree = _mp4_box(b"moov", _mp4_box(b"trak", _mp4_box(b"mdia",
+                    _mp4_box(b"minf", _mp4_box(b"stbl", stsz)))))
+    return (_mp4_box(b"ftyp", b"M4A \x00\x00\x00\x00")
+            + tree + _mp4_box(b"mdat", bytes(mdat_payload)))
+
+
+def test_mp4_mdat_coverage_gap_flagged(tmp_path):
+    # 10 samples x 100 = 1000 bytes referenced, but mdat carries 3000 -> 2000 gap
+    path = _write(tmp_path, "cav.m4a", _mp4_with_stsz(100, 10, 3000))
+    findings = anomalies.scan(path, "MP4/M4A", [], [])
+    assert any(f["rule"] == "mp4_mdat_coverage" for f in findings)
+
+
+def test_mp4_mdat_fully_covered_not_flagged(tmp_path):
+    # 30 x 100 = 3000 exactly covers the mdat payload -> no cavity
+    path = _write(tmp_path, "clean.m4a", _mp4_with_stsz(100, 30, 3000))
+    findings = anomalies.scan(path, "MP4/M4A", [], [])
+    assert not any(f["rule"] == "mp4_mdat_coverage" for f in findings)
+
+
+def _wav16(pcm):
+    fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)   # PCM mono 16-bit
+    body = (b"WAVE" + b"fmt " + struct.pack("<I", 16) + fmt
+            + b"data" + struct.pack("<I", len(pcm)) + pcm)
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def test_dual_endianness_flagged(tmp_path):
+    import math
+    from acidcat.core.walk import walk_file
+    # both byte planes vary slowly -> both endian views are structured audio
+    pcm = b"".join(struct.pack("<H",
+                   (int(127 + 120 * math.sin(i / 37)) & 0xFF)
+                   | ((int(127 + 120 * math.sin(i / 41)) & 0xFF) << 8))
+                   for i in range(4000))
+    path = _write(tmp_path, "dual.wav", _wav16(pcm))
+    label, chunks, warns = walk_file(path)
+    assert any(f["rule"] == "dual_endianness"
+               for f in anomalies.scan(path, label, chunks, warns))
+
+
+def test_normal_audio_not_dual_endian(tmp_path):
+    import math
+    from acidcat.core.walk import walk_file
+    # a plain 16-bit sine: little-endian structured, byte-swapped is noise
+    pcm = b"".join(struct.pack("<h", int(20000 * math.sin(i / 30)))
+                   for i in range(4000))
+    path = _write(tmp_path, "sine.wav", _wav16(pcm))
+    label, chunks, warns = walk_file(path)
+    assert not any(f["rule"] == "dual_endianness"
+                   for f in anomalies.scan(path, label, chunks, warns))
+
+
+def _syncsafe(n):
+    return bytes([(n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F])
+
+
+def _mp3_with_id3_padding(pad):
+    frame = b"TIT2" + struct.pack(">I", 3) + bytes(2) + bytes([0]) + b"Hi"
+    tagbody = frame + pad
+    tag = b"ID3" + bytes([3, 0, 0]) + _syncsafe(len(tagbody)) + tagbody
+    return tag + b"\xff\xfb\x90\x00" + bytes(413)
+
+
+def test_id3_nonzero_padding_flagged(tmp_path):
+    from acidcat.core.walk import walk_file
+    # padding region (starts with a null, per spec) carries non-zero payload
+    data = _mp3_with_id3_padding(bytes(3) + b"HIDDEN-PAYLOAD" + bytes(3))
+    path = _write(tmp_path, "pad.mp3", data)
+    label, chunks, warns = walk_file(path)
+    assert any(f["rule"] == "id3_padding_nonzero"
+               for f in anomalies.scan(path, label, chunks, warns))
+
+
+def test_id3_zero_padding_not_flagged(tmp_path):
+    from acidcat.core.walk import walk_file
+    data = _mp3_with_id3_padding(bytes(30))          # honest zero padding
+    path = _write(tmp_path, "clean.mp3", data)
+    label, chunks, warns = walk_file(path)
+    assert not any(f["rule"] == "id3_padding_nonzero"
+                   for f in anomalies.scan(path, label, chunks, warns))
+
+
+def _mp4_moov_last(sample_size, count, mdat_payload):
+    # non-faststart layout: mdat before moov (moov at/near EOF)
+    stsz = _mp4_box(b"stsz", bytes(4) + struct.pack(">I", sample_size)
+                    + struct.pack(">I", count))
+    moov = _mp4_box(b"moov", _mp4_box(b"trak", _mp4_box(b"mdia",
+                    _mp4_box(b"minf", _mp4_box(b"stbl", stsz)))))
+    return (_mp4_box(b"ftyp", b"M4A \x00\x00\x00\x00")
+            + _mp4_box(b"mdat", bytes(mdat_payload)) + moov)
+
+
+def test_mp4_fragmented_empty_stsz_not_flagged(tmp_path):
+    # stsz sample_count 0 (fragmented/DASH: samples live in moof, not stsz) must
+    # not flag the whole mdat as a cavity (reviewer finding #1)
+    path = _write(tmp_path, "frag.m4a", _mp4_with_stsz(0, 0, 5000))
+    findings = anomalies.scan(path, "MP4/M4A", [], [])
+    assert not any(f["rule"] == "mp4_mdat_coverage" for f in findings)
+
+
+def test_mp4_cavity_found_with_moov_at_eof(tmp_path):
+    # moov after mdat (non-faststart): the header-scan still locates stsz
+    # (reviewer finding #2). 10x100=1000 referenced, 3000 mdat -> 2000 gap.
+    path = _write(tmp_path, "nofast.m4a", _mp4_moov_last(100, 10, 3000))
+    findings = anomalies.scan(path, "MP4/M4A", [], [])
+    assert any(f["rule"] == "mp4_mdat_coverage" for f in findings)
+
+
+def test_id3_extended_header_zero_padding_not_flagged(tmp_path):
+    # a tag with an extended header + real frame + honest zero padding: the ext
+    # header's zero size bytes must not be misread as padding (reviewer finding #3)
+    frame = b"TIT2" + struct.pack(">I", 3) + bytes(2) + bytes([0]) + b"Hi"
+    ext = struct.pack(">I", 6) + bytes(6)              # v2.3 ext header (size excl 4)
+    tagbody = ext + frame + bytes(20)                  # ext, frame, zero padding
+    tag = b"ID3" + bytes([3, 0, 0x40]) + _syncsafe(len(tagbody)) + tagbody
+    data = tag + b"\xff\xfb\x90\x00" + bytes(413)
+    path = _write(tmp_path, "ext.mp3", data)
+    from acidcat.core.walk import walk_file
+    label, chunks, warns = walk_file(path)
+    findings = anomalies.scan(path, label, chunks, warns)
+    assert not any(f["rule"] == "id3_padding_nonzero" for f in findings)
+
+
+def test_mp4_trkn_decodes_to_index_total(tmp_path):
+    # trkn/disk should decode to "index/total", not a raw byte count
+    from acidcat.core.mp4 import parse_ilst
+    payload = struct.pack(">I", 0) + struct.pack(">I", 0) + struct.pack(">HHHH", 0, 3, 12, 0)
+    trkn = _mp4_box(b"trkn", _mp4_box(b"data", payload))
+    meta = _mp4_box(b"meta", bytes(4) + _mp4_box(b"ilst", trkn))
+    doc = _mp4_box(b"ftyp", b"M4A \x00\x00\x00\x00") + _mp4_box(b"moov", _mp4_box(b"udta", meta))
+    assert parse_ilst(doc).get("track") == "3/12"
