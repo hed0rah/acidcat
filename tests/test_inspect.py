@@ -4,7 +4,8 @@ import struct
 from types import SimpleNamespace
 
 import pytest
-from acidcat.commands.inspect import inspect_aiff, inspect_midi, inspect_wav, run
+from acidcat.commands.inspect import inspect_aiff, inspect_midi, run
+from acidcat.core.walk.wav import inspect_wav
 
 
 def _wav(tmp_path, *chunks, riff_size=None, name="t.wav"):
@@ -358,7 +359,7 @@ class TestInspectMidi:
 
 class TestInspectRf64:
     def _rf64(self, tmp_path, data_bytes=8, sentinel_ok=True):
-        from acidcat.commands.inspect import inspect_rf64  # noqa: F401
+        from acidcat.core.walk.rf64 import inspect_rf64  # noqa: F401
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * data_bytes
@@ -378,7 +379,7 @@ class TestInspectRf64:
         return str(p)
 
     def test_ds64_resolves_data_size(self, tmp_path):
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         path = self._rf64(tmp_path)
         chunks, warns = inspect_rf64(path)
         ids = [c["id"] for c in chunks]
@@ -388,7 +389,7 @@ class TestInspectRf64:
         assert warns == []
 
     def test_header_sentinel_violation_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         path = self._rf64(tmp_path, sentinel_ok=False)
         _, warns = inspect_rf64(path)
         assert any("sentinel" in w for w in warns)
@@ -396,7 +397,7 @@ class TestInspectRf64:
     def test_ds64_override_table_resolves_nondata_sentinel(self, tmp_path):
         # a non-data chunk carrying the sentinel is resolved through the
         # ds64 override table, not broken on.
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         bigx = b"bigx" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 16
@@ -417,7 +418,7 @@ class TestInspectRf64:
         # an RF64 fact chunk stores 0xFFFFFFFF; the real sample count
         # lives in ds64. duration must derive from the ds64 count, not
         # the sentinel (which read as ~97,000 s for a 1 s file).
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         data_bytes = 88200  # 1.0 s of 16-bit mono at 44100 Hz
@@ -441,7 +442,7 @@ class TestInspectRf64:
     def test_ds64_data_size_beyond_file_linted(self, tmp_path):
         # a ds64 claiming exabytes of data cannot be honest about a
         # small file; lint it at the source, not just at the data chunk.
-        from acidcat.commands.inspect import inspect_rf64
+        from acidcat.core.walk.rf64 import inspect_rf64
         fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
         fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
         data_chunk = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 8
@@ -1005,7 +1006,7 @@ class TestRunCli:
 
 class TestParseFmtExtensible:
     def test_extensible_channel_mask_and_guid(self):
-        from acidcat.commands.inspect import _parse_fmt, _KSDATAFORMAT_TAIL
+        from acidcat.core.walk.wav import _parse_fmt, _KSDATAFORMAT_TAIL
         sub = struct.pack("<H", 1) + _KSDATAFORMAT_TAIL  # PCM subtype
         b = (struct.pack("<HHIIHH", 0xFFFE, 6, 48000, 48000 * 12, 12, 16)
              + struct.pack("<HH", 22, 16) + struct.pack("<I", 0x3F) + sub)
@@ -1016,7 +1017,7 @@ class TestParseFmtExtensible:
         assert warns == []
 
     def test_extensible_nonstandard_guid_warns(self):
-        from acidcat.commands.inspect import _parse_fmt
+        from acidcat.core.walk.wav import _parse_fmt
         b = (struct.pack("<HHIIHH", 0xFFFE, 2, 44100, 44100 * 4, 4, 16)
              + struct.pack("<HH", 22, 16) + struct.pack("<I", 0x03)
              + struct.pack("<H", 1) + b"\x00" * 14)  # wrong GUID tail
@@ -1024,7 +1025,7 @@ class TestParseFmtExtensible:
         assert any("KSDATAFORMAT" in w for w in warns)
 
     def test_nonextensible_extended_shows_cbsize(self):
-        from acidcat.commands.inspect import _parse_fmt
+        from acidcat.core.walk.wav import _parse_fmt
         b = struct.pack("<HHIIHH", 3, 2, 44100, 44100 * 8, 8, 32) + struct.pack("<H", 0)
         _, fields, _ = _parse_fmt(b, {})
         assert any(f["name"] == "cb_size" for f in fields)
@@ -1046,7 +1047,7 @@ class TestParseBext:
         return b + hist
 
     def test_v2_umid_loudness_and_history(self):
-        from acidcat.commands.inspect import _parse_bext
+        from acidcat.core.walk.wav import _parse_bext
         b = self._bext(2, umid=b"\x01\x02\x03",
                        loud=[-2265, 500, -150, 0x7FFF, -1000],
                        hist=b"A=PCM,F=48000,W=24,M=stereo\r\n\x00\x00")
@@ -1058,12 +1059,12 @@ class TestParseBext:
         assert d["coding_history"].startswith("A=PCM")
 
     def test_v0_has_no_umid_or_loudness(self):
-        from acidcat.commands.inspect import _parse_bext
+        from acidcat.core.walk.wav import _parse_bext
         _, fields, _ = _parse_bext(self._bext(0), {})
         assert not any(f["name"] in ("umid", "loudness_value") for f in fields)
 
     def test_v1_all_zero_umid(self):
-        from acidcat.commands.inspect import _parse_bext
+        from acidcat.core.walk.wav import _parse_bext
         _, fields, _ = _parse_bext(self._bext(1), {})
         assert next(f["value"] for f in fields if f["name"] == "umid") == "0 (no UMID)"
 
@@ -1191,7 +1192,7 @@ class TestInspectFull:
 class TestBitwigBWBM:
     def test_bwbm_beats_duration_bpm(self):
         import struct as _s
-        from acidcat.commands.inspect import _parse_bwbm
+        from acidcat.core.walk.wav import _parse_bwbm
         payload = (_s.pack("<I", 1) + _s.pack("<I", 2) + b"\x00" * 16
                    + _s.pack("<d", 6.0) + _s.pack("<d", 2.5714285714))
         summary, fields, warns = _parse_bwbm(payload, {})
@@ -1203,7 +1204,7 @@ class TestBitwigBWBM:
         assert "140" in summary and warns == []
 
     def test_bwbm_truncated(self):
-        from acidcat.commands.inspect import _parse_bwbm
+        from acidcat.core.walk.wav import _parse_bwbm
         s, _, w = _parse_bwbm(b"\x00" * 20, {})
         assert s == "truncated" and w
 
@@ -1720,14 +1721,14 @@ class TestUnicodeMetadata:
     (the ascii/errors='replace' bug that turned Korean/CJK/etc. into '?')."""
 
     def test_dtext_utf8_and_latin1_fallback(self):
-        from acidcat.commands.inspect import _dtext
+        from acidcat.core.walk.base import _dtext
         assert _dtext("아버지".encode("utf-8")) == "아버지"
         assert _dtext("⣎⡇ꉪლ".encode("utf-8")) == "⣎⡇ꉪლ"
         assert _dtext(b"caf\xe9") == "café"          # invalid utf-8 -> latin-1, no raise
         assert "�" not in _dtext("아버지".encode("utf-8"))
 
     def test_wav_info_utf8_roundtrips_through_parse(self):
-        from acidcat.commands.inspect import _parse_list
+        from acidcat.core.walk.wav import _parse_list
         val = "아버지".encode("utf-8")
         info = b"INFO" + b"INAM" + struct.pack("<I", len(val)) + val
         _, fields, _ = _parse_list(info, {})
