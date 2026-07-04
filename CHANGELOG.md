@@ -20,6 +20,11 @@ once it leaves alpha.
 - `inspect --anomalies` flags an MP4/M4A `mdat` coverage gap: bytes inside `mdat`
   that no `stsz` sample references (a payload grown onto the box's tail while the
   sample tables still validate), a container cavity most tools miss.
+- `inspect --anomalies` flags non-zero bytes in an ID3v2 tag's padding region
+  (after the last frame, within the declared tag size), a cavity, not trailing data.
+- `inspect --anomalies` flags dual-endianness 16-bit PCM: audio engineered so
+  both the little- and big-endian readings are structured (a WAV/AIFF twin that
+  plays a different sound each way). Real audio is structured only one way.
 
 ### Fixed
 
@@ -28,6 +33,10 @@ once it leaves alpha.
 - Every ID3 `T***` text frame now decodes to its value; frames outside a
   hardcoded set (e.g. `TPE2` album artist, `TCOM` composer) previously showed
   as a raw byte count. All `T***` frames share the same text structure per spec.
+- MP3 duration is now the gapless/playable length: the LAME encoder delay and
+  padding are subtracted (was ~48 ms long), matching ffprobe/mutagen.
+- MP4/M4A `trkn` and `disk` atoms decode to `index/total` (or `index`) instead
+  of a raw byte count.
 
 ## [0.15.0] - 2026-07-03
 

@@ -207,3 +207,66 @@ def test_mp4_mdat_fully_covered_not_flagged(tmp_path):
     path = _write(tmp_path, "clean.m4a", _mp4_with_stsz(100, 30, 3000))
     findings = anomalies.scan(path, "MP4/M4A", [], [])
     assert not any(f["rule"] == "mp4_mdat_coverage" for f in findings)
+
+
+def _wav16(pcm):
+    fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)   # PCM mono 16-bit
+    body = (b"WAVE" + b"fmt " + struct.pack("<I", 16) + fmt
+            + b"data" + struct.pack("<I", len(pcm)) + pcm)
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def test_dual_endianness_flagged(tmp_path):
+    import math
+    from acidcat.core.walk import walk_file
+    # both byte planes vary slowly -> both endian views are structured audio
+    pcm = b"".join(struct.pack("<H",
+                   (int(127 + 120 * math.sin(i / 37)) & 0xFF)
+                   | ((int(127 + 120 * math.sin(i / 41)) & 0xFF) << 8))
+                   for i in range(4000))
+    path = _write(tmp_path, "dual.wav", _wav16(pcm))
+    label, chunks, warns = walk_file(path)
+    assert any(f["rule"] == "dual_endianness"
+               for f in anomalies.scan(path, label, chunks, warns))
+
+
+def test_normal_audio_not_dual_endian(tmp_path):
+    import math
+    from acidcat.core.walk import walk_file
+    # a plain 16-bit sine: little-endian structured, byte-swapped is noise
+    pcm = b"".join(struct.pack("<h", int(20000 * math.sin(i / 30)))
+                   for i in range(4000))
+    path = _write(tmp_path, "sine.wav", _wav16(pcm))
+    label, chunks, warns = walk_file(path)
+    assert not any(f["rule"] == "dual_endianness"
+                   for f in anomalies.scan(path, label, chunks, warns))
+
+
+def _syncsafe(n):
+    return bytes([(n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F])
+
+
+def _mp3_with_id3_padding(pad):
+    frame = b"TIT2" + struct.pack(">I", 3) + bytes(2) + bytes([0]) + b"Hi"
+    tagbody = frame + pad
+    tag = b"ID3" + bytes([3, 0, 0]) + _syncsafe(len(tagbody)) + tagbody
+    return tag + b"\xff\xfb\x90\x00" + bytes(413)
+
+
+def test_id3_nonzero_padding_flagged(tmp_path):
+    from acidcat.core.walk import walk_file
+    # padding region (starts with a null, per spec) carries non-zero payload
+    data = _mp3_with_id3_padding(bytes(3) + b"HIDDEN-PAYLOAD" + bytes(3))
+    path = _write(tmp_path, "pad.mp3", data)
+    label, chunks, warns = walk_file(path)
+    assert any(f["rule"] == "id3_padding_nonzero"
+               for f in anomalies.scan(path, label, chunks, warns))
+
+
+def test_id3_zero_padding_not_flagged(tmp_path):
+    from acidcat.core.walk import walk_file
+    data = _mp3_with_id3_padding(bytes(30))          # honest zero padding
+    path = _write(tmp_path, "clean.mp3", data)
+    label, chunks, warns = walk_file(path)
+    assert not any(f["rule"] == "id3_padding_nonzero"
+                   for f in anomalies.scan(path, label, chunks, warns))
