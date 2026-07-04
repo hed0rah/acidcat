@@ -4,7 +4,8 @@ import struct
 from types import SimpleNamespace
 
 import pytest
-from acidcat.commands.inspect import inspect_midi, run
+from acidcat.commands.inspect import run
+from acidcat.core.walk.midi import inspect_midi
 from acidcat.core.walk.aiff import inspect_aiff
 from acidcat.core.walk.wav import inspect_wav
 
