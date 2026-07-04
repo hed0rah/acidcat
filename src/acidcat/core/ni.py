@@ -273,8 +273,36 @@ def _mp_decode(b, pos=0, depth=0):
         return _mp_str(b, pos + 4, struct.unpack_from(">I", b, pos)[0])
     if t == 0xde:                          # map16
         return _mp_map(b, pos + 2, struct.unpack_from(">H", b, pos)[0], depth)
+    if t == 0xdf:                          # map32
+        return _mp_map(b, pos + 4, struct.unpack_from(">I", b, pos)[0], depth)
     if t == 0xdc:                          # array16
         return _mp_array(b, pos + 2, struct.unpack_from(">H", b, pos)[0], depth)
+    if t == 0xdd:                          # array32
+        return _mp_array(b, pos + 4, struct.unpack_from(">I", b, pos)[0], depth)
+    if t == 0xcc:                          # uint8
+        return b[pos], pos + 1
+    if t == 0xcd:                          # uint16
+        return struct.unpack_from(">H", b, pos)[0], pos + 2
+    if t == 0xce:                          # uint32
+        return struct.unpack_from(">I", b, pos)[0], pos + 4
+    if t == 0xcf:                          # uint64
+        return struct.unpack_from(">Q", b, pos)[0], pos + 8
+    if t == 0xd0:                          # int8
+        return struct.unpack_from(">b", b, pos)[0], pos + 1
+    if t == 0xd1:                          # int16
+        return struct.unpack_from(">h", b, pos)[0], pos + 2
+    if t == 0xd2:                          # int32
+        return struct.unpack_from(">i", b, pos)[0], pos + 4
+    if t == 0xd3:                          # int64
+        return struct.unpack_from(">q", b, pos)[0], pos + 8
+    if t == 0xca:                          # float32
+        return struct.unpack_from(">f", b, pos)[0], pos + 4
+    if t == 0xcb:                          # float64
+        return struct.unpack_from(">d", b, pos)[0], pos + 8
+    if t in (0xc4, 0xc5, 0xc6):            # bin8 / bin16 / bin32
+        w = {0xc4: 1, 0xc5: 2, 0xc6: 4}[t]
+        n = int.from_bytes(b[pos:pos + w], "big")
+        return bytes(b[pos + w:pos + w + n]), pos + w + n
     raise ValueError(f"unsupported msgpack type 0x{t:02x}")
 
 
@@ -314,19 +342,33 @@ def _mp_encode(obj):
             elif -32 <= o < 0:
                 out.append(o & 0xFF)
             elif 0 <= o < 256:
-                out.extend((0xCC, o))
+                out.extend(b"\xcc" + struct.pack(">B", o))
+            elif -128 <= o < 128:
+                out.extend(b"\xd0" + struct.pack(">b", o))
             elif 0 <= o < 65536:
                 out.extend(b"\xcd" + struct.pack(">H", o))
+            elif -32768 <= o < 32768:
+                out.extend(b"\xd1" + struct.pack(">h", o))
+            elif 0 <= o < 2 ** 32:
+                out.extend(b"\xce" + struct.pack(">I", o))
+            elif -2 ** 31 <= o < 2 ** 31:
+                out.extend(b"\xd2" + struct.pack(">i", o))
+            elif 0 <= o < 2 ** 64:
+                out.extend(b"\xcf" + struct.pack(">Q", o))
             else:
-                out.extend(b"\xce" + struct.pack(">I", o & 0xFFFFFFFF))
+                out.extend(b"\xd3" + struct.pack(">q", o))
+        elif isinstance(o, float):
+            out.extend(b"\xcb" + struct.pack(">d", o))
         elif isinstance(o, str):
             b = o.encode("utf-8")
             if len(b) < 32:
                 out.append(0xA0 | len(b))
             elif len(b) < 256:
                 out.extend((0xD9, len(b)))
-            else:
+            elif len(b) < 65536:
                 out.extend(b"\xda" + struct.pack(">H", len(b)))
+            else:
+                out.extend(b"\xdb" + struct.pack(">I", len(b)))
             out.extend(b)
         elif isinstance(o, list):
             if len(o) < 16:

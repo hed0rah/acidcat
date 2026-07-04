@@ -5,6 +5,24 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [Unreleased]
+
+### Added
+
+- `acidcat explore FILE [-o out.html]` builds the standalone interactive HTML
+  byte-explorer as a first-class command. The explorer (previously the
+  unpackaged repo-root `build_explorer.py`) now ships inside the package; the
+  root script stays as a back-compat shim for the `inspect --full | ...` pipe.
+
+### Fixed
+
+- MessagePack codec in `core/ni.py` (reads/writes `.nksf`): the decoder now
+  handles the full int / uint / float / bin family and map32/array32, a real
+  `.nksf` with any integer field above 127 previously failed to read. The
+  encoder emits correct signed and 64-bit ints, floats, and str32 (it had
+  wrapped negatives to unsigned and truncated large values). Adds test_ni.py
+  covering the codec, FastLZ, and the hsin walker.
+
 ## [0.14.1] - 2026-07-03
 
 ### Added
