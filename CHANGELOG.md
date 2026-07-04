@@ -4,6 +4,24 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.17.0] - 2026-07-04
+
+### Added
+
+- `inspect` walks VST2 `.fxp` presets: the `CcnK` container, its preset kind
+  (`FxCk`/`FPCh`), the plugin id (a FourCC, e.g. `XfsX` = Serum), version fields,
+  the preset name, and the opaque plugin chunk as a region.
+- `inspect` walks Propellerhead ReCycle `.rx2` loops: the `CAT`/`REX2` IFF
+  chunk tree, the creator string, and the slice count (recursing into the
+  nested slice-list group).
+
+### Changed
+
+- Internal: the library-indexing engine and the discovery helpers moved from
+  `commands/index.py` into a new `core/indexing.py`; `mcp_server.py` no longer
+  imports any command internals (core never imports commands). Pure relocation,
+  no behavior change.
+
 ## [0.16.0] - 2026-07-04
 
 ### Added
