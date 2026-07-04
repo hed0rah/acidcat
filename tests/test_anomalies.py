@@ -74,7 +74,7 @@ def test_lsb_clean_vs_stego(tmp_path):
         path = _write(tmp_path, name, wav(samples))
         fmt, chunks, warns = I._walk_file(path, deep=False)
         r = lsb.analyze(path, fmt, chunks)
-        assert r is not None and r["suspicious"] is expect
+        assert r is not None and r["uniform_high"] is expect
 
 
 def _id3_dup_mp3():
@@ -100,3 +100,20 @@ def test_nonzero_padding_flagged(tmp_path):
     chunks = [{"id": "PADDING", "offset": 0, "size": 16, "payload_base": 0, "fields": []}]
     findings = anomalies.scan(path, "FLAC", chunks, [])
     assert any(f["rule"] == "cavity_content" for f in findings)
+
+
+def test_appended_zip_polyglot_on_headerless_format(tmp_path):
+    # a headerless carrier (no total-size header) + an appended zip: the
+    # universal ZIP-EOCD scan must still catch it.
+    import io, zipfile
+    carrier = bytes([0xff, 0xfb, 0x90, 0x00]) + bytes(413)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("x.txt", b"hi")
+    path = _write(tmp_path, "poly.mp3", carrier + buf.getvalue())
+    try:
+        fmt, chunks, warns = I._walk_file(path, deep=False)
+    except Exception:
+        fmt, chunks, warns = "?", [], []
+    findings = anomalies.scan(path, fmt, chunks, warns)
+    assert any(f["rule"] == "polyglot" for f in findings)

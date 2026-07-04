@@ -5,6 +5,23 @@ All notable changes to acidcat. Format loosely follows
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 once it leaves alpha.
 
+## [0.14.1] - 2026-07-03
+
+### Added
+
+- `inspect --anomalies` detects an appended ZIP on ANY format via a universal
+  end-of-central-directory scan near EOF, not just containers with a total-size
+  header. Catches mp3/flac/ogg polyglots the size-based trailing check missed.
+
+### Fixed
+
+- `inspect --anomalies` no longer raises a false "possible LSB-stego" alert on
+  ordinary recordings. A uniformly high low-bit-entropy floor is consistent with
+  an embedded payload but equally with a mic/preamp noise floor, dither, or a
+  high-bit-depth capture (real TASCAM field recordings tripped it). It is now a
+  NOTICE describing the entropy, not an alert claiming stego; entropy alone
+  cannot separate the cases (a sample-pair/chi-square test is the future path).
+
 ## [0.14.0] - 2026-07-03
 
 ### Added
