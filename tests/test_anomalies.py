@@ -180,3 +180,30 @@ def test_junk_all_zero_not_flagged(tmp_path):
     label, chunks, warns = walk_file(path)
     findings = anomalies.scan(path, label, chunks, warns)
     assert not any(f["rule"] == "cavity_content" for f in findings)
+
+
+def _mp4_box(t, payload):
+    return struct.pack(">I", 8 + len(payload)) + t + payload
+
+
+def _mp4_with_stsz(sample_size, count, mdat_payload):
+    stsz = _mp4_box(b"stsz", bytes(4) + struct.pack(">I", sample_size)
+                    + struct.pack(">I", count))
+    tree = _mp4_box(b"moov", _mp4_box(b"trak", _mp4_box(b"mdia",
+                    _mp4_box(b"minf", _mp4_box(b"stbl", stsz)))))
+    return (_mp4_box(b"ftyp", b"M4A \x00\x00\x00\x00")
+            + tree + _mp4_box(b"mdat", bytes(mdat_payload)))
+
+
+def test_mp4_mdat_coverage_gap_flagged(tmp_path):
+    # 10 samples x 100 = 1000 bytes referenced, but mdat carries 3000 -> 2000 gap
+    path = _write(tmp_path, "cav.m4a", _mp4_with_stsz(100, 10, 3000))
+    findings = anomalies.scan(path, "MP4/M4A", [], [])
+    assert any(f["rule"] == "mp4_mdat_coverage" for f in findings)
+
+
+def test_mp4_mdat_fully_covered_not_flagged(tmp_path):
+    # 30 x 100 = 3000 exactly covers the mdat payload -> no cavity
+    path = _write(tmp_path, "clean.m4a", _mp4_with_stsz(100, 30, 3000))
+    findings = anomalies.scan(path, "MP4/M4A", [], [])
+    assert not any(f["rule"] == "mp4_mdat_coverage" for f in findings)
