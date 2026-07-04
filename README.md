@@ -90,6 +90,7 @@ full-text.
 | `acidcat convert clip.bwclip -o out.mid` | Export a DAW clip's notes to a Standard MIDI File |
 | `acidcat write FILE --set field=value` | Edit metadata in place (exiftool-style: `_original` backup, `-o` copy, `--dry-run`; custom frames via `txxx:NAME=value`) |
 | `acidcat cover FILE [-o art.jpg] [--set img] [--remove]` | Extract, embed, or remove embedded cover art (MP3/FLAC/MP4/Ogg) |
+| `acidcat explore FILE [-o out.html]` | Build a standalone interactive HTML byte-explorer (hex grid + tinted fields + LSB heat-map) |
 
 ## Global Flags
 
