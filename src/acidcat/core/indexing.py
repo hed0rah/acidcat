@@ -456,3 +456,122 @@ def _extract_and_store_features(conn, filepath, path_key, quiet=False):
     if feats is None:
         return
     idx.upsert_features(conn, path_key, feats, version=1)
+
+
+def _refuses_as_root(path):
+    norm = acidpaths.normalize(path)
+    if norm == acidpaths.normalize(os.path.expanduser("~")):
+        return True
+    # platform root (e.g. /, C:/)
+    if norm == os.path.dirname(norm):
+        return True
+    return False
+
+
+def _count_audio_in_subtree(directory, max_depth=99):
+    """Count files matching INDEXABLE_EXTENSIONS in `directory` up to
+    max_depth levels deep. Skips junk files (._*, .DS_Store, etc.) and
+    hidden directories (basename starting with '.').
+    """
+    count = 0
+    base_depth = directory.rstrip(os.sep).count(os.sep)
+    for root, dirs, files in os.walk(directory, followlinks=False):
+        depth = root.rstrip(os.sep).count(os.sep) - base_depth
+        if depth > max_depth:
+            dirs[:] = []
+            continue
+        # prune hidden dirs in-place so os.walk skips them
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            if _is_junk(name):
+                continue
+            ext = os.path.splitext(name)[1].lower()
+            if ext in INDEXABLE_EXTENSIONS:
+                count += 1
+    return count
+
+
+def _discover_candidates(root, registered_roots, min_samples, max_depth,
+                          current_depth=0):
+    """Walk `root` looking for subdirectories that qualify as libraries.
+
+    A directory qualifies if its subtree (within max_depth) contains at
+    least min_samples audio files AND it is not already registered AND it
+    is not nested under one of the candidates we are about to return.
+
+    Returns a sorted list of normalized absolute paths.
+    """
+    if current_depth >= max_depth:
+        return []
+    norm_root = acidpaths.normalize(root)
+    if acidpaths.compare_path(norm_root) in registered_roots:
+        # already a library: don't recurse, the caller's dedup handles it
+        return []
+
+    candidates = []
+    try:
+        children = sorted(os.listdir(root))
+    except OSError:
+        return []
+
+    for child in children:
+        if child.startswith("."):
+            continue
+        child_path = os.path.join(root, child)
+        if not os.path.isdir(child_path):
+            continue
+        if os.path.islink(child_path):
+            # don't follow symlinks: they often point at parent dirs and
+            # would create infinite walks or duplicate registrations.
+            continue
+        norm_child = acidpaths.normalize(child_path)
+        if acidpaths.compare_path(norm_child) in registered_roots:
+            continue
+        # check overlap with already-chosen candidates in this run so we
+        # do not propose nested libraries
+        if any(norm_child.startswith(c + "/") for c in candidates):
+            continue
+
+        count = _count_audio_in_subtree(child_path, max_depth=max_depth)
+        if count >= min_samples:
+            candidates.append(norm_child)
+        else:
+            # this child didn't qualify on its own; recurse one level
+            # deeper to see if any of its grandchildren do
+            sub = _discover_candidates(
+                child_path, registered_roots, min_samples,
+                max_depth, current_depth=current_depth + 1,
+            )
+            candidates.extend(sub)
+
+    return candidates
+
+
+def _resolve_unique_label(rconn, base_label, parent_basename, used_labels,
+                          root=None):
+    """Pick an unused label, preferring `base_label`. If taken, append the
+    parent dir name. If still taken, append a short hash that includes
+    the candidate root path so two unrelated roots that both default to
+    the same base_label do not collide on the fallback. Mutates
+    `used_labels`.
+    """
+    if base_label and base_label not in used_labels:
+        existing = reg.get_library(rconn, base_label)
+        if existing is None:
+            used_labels.add(base_label)
+            return base_label
+    # try parent-disambiguated
+    if parent_basename:
+        candidate = f"{base_label}_{parent_basename}"
+        if candidate not in used_labels and reg.get_library(rconn, candidate) is None:
+            used_labels.add(candidate)
+            return candidate
+    # final fallback: hash suffix that incorporates the root path so
+    # two distinct roots defaulting to base_label="library" do not
+    # collide on a deterministic same-input hash.
+    import hashlib
+    seed = f"{base_label or 'lib'}|{root or ''}"
+    h = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:6]
+    candidate = f"{base_label}_{h}"
+    used_labels.add(candidate)
+    return candidate
