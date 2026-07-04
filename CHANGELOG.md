@@ -7,6 +7,12 @@ once it leaves alpha.
 
 ## [0.14.1] - 2026-07-03
 
+### Added
+
+- `inspect --anomalies` detects an appended ZIP on ANY format via a universal
+  end-of-central-directory scan near EOF, not just containers with a total-size
+  header. Catches mp3/flac/ogg polyglots the size-based trailing check missed.
+
 ### Fixed
 
 - `inspect --anomalies` no longer raises a false "possible LSB-stego" alert on
