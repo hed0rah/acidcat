@@ -11,35 +11,19 @@ emits the same structure for machines.
 
 Supports WAV/RIFF, RF64, AIFF/AIFC, Standard MIDI Files, Xfer Serum
 presets, MP3 (ID3v2 + MPEG frames + Xing/LAME), and FLAC.
+
+The format walkers live in acidcat/core/walk (dispatched through its
+registry); this module is the CLI shell: argument parsing, chunk
+selection, and rendering.
 """
 
 import json
 import os
-import struct
 import sys
 
-from acidcat.core import mp3 as mp3mod
-from acidcat.core import ncw as ncwmod
 from acidcat.core import anomalies as anomaliesmod
 from acidcat.core import lsb as lsbmod
-from acidcat.core.walk.base import (
-    _FRAME_LISTING_CAP, _ID3_READ_CAP, _PAYLOAD_CAP,
-    _bu16, _bu32, _dtext, _f,
-)
-from acidcat.core.walk.aiff import inspect_aiff
-from acidcat.core.walk.bitwig import inspect_bitwig
-from acidcat.core.walk.flac import inspect_flac
-from acidcat.core.walk.mp4 import inspect_mp4
-from acidcat.core.walk.midi import inspect_midi
-from acidcat.core.walk.mp3 import inspect_mp3
-from acidcat.core.walk.ncw import inspect_ncw
-from acidcat.core.walk.ni import inspect_ni
-from acidcat.core.walk.ogg import inspect_ogg
-from acidcat.core.walk.rf64 import inspect_rf64
-from acidcat.core.walk.serum import inspect_serum
-from acidcat.core.walk.vital import inspect_vital
-from acidcat.core.walk.wav import inspect_wav
-from acidcat.util.midi import midi_note_to_name
+from acidcat.core.walk import Unsupported, walk_file
 
 # --full emits raw region bytes for chunks that have decoded fields; cap the
 # hex so a huge header (embedded art) cannot bloat the dump without bound.
@@ -271,19 +255,6 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None):
     return 0
 
 
-def _id3_tagged_mp3(filepath):
-    """A file starting with an ID3v2 tag is MP3 only if the tag does not
-    merely wrap a different known container. Some tools prepend an ID3 tag
-    to a WAV/AIFF/FLAC; that is not an MP3 and must not be claimed as one."""
-    hdr = mp3mod.read_id3v2(filepath)
-    if not hdr:
-        return True  # "ID3" magic but an unreadable header; treat as an MP3 attempt
-    with open(filepath, "rb") as f:
-        f.seek(hdr["total"])
-        nxt = f.read(4)
-    return nxt not in (b"RIFF", b"RF64", b"FORM", b"fLaC", b"MThd")
-
-
 def _parse_id_list(val):
     """A comma-separated chunk-id list into a normalized set (or None)."""
     if not val:
@@ -305,52 +276,6 @@ def _select_chunks(chunks, only, exclude):
         c["_idx"] = i
         out.append(c)
     return out
-
-
-class _Unsupported(Exception):
-    """A file inspect cannot structurally decode; message is user-facing."""
-
-
-def _walk_file(filepath, deep):
-    """Sniff the magic and dispatch to the format walker.
-
-    Returns (fmt_label, chunks, file_warns); raises _Unsupported for a
-    file inspect does not decode."""
-    with open(filepath, "rb") as f:
-        magic = f.read(16)
-    if len(magic) >= 12 and magic[:4] == b"RIFF" and magic[8:12] == b"WAVE":
-        return ("RIFF/WAVE", *inspect_wav(filepath))
-    if len(magic) >= 12 and magic[:4] == b"FORM" and magic[8:12] in (b"AIFF", b"AIFC"):
-        form_type = magic[8:12].decode("ascii")
-        return (f"IFF/{form_type}", *inspect_aiff(filepath, form_type))
-    if len(magic) >= 14 and magic[:4] == b"MThd":
-        return ("Standard MIDI File", *inspect_midi(filepath, deep=deep))
-    if len(magic) >= 12 and magic[:4] == b"RF64" and magic[8:12] == b"WAVE":
-        return ("RF64/WAVE", *inspect_rf64(filepath))
-    if magic[:8] == b"XferJson":
-        return ("Xfer Serum preset", *inspect_serum(filepath))
-    if magic[:4] == b"BtWg":
-        return ("Bitwig preset", *inspect_bitwig(filepath, deep=deep))
-    if magic[:4] == ncwmod.MAGIC:
-        return ("NI Compressed Wave", *inspect_ncw(filepath))
-    if magic[:1] == b"{":
-        return ("Vital preset", *inspect_vital(filepath, deep=deep))
-    if magic[4:8] == b"ftyp":
-        return ("MP4/M4A", *inspect_mp4(filepath))
-    if magic[12:16] == b"hsin" or magic[:4] == b"-in-" \
-            or (magic[:4] == b"RIFF" and magic[8:12] == b"NIKS"):
-        return ("Native Instruments preset", *inspect_ni(filepath, deep=deep))
-    if magic[:4] == b"fLaC":
-        return ("FLAC", *inspect_flac(filepath))
-    if magic[:4] == b"OggS":
-        return ("Ogg", *inspect_ogg(filepath))
-    if magic[:3] == b"ID3" and not _id3_tagged_mp3(filepath):
-        raise _Unsupported("ID3 tag wraps a non-MP3 container; not supported")
-    if magic[:3] == b"ID3" or (len(magic) >= 4
-                               and mp3mod.decode_frame_header(magic[:4]) is not None):
-        return ("MP3/MPEG audio", *inspect_mp3(filepath, deep=deep))
-    raise _Unsupported("not a WAV, RF64, AIFF, MIDI, Serum, Bitwig, Vital, NCW, "
-                       "MP4/M4A, MP3, or FLAC")
 
 
 def _full_chunk(chunk, filepath):
@@ -406,8 +331,8 @@ def run(args):
                 exit_code = 1
                 continue
             try:
-                fmt_label, chunks, file_warns = _walk_file(filepath, deep)
-            except _Unsupported as e:
+                fmt_label, chunks, file_warns = walk_file(filepath, deep)
+            except Unsupported as e:
                 print(f"acidcat inspect: {filepath}: {e}", file=sys.stderr)
                 exit_code = 1
                 continue
