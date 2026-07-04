@@ -162,9 +162,10 @@ def _lsb_heatmap(lsb):
         hue = int((1.0 - e) * 205)  # e=0 -> blue 205, e=1 -> red 0
         cells.append(f'<span class="lcell" style="background:hsl({hue},70%,45%)" '
                      f'title="{e:.3f}"></span>')
-    verdict = ("SUSPICIOUS: uniform-high LSB entropy, possible hidden payload"
-               if lsb.get("suspicious")
-               else "LSB entropy tracks the signal (expected for natural audio)")
+    verdict = ("uniformly high LSB entropy (consistent with LSB-stego, OR with a "
+               "noisy / dithered / high-bit-depth recording)"
+               if lsb.get("uniform_high")
+               else "LSB entropy tracks the signal (varies window to window)")
     cap = f" (first {lsb['region'][1]:,} bytes)" if lsb.get("capped") else ""
     return (f'<section class="lsb"><h2>LSB entropy heat-map{cap}</h2>'
             f'<div class="lstrip">{"".join(cells)}</div>'

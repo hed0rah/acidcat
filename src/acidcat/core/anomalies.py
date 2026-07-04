@@ -144,5 +144,20 @@ def scan(filepath, fmt_label, chunks, warns):
                              "message": f"FLAC APPLICATION block "
                                         f"({c.get('size', 0):,} bytes of freeform data)"})
 
+    # 7. universal appended-ZIP scan: a ZIP end-of-central-directory near EOF
+    # means an archive was appended, even to formats with no total-size header
+    # (mp3/flac/ogg polyglots, where the audio run absorbs the tail so the
+    # size-based check above cannot see it). Scans the last 64K+ from the end.
+    if not any(f["rule"] == "polyglot" for f in findings):
+        with open(filepath, "rb") as f:
+            f.seek(max(0, size - 66000))
+            tail = f.read()
+        idx = tail.rfind(b"PK\x05\x06")
+        if idx >= 0 and len(tail) - idx >= 22:
+            findings.append({"severity": "alert", "offset": (size - len(tail)) + idx,
+                             "rule": "polyglot",
+                             "message": "possible polyglot: appended ZIP archive "
+                                        "(end-of-central-directory record near EOF)"})
+
     findings.sort(key=lambda x: (-_SEVERITY.get(x["severity"], 0), x["offset"]))
     return findings
