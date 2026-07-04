@@ -50,7 +50,8 @@ def walk_file(filepath, deep=False):
         raise Unsupported("ID3 tag wraps a non-MP3 container; not supported")
     entry = _WALKERS.get(fmt)
     if entry is None:
-        raise Unsupported("not a WAV, RF64, AIFF, MIDI, Serum, Bitwig, Vital, "
-                          "NCW, MP4/M4A, MP3, or FLAC")
+        raise Unsupported("not a recognized audio/preset file (WAV, RF64, AIFF, "
+                          "MIDI, Serum, Bitwig, Vital, NCW, MP4/M4A, Ogg, "
+                          "Native Instruments, MP3, or FLAC)")
     label, walker = entry
     return (label, *walker(filepath, deep))
