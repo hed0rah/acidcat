@@ -74,3 +74,36 @@ def test_ogg_opus_identity_and_duration(tmp_path):
     assert _field(chunks, "channels") == 2
     dur = _field(chunks, "duration")
     assert dur is not None and dur.startswith("1.000")        # opus granule at 48 kHz
+
+
+def test_fxp_vst_preset(tmp_path):
+    # VST2 .fxp: CcnK + FPCh (opaque-chunk preset), plugin id, 28-byte name
+    name = b"My Preset".ljust(28, b"\x00")
+    data = (b"CcnK" + struct.pack(">I", 100) + b"FPCh" + struct.pack(">I", 1)
+            + b"XfsX" + struct.pack(">I", 1) + struct.pack(">I", 1) + name
+            + struct.pack(">I", 8) + bytes(8))
+    f = tmp_path / "p.fxp"
+    f.write_bytes(data)
+    label, chunks, warns = walk_file(str(f))
+    assert "FXP" in label
+    assert "XfsX" in str(_field(chunks, "plugin_id"))
+    assert "My Preset" in str(_field(chunks, "preset_name"))
+
+
+def test_rx2_recycle_loop(tmp_path):
+    # RX2: CAT/REX2 group; slice markers (SLCE) live in a nested CAT/SLCL group
+    def bu32(n):
+        return struct.pack(">I", n)
+
+    def chunk(cid, body):
+        return cid + bu32(len(body)) + body
+    slce = chunk(b"SLCE", b"")
+    slcl = b"CAT " + bu32(len(b"SLCL" + slce + slce)) + b"SLCL" + slce + slce
+    body = b"REX2" + chunk(b"CREI", b"ReCycle Test") + slcl
+    data = b"CAT " + bu32(len(body)) + body
+    f = tmp_path / "loop.rx2"
+    f.write_bytes(data)
+    label, chunks, warns = walk_file(str(f))
+    assert "RX2" in label
+    assert _field(chunks, "slices") == 2
+    assert "ReCycle Test" in str(_field(chunks, "creator"))
