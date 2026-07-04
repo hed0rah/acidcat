@@ -864,7 +864,7 @@ def reindex(args):
             f"register it first via register_library."
         )
 
-    from acidcat.commands.index import _walk_and_upsert
+    from acidcat.core.indexing import walk_and_upsert
 
     if not os.path.isdir(lib["root_path"]):
         raise ToolError(
@@ -873,7 +873,7 @@ def reindex(args):
 
     conn = idx.open_db(lib["db_path"])
     try:
-        counts = _walk_and_upsert(
+        counts = walk_and_upsert(
             conn, lib["root_path"],
             do_features=with_features,
             do_deep=False,
@@ -1170,7 +1170,7 @@ def discover_libraries(args):
 
     # optionally walk + extract features per registered library
     if with_features:
-        from acidcat.commands.index import _walk_and_upsert
+        from acidcat.core.indexing import walk_and_upsert
         for entry in registered:
             cand = entry["root"]
             rconn = reg.open_registry(_REGISTRY_PATH)
@@ -1183,7 +1183,7 @@ def discover_libraries(args):
                 rconn.close()
             conn = idx.open_db(db_path)
             try:
-                _walk_and_upsert(
+                walk_and_upsert(
                     conn, cand,
                     do_features=True, do_deep=False, quiet=True,
                 )
