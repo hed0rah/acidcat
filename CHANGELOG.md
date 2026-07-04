@@ -12,6 +12,9 @@ once it leaves alpha.
 - `inspect --anomalies` flags an Ogg file carrying more than one logical
   bitstream (multiple BOS serials), several codecs multiplexed into one file,
   where a single-codec player surfaces only one and the others ride along hidden.
+- `inspect` decodes the manufacturer id of MIDI SysEx events, and `--anomalies`
+  warns when a SysEx uses the non-commercial id 0x7D (no synth acts on it) or
+  carries an oversized payload, a MIDI payload-cavity tell.
 
 ## [0.15.0] - 2026-07-03
 
