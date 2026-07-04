@@ -167,8 +167,9 @@ def _wav_with_junk(junk_body):
 
 
 def test_junk_cavity_nonzero_flagged(tmp_path):
+    # a payload-sized (>= 1 KB) non-zero JUNK chunk is a plausible cavity
     from acidcat.core.walk import walk_file
-    path = _write(tmp_path, "junk.wav", _wav_with_junk(b"HIDDEN-PAYLOAD" + bytes(20)))
+    path = _write(tmp_path, "junk.wav", _wav_with_junk(b"HIDDEN-PAYLOAD" * 100))
     label, chunks, warns = walk_file(path)
     findings = anomalies.scan(path, label, chunks, warns)
     assert any(f["rule"] == "cavity_content" and "JUNK" in f["message"] for f in findings)
@@ -176,7 +177,16 @@ def test_junk_cavity_nonzero_flagged(tmp_path):
 
 def test_junk_all_zero_not_flagged(tmp_path):
     from acidcat.core.walk import walk_file
-    path = _write(tmp_path, "pad.wav", _wav_with_junk(bytes(32)))
+    path = _write(tmp_path, "pad.wav", _wav_with_junk(bytes(2048)))
+    label, chunks, warns = walk_file(path)
+    findings = anomalies.scan(path, label, chunks, warns)
+    assert not any(f["rule"] == "cavity_content" for f in findings)
+
+
+def test_junk_small_nonzero_not_flagged(tmp_path):
+    # routine small non-zero JUNK (DAW cue/timestamp metadata) is below the floor
+    from acidcat.core.walk import walk_file
+    path = _write(tmp_path, "meta.wav", _wav_with_junk(b"DAWMETA" + bytes(40)))
     label, chunks, warns = walk_file(path)
     findings = anomalies.scan(path, label, chunks, warns)
     assert not any(f["rule"] == "cavity_content" for f in findings)
