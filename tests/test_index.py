@@ -989,7 +989,7 @@ class TestTaggedGenrePopulatesTags:
         lib.mkdir()
         (lib / "track.mp3").write_bytes(b"\x00" * 64)
 
-        monkeypatch.setattr(ic, "_sniff_format", lambda p: "mp3")
+        monkeypatch.setattr("acidcat.core.indexing._sniff_format", lambda p: "mp3")
         monkeypatch.setattr(
             "acidcat.core.tagged.parse_tagged",
             lambda p: {"format_type": "mp3", "genre": "House",
