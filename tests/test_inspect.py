@@ -4,7 +4,8 @@ import struct
 from types import SimpleNamespace
 
 import pytest
-from acidcat.commands.inspect import inspect_aiff, inspect_midi, run
+from acidcat.commands.inspect import inspect_midi, run
+from acidcat.core.walk.aiff import inspect_aiff
 from acidcat.core.walk.wav import inspect_wav
 
 
@@ -1094,7 +1095,7 @@ class TestFlacCuesheet:
 
 class TestAiffExtraChunks:
     def test_comt_marker_linked_comment(self):
-        from acidcat.commands.inspect import _aiff_comt
+        from acidcat.core.walk.aiff import _aiff_comt
         b = struct.pack(">H", 1) + struct.pack(">IhH", 0, 3, 5) + b"hello" + b"\x00"
         s, fields, warns = _aiff_comt(b)
         c = next(f for f in fields if f["name"] == "comment[0]")
@@ -1102,12 +1103,12 @@ class TestAiffExtraChunks:
         assert warns == []
 
     def test_aesd_channel_status_byte0(self):
-        from acidcat.commands.inspect import _aiff_aesd
+        from acidcat.core.walk.aiff import _aiff_aesd
         s, fields, _ = _aiff_aesd(bytes([0x81]) + b"\x00" * 23)  # pro, 44.1k
         assert "professional" in fields[0]["note"] and "44100" in fields[0]["note"]
 
     def test_appl_pdos_pstring(self):
-        from acidcat.commands.inspect import _aiff_appl
+        from acidcat.core.walk.aiff import _aiff_appl
         s, fields, _ = _aiff_appl(b"pdos" + bytes([4]) + b"MyAp" + b"\x00")
         assert any(f["name"] == "name" and f["value"] == "MyAp" for f in fields)
 
@@ -1661,14 +1662,14 @@ class TestAiffEmbeddedID3:
         return b"ID3\x03\x00\x00" + ss + body
 
     def test_aiff_decodes_embedded_id3(self):
-        from acidcat.commands.inspect import _aiff_id3_fields
+        from acidcat.core.walk.aiff import _aiff_id3_fields
         tag = self._id3v23([(b"TPE1", "아버지"), (b"TIT2", "untitled")])
         fields = _aiff_id3_fields(tag)
         vals = {f["value"] for f in fields}
         assert "아버지" in vals and "untitled" in vals
 
     def test_aiff_id3_ignores_non_id3(self):
-        from acidcat.commands.inspect import _aiff_id3_fields
+        from acidcat.core.walk.aiff import _aiff_id3_fields
         assert _aiff_id3_fields(b"not an id3 tag") == []
 
 
