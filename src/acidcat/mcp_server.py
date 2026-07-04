@@ -1096,7 +1096,7 @@ def discover_libraries(args):
     the LLM call this with dry_run=true first to preview, then false to
     actually register.
     """
-    from acidcat.commands import index as index_cmd
+    from acidcat.core import indexing as index_cmd
 
     root = _require_path(args, field="root")
     min_samples = int(args.get("min_samples") or 20)
