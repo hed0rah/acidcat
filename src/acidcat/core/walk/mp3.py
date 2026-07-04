@@ -403,6 +403,17 @@ def inspect_mp3(filepath, deep=False):
                    "fields": fields, "warnings": xing_warns,
                    "payload_base": frame_off})  # fields are frame-relative
 
+    # LAME encoder delay + padding, so the reported duration is the gapless /
+    # playable length (matching ffprobe/mutagen), not the raw frame count.
+    gap_delay = gap_pad = 0
+    for _fl in (xing_fields or []):
+        if _fl.get("name") == "gapless":
+            try:
+                _t = str(_fl.get("value", "")).replace(",", "").split()
+                gap_delay, gap_pad = int(_t[1]), int(_t[3])
+            except (ValueError, IndexError):
+                pass
+
     # count frames and derive duration. trust the Xing frame count when
     # present (accurate for VBR); otherwise walk the stream. with deep,
     # also record a per-frame row up to the listing cap.
@@ -428,7 +439,8 @@ def inspect_mp3(filepath, deep=False):
     if vbr_frames:
         count = vbr_frames
     spf = fh["samples_per_frame"]
-    duration = count * spf / fh["sample_rate"] if fh["sample_rate"] else 0
+    duration = (max(0, count * spf - gap_delay - gap_pad) / fh["sample_rate"]
+                if fh["sample_rate"] else 0)
     cbr = len(bitrates) == 1 and not is_vbr_header
     summary = (f"{count:,} frames, {duration:.3f} s, "
                f"{'CBR' if cbr else 'VBR'}")

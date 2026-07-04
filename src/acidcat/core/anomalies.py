@@ -227,5 +227,57 @@ def scan(filepath, fmt_label, chunks, warns):
         except Exception:
             pass
 
+    # 10. ID3v2 non-zero padding: the region after the last frame up to the tag's
+    # declared size is spec'd to be zero; content there is a cavity (not trailing
+    # data, since it is inside the tag's own length).
+    if fmt_label and fmt_label.startswith("MP3") and head[:3] == b"ID3":
+        try:
+            with open(filepath, "rb") as f:
+                th = f.read(10)
+                ver = th[3]
+                tag_size = (((th[6] & 0x7F) << 21) | ((th[7] & 0x7F) << 14)
+                            | ((th[8] & 0x7F) << 7) | (th[9] & 0x7F))
+                body = f.read(tag_size)
+            pos, pad_start = 0, tag_size
+            while pos + 10 <= len(body):
+                if body[pos] == 0:                      # a null frame id = padding
+                    pad_start = pos
+                    break
+                if ver == 4:                            # v2.4 syncsafe frame size
+                    fsz = (((body[pos + 4] & 0x7F) << 21) | ((body[pos + 5] & 0x7F) << 14)
+                           | ((body[pos + 6] & 0x7F) << 7) | (body[pos + 7] & 0x7F))
+                else:
+                    fsz = struct.unpack_from(">I", body, pos + 4)[0]
+                pos += 10 + fsz
+                if fsz < 0 or pos > len(body):
+                    break
+            pad = body[pad_start:]
+            if any(pad):
+                findings.append({"severity": "notice", "offset": 10 + pad_start,
+                                 "rule": "id3_padding_nonzero",
+                                 "message": f"non-zero bytes in ID3v2 padding "
+                                            f"({len(pad):,} bytes after the last frame); "
+                                            f"the padding region is spec'd to be zero"})
+        except Exception:
+            pass
+
+    # 11. dual-endianness audio: 16-bit PCM engineered so BOTH the little-endian
+    # and big-endian readings are structured audio (a WAV/AIFF twin that plays a
+    # different sound each way). real audio is structured one endianness, noise
+    # the other; both structured is the crafted-artifact tell.
+    if fmt_label and (fmt_label.startswith("RIFF/WAVE") or "AIFF" in fmt_label):
+        try:
+            from acidcat.core import lsb as _lsb
+            de = _lsb.dual_endian(filepath, fmt_label, chunks)
+            if de and de["flagged"]:
+                findings.append({"severity": "notice", "offset": 0,
+                                 "rule": "dual_endianness",
+                                 "message": f"both endian readings of the 16-bit PCM "
+                                            f"are structured (LE autocorr {de['le']:.2f}, "
+                                            f"BE {de['be']:.2f}); a cross-endian "
+                                            f"audio+audio artifact"})
+        except Exception:
+            pass
+
     findings.sort(key=lambda x: (-_SEVERITY.get(x["severity"], 0), x["offset"]))
     return findings
