@@ -31,6 +31,7 @@ def iter_pages(data, cap=100000):
             break
         yield {
             "serial": struct.unpack_from("<I", data, pos + 14)[0],
+            "granule": struct.unpack_from("<q", data, pos + 6)[0],
             "seq": struct.unpack_from("<I", data, pos + 18)[0],
             "header_type": data[pos + 5],
             "seg_table": seg_table,

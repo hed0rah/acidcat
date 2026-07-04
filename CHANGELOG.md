@@ -18,6 +18,14 @@ once it leaves alpha.
 - `inspect --anomalies` flags non-zero content in a RIFF JUNK/PAD chunk (spec'd
   as ignorable padding, and the RF64/BW64 ds64 placeholder), a WAV cavity.
 
+### Fixed
+
+- Ogg files now report `duration`, computed from the last page's granule
+  position (Opus granules are counted at 48 kHz). Was previously absent.
+- Every ID3 `T***` text frame now decodes to its value; frames outside a
+  hardcoded set (e.g. `TPE2` album artist, `TCOM` composer) previously showed
+  as a raw byte count. All `T***` frames share the same text structure per spec.
+
 ## [0.15.0] - 2026-07-03
 
 ### Added
