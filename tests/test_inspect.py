@@ -474,7 +474,7 @@ class TestInspectRf64:
 
 class TestInspectSerum:
     def test_json_and_blob(self, tmp_path):
-        from acidcat.commands.inspect import inspect_serum
+        from acidcat.core.walk.serum import inspect_serum
         meta = b'{"presetName": "Growl X", "presetAuthor": "u", "tags": "bass, growl"}'
         p = tmp_path / "g.serumpreset"
         p.write_bytes(b"XferJson" + meta + b"\x01\x02" * 64)
@@ -486,7 +486,7 @@ class TestInspectSerum:
         assert warns == []
 
     def test_missing_json_flagged(self, tmp_path):
-        from acidcat.commands.inspect import inspect_serum
+        from acidcat.core.walk.serum import inspect_serum
         p = tmp_path / "bad.serumpreset"
         p.write_bytes(b"XferJson" + b"\x00" * 32)
         _, warns = inspect_serum(str(p))
@@ -496,7 +496,7 @@ class TestInspectSerum:
         # the json scanner recurses per nesting level; a forged preset
         # with thousands of nested objects raised RecursionError past
         # the ValueError-only handler and crashed the command.
-        from acidcat.commands.inspect import inspect_serum
+        from acidcat.core.walk.serum import inspect_serum
         p = tmp_path / "deep.serumpreset"
         p.write_bytes(b"XferJson{" + b'"k":{' * 5000)
         chunks, warns = inspect_serum(str(p))  # must not raise
@@ -513,7 +513,7 @@ class TestInspectSerum:
         # raw_decode returns a CHARACTER offset; using it as a byte
         # offset shifted the blob chunk left by one byte per multibyte
         # UTF-8 character in the JSON metadata.
-        from acidcat.commands.inspect import inspect_serum
+        from acidcat.core.walk.serum import inspect_serum
         meta = '{"presetName": "Gröwl ééé"}'.encode("utf-8")
         p = tmp_path / "umlaut.serumpreset"
         p.write_bytes(b"XferJson" + meta + b"\x01" * 64)
@@ -1229,7 +1229,7 @@ class TestBitwigWalker:
         assert m["comment"] == "secret msg"
 
     def test_inspect_bitwig_surfaces_description(self, tmp_path):
-        from acidcat.commands.inspect import inspect_bitwig
+        from acidcat.core.walk.bitwig import inspect_bitwig
         p = tmp_path / "t.bwpreset"
         p.write_bytes(self._bw((b"device_name", b"Convolution"),
                                (b"comment", b"wussssuppppp")))
@@ -1262,7 +1262,7 @@ class TestVitalWalker:
 
     def test_inspect_vital_surfaces_name(self, tmp_path):
         import json
-        from acidcat.commands.inspect import inspect_vital
+        from acidcat.core.walk.vital import inspect_vital
         p = tmp_path / "t.vital"
         p.write_bytes(json.dumps({"synth_version": "1.0", "preset_name": "P",
                                   "author": "A", "settings": {}}).encode())
@@ -1326,7 +1326,7 @@ class TestMp4Walker:
         assert boxes and boxes[0]["truncated"]
 
     def test_inspect_mp4_surfaces_title(self, tmp_path):
-        from acidcat.commands.inspect import inspect_mp4
+        from acidcat.core.walk.mp4 import inspect_mp4
         p = tmp_path / "t.m4a"
         p.write_bytes(self._m4a_with_title("Song"))
         chunks, _ = inspect_mp4(str(p))
@@ -1404,7 +1404,7 @@ class TestNiHsinWalker:
         assert parse_hsin(b"not an hsin file at all" * 4) is None
 
     def test_inspect_ni_surfaces_name(self, tmp_path):
-        from acidcat.commands.inspect import inspect_ni
+        from acidcat.core.walk.ni import inspect_ni
         p = tmp_path / "t.nmsv"
         p.write_bytes(self._hsin("Bass01", "Massive", "1.5"))
         chunks, _ = inspect_ni(str(p))
