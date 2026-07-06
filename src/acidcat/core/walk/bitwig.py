@@ -1,6 +1,15 @@
-"""Bitwig BtWg container structural walker (.bwpreset/.bwclip):
-header, metadata, note clips, and with deep mode the device tree and
-embedded-asset zip. Container primitives live in core/bitwig.py."""
+"""Bitwig BtWg container structural walker.
+
+Routed purely on the `BtWg` magic (core/sniff.py), so it handles every Bitwig
+document that uses that container, not just presets and clips: .bwpreset,
+.bwclip, .bwproject, .bwscene, .bwdevice, .bwmodule, .bwmodulator,
+.bwremotecontrols. The header carries a version pair (e.g. 0003/0004). Reports
+the header, metadata, note clips, and with deep mode the device tree and the
+embedded-asset zip. Container primitives live in core/bitwig.py.
+
+Two Bitwig types are NOT this container: .bwimpulse is a bare FLAC file (walked
+by the flac walker), and .wt is the 'vawt' wavetable format (walked by wt.py).
+The ZIP-based .multisample is not yet handled."""
 
 import os
 import struct
