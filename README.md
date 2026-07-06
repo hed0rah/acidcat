@@ -10,7 +10,8 @@ metadata, decode the format structure byte by byte, and flag anomalies.
 Reads BPM, key, duration, tags, and format info from WAV, AIFF, MP3, FLAC,
 OGG, Opus, M4A, MIDI, and Serum presets. Also structurally decodes Bitwig
 (.bwpreset/.bwclip), Native Instruments (Massive/Absynth/Kontakt/NKS/KORE),
-Vital, NCW, MP4, VST FXP, ReCycle RX2, and RMID containers via `inspect`. Zero dependencies for core metadata.
+Vital, NCW, MP4, VST FXP, ReCycle RX2, and RMID containers via `inspect`. One pure-Python
+dependency (mutagen); the native `inspect` walkers need nothing.
 Optional librosa analysis for BPM/key detection and ML feature extraction.
 
 Also ships per-library SQLite indexes (`acidcat index`) tracked in a
@@ -88,7 +89,7 @@ full-text.
 | `acidcat similar CSV cluster` | Cluster samples by audio characteristics |
 | `acidcat search CSV query TEXT` | Text-based sample search (legacy CSV) |
 | `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
-| `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--pretty] [--color]` | Byte-level structural dump (WAV, RF64, AIFF, MIDI, RMID, Serum, VST FXP, ReCycle RX2, MP3, FLAC, OGG, MP4/M4A, Bitwig, Vital, NCW, Native Instruments (Massive/Absynth/Kontakt/NKS/KORE)) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump feeding `acidcat explore`, `--pretty` a human-friendly metadata view, `--verbose` a deep deconstruction (Bitwig device tree/parameters/notes, Vital modulation matrix, ...), `--color` to syntax-highlight |
+| `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--anomalies] [--pretty] [--color]` | Byte-level structural dump (WAV, RF64, AIFF, MIDI, RMID, Serum, VST FXP, ReCycle RX2, MP3, FLAC, OGG, MP4/M4A, Bitwig, Vital, NCW, Native Instruments (Massive/Absynth/Kontakt/NKS/KORE)) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump feeding `acidcat explore`, `--anomalies` a forensic scan (trailing data, polyglots, cavities, size mismatches, LSB-stego notice), `--pretty` a human-friendly metadata view, `--verbose` a deep deconstruction (Bitwig device tree/parameters/notes, Vital modulation matrix, ...), `--color` to syntax-highlight |
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
 | `acidcat convert clip.bwclip -o out.mid` | Export a DAW clip's notes to a Standard MIDI File |
@@ -114,7 +115,7 @@ Most commands accept `table`, `json`, and `csv` (default `table`, but
 
 | Group | What it adds | Commands enabled |
 |-------|-------------|-----------------|
-| (none) | mutagen (base) | info, scan, chunks, survey, dump for WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A |
+| (none) | mutagen (base) | info, scan, chunks, survey, dump, inspect, explore, index, query, write, convert, cover for WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A + all inspect-only formats |
 | `[analysis]` | librosa, numpy, scipy, soundfile | detect, info --deep |
 | `[ml]` | + pandas, scikit-learn | features, similar, search |
 | `[viz]` | + matplotlib, seaborn | optional plotting |

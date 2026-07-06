@@ -40,6 +40,7 @@ acidcat inspect FILE... [-f table|json] [--pretty] [--hex] [--frames]
 | `--only fmt,bext` | show only these chunks (case-insensitive); compose with `--hex` |
 | `--exclude data` | hide these chunks |
 | `--full` | self-contained JSON dump (raw region bytes + absolute field offsets) |
+| `--anomalies` | forensic scan: trailing data, polyglots, cavities, size mismatches, LSB-stego notice |
 | `--verbose` | deep deconstruction (Bitwig device tree + parameters + notes, Vital modulation matrix, NI hsin FastLZ subtree) |
 | `-f json` | JSON output; multiple files become NDJSON (one record per line) |
 | `--color` | auto (TTY) / always / never; honors NO_COLOR |
@@ -67,7 +68,7 @@ acidcat inspect --only fmt --hex loop.wav
 acidcat inspect -f json *.wav | jq -c '.chunks[].id'
 
 # build a standalone interactive byte explorer for any file
-acidcat inspect --full song.mp3 | python build_explorer.py -o song.html
+acidcat explore song.mp3 -o song.html
 
 # per-frame MP3 bitrate switching / per-event MIDI
 acidcat inspect --frames song.mp3
