@@ -3,10 +3,13 @@
 How acidcat is wired together: the data flow from a file on disk to a query
 result on stdout or over MCP.
 
-Last updated: 2026-06-11 for v0.6.0 (per-library layout unchanged since
-v0.5.0; the readelf-style `inspect` verb arrived in v0.5.7 and covers
-WAV, AIFF, and MIDI as of v0.6.0). Previously updated 2026-04-23 under
-the v0.4 single-DB layout.
+Last updated: 2026-07-06 for v0.17.0. The per-library layout is unchanged since
+v0.5.0. The readelf-style `inspect` verb (v0.5.7) now covers 17 formats via
+from-scratch walkers in `core/walk/*` behind a registry; the v0.15.0 refactor
+moved the walkers out of `commands/inspect.py` and split the sniffer into
+`core/sniff.py` (inspect) and `core/indexing.py` (index). The high-level data-flow
+narrative below is current; the deepest per-module walk-throughs may still cite
+the pre-refactor file for a given walker.
 
 ---
 
@@ -83,6 +86,11 @@ src/acidcat/
     chunks.py            RIFF chunk walker
     survey.py            chunk frequency counter
     dump.py              hex-dump chunk payload
+    inspect.py           byte-level structural dump (rendering + CLI only)
+    explore.py           build the standalone HTML byte-explorer
+    write.py             in-place metadata edit (+ _original backup)
+    cover.py             extract/embed/remove cover art
+    convert.py           export a DAW clip's notes to a MIDI file
     detect.py            librosa BPM/key estimator
     features.py          feature extraction to CSV
     similar.py           similarity + clustering over features CSV
@@ -90,23 +98,32 @@ src/acidcat/
     index.py             per-library index management + --discover walker
     query.py             fan-out filter across registered libraries
   core/                  reusable library layer
+    sniff.py             canonical magic-byte sniffer for the inspect path
+    walk/                from-scratch structural walkers, one per format,
+                         behind a registry (walk/__init__.py); wav, rf64,
+                         aiff, midi, rmid, mp3, flac, ogg, mp4, serum, fxp,
+                         rx2, bitwig, vital, ni, ncw + shared base.py
+    anomalies.py         forensic scan (--anomalies): trailing data, polyglots,
+                         cavities, size mismatches
+    lsb.py               LSB-entropy + dual-endianness analysis
     riff.py              RIFF/WAV chunk parser (caps reads at 64KB)
-    aiff.py              AIFF/IFF chunk parser
-    midi.py              MIDI meta parser
-    serum.py             XferJson preset parser (linear-pass JSON)
+    aiff.py mp3.py mp4.py ogg.py flac.py ncw.py ni.py bitwig.py vital.py
+                         format parsers shared by the index/extract path
+    midi.py midi_write.py   MIDI meta parser + writer
+    serum.py preset_meta.py native preset parsers + metadata
     tagged.py            mutagen wrapper (mp3/flac/ogg/m4a) + BOM strip
+    edit_riff.py edit_aiff.py edits.py writer.py   in-place metadata editors
+    cover.py             cover-art read/write across formats
     detect.py            filename parsing + librosa + validation pipeline
     features.py          librosa feature vector extractor
     camelot.py           Camelot wheel math + enharmonic normalization
     index.py             per-library SQLite schema, upsert, query
+    indexing.py          index-path sniffer (_sniff_format) + extract dispatch
     paths.py             path normalize + central/in-tree DB layout + hash
     registry.py          global registry table, no-overlap guard, fan-out
     formats.py           output formatters (table/json/csv)
-  util/
-    midi.py              MIDI note number / name helpers
-    csv_helpers.py       pandas shim for features commands
-    stdin.py             piped-input detection + tempfile landing
-    deps.py              optional-dependency error messages
+  util/                  midi note helpers, csv shim, stdin, dep messages
+  explorer.py            JSON-to-HTML transform (feeds commands/explore.py)
   mcp_server.py          MCP tool definitions + dispatch
 ```
 
@@ -479,9 +496,10 @@ use: feature extractor version, last global reindex timestamp, etc.
 
 ## Format detection dispatch
 
-`commands/index.py:_sniff_format` reads the first 12 bytes of the file
-and identifies the format. Extension is the fallback, used only when
-the magic bytes are unrecognized:
+The index/extract path uses `core/indexing.py:_sniff_format`, which reads the
+first 16 bytes and identifies the format (the inspect path has its own canonical
+sniffer, `core/sniff.py:sniff_bytes`, covering the full 17-format set). Extension
+is the fallback, used only when the magic bytes are unrecognized:
 
 ```
 b"MThd"                       -> "midi"
@@ -501,13 +519,18 @@ batch convert) routes by content, not by trailing suffix. This is the
 F-21 fix from the 2026-05-02 audit; before it, the extension dispatch
 could mis-route those files into the WAV parser and silently mis-tag.
 
-Adding a new format is a three-step process:
-1. Add a `core/<format>.py` module with `is_<format>`, `parse_<format>`,
-   and a documented return dict.
-2. Extend `_sniff_format` in `commands/index.py` to recognize the magic
-   bytes, and route through `_extract_for_index` to the new parser.
-3. Add an `_info_<format>(filepath, args)` builder in `commands/info.py`.
+Adding a new format touches both paths:
+1. inspect: add `core/walk/<format>.py` returning `(chunks, warnings)`, register
+   it in `core/walk/__init__.py`, and add the magic to `core/sniff.py`.
+2. index/extract (optional, for BPM/key/tag indexing): add a `core/<format>.py`
+   parser, extend `_sniff_format` in `core/indexing.py`, and route through
+   `_extract_for_index`.
+3. Add an `_info_<format>(filepath, args)` builder in `commands/info.py` if the
+   format carries index-worthy metadata.
 4. Add a doc under `docs/formats/<format>.md`.
+
+The FXP, RX2, and RMID walkers are inspect-only (step 1 plus a doc); they carry
+no index metadata, so they skip steps 2-3.
 
 ---
 
