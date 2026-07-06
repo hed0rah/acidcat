@@ -153,3 +153,24 @@ def test_wav_ixml_chunk(tmp_path):
     label, chunks, warns = walk_file(str(f))
     assert _field(chunks, "scene") == "12A"
     assert _field(chunks, "take") == "3"
+
+
+def test_wav_data_before_fmt_flagged(tmp_path):
+    # data-before-fmt violates RIFF chunk order; the walker already warns and the
+    # scan surfaces it, so no separate detector is needed.
+    from acidcat.core import anomalies
+    fmt = b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, 44100, 88200, 2, 16)
+    data = b"data" + struct.pack("<I", 4) + bytes(4)
+    f = tmp_path / "dbf.wav"
+    body = b"WAVE" + data + fmt          # data BEFORE fmt (spec violation)
+    f.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    label, chunks, warns = walk_file(str(f))
+    findings = anomalies.scan(str(f), label, chunks, warns)
+    assert any("fmt appears after data" in x["message"] for x in findings)
+    # normal order produces no such finding
+    g = tmp_path / "ok.wav"
+    body2 = b"WAVE" + fmt + data
+    g.write_bytes(b"RIFF" + struct.pack("<I", len(body2)) + body2)
+    la, ch, wa = walk_file(str(g))
+    assert not any("fmt appears after data" in x["message"]
+                   for x in anomalies.scan(str(g), la, ch, wa))
