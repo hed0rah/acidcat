@@ -1232,12 +1232,12 @@ def _register_all():
         {
             "type": "object",
             "properties": {
-                "bpm_min": {"type": "number"},
-                "bpm_max": {"type": "number"},
+                "bpm_min": {"type": "number", "description": "Minimum BPM (inclusive)."},
+                "bpm_max": {"type": "number", "description": "Maximum BPM (inclusive)."},
                 "key": {"type": "string",
                         "description": "Exact key (e.g. 'Am', 'C#')."},
-                "duration_min": {"type": "number"},
-                "duration_max": {"type": "number"},
+                "duration_min": {"type": "number", "description": "Minimum duration in seconds."},
+                "duration_max": {"type": "number", "description": "Maximum duration in seconds."},
                 "tags": {"type": "array", "items": {"type": "string"},
                          "description": "AND semantics across tags."},
                 "text": {"type": "string",
@@ -1260,7 +1260,7 @@ def _register_all():
                 "root": {"type": "string",
                          "description": "Library label or path. "
                          "Comma-separated for multiple."},
-                "limit": {"type": "integer", "default": 50},
+                "limit": {"type": "integer", "default": 50, "description": "Max results to return."},
             },
         },
         search_samples,
@@ -1272,7 +1272,7 @@ def _register_all():
         "description, and which library it belongs to.",
         {
             "type": "object",
-            "properties": {"path": {"type": "string"}},
+            "properties": {"path": {"type": "string", "description": "Absolute path to the sample file."}},
             "required": ["path"],
         },
         get_sample,
@@ -1285,8 +1285,8 @@ def _register_all():
         {
             "type": "object",
             "properties": {
-                "name": {"type": "string"},
-                "limit": {"type": "integer", "default": 10},
+                "name": {"type": "string", "description": "Filename substring to match (case-insensitive)."},
+                "limit": {"type": "integer", "default": 10, "description": "Max results to return."},
             },
             "required": ["name"],
         },
@@ -1308,7 +1308,7 @@ def _register_all():
         "Use 'prefix' to narrow.",
         {
             "type": "object",
-            "properties": {"prefix": {"type": "string"}},
+            "properties": {"prefix": {"type": "string", "description": "Only tags starting with this prefix."}},
         },
         list_tags,
         {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
@@ -1346,7 +1346,7 @@ def _register_all():
         {
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
+                "path": {"type": "string", "description": "Absolute path to the sample file."},
                 "bpm_tolerance_pct": {"type": "number", "default": 6},
                 "include_relative": {"type": "boolean", "default": True},
                 "kind": {
@@ -1362,7 +1362,7 @@ def _register_all():
                         "Optional seconds floor. Overrides/augments kind "
                         "filter for length-specific queries.",
                 },
-                "limit": {"type": "integer", "default": 20},
+                "limit": {"type": "integer", "default": 20, "description": "Max results to return."},
             },
             "required": ["path"],
         },
@@ -1385,8 +1385,8 @@ def _register_all():
         {
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
-                "n": {"type": "integer", "default": 5},
+                "path": {"type": "string", "description": "Absolute path to the sample file."},
+                "n": {"type": "integer", "default": 5, "description": "How many similar samples to return."},
                 "kind": {
                     "type": "string",
                     "enum": ["loop", "one_shot", "any"],
@@ -1417,7 +1417,7 @@ def _register_all():
         {
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
+                "path": {"type": "string", "description": "Absolute path to the sample file."},
             },
             "required": ["path"],
         },
@@ -1432,7 +1432,7 @@ def _register_all():
         "file is already indexed.",
         {
             "type": "object",
-            "properties": {"path": {"type": "string"}},
+            "properties": {"path": {"type": "string", "description": "Absolute path to the sample file."}},
             "required": ["path"],
         },
         detect_bpm_key,
@@ -1518,8 +1518,10 @@ def _register_all():
         {
             "type": "object",
             "properties": {
-                "label": {"type": "string"},
-                "root": {"type": "string"},
+                "label": {"type": "string",
+                          "description": "Library label to forget."},
+                "root": {"type": "string",
+                         "description": "Or the library root path to forget."},
             },
         },
         forget_library,
@@ -1580,9 +1582,9 @@ def _register_all():
         {
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
-                "add_tags": {"type": "array", "items": {"type": "string"}},
-                "remove_tags": {"type": "array", "items": {"type": "string"}},
+                "path": {"type": "string", "description": "Absolute path to the sample file."},
+                "add_tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to add."},
+                "remove_tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to remove."},
             },
             "required": ["path"],
         },
@@ -1597,7 +1599,7 @@ def _register_all():
         {
             "type": "object",
             "properties": {
-                "path": {"type": "string"},
+                "path": {"type": "string", "description": "Absolute path to the sample file."},
                 "description": {"type": "string"},
             },
             "required": ["path"],
@@ -1638,15 +1640,16 @@ def _build_app():
     async def _list_tools():
         out = []
         for t in TOOLS:
-            ann_kwargs = {}
-            for k, v in t["annotations"].items():
-                ann_kwargs[k] = v
             try:
-                annotations = mcp_types.ToolAnnotations(**ann_kwargs)
+                annotations = mcp_types.ToolAnnotations(**t["annotations"])
             except TypeError:
+                # an older SDK may not know a hint key; drop annotations rather
+                # than fail the whole listing.
                 annotations = None
             tool_kwargs = {
                 "name": t["name"],
+                "title": t["annotations"].get("title")
+                or t["name"].replace("_", " ").title(),
                 "description": t["description"],
                 "inputSchema": t["input_schema"],
             }
@@ -1657,16 +1660,31 @@ def _build_app():
 
     @app.call_tool()
     async def _call_tool(name, arguments):
+        # tool-execution failures come back as a CallToolResult with isError so
+        # the client and model see them as errors, not as a successful payload
+        # that happens to hold an "error" string.
         try:
             result = dispatch(name, arguments or {})
-            text = json.dumps(result, default=str, indent=2)
-            return [mcp_types.TextContent(type="text", text=text)]
         except ToolError as e:
-            payload = {"error": str(e)}
-            return [mcp_types.TextContent(type="text", text=json.dumps(payload))]
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(
+                    type="text", text=json.dumps({"error": str(e)}))],
+                isError=True)
         except Exception as e:
-            payload = {"error": f"internal: {e.__class__.__name__}: {e}"}
-            return [mcp_types.TextContent(type="text", text=json.dumps(payload))]
+            return mcp_types.CallToolResult(
+                content=[mcp_types.TextContent(
+                    type="text",
+                    text=json.dumps({"error": f"internal: {e.__class__.__name__}: {e}"}))],
+                isError=True)
+        text = json.dumps(result, default=str, indent=2)
+        structured = result if isinstance(result, dict) else {"result": result}
+        # a handler that returns {"error": ...} (e.g. missing analysis deps) is a
+        # soft failure; flag it too.
+        is_error = isinstance(result, dict) and "error" in result
+        return mcp_types.CallToolResult(
+            content=[mcp_types.TextContent(type="text", text=text)],
+            structuredContent=structured,
+            isError=is_error)
 
     return app
 
