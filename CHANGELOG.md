@@ -4,6 +4,18 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Changed
+
+- MCP: tool-execution failures now return a `CallToolResult` with `isError: true`
+  (and a handler that returns an `{"error": ...}` dict is flagged the same way),
+  so clients and the model see errors as errors, not as a successful payload that
+  happens to contain an error string.
+- MCP: successful tool calls now return `structuredContent` (the machine-readable
+  result object) alongside the JSON text block, and every tool advertises a
+  human-readable `title`. Previously-bare input fields gained descriptions.
+
 ## [0.18.0] - 2026-07-06
 
 ### Added
