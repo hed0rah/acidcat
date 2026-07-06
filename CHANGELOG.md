@@ -4,7 +4,7 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
-## [Unreleased]
+## [0.18.0] - 2026-07-06
 
 ### Added
 
