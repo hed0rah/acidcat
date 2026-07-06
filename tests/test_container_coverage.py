@@ -174,3 +174,18 @@ def test_wav_data_before_fmt_flagged(tmp_path):
     la, ch, wa = walk_file(str(g))
     assert not any("fmt appears after data" in x["message"]
                    for x in anomalies.scan(str(g), la, ch, wa))
+
+
+def test_wt_bitwig_wavetable(tmp_path):
+    # vawt: 12-byte LE header + frame_count*frame_samples int16 LE samples
+    frame_samples, frame_count = 2048, 3
+    header = b"vawt" + struct.pack("<IHH", frame_samples, frame_count, 12)
+    data = bytes(frame_count * frame_samples * 2)
+    f = tmp_path / "t.wt"
+    f.write_bytes(header + data)
+    label, chunks, warns = walk_file(str(f))
+    assert "wavetable" in label.lower()
+    assert not warns                                    # size matches header exactly
+    assert _field(chunks, "frame_samples") == 2048
+    assert _field(chunks, "frame_count") == 3
+    assert _field(chunks, "magic") == "vawt"

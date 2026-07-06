@@ -6,6 +6,15 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- `inspect` walks Bitwig wavetable `.wt` files (the `vawt` container Bitwig
+  writes from Polymer and other wavetable devices): frame count, samples per
+  single-cycle wave, and the 16-bit sample block. Reverse-engineered and
+  documented in docs/formats/bitwig-wt.md.
+- Format reference docs (docs/formats/) for the previously-undocumented native
+  walkers: RF64/BW64, RMID, VST FXP, and ReCycle RX2.
+
 ### Changed
 
 - MCP: tool-execution failures now return a `CallToolResult` with `isError: true`
