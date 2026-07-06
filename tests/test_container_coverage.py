@@ -107,3 +107,18 @@ def test_rx2_recycle_loop(tmp_path):
     assert "RX2" in label
     assert _field(chunks, "slices") == 2
     assert "ReCycle Test" in str(_field(chunks, "creator"))
+
+
+def test_rmid_riff_wrapped_midi(tmp_path):
+    # RMID: a Standard MIDI File wrapped in a RIFF 'data' chunk
+    midi = (b"MThd" + struct.pack(">IHHH", 6, 0, 1, 96)
+            + b"MTrk" + struct.pack(">I", 4) + bytes([0x00, 0xFF, 0x2F, 0x00]))
+    body = b"RMID" + b"data" + struct.pack("<I", len(midi)) + midi
+    data = b"RIFF" + struct.pack("<I", len(body)) + body
+    f = tmp_path / "w.rmid"
+    f.write_bytes(data)
+    label, chunks, warns = walk_file(str(f))
+    assert "RMID" in label
+    ids = [str(c["id"]).strip() for c in chunks]
+    assert "RIFF" in ids           # the wrapper
+    assert "MThd" in ids and "MTrk" in ids   # the delegated inner MIDI
