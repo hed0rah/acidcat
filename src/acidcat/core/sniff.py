@@ -42,6 +42,8 @@ def sniff_bytes(head):
         return "rf64"
     if head[:8] == b"XferJson":
         return "serum"
+    if head[:4] == b"vawt":
+        return "wt"
     if head[:4] == b"BtWg":
         return "bitwig"
     if head[:4] == b"CcnK":

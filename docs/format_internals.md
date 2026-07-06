@@ -34,10 +34,10 @@ to the RIFF parser).
 | Format | File | Path | What acidcat extracts |
 |--------|------|------|-----------------------|
 | [RIFF / WAV](formats/riff_wav.md) ([anatomy](formats/wav-anatomy.html)) | `.wav` | inspect + index | BPM, key, loops, beats, duration, format, chunks, LIST/INFO, bext, cart, iXML |
-| RF64 (BWF, EBU Tech 3306) | `.wav` | inspect only | Same chunk set as RIFF/WAV, plus ds64: 64-bit riff/data sizes, sample count, chunk-size override table |
+| [RF64 / BW64](formats/rf64.md) (EBU Tech 3306) | `.wav` | inspect only | Same chunk set as RIFF/WAV, plus ds64: 64-bit riff/data sizes, sample count, chunk-size override table |
 | [AIFF / AIFC](formats/aiff.md) ([anatomy](formats/aiff-anatomy.html)) | `.aif`, `.aiff` | inspect + index | Duration, format, name, author, copyright, markers, instrument tuning, Apple Loops |
 | [MIDI](formats/midi.md) ([anatomy](formats/midi-anatomy.html)) | `.mid`, `.midi` | inspect + index | BPM, key sig, time sig, tracks, note count/range, channels, duration |
-| RMID | `.rmid` | inspect only | The RIFF wrapper, then the wrapped Standard MIDI File (delegated to the MIDI walker) |
+| [RMID](formats/rmid.md) | `.rmid` | inspect only | The RIFF wrapper, then the wrapped Standard MIDI File (delegated to the MIDI walker) |
 
 ### Tagged containers (inspect native; index/extract via mutagen)
 
@@ -58,12 +58,13 @@ files through mutagen.
 | Format | File | Path | What acidcat extracts |
 |--------|------|------|-----------------------|
 | [Serum](formats/serum.md) | `.SerumPreset` | inspect + index | Preset name, author, description, tags, product version |
-| VST FXP | `.fxp` | inspect only | CcnK container, preset kind (FxCk/FPCh), plugin id (FourCC), version, preset name |
-| ReCycle RX2 | `.rx2` | inspect only | CAT/REX2 IFF tree, creator, slice count (recursing the nested slice group) |
+| [VST FXP](formats/fxp.md) | `.fxp` | inspect only | CcnK container, preset kind (FxCk/FPCh), plugin id (FourCC), version, preset name |
+| [ReCycle RX2](formats/rx2.md) | `.rx2` | inspect only | CAT/REX2 IFF tree, creator, slice count (recursing the nested slice group) |
 | Bitwig | `.bwpreset`, `.bwclip` | inspect + index | Device tree, parameters, clip notes |
 | Vital | `.vital` | inspect + index | Patch name, author, tags, modulation matrix |
 | Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index | Preset metadata, NKS tags, FastLZ subtree (hsin) |
 | NCW | `.ncw` | inspect only | NI Compressed Wave header, channel/block info |
+| [Bitwig WT](formats/bitwig-wt.md) | `.wt` | inspect only | vawt header: frame count, samples/frame, 16-bit sample block |
 
 ### Not yet implemented
 
@@ -106,6 +107,8 @@ for every format it supports and prints the structure with byte offsets:
   index/total, freeform); `--anomalies` flags an mdat coverage gap.
 - **Serum** -- XferJson magic, the JSON metadata block, and the opaque
   wavetable/modulation blob boundary.
+- **Bitwig WT** -- the `vawt` header (samples per single-cycle wave, frame
+  count, data offset) and the frame-major int16 sample block.
 - **VST FXP** -- the CcnK container, preset kind (FxCk/FPCh), plugin id, version
   fields, preset name, and the opaque plugin chunk as a region.
 - **ReCycle RX2** -- the CAT/REX2 IFF chunk tree, creator string, and slice count.
