@@ -61,6 +61,7 @@ files through mutagen.
 | [VST FXP](formats/fxp.md) | `.fxp` | inspect only | CcnK container, preset kind (FxCk/FPCh), plugin id (FourCC), version, preset name |
 | [ReCycle RX2](formats/rx2.md) | `.rx2` | inspect only | CAT/REX2 IFF tree, creator, slice count (recursing the nested slice group) |
 | Bitwig | `.bwpreset`, `.bwclip` | inspect + index | Device tree, parameters, clip notes |
+| [Bitwig multisample](formats/bitwig-multisample.md) | `.multisample` | inspect only | ZIP zone map: per-sample root note, key/velocity range, loop |
 | Vital | `.vital` | inspect + index | Patch name, author, tags, modulation matrix |
 | Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index | Preset metadata, NKS tags, FastLZ subtree (hsin) |
 | NCW | `.ncw` | inspect only | NI Compressed Wave header, channel/block info |

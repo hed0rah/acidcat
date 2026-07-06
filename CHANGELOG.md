@@ -14,6 +14,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   documented in docs/formats/bitwig-wt.md.
 - Format reference docs (docs/formats/) for the previously-undocumented native
   walkers: RF64/BW64, RMID, VST FXP, and ReCycle RX2.
+- `inspect` walks Bitwig `.multisample` files (a ZIP with a `multisample.xml`
+  zone map plus member samples): per-zone file, root note, key/velocity range,
+  and loop. Content-sniffed by peeking the zip for `multisample.xml`. Reads
+  entries by seeking past the local header, since Bitwig writes a mismatched
+  CRC. stdlib only (zipfile + xml.etree), no new dependency. See
+  docs/formats/bitwig-multisample.md.
 
 ### Changed
 
