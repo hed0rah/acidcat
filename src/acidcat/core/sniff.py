@@ -89,4 +89,18 @@ def sniff(filepath):
     fmt = sniff_bytes(head)
     if fmt == "mp3" and head[:3] == b"ID3" and _id3_wraps_other_container(filepath):
         return "id3-wrapped"
+    # a ZIP whose archive holds multisample.xml is a Bitwig .multisample. This is
+    # the one content-sniff that must peek inside the container (the local-file
+    # header magic alone cannot tell it from any other zip).
+    if fmt is None and head[:4] == b"PK\x03\x04" and _is_multisample(filepath):
+        return "multisample"
     return fmt
+
+
+def _is_multisample(filepath):
+    try:
+        import zipfile
+        with zipfile.ZipFile(filepath) as z:
+            return "multisample.xml" in z.namelist()
+    except Exception:
+        return False

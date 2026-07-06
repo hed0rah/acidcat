@@ -68,6 +68,7 @@ full-text.
 | ReCycle | `.rx2` | CAT/REX2 chunks, creator, slice count (inspect) |
 | Bitwig WT | `.wt` | Wavetable header: frame count, samples/frame, 16-bit sample block (inspect) |
 | Bitwig | `.bwpreset`, `.bwclip` | Device tree, parameters, clip notes (inspect + index) |
+| Bitwig multisample | `.multisample` | Zone map: per-sample root note, key/velocity range, loop (inspect) |
 | Native Instruments | `.nmsv`, `.nabs`, `.ksd`, `.nksf`, `.nki` | Preset metadata, NKS tags, FastLZ subtree (inspect + index) |
 | Vital  | `.vital`  | Patch name, author, tags, modulation matrix (inspect + index) |
 | NCW    | `.ncw`    | NI Compressed Wave header, channel/block info (inspect) |
