@@ -61,6 +61,7 @@ full-text.
 | Opus   | `.opus`   | BPM, key, title, artist (Vorbis Comment) |
 | M4A    | `.m4a`    | BPM, key, title, artist, album, genre (iTunes atoms) |
 | MIDI   | `.mid`    | BPM, key sig, time sig, tracks, note count/range |
+| RMID   | `.rmid`   | RIFF-wrapped MIDI: RIFF wrapper + the inner SMF (inspect) |
 | Serum  | `.SerumPreset` | Preset name, author, tags, description |
 | VST FXP | `.fxp` | Preset kind, plugin id, version, preset name (inspect) |
 | ReCycle | `.rx2` | CAT/REX2 chunks, creator, slice count (inspect) |
