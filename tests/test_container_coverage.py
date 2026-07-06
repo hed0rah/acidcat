@@ -189,3 +189,27 @@ def test_wt_bitwig_wavetable(tmp_path):
     assert _field(chunks, "frame_samples") == 2048
     assert _field(chunks, "frame_count") == 3
     assert _field(chunks, "magic") == "vawt"
+
+def test_multisample_bitwig(tmp_path):
+    # a .multisample is a zip: multisample.xml manifest + member sample files
+    import zipfile
+    xml = ('<?xml version="1.0"?><multisample name="Kit">'
+           '<generator>test</generator><category>Drums</category>'
+           '<sample file="a.wav"><key root="36" low="36" high="40"/>'
+           '<loop mode="off"/></sample>'
+           '<sample file="b.wav"><key root="48" low="41" high="52"/></sample>'
+           '</multisample>')
+    f = tmp_path / "k.multisample"
+    with zipfile.ZipFile(f, "w") as z:
+        z.writestr("multisample.xml", xml)
+        z.writestr("a.wav", b"RIFF____WAVE")
+        z.writestr("b.wav", b"RIFF____WAVE")
+    label, chunks, warns = walk_file(str(f))
+    assert "multisample" in label.lower()
+    assert _field(chunks, "name") == "Kit"
+    assert _field(chunks, "sample_zones") == 2
+    assert _field(chunks, "member_files") == 2
+    zones = [c for c in chunks if c["id"] == "zone"]
+    assert len(zones) == 2
+    assert _field(chunks, "root") == "36"          # first zone's root note
+    assert _field(chunks, "key_range") == "36-40"
