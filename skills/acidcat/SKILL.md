@@ -11,9 +11,9 @@ description: >
 
 # acidcat
 
-acidcat is a pure-Python (zero-dependency core) tool: readelf/exiftool for audio
+acidcat is a pure-Python tool (one dependency, mutagen; native inspect walkers need nothing): readelf/exiftool for audio
 and synth/DAW presets. It reads from byte-level facts only and treats every file
-as hostile input (bounded parsers, never crashes, degrades to a clean warning).
+as hostile input (bounded parsers designed to degrade to a clean warning rather than crash).
 
 Install: `pip install acidcat` (core). Extras: `[mcp]` (stdio MCP server),
 `[mcp-http]` (streamable-HTTP MCP server), `[ml]`/`[viz]` (librosa analysis),
@@ -29,7 +29,7 @@ Install: `pip install acidcat` (core). Extras: `[mcp]` (stdio MCP server),
 - **Edit metadata**: `acidcat write FILE --set field=value`.
 - **Clip to MIDI**: `acidcat convert clip.bwclip -o out.mid`.
 - **Search a library**: `acidcat index` then `acidcat query`.
-- **HTML byte-explorer**: `acidcat inspect --full FILE | python build_explorer.py -o out.html`.
+- **HTML byte-explorer**: `acidcat explore FILE -o out.html`.
 
 ## inspect
 
@@ -41,11 +41,13 @@ acidcat inspect --verbose FILE       # deep deconstruction: Bitwig device tree +
                                      # matrix, NI hsin FastLZ subtree
 acidcat inspect --frames FILE        # per-frame/per-event dump (MP3 frames, MIDI events)
 acidcat inspect --only fmt,data FILE # select regions; --exclude to drop them
-acidcat inspect --full FILE          # self-contained JSON (feeds build_explorer.py)
+acidcat inspect --anomalies FILE     # forensic scan: trailing data, polyglots, cavities, stego notice
+acidcat inspect --full FILE          # self-contained JSON (feeds acidcat explore)
 acidcat inspect FILE1 FILE2 ...      # multiple files; JSON output becomes NDJSON
 ```
 
-Formats: WAV, RF64, AIFF/AIFC, MIDI, MP3, FLAC, OGG, MP4/M4A, Serum, Bitwig
+Formats: WAV, RF64, AIFF/AIFC, MIDI, RMID, MP3, FLAC, OGG, MP4/M4A, Serum, VST FXP,
+ReCycle RX2, Bitwig
 (.bwpreset/.bwclip), Vital, NCW, Native Instruments (hsin: .nmsv/.nabs/.nki;
 .ksd; .nksf). Non-Latin metadata (Korean, CJK, mixed-script) decodes correctly.
 
@@ -91,14 +93,14 @@ acidcat query "reese"                    # full-text
 Indexed dimensions include bpm, key, tags, and (for presets) device, product,
 creator, category, preset name.
 
-## build_explorer.py (interactive HTML)
+## acidcat explore (interactive HTML)
 
 A pure JSON-to-HTML transform of an `inspect --full` dump: a datasheet with hex
 byte grids, each decoded field tinted over its bytes, hover-to-link, and a
 dark/light theme toggle. No dependencies, no access to the original file needed.
 
 ```
-acidcat inspect --full song.mp3 | python build_explorer.py -o song.html
+acidcat explore song.mp3 -o song.html   # legacy pipe: inspect --full | python build_explorer.py
 ```
 
 ## MCP server
