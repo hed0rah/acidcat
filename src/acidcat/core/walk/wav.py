@@ -378,6 +378,74 @@ def _parse_bwbm(b, ctx):
     return summary, fields, warns
 
 
+def _parse_cart(b, ctx):
+    """AES46 / RIFF Cart chunk: radio-automation metadata. A fixed 2048-byte
+    layout (title, artist, cut id, category, start/end dates, producer app, level
+    reference, 8 post-timers, url) followed by freeform tag text."""
+    fields, warns = [], []
+    if len(b) < 0x2AC:
+        return "truncated", fields, [f"cart payload is {len(b)} bytes, header needs 2048"]
+
+    def s(off, n):
+        return _cstr(b, off, n)
+
+    fields.append(_f(0x000, 4, "version", s(0, 4)))
+    for off, n, name in ((0x004, 64, "title"), (0x044, 64, "artist"),
+                         (0x084, 64, "cut_id"), (0x104, 64, "category"),
+                         (0x144, 64, "classification"), (0x184, 64, "out_cue")):
+        fields.append(_f(off, n, name, s(off, n)))
+    fields.append(_f(0x1C4, 18, "start", (s(0x1C4, 10) + " " + s(0x1CE, 8)).strip()))
+    fields.append(_f(0x1D6, 18, "end", (s(0x1D6, 10) + " " + s(0x1E0, 8)).strip()))
+    fields.append(_f(0x1E8, 64, "producer_app", s(0x1E8, 64)))
+    fields.append(_f(0x228, 64, "producer_version", s(0x228, 64)))
+    fields.append(_f(0x2A8, 4, "level_reference", struct.unpack_from("<i", b, 0x2A8)[0]))
+    for i in range(8):                                   # 8 post-timers: usage[4] + value
+        o = 0x2AC + i * 8
+        if o + 8 > len(b):
+            break
+        usage = _cstr(b, o, 4)
+        if usage:
+            fields.append(_f(o, 8, f"timer_{usage}", _u32(b, o + 4), "sample offset"))
+    if len(b) >= 0x400:
+        url = _cstr(b, 0x400, min(1024, len(b) - 0x400))
+        if url:
+            fields.append(_f(0x400, len(url), "url", url[:120]))
+    if len(b) > 0x800:
+        tag = b[0x800:].split(b"\x00")[0].decode("latin-1", "replace").strip()
+        if tag:
+            fields.append(_f(0x800, len(b) - 0x800, "tag_text", tag[:120]))
+    title, artist = s(0x04, 64), s(0x44, 64)
+    summary = f"Cart: {title or 'untitled'}" + (f" by {artist}" if artist else "")
+    return summary, fields, warns
+
+
+def _parse_ixml(b, ctx):
+    """iXML: field-recorder XML metadata (project, scene, take, tape, note,
+    circled, track list) written by Sound Devices / Zoom / Tascam and friends.
+    Surfaces the common tags; the whole payload is the XML."""
+    import re
+    fields = []
+    text = b.split(b"\x00")[0].decode("utf-8", "replace")
+
+    def tag(name):
+        m = re.search(rf"<{name}>(.*?)</{name}>", text, re.I | re.S)
+        return m.group(1).strip() if m else None
+
+    for name in ("IXML_VERSION", "PROJECT", "SCENE", "TAKE", "TAPE", "NOTE",
+                 "CIRCLED", "FILE_SET_INDEX"):
+        v = tag(name)
+        if v:
+            fields.append(_f(None, 0, name.lower(), v[:80]))
+    tracks = len(re.findall(r"<TRACK>", text, re.I))
+    if tracks:
+        fields.append(_f(None, 0, "track_count", tracks))
+    if not fields:
+        fields.append(_f(0, len(b), "xml", text[:100].replace("\n", " ")))
+    scene, take = tag("SCENE"), tag("TAKE")
+    summary = "iXML" + (f": scene {scene}" if scene else "") + (f" take {take}" if take else "")
+    return summary, fields, []
+
+
 _PARSERS = {
     "fmt ": _parse_fmt,
     "fact": _parse_fact,
@@ -388,6 +456,8 @@ _PARSERS = {
     "LIST": _parse_list,
     "bext": _parse_bext,
     "BWBM": _parse_bwbm,
+    "cart": _parse_cart,
+    "iXML": _parse_ixml,
 }
 
 
