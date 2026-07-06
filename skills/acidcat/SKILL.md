@@ -3,7 +3,7 @@ name: acidcat
 description: >
   Inspect, edit, and search low-level metadata and byte structure of audio files
   (WAV, AIFF, MP3, FLAC, OGG, M4A, MIDI) and synth/DAW presets (Bitwig,
-  Native Instruments Massive/Absynth/Kontakt/NKS/KORE, Vital, Serum). Use when the
+  Native Instruments Massive/Absynth/Kontakt/NKS/KORE, Vital, Serum, VST FXP, ReCycle RX2, NCW; and containers MP4/M4A and RMID). Use when the
   user wants byte-level format structure, to read or write tags / loop points /
   BPM / key / root note, to build an interactive HTML byte-explorer of a file,
   to export a DAW note clip to MIDI, or to index and search a sample library.
