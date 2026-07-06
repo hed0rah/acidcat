@@ -11,6 +11,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 - `inspect` walks RMID (RIFF-wrapped MIDI): reports the RIFF wrapper and hands
   the inner Standard MIDI File to the MIDI walker (offsets shifted into place),
   so the MThd/MTrk detail shows through.
+- `inspect` decodes the WAV `cart` chunk (AES46 radio automation: title, artist,
+  cut id, category, start/end, producer app, level reference, post-timers, url)
+  and the `iXML` chunk (field-recorder metadata: project, scene, take, tape,
+  note, track count), previously shown as unparsed.
 
 ## [0.17.0] - 2026-07-04
 

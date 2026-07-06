@@ -53,7 +53,7 @@ full-text.
 
 | Format | Extension | What acidcat reads |
 |--------|-----------|-------------------|
-| WAV    | `.wav`    | BPM, key, loop points, beats, ACID/SMPL chunks, LIST/INFO |
+| WAV    | `.wav`    | BPM, key, loop points, beats, ACID/SMPL, LIST/INFO, bext, cart, iXML |
 | AIFF   | `.aif`    | Duration, format, name, author, copyright, markers |
 | MP3    | `.mp3`    | BPM, key, title, artist, album, genre, comment (ID3v2) |
 | FLAC   | `.flac`   | BPM, key, title, artist, album, genre (Vorbis Comment) |
