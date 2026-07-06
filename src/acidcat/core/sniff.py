@@ -32,6 +32,8 @@ def sniff_bytes(head):
     """
     if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WAVE":
         return "wav"
+    if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"RMID":
+        return "rmid"
     if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
         return "aiff" if head[8:12] == b"AIFF" else "aifc"
     if len(head) >= 14 and head[:4] == b"MThd":

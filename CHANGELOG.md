@@ -4,6 +4,14 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Added
+
+- `inspect` walks RMID (RIFF-wrapped MIDI): reports the RIFF wrapper and hands
+  the inner Standard MIDI File to the MIDI walker (offsets shifted into place),
+  so the MThd/MTrk detail shows through.
+
 ## [0.17.0] - 2026-07-04
 
 ### Added
