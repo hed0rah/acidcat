@@ -122,3 +122,55 @@ def test_rmid_riff_wrapped_midi(tmp_path):
     ids = [str(c["id"]).strip() for c in chunks]
     assert "RIFF" in ids           # the wrapper
     assert "MThd" in ids and "MTrk" in ids   # the delegated inner MIDI
+
+
+def _wav_with_chunk(cid, payload):
+    fmt = b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, 44100, 88200, 2, 16)
+    data = b"data" + struct.pack("<I", 4) + bytes(4)
+    pad = b"\x00" if len(payload) & 1 else b""
+    ck = cid + struct.pack("<I", len(payload)) + payload + pad
+    body = b"WAVE" + fmt + data + ck
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def test_wav_cart_chunk(tmp_path):
+    cart = bytearray(2048)
+    cart[0x04:0x04 + 6] = b"Jingle"          # title
+    cart[0x44:0x44 + 7] = b"Station"         # artist
+    f = tmp_path / "c.wav"
+    f.write_bytes(_wav_with_chunk(b"cart", bytes(cart)))
+    label, chunks, warns = walk_file(str(f))
+    cartck = next(c for c in chunks if str(c["id"]).strip() == "cart")
+    assert "Jingle" in cartck["summary"]
+    assert _field(chunks, "title") == "Jingle"
+    assert _field(chunks, "artist") == "Station"
+
+
+def test_wav_ixml_chunk(tmp_path):
+    xml = b"<BWFXML><SCENE>12A</SCENE><TAKE>3</TAKE><NOTE>windy</NOTE></BWFXML>"
+    f = tmp_path / "x.wav"
+    f.write_bytes(_wav_with_chunk(b"iXML", xml))
+    label, chunks, warns = walk_file(str(f))
+    assert _field(chunks, "scene") == "12A"
+    assert _field(chunks, "take") == "3"
+
+
+def test_wav_data_before_fmt_flagged(tmp_path):
+    # data-before-fmt violates RIFF chunk order; the walker already warns and the
+    # scan surfaces it, so no separate detector is needed.
+    from acidcat.core import anomalies
+    fmt = b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, 44100, 88200, 2, 16)
+    data = b"data" + struct.pack("<I", 4) + bytes(4)
+    f = tmp_path / "dbf.wav"
+    body = b"WAVE" + data + fmt          # data BEFORE fmt (spec violation)
+    f.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    label, chunks, warns = walk_file(str(f))
+    findings = anomalies.scan(str(f), label, chunks, warns)
+    assert any("fmt appears after data" in x["message"] for x in findings)
+    # normal order produces no such finding
+    g = tmp_path / "ok.wav"
+    body2 = b"WAVE" + fmt + data
+    g.write_bytes(b"RIFF" + struct.pack("<I", len(body2)) + body2)
+    la, ch, wa = walk_file(str(g))
+    assert not any("fmt appears after data" in x["message"]
+                   for x in anomalies.scan(str(g), la, ch, wa))
