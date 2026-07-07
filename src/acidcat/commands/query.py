@@ -13,6 +13,7 @@ import sys
 
 from acidcat.core import index as idx
 from acidcat.core import paths as acidpaths
+from acidcat.core import query_sql
 from acidcat.core import registry as reg
 from acidcat.core.formats import output
 
@@ -255,66 +256,23 @@ def _fan_out(libs, args):
 
 
 def _build_sql(args):
-    """Build the WHERE clause shared across every library DB."""
-    where = []
-    params = []
-    joins = []
-
+    """Build the shared filter SQL via core.query_sql (same builder the MCP
+    search tool uses). --bpm/--duration are ranges, split here to min/max."""
+    bpm_lo = bpm_hi = dur_lo = dur_hi = None
     if args.bpm:
-        lo, hi = _parse_range(args.bpm, field_name="bpm")
-        if lo is not None:
-            where.append("s.bpm >= ?")
-            params.append(lo)
-        if hi is not None:
-            where.append("s.bpm <= ?")
-            params.append(hi)
-
+        bpm_lo, bpm_hi = _parse_range(args.bpm, field_name="bpm")
     if args.duration:
-        lo, hi = _parse_range(args.duration, field_name="duration")
-        if lo is not None:
-            where.append("s.duration >= ?")
-            params.append(lo)
-        if hi is not None:
-            where.append("s.duration <= ?")
-            params.append(hi)
-
-    if args.key:
-        where.append("LOWER(s.key) = LOWER(?)")
-        params.append(args.key)
-
-    if args.file_format:
-        where.append("LOWER(s.format) = LOWER(?)")
-        params.append(args.file_format)
-
-    for arg, col in (("device", "device"), ("category", "category"),
-                     ("creator", "creator"), ("product", "product")):
-        val = getattr(args, arg, None)
-        if val:
-            where.append(f"LOWER(s.{col}) = LOWER(?)")
-            params.append(val)
-
-    tags = [t for t in (args.tag or []) if t]
-    if tags:
-        placeholders = ",".join("?" for _ in tags)
-        where.append(
-            f"s.path IN ("
-            f"  SELECT path FROM tags WHERE tag IN ({placeholders}) "
-            f"  GROUP BY path HAVING COUNT(DISTINCT tag) = ?"
-            f")"
-        )
-        params.extend(tags)
-        params.append(len(tags))
-
-    if args.text:
-        joins.append("JOIN samples_fts fts ON fts.path = s.path")
-        where.append("samples_fts MATCH ?")
-        params.append(args.text)
-
-    sql = "SELECT s.* FROM samples s " + " ".join(joins)
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY s.path"
-    return sql, params
+        dur_lo, dur_hi = _parse_range(args.duration, field_name="duration")
+    where, params, joins = query_sql.build_filter(
+        bpm_min=bpm_lo, bpm_max=bpm_hi,
+        duration_min=dur_lo, duration_max=dur_hi,
+        key=args.key, file_format=args.file_format,
+        device=getattr(args, "device", None),
+        category=getattr(args, "category", None),
+        creator=getattr(args, "creator", None),
+        product=getattr(args, "product", None),
+        tags=args.tag, text=args.text)
+    return query_sql.assemble(where, joins, order="s.path"), params
 
 
 def _shape_row(row):
