@@ -23,6 +23,7 @@ import time
 
 from acidcat import __version__
 from acidcat.core import camelot
+from acidcat.core import search
 from acidcat.core import index as idx
 from acidcat.core import paths as acidpaths
 from acidcat.core import registry as reg
@@ -519,144 +520,58 @@ def index_stats(_args):
     }
 
 
-def infer_kind(duration, acid_beats):
-    """Classify a sample as 'loop' / 'one_shot' / 'any' from length + beats.
-
-    acid_beats > 0 OR duration >= 2.0 -> loop
-    duration < 1.0 AND (acid_beats is None or 0) -> one_shot
-    otherwise (1.0 <= duration < 2.0 without beats) -> any
-    """
-    d = duration or 0.0
-    b = acid_beats or 0
-    if b > 0 or d >= 2.0:
-        return "loop"
-    if d < 1.0 and b <= 0:
-        return "one_shot"
-    return "any"
+infer_kind = search.infer_kind   # logic lives in core.search now; kept as an alias
 
 
 def find_compatible(args):
+    """Find samples that mix with a reference: harmonic key (Camelot neighbours)
+    + compatible tempo (incl. half/double-time). Reads the reference from the
+    index, or parses it if unindexed. Thin adapter over core.search."""
     path = _require_path(args)
-    tol = float(args.get("bpm_tolerance_pct") or 6) / 100.0
-    limit = int(args.get("limit") or 20)
-    include_relative = args.get("include_relative", True)
-    kind_arg = (args.get("kind") or "").lower() or None
-    min_duration = args.get("min_duration")
-
-    # find target's metadata in its owning library
-    lib, conn = _open_owning_library(path)
-    if conn is None:
-        raise ToolError(f"sample not indexed: {path}")
+    rconn = reg.open_registry(_REGISTRY_PATH)
     try:
-        resolved = _resolve_stored_path(conn, path)
-        target = conn.execute(
-            "SELECT * FROM samples WHERE path = ?", (resolved,)
-        ).fetchone()
+        libs = reg.list_libraries(rconn, only_existing=True)
     finally:
-        conn.close()
+        rconn.close()
+    ref, source, ref_lib = search.resolve_reference(path, libs)
+    if ref is None:
+        raise ToolError(f"sample not indexed and could not be parsed: {path}")
 
-    target_bpm = target["bpm"]
-    target_key = target["key"]
-    target_kind = infer_kind(target["duration"], target["acid_beats"])
-
+    key, bpm = ref.get("key"), ref.get("bpm")
+    target_kind = search.infer_kind(ref.get("duration"), ref.get("acid_beats"))
+    kind_arg = (args.get("kind") or "").lower() or None
     effective_kind = kind_arg or target_kind
     if effective_kind not in ("loop", "one_shot", "any"):
-        raise ToolError(
-            f"kind must be loop, one_shot, or any (got {effective_kind!r})"
-        )
+        raise ToolError(f"kind must be loop, one_shot, or any (got {effective_kind!r})")
+    include_relative = args.get("include_relative", True)
 
-    compat_keys = camelot.compatible_keys(target_key) if target_key else set()
-    if not include_relative and target_key:
-        base = camelot.key_to_camelot(target_key)
-        if base:
-            keep = {c for c in camelot.camelot_neighbors(base)
-                    if not c.endswith(("A",) if base.endswith("B") else ("B",))}
-            compat_keys = {
-                k for k in compat_keys
-                if camelot.key_to_camelot(k) in keep
-            }
-
-    sql_keys = set()
-    for k in compat_keys:
-        sql_keys.update(camelot.enharmonic_spellings(k))
-
-    where = ["s.path != ?"]
-    params = [resolved]
-
-    if target_bpm is not None:
-        lo = target_bpm * (1 - tol)
-        hi = target_bpm * (1 + tol)
-        where.append("s.bpm BETWEEN ? AND ?")
-        params.extend([lo, hi])
-
-    if target_key:
-        if sql_keys:
-            placeholders = ",".join("?" for _ in sql_keys)
-            where.append(f"LOWER(s.key) IN ({placeholders})")
-            params.extend(k.lower() for k in sql_keys)
-        # if target_key was set but didn't map to a Camelot code, pass
-        # through with no harmonic constraint (BPM-only match).
-    else:
-        # keyless target (drum loops, percussion). "Compatible" only
-        # makes sense against other keyless samples; otherwise we'd
-        # return random-key results that are musically nonsensical.
-        where.append("(s.key IS NULL OR s.key = '')")
-
-    if effective_kind == "loop":
-        where.append("(s.acid_beats > 0 OR s.duration >= 2.0)")
-    elif effective_kind == "one_shot":
-        where.append(
-            "((s.acid_beats IS NULL OR s.acid_beats = 0) AND "
-            "(s.duration IS NULL OR s.duration < 1.0))"
-        )
-
-    if min_duration is not None:
-        where.append("s.duration >= ?")
-        params.append(float(min_duration))
-
-    sql = (
-        "SELECT s.* FROM samples s WHERE "
-        + " AND ".join(where)
-        + " ORDER BY s.bpm IS NULL, ABS(s.bpm - ?) LIMIT ?"
+    rows = search.find_compatible(
+        libs, key=key, bpm=bpm, kind=effective_kind,
+        bpm_tol=float(args.get("bpm_tolerance_pct") or 6) / 100.0,
+        half_double=bool(args.get("half_double", True)),
+        include_relative=include_relative,
+        min_duration=args.get("min_duration"),
+        limit=int(args.get("limit") or 20),
+        exclude_path=path,
     )
-
-    # fan out across every library, applying the same WHERE
-    pairs = _open_all_libraries()
-    merged = []
-    try:
-        for cand_lib, cand_conn in pairs:
-            rows = cand_conn.execute(
-                sql, params + [target_bpm or 0, limit]
-            ).fetchall()
-            for r in rows:
-                d = dict(r)
-                d["library_label"] = cand_lib["label"]
-                merged.append(d)
-    finally:
-        _close_all(pairs)
-
-    merged = _dedup_by_path(merged)
-    merged.sort(
-        key=lambda r: (
-            0 if r.get("bpm") is not None else 1,
-            abs((r.get("bpm") or 0) - (target_bpm or 0)),
-            r.get("path") or "",
-        )
-    )
-    merged = merged[:limit]
+    compat_pretty = sorted(camelot.compatible_keys(key)) if key else []
+    if key and not include_relative:
+        keep = search.compatible_codes(key, include_relative=False)
+        compat_pretty = sorted(k for k in compat_pretty
+                               if camelot.key_to_camelot(k) in keep)
     return {
         "target": {
-            "path": resolved,
-            "bpm": target_bpm,
-            "key": target_key,
-            "camelot": camelot.key_to_camelot(target_key) if target_key else None,
+            "path": ref.get("path", path),
+            "bpm": bpm, "key": key,
+            "camelot": camelot.key_to_camelot(key) if key else None,
             "kind": target_kind,
-            "library_label": lib["label"] if lib else None,
+            "library_label": ref_lib,
+            "source": source,
         },
-        "compatible_keys": sorted(compat_keys),
+        "compatible_keys": compat_pretty,
         "filter_kind": effective_kind,
-        "count": len(merged),
-        "samples": merged,
+        "count": len(rows),
+        "samples": rows,
     }
 
 
@@ -1348,6 +1263,9 @@ def _register_all():
             "properties": {
                 "path": {"type": "string", "description": "Absolute path to the sample file."},
                 "bpm_tolerance_pct": {"type": "number", "default": 6},
+                "half_double": {"type": "boolean", "default": True,
+                                "description": "Also match half- and "
+                                "double-time tempos (e.g. 174 mixes over 87)."},
                 "include_relative": {"type": "boolean", "default": True},
                 "kind": {
                     "type": "string",
