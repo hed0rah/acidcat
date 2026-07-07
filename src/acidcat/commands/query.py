@@ -53,6 +53,21 @@ def register(subparsers):
     p.add_argument("--root",
                    help="Scope results to one or more libraries (label or "
                         "path). Comma-separate to query multiple libraries.")
+    p.add_argument("--compatible-with", dest="compatible_with", metavar="FILE",
+                   help="Find samples that mix with FILE: harmonically "
+                        "compatible key (Camelot neighbours) + compatible tempo "
+                        "(incl. half/double-time). Reads FILE's key/BPM/kind from "
+                        "the index or the file itself.")
+    p.add_argument("--bpm-tolerance", dest="bpm_tolerance", type=float,
+                   default=6.0,
+                   help="Percent BPM window for --compatible-with (default 6).")
+    p.add_argument("--same-key", dest="same_key", action="store_true",
+                   help="With --compatible-with, require the exact key.")
+    p.add_argument("--no-half-double", dest="no_half_double", action="store_true",
+                   help="With --compatible-with, skip half-/double-time matches.")
+    p.add_argument("--kind", dest="kind", choices=["loop", "one_shot", "any"],
+                   help="With --compatible-with, override the inferred sample "
+                        "kind filter (loop / one_shot / any).")
     p.add_argument("--limit", type=int, default=50, help="Max rows (default 50).")
     p.add_argument("-f", "--output-format", dest="output_format",
                    default="table", choices=["table", "json", "csv"],
@@ -91,6 +106,9 @@ def run(args):
             print(f"acidcat query: no library matches --root {args.root!r}",
                   file=sys.stderr)
             return 1
+
+    if getattr(args, "compatible_with", None):
+        return _run_compatible(args, libs)
 
     try:
         rows = _fan_out(libs, args)
@@ -137,6 +155,57 @@ def _scope_libraries(libs, scopes):
                     out.append(lib)
                     break
     return out
+
+
+def _run_compatible(args, libs):
+    """--compatible-with: resolve the reference's key/BPM/kind, then fan out for
+    harmonically- and tempo-compatible samples via core.search."""
+    from acidcat.core import search
+    ref = args.compatible_with
+    if not os.path.exists(ref):
+        print(f"acidcat query: --compatible-with file not found: {ref}",
+              file=sys.stderr)
+        return 1
+    row, source, _lib = search.resolve_reference(ref, libs)
+    if row is None:
+        print(f"acidcat query: could not read {ref} (index it, or ensure it "
+              "carries key/tempo metadata).", file=sys.stderr)
+        return 1
+    key, bpm = row.get("key"), row.get("bpm")
+    if key is None and bpm is None:
+        print(f"acidcat query: {ref} has no key or BPM to match on.",
+              file=sys.stderr)
+        return 1
+    kind = (args.kind or "").lower() or search.infer_kind(row.get("duration"),
+                                                          row.get("acid_beats"))
+    _vlog(args, f"[query] reference {os.path.basename(ref)}: "
+                f"key={key} bpm={bpm} kind={kind} (from {source})")
+    rows = search.find_compatible(
+        libs, key=key, bpm=bpm, kind=kind,
+        bpm_tol=max(0.0, args.bpm_tolerance) / 100.0,
+        half_double=not args.no_half_double,
+        same_key_only=args.same_key,
+        limit=args.limit, exclude_path=ref)
+    if not rows:
+        if not getattr(args, "paths_only", False):
+            print(f"(no compatible samples for key {key or '?'}, "
+                  f"{bpm or '?'} bpm)", file=sys.stderr)
+        return 0
+    if args.paths_only:
+        for r in rows:
+            print(r["path"])
+        return 0
+    shaped = [{**{k: r[k] for k in DEFAULT_FIELDS if r.get(k) is not None},
+               "compatibility": r.get("compatibility", "")} for r in rows]
+    stream = sys.stdout
+    if getattr(args, "output", None):
+        stream = open(args.output, "w", encoding="utf-8", newline="")
+    try:
+        output(shaped, fmt=args.output_format, stream=stream)
+    finally:
+        if stream is not sys.stdout:
+            stream.close()
+    return 0
 
 
 def _fan_out(libs, args):
