@@ -38,8 +38,20 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .lede b{color:var(--ink);font-weight:500}
 .intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
 .intro .lede{margin-bottom:0}
-.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
-.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:0.5rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .siglabel{align-self:stretch;text-align:center;font-size:0.52rem;letter-spacing:0.24em;text-transform:uppercase;color:var(--faint);padding-bottom:0.45rem;margin-bottom:0.1rem;border-bottom:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
+/* two boxes per row: the dark (selected) state naming the colour, and the light
+   (resting) state naming the meaning, matching how a field looks in the map. */
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;min-width:4.6rem;height:1.4rem;padding:0 0.5rem;font-size:0.58rem;letter-spacing:0.12em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
 .tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
 .tree b{color:var(--ink);font-weight:500}
 footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
@@ -117,8 +129,11 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   </div>
 
   <div class="intro">
-  <p class="lede">AIFF is Apple's IFF container: a <b>FORM</b> header, a form type (AIFF or compressed AIFC), then chunks, all big-endian. It mirrors RIFF with the bytes flipped and COMM in place of fmt. The standout is the sample rate, stored as an <b>80-bit IEEE-754 extended float</b> that Python's struct cannot unpack, reassembled by hand. <b>Hover</b> a field to light its bytes, <b>click</b> a <span class="k-en">+</span> for its table. Colour marks kind: <span class="k-en">teal</span> a decoded value, <span class="k-fl">ochre</span> a flag, faint reserved.</p>
-  <aside class="sig" aria-hidden="true"></aside>
+  <p class="lede">AIFF is Apple's IFF container: a <b>FORM</b> header, a form type (AIFF or compressed AIFC), then chunks, all big-endian. It mirrors RIFF with the bytes flipped and COMM in place of fmt. The standout is the sample rate, stored as an <b>80-bit IEEE-754 extended float</b> that Python's struct cannot unpack, reassembled by hand. <b>Hover</b> a field to light its bytes, <b>click</b> a <span class="k-en">+</span> for its table. Colour marks kind (see the key).</p>
+  <aside class="sig" aria-label="colour key">
+    <div class="siglabel">colour key</div>
+    <div class="row"><span class="sw dark k-enum">teal</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+  </aside>
   </div>
 
   <div class="sec">chunk regions</div>

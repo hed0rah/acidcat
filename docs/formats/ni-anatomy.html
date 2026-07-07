@@ -40,8 +40,20 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .lede b{color:var(--ink);font-weight:500}
 .intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
 .intro .lede{margin-bottom:0}
-.sig{flex:1;align-self:stretch;display:flex;flex-direction:column;justify-content:space-evenly}
-.sig::before,.sig::after{content:"";height:1px;background:var(--hair)}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:0.5rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .siglabel{align-self:stretch;text-align:center;font-size:0.52rem;letter-spacing:0.24em;text-transform:uppercase;color:var(--faint);padding-bottom:0.45rem;margin-bottom:0.1rem;border-bottom:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
+/* two boxes per row: the dark (selected) state naming the colour, and the light
+   (resting) state naming the meaning, matching how a field looks in the map. */
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;min-width:4.6rem;height:1.4rem;padding:0 0.5rem;font-size:0.58rem;letter-spacing:0.12em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
 .tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
 .tree b{color:var(--ink);font-weight:500}
 footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
@@ -138,8 +150,14 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   </div>
 
   <div class="intro">
-  <p class="lede">Native Instruments presets are three containers wearing one badge. The <b>NISound "hsin"</b> tree carries Massive <b>.nmsv</b>, Absynth <b>.nabs</b>, FM8, Reaktor, and modern Kontakt <b>.nki</b>; the older <b>.ksd</b> document shell (old Absynth, KORE, FM8) wraps zlib chunks around plain XML; and <b>.nksf</b> is a RIFF form full of MessagePack. The formats are community-documented; everything below was re-derived from byte-level facts against real presets, nothing else. The metadata a producer wants is plain in all three: no decompression is needed to read an hsin preset name. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind: <span class="k-en">brick</span> is a decoded value, <span class="k-fl">teal</span> is a flag, graphite is a structural anchor, faint is reserved.</p>
-  <aside class="sig" aria-hidden="true"></aside>
+  <p class="lede">Native Instruments presets are three containers wearing one badge. The <b>NISound "hsin"</b> tree carries Massive <b>.nmsv</b>, Absynth <b>.nabs</b>, FM8, Reaktor, and modern Kontakt <b>.nki</b>; the older <b>.ksd</b> document shell (old Absynth, KORE, FM8) wraps zlib chunks around plain XML; and <b>.nksf</b> is a RIFF form full of MessagePack. The formats are community-documented; everything below was re-derived from byte-level facts against real presets, nothing else. The metadata a producer wants is plain in all three: no decompression is needed to read an hsin preset name. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind (see the key).</p>
+  <aside class="sig" aria-label="colour key">
+    <div class="siglabel">colour key</div>
+    <div class="row"><span class="sw dark k-enum">brick</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-flag">teal</span><span class="swsep">&#8594;</span><span class="sw light k-flag">flag</span></div>
+    <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
+  </aside>
   </div>
 
   <div class="sec">family 1 . NISound "hsin" container</div>

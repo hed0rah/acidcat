@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>acidcat / ncw anatomy</title>
+<title>acidcat / recycle rx2 anatomy</title>
 <script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,14 +12,14 @@
 :root{
   --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
   --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
-  /* ncw palette: ember value, teal flag, graphite anchor */
-  --enum:#8A452E;  --enum-soft:#E5D5CB;
-  --flag:#3F6464;  --flag-soft:#D3DEDD;
-  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03);
-  --sync:#4A4E58;  --sync-soft:#D8D9DE;
+  /* the small meaningful palette. each hue marks a field kind. */
+  --enum:#6E4A2E;  --enum-soft:#d5d0c8;   /* table-backed value  (green) */
+  --flag:#9A6E3F;  --flag-soft:#E7DCCB;   /* boolean switch      (clay)  */
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03); /* reserved / ignored */
+  --sync:#3A4A55;  --sync-soft:#D6DCE0;   /* structural anchor   (slate) */
   --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
 }
-:root[data-theme="dark"]{--paper:#191a17;--panel:#212320;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#383a32;--hair:#2b2d26;--enum:#bb988a;--enum-soft:#2a201a;--flag:#96a8a5;--flag-soft:#1f2523;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#9ea0a2;--sync-soft:#202221;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+:root[data-theme="dark"]{--paper:#191a17;--panel:#212320;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#383a32;--hair:#2b2d26;--enum:#ab9686;--enum-soft:#2c2318;--flag:#c3ad92;--flag-soft:#2c271d;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#979ea0;--sync-soft:#1e2120;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
 ::selection{background:var(--enum);color:var(--paper)}
 .sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
@@ -38,8 +38,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 
 .lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
 .lede b{color:var(--ink);font-weight:500}
-.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro{display:flex;gap:1.4rem;align-items:stretch;margin-bottom:2.2rem}
 .intro .lede{margin-bottom:0}
+/* colour key: a swatch of each hue instead of naming the colours in prose */
 .sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:0.5rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
 .sig .siglabel{align-self:stretch;text-align:center;font-size:0.52rem;letter-spacing:0.24em;text-transform:uppercase;color:var(--faint);padding-bottom:0.45rem;margin-bottom:0.1rem;border-bottom:1px solid var(--hair)}
 .sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
@@ -137,91 +138,68 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <div class="row">
       <div class="title">
         <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
-        <h1>NCW Anatomy</h1>
+        <h1>ReCycle RX2 Anatomy</h1>
       </div>
-      <div class="stamp"><b>NI Compressed Wave</b>.ncw . Kontakt libraries<br>rev 2026.07</div>
+      <div class="stamp"><b>CAT/REX2 IFF</b>sliced loop<br>rev 2026.07</div>
     </div>
     <div class="strip">
-      <div>magic <b>01 A8 9E D6</b></div>
-      <div>endian <b>little</b></div>
-      <div>codec <b>lossless blocks</b></div>
-      <div>sample <b>2ch 24-bit 48k</b></div>
+      <div>magic <b>CAT REX2</b></div>
+      <div>endian <b>big</b></div>
+      <div>container <b>own</b></div>
+      <div>sample <b>43 41 54 20</b></div>
     </div>
   </div>
 
   <div class="intro">
-  <p class="lede">NCW is the sample format inside Kontakt instruments: PCM audio, losslessly compressed. The file is a fixed little-endian header, a block table, and a run of delta/bit-packed audio blocks that reconstruct the original samples exactly. No ASCII magic here; the file opens with the 4-byte sentinel <b>01 A8 9E D6</b> (a newer writer variant uses <b>01 A8 9E D7</b>). Everything below is field-verified against a real Kontakt library .ncw. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind (see the key).</p>
+  <p class="lede">An <b>.rx2</b> is a Propellerhead ReCycle loop: an IFF-style <b>CAT</b> group whose form type is <b>REX2</b>, holding <b>big-endian</b> chunks. ReCycle slices a drum or instrument loop into transient-aligned segments and stores the slice markers so a host can retrigger each and follow tempo. The markers hide in a <b>nested CAT/SLCL</b> group. <b>Hover</b> any field or byte to light its span and read the decode. Colour marks kind (see the key).</p>
   <aside class="sig" aria-label="colour key">
     <div class="siglabel">colour key</div>
-    <div class="row"><span class="sw dark k-enum">ember</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-enum">umber</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
     <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
-    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
   </aside>
   </div>
 
   <div class="sec">file regions</div>
-  <p class="note">Top to bottom, what a reader walks. The audio parameters a producer wants sit in the first 32 bytes; acidcat inspect decodes them and derives the duration without touching the compressed body.</p>
+  <p class="note">An IFF CAT group, form type REX2, of big-endian chunks. The slice markers hide in a nested sub-group.</p>
   <div>
     <details class="region" open>
-      <summary><span class="chev">&#9656;</span><span class="rname">fixed header</span><span class="rspan">0x00 . 120 bytes . drawn below</span></summary>
+      <summary><span class="chev">&#9656;</span><span class="rname">CAT container</span><span class="rspan">0x00 . 12 bytes . big-endian</span></summary>
       <div class="rbody">
-        <p class="note">All integers little-endian. The first 32 bytes carry the magic, the audio parameters, and three offsets that lay out the rest of the file; the remainder of the 120-byte header is zero in the files examined. The worked example is the corpus file: 2 channels, 24-bit, 48000 Hz, 439295 samples.</p>
-        <div id="block-header"></div>
-        <div class="kv">
-          <div><span class="k">magic</span><span class="v">01 A8 9E D6 at offset 0; 01 A8 9E D7 on newer writers</span></div>
-          <div><span class="k">audio params</span><span class="v">channels u16 @ 0x08 . bits u16 @ 0x0A . sample_rate u32 @ 0x0C . num_samples u32 @ 0x10</span></div>
-          <div><span class="k">layout offsets</span><span class="v">block table @ the u32 at 0x14, audio data @ the u32 at 0x18, body size in the u32 at 0x1C</span></div>
-          <div><span class="k">cross-check</span><span class="v">data_offset + data_size = file size; 3556 + 1909184 = 1912740 on the corpus file</span></div>
-        </div>
+        <p class="note">The group header, drawn above: the CAT keyword, the group size, and the REX2 form type.</p>
+        <div id="block-head"></div>
       </div>
     </details>
 
     <details class="region" open>
-      <summary><span class="chev">&#9656;</span><span class="rname">block table</span><span class="rspan">0x78 . u32 offsets</span></summary>
+      <summary><span class="chev">&#9656;</span><span class="rname">chunks</span><span class="rspan">CREI . GLOB . NAME . RECY . SD</span></summary>
       <div class="rbody">
-        <p class="note">Between the header and the audio sits an index: one u32 offset per compressed block, relative to the start of the audio body, plus a final entry marking its end. Random access falls out for free; a player seeks the table, not the stream.</p>
+        <p class="note">Big-endian IFF chunks: a 4-byte id, a 4-byte size, then the body (padded to even). acidcat decodes the legible strings and reports the rest as regions.</p>
         <div class="kv">
-          <div><span class="k">entry</span><span class="v">u32 little-endian, offset from data_offset</span></div>
-          <div><span class="k">corpus file</span><span class="v">859 entries at 0x78: 858 blocks plus the end sentinel, ascending from 0 to 1909184</span></div>
-          <div><span class="k">block span</span><span class="v">each block covers 512 sample frames; 858 x 512 = 439296, one frame past num_samples, so the last block runs short</span></div>
-          <div><span class="k">sizing</span><span class="v">entry deltas give each block's compressed byte size; they vary block to block with the material</span></div>
+          <div><span class="k">framing</span><span class="v">id[4] + size[4] BE + body (even-padded)</span></div>
+          <div><span class="k">CREI</span><span class="v">creator string, e.g. a ReCycle version</span></div>
+          <div><span class="k">GLOB</span><span class="v">global: tempo, bars/beats</span></div>
+          <div><span class="k">NAME</span><span class="v">loop name</span></div>
+          <div><span class="k">SD</span><span class="v">sample data (the audio)</span></div>
         </div>
       </div>
     </details>
 
-    <details class="region" open>
-      <summary><span class="chev">&#9656;</span><span class="rname">compressed audio body</span><span class="rspan">data_offset . opaque to acidcat</span></summary>
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">slice list</span><span class="rspan">nested CAT / SLCL</span></summary>
       <div class="rbody">
-        <p class="note">The samples themselves, packed block by block. Each block is delta/bit-packed: store the differences between neighbouring samples, then keep only as many bits per delta as the block actually needs. Quiet or smooth material packs tight; noise barely shrinks. Decoding reconstructs the original PCM exactly; this is lossless, not perceptual.</p>
+        <p class="note">The transient slice markers do not sit at the top level: they live in a nested CAT group whose form is SLCL, one SLCE per slice. acidcat recurses into it to count slices; a flat top-level walk would miss them.</p>
         <div class="kv">
-          <div><span class="k">unit</span><span class="v">fixed blocks of 512 samples, each independently decodable via the table</span></div>
-          <div><span class="k">packing</span><span class="v">per-block delta coding with a per-block bit width</span></div>
-          <div><span class="k">guarantee</span><span class="v">bit-exact PCM out; the WAV that went in comes back whole</span></div>
-          <div><span class="k">acidcat</span><span class="v">left opaque; deep audio decode is out of scope, the header already answers the catalog questions</span></div>
-        </div>
-      </div>
-    </details>
-  </div>
-
-  <div class="sec">what acidcat reads</div>
-  <p class="note">The header is enough. Four fields in, one division out, and a corrupt file gets rejected instead of cataloged with a nonsense duration.</p>
-  <div>
-    <details class="region" open>
-      <summary><span class="chev">&#9656;</span><span class="rname">header decode + validation</span><span class="rspan">inspect . index</span></summary>
-      <div class="rbody">
-        <div class="kv">
-          <div><span class="k">read</span><span class="v">channels, bit depth, sample rate, sample count from the fixed header</span></div>
-          <div><span class="k">derive</span><span class="v">duration = num_samples / sample_rate; 439295 / 48000 = 9.152 s on the corpus file</span></div>
-          <div><span class="k">validate</span><span class="v">channels 1-32 . bits in {8, 16, 24, 32} . sample_rate 8000-384000 . num_samples 1 to 2e9</span></div>
-          <div><span class="k">on failure</span><span class="v">the file is rejected as corrupt rather than shown with an absurd duration</span></div>
+          <div><span class="k">nesting</span><span class="v">CAT (SLCL) -> SLCE, SLCE, ...</span></div>
+          <div><span class="k">slice count</span><span class="v">recursed, depth-bounded against a malformed file</span></div>
+          <div><span class="k">SLCE</span><span class="v">one transient-aligned slice marker</span></div>
         </div>
       </div>
     </details>
   </div>
 
   <footer>
-    <span>acidcat / ncw anatomy</span>
-    <span>ncw . 01 A8 9E D6 . 2ch 24-bit 48000 Hz . 9.152 s</span>
+    <span>acidcat / recycle rx2 anatomy</span>
+    <span>cat . rex2 . big-endian . slices in slcl</span>
   <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
 
 </div>
@@ -295,13 +273,11 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       row.addEventListener("click",function(){pin(fi);});
       rows.push(row); list.appendChild(row);
     });
-    // bidirectional: hovering or clicking a byte/bit drives the same field
     cells.forEach(function(c){
       var fi=owner[+c.dataset.idx];
       c.addEventListener("mouseenter",function(){cue(fi);});
       c.addEventListener("click",function(){pin(fi);});
     });
-    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
     var left=document.createElement("div"); left.className="left";
     left.appendChild(diagram); left.appendChild(list);
     var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
@@ -309,8 +285,6 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     block.appendChild(left); block.appendChild(dcol);
     block.addEventListener("mouseleave",restore);
     mount.appendChild(block);
-    // size the pane to the tallest card so nothing ever scrolls; short
-    // sections just leave a little space under the fields (the lesser evil)
     var maxH=aside.scrollHeight;
     fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
     det.t.textContent="Hover a field or byte";
@@ -320,51 +294,21 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     dcol.style.minHeight=(maxH+6)+"px";
   }
 
-  // ncw fixed header, first 32 bytes of the corpus file: 2ch 24-bit 48000 Hz
-  build("block-header", 'byte',
-    [0x01,0xA8,0x9E,0xD6,
-     0x31,0x01,0x00,0x00,
-     0x02,0x00, 0x18,0x00,
-     0x80,0xBB,0x00,0x00,
-     0xFF,0xB3,0x06,0x00,
-     0x78,0x00,0x00,0x00,
-     0xE4,0x0D,0x00,0x00,
-     0xC0,0x21,0x1D,0x00],
+  // CAT container: "CAT " + cat_size(BE) + "REX2"
+  build("block-head","byte",
+    [0x43,0x41,0x54,0x20, 0x00,0x00,0x08,0x00, 0x52,0x45,0x58,0x32],
     [
-      {label:"magic",k:"sync",r:[0,3],val:"01 A8 9E D6",sel:0,branch:[
-        ["..D6","classic sentinel; this file and most library content"],
-        ["..D7","newer writer variant; same header layout past the magic"]],
-       body:"Four bytes open the file: the little-endian sentinel 0xD69EA801. Not ASCII, not human-readable, just a signature. A file that does not start with one of the two variants is not NCW.",
-       note:"acidcat matches both magics and parses the rest identically."},
-      {label:"header tag",k:"rsv",r:[4,7],val:"0x131",
-       body:"Four bytes between the magic and the audio parameters: a block-header / version area. Reads 0x131 on the corpus file. Left uninterpreted; nothing downstream depends on it.",
-       note:"treated as reserved until a second value shows up in the wild."},
-      {label:"channels",k:"enum",r:[8,9],val:"2",
-       body:"u16 little-endian channel count. Stereo here; Kontakt libraries carry mono and stereo NCW side by side.",
-       note:"acidcat accepts 1-32; anything outside rejects the header."},
-      {label:"bits_per_sample",k:"enum",r:[10,11],val:"24",sel:2,branch:[
-        ["8","8-bit PCM"],
-        ["16","16-bit PCM"],
-        ["24","24-bit PCM: this file"],
-        ["32","32-bit PCM"]],
-       body:"u16 little-endian bit depth of the original PCM. The compression is lossless, so this is also the bit depth that comes back out.",
-       note:"acidcat accepts only {8, 16, 24, 32}."},
-      {label:"sample_rate",k:"enum",r:[12,15],val:"48000 Hz",
-       body:"u32 little-endian sample rate. 0x0000BB80 = 48000. Together with num_samples this is all a catalog needs for duration.",
-       note:"acidcat accepts 8000-384000 Hz."},
-      {label:"num_samples",k:"enum",r:[16,19],val:"439295",
-       body:"u32 little-endian count of sample frames in the decoded audio. 0x0006B3FF = 439295 frames; divided by the rate that is 9.152 seconds.",
-       note:"acidcat accepts 1 to 2e9 and derives duration = num_samples / sample_rate."},
-      {label:"table_offset",k:"sync",r:[20,23],val:"120",
-       body:"u32 little-endian: where the block table begins, which is also the size of this fixed header. 120 on the files examined; bytes 0x20-0x77 are zero.",
-       note:"the header is padded well past the fields drawn here."},
-      {label:"data_offset",k:"sync",r:[24,27],val:"3556",
-       body:"u32 little-endian: where the compressed audio body begins. Everything between table_offset and here is the block table; 3436 bytes on the corpus file, 859 u32 entries.",
-       note:"858 blocks of 512 frames cover the 439295 samples, plus one end-sentinel entry."},
-      {label:"data_size",k:"sync",r:[28,31],val:"1909184",
-       body:"u32 little-endian byte count of the compressed audio body. The last block-table entry equals this value, and data_offset + data_size equals the file size: 3556 + 1909184 = 1912740.",
-       note:"three independent numbers that must agree; a cheap integrity check before touching the audio."}
+      {label:"group",k:"sync",r:[0,3],val:'\'"CAT "\'',
+       body:"The IFF group keyword (note the trailing space). Like AIFF\'s FORM, but the group is CAT and the form type below is REX2. All multi-byte fields are BIG-endian.",
+       note:"43 41 54 20."},
+      {label:"cat_size",k:"sync",r:[4,7],val:"2048",
+       body:"uint32 BIG-endian: bytes in the group after this field.",
+       note:"00 00 08 00 = 0x0800 = 2048."},
+      {label:"form",k:"enum",r:[8,11],val:'\'"REX2"\'',
+       body:"The form type. REX2 marks a ReCycle loop; the child chunks (HEAD, CREI, GLOB, SLCE, SD) follow.",
+       note:"the slice markers live in a nested CAT/SLCL sub-group."}
     ]);
+})();
 })();
 </script>
 <button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme"></button>

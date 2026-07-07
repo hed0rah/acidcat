@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>acidcat / ncw anatomy</title>
+<title>acidcat / bitwig wavetable anatomy</title>
 <script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,14 +12,14 @@
 :root{
   --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
   --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
-  /* ncw palette: ember value, teal flag, graphite anchor */
-  --enum:#8A452E;  --enum-soft:#E5D5CB;
-  --flag:#3F6464;  --flag-soft:#D3DEDD;
-  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03);
-  --sync:#4A4E58;  --sync-soft:#D8D9DE;
+  /* the small meaningful palette. each hue marks a field kind. */
+  --enum:#3F6E5E;  --enum-soft:#cfd5cf;   /* table-backed value  (green) */
+  --flag:#9A6E3F;  --flag-soft:#E7DCCB;   /* boolean switch      (clay)  */
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03); /* reserved / ignored */
+  --sync:#3A4A55;  --sync-soft:#D6DCE0;   /* structural anchor   (slate) */
   --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
 }
-:root[data-theme="dark"]{--paper:#191a17;--panel:#212320;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#383a32;--hair:#2b2d26;--enum:#bb988a;--enum-soft:#2a201a;--flag:#96a8a5;--flag-soft:#1f2523;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#9ea0a2;--sync-soft:#202221;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+:root[data-theme="dark"]{--paper:#191a17;--panel:#212320;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#383a32;--hair:#2b2d26;--enum:#90aba2;--enum-soft:#1d2e26;--flag:#c3ad92;--flag-soft:#2c271d;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#979ea0;--sync-soft:#1e2120;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
 ::selection{background:var(--enum);color:var(--paper)}
 .sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
@@ -38,8 +38,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 
 .lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
 .lede b{color:var(--ink);font-weight:500}
-.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro{display:flex;gap:1.4rem;align-items:stretch;margin-bottom:2.2rem}
 .intro .lede{margin-bottom:0}
+/* colour key: a swatch of each hue instead of naming the colours in prose */
 .sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:0.5rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
 .sig .siglabel{align-self:stretch;text-align:center;font-size:0.52rem;letter-spacing:0.24em;text-transform:uppercase;color:var(--faint);padding-bottom:0.45rem;margin-bottom:0.1rem;border-bottom:1px solid var(--hair)}
 .sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
@@ -137,91 +138,69 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <div class="row">
       <div class="title">
         <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
-        <h1>NCW Anatomy</h1>
+        <h1>Bitwig Wavetable Anatomy</h1>
       </div>
-      <div class="stamp"><b>NI Compressed Wave</b>.ncw . Kontakt libraries<br>rev 2026.07</div>
+      <div class="stamp"><b>vawt container</b>Polymer / Sampler<br>rev 2026.07</div>
     </div>
     <div class="strip">
-      <div>magic <b>01 A8 9E D6</b></div>
+      <div>magic <b>vawt</b></div>
       <div>endian <b>little</b></div>
-      <div>codec <b>lossless blocks</b></div>
-      <div>sample <b>2ch 24-bit 48k</b></div>
+      <div>container <b>own</b></div>
+      <div>sample <b>76 61 77 74</b></div>
     </div>
   </div>
 
   <div class="intro">
-  <p class="lede">NCW is the sample format inside Kontakt instruments: PCM audio, losslessly compressed. The file is a fixed little-endian header, a block table, and a run of delta/bit-packed audio blocks that reconstruct the original samples exactly. No ASCII magic here; the file opens with the 4-byte sentinel <b>01 A8 9E D6</b> (a newer writer variant uses <b>01 A8 9E D7</b>). Everything below is field-verified against a real Kontakt library .ncw. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind (see the key).</p>
+  <p class="lede">A <b>.wt</b> is a Bitwig wavetable: a fixed 12-byte <b>vawt</b> header, then raw signed 16-bit samples. The header names the length of one single-cycle wave and how many waves are stacked; the data is those waves laid end to end, frame-major, no interleave. Bitwig writes one whenever you drop a WAV onto Polymer or another wavetable device. <b>Hover</b> any field or byte to light its exact span and read the decode. Colour marks kind, the way syntax highlighting does (see the key). Example: <b>vawt</b> + 2048 samples/wave + 256 waves, a real 1 MB table.</p>
   <aside class="sig" aria-label="colour key">
     <div class="siglabel">colour key</div>
-    <div class="row"><span class="sw dark k-enum">ember</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-enum">sea</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
     <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
-    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
   </aside>
   </div>
 
   <div class="sec">file regions</div>
-  <p class="note">Top to bottom, what a reader walks. The audio parameters a producer wants sit in the first 32 bytes; acidcat inspect decodes them and derives the duration without touching the compressed body.</p>
+  <p class="note">Top to bottom, what a reader walks. There is no footer: the file is exactly 12 + frame_count * frame_samples * 2 bytes.</p>
   <div>
     <details class="region" open>
-      <summary><span class="chev">&#9656;</span><span class="rname">fixed header</span><span class="rspan">0x00 . 120 bytes . drawn below</span></summary>
+      <summary><span class="chev">&#9656;</span><span class="rname">vawt header</span><span class="rspan">0x00 . 12 bytes . little-endian</span></summary>
       <div class="rbody">
-        <p class="note">All integers little-endian. The first 32 bytes carry the magic, the audio parameters, and three offsets that lay out the rest of the file; the remainder of the 120-byte header is zero in the files examined. The worked example is the corpus file: 2 channels, 24-bit, 48000 Hz, 439295 samples.</p>
-        <div id="block-header"></div>
-        <div class="kv">
-          <div><span class="k">magic</span><span class="v">01 A8 9E D6 at offset 0; 01 A8 9E D7 on newer writers</span></div>
-          <div><span class="k">audio params</span><span class="v">channels u16 @ 0x08 . bits u16 @ 0x0A . sample_rate u32 @ 0x0C . num_samples u32 @ 0x10</span></div>
-          <div><span class="k">layout offsets</span><span class="v">block table @ the u32 at 0x14, audio data @ the u32 at 0x18, body size in the u32 at 0x1C</span></div>
-          <div><span class="k">cross-check</span><span class="v">data_offset + data_size = file size; 3556 + 1909184 = 1912740 on the corpus file</span></div>
-        </div>
+        <p class="note">The whole header, drawn below as a byte map. Four fields, all little-endian: the magic, the wave length, the wave count, and the offset where samples begin.</p>
+        <div id="block-head"></div>
       </div>
     </details>
 
     <details class="region" open>
-      <summary><span class="chev">&#9656;</span><span class="rname">block table</span><span class="rspan">0x78 . u32 offsets</span></summary>
+      <summary><span class="chev">&#9656;</span><span class="rname">sample data</span><span class="rspan">0x0C . to EOF</span></summary>
       <div class="rbody">
-        <p class="note">Between the header and the audio sits an index: one u32 offset per compressed block, relative to the start of the audio body, plus a final entry marking its end. Random access falls out for free; a player seeks the table, not the stream.</p>
+        <p class="note">Immediately after the header: frame_count * frame_samples signed 16-bit little-endian samples, laid out frame-major. Wave 0's complete cycle comes first, then wave 1's, and so on. No per-wave header, no interleave. Full-scale (observed range spans the whole -32768..+32767).</p>
         <div class="kv">
-          <div><span class="k">entry</span><span class="v">u32 little-endian, offset from data_offset</span></div>
-          <div><span class="k">corpus file</span><span class="v">859 entries at 0x78: 858 blocks plus the end sentinel, ascending from 0 to 1909184</span></div>
-          <div><span class="k">block span</span><span class="v">each block covers 512 sample frames; 858 x 512 = 439296, one frame past num_samples, so the last block runs short</span></div>
-          <div><span class="k">sizing</span><span class="v">entry deltas give each block's compressed byte size; they vary block to block with the material</span></div>
+          <div><span class="k">format</span><span class="v">int16 little-endian, frame-major</span></div>
+          <div><span class="k">per-wave bytes</span><span class="v">frame_samples * 2</span></div>
+          <div><span class="k">wave i at</span><span class="v">12 + i * frame_samples * 2</span></div>
+          <div><span class="k">total samples</span><span class="v">frame_count * frame_samples</span></div>
+          <div><span class="k">file size</span><span class="v">exactly 12 + total_samples * 2 (no footer)</span></div>
         </div>
       </div>
     </details>
 
-    <details class="region" open>
-      <summary><span class="chev">&#9656;</span><span class="rname">compressed audio body</span><span class="rspan">data_offset . opaque to acidcat</span></summary>
+    <details class="region opt">
+      <summary><span class="chev">&#9656;</span><span class="rname">wave-length variants</span><span class="rspan">frame_samples in the wild</span></summary>
       <div class="rbody">
-        <p class="note">The samples themselves, packed block by block. Each block is delta/bit-packed: store the differences between neighbouring samples, then keep only as many bits per delta as the block actually needs. Quiet or smooth material packs tight; noise barely shrinks. Decoding reconstructs the original PCM exactly; this is lossless, not perceptual.</p>
+        <p class="note">frame_samples is not fixed. Across a 5636-file corpus, three values appear; 2048 dominates.</p>
         <div class="kv">
-          <div><span class="k">unit</span><span class="v">fixed blocks of 512 samples, each independently decodable via the table</span></div>
-          <div><span class="k">packing</span><span class="v">per-block delta coding with a per-block bit width</span></div>
-          <div><span class="k">guarantee</span><span class="v">bit-exact PCM out; the WAV that went in comes back whole</span></div>
-          <div><span class="k">acidcat</span><span class="v">left opaque; deep audio decode is out of scope, the header already answers the catalog questions</span></div>
-        </div>
-      </div>
-    </details>
-  </div>
-
-  <div class="sec">what acidcat reads</div>
-  <p class="note">The header is enough. Four fields in, one division out, and a corrupt file gets rejected instead of cataloged with a nonsense duration.</p>
-  <div>
-    <details class="region" open>
-      <summary><span class="chev">&#9656;</span><span class="rname">header decode + validation</span><span class="rspan">inspect . index</span></summary>
-      <div class="rbody">
-        <div class="kv">
-          <div><span class="k">read</span><span class="v">channels, bit depth, sample rate, sample count from the fixed header</span></div>
-          <div><span class="k">derive</span><span class="v">duration = num_samples / sample_rate; 439295 / 48000 = 9.152 s on the corpus file</span></div>
-          <div><span class="k">validate</span><span class="v">channels 1-32 . bits in {8, 16, 24, 32} . sample_rate 8000-384000 . num_samples 1 to 2e9</span></div>
-          <div><span class="k">on failure</span><span class="v">the file is rejected as corrupt rather than shown with an absurd duration</span></div>
+          <div><span class="k">2048</span><span class="v">~91% . the common Bitwig / Serum-lineage resolution</span></div>
+          <div><span class="k">256</span><span class="v">~9% . lower-resolution tables</span></div>
+          <div><span class="k">1024</span><span class="v">rare</span></div>
+          <div><span class="k">not vawt</span><span class="v">the BWBM beat-map chunk lives inside a WAV; this is its own file</span></div>
         </div>
       </div>
     </details>
   </div>
 
   <footer>
-    <span>acidcat / ncw anatomy</span>
-    <span>ncw . 01 A8 9E D6 . 2ch 24-bit 48000 Hz . 9.152 s</span>
+    <span>acidcat / bitwig wavetable anatomy</span>
+    <span>vawt . int16 le . frame-major . 256 x 2048</span>
   <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
 
 </div>
@@ -295,13 +274,11 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       row.addEventListener("click",function(){pin(fi);});
       rows.push(row); list.appendChild(row);
     });
-    // bidirectional: hovering or clicking a byte/bit drives the same field
     cells.forEach(function(c){
       var fi=owner[+c.dataset.idx];
       c.addEventListener("mouseenter",function(){cue(fi);});
       c.addEventListener("click",function(){pin(fi);});
     });
-    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
     var left=document.createElement("div"); left.className="left";
     left.appendChild(diagram); left.appendChild(list);
     var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
@@ -309,8 +286,6 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     block.appendChild(left); block.appendChild(dcol);
     block.addEventListener("mouseleave",restore);
     mount.appendChild(block);
-    // size the pane to the tallest card so nothing ever scrolls; short
-    // sections just leave a little space under the fields (the lesser evil)
     var maxH=aside.scrollHeight;
     fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
     det.t.textContent="Hover a field or byte";
@@ -320,50 +295,22 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     dcol.style.minHeight=(maxH+6)+"px";
   }
 
-  // ncw fixed header, first 32 bytes of the corpus file: 2ch 24-bit 48000 Hz
-  build("block-header", 'byte',
-    [0x01,0xA8,0x9E,0xD6,
-     0x31,0x01,0x00,0x00,
-     0x02,0x00, 0x18,0x00,
-     0x80,0xBB,0x00,0x00,
-     0xFF,0xB3,0x06,0x00,
-     0x78,0x00,0x00,0x00,
-     0xE4,0x0D,0x00,0x00,
-     0xC0,0x21,0x1D,0x00],
+  // vawt header: "vawt" + frame_samples 2048 (LE u32) + frame_count 256 (LE u16) + data_offset 12 (LE u16)
+  build("block-head","byte",
+    [0x76,0x61,0x77,0x74, 0x00,0x08,0x00,0x00, 0x00,0x01, 0x0C,0x00],
     [
-      {label:"magic",k:"sync",r:[0,3],val:"01 A8 9E D6",sel:0,branch:[
-        ["..D6","classic sentinel; this file and most library content"],
-        ["..D7","newer writer variant; same header layout past the magic"]],
-       body:"Four bytes open the file: the little-endian sentinel 0xD69EA801. Not ASCII, not human-readable, just a signature. A file that does not start with one of the two variants is not NCW.",
-       note:"acidcat matches both magics and parses the rest identically."},
-      {label:"header tag",k:"rsv",r:[4,7],val:"0x131",
-       body:"Four bytes between the magic and the audio parameters: a block-header / version area. Reads 0x131 on the corpus file. Left uninterpreted; nothing downstream depends on it.",
-       note:"treated as reserved until a second value shows up in the wild."},
-      {label:"channels",k:"enum",r:[8,9],val:"2",
-       body:"u16 little-endian channel count. Stereo here; Kontakt libraries carry mono and stereo NCW side by side.",
-       note:"acidcat accepts 1-32; anything outside rejects the header."},
-      {label:"bits_per_sample",k:"enum",r:[10,11],val:"24",sel:2,branch:[
-        ["8","8-bit PCM"],
-        ["16","16-bit PCM"],
-        ["24","24-bit PCM: this file"],
-        ["32","32-bit PCM"]],
-       body:"u16 little-endian bit depth of the original PCM. The compression is lossless, so this is also the bit depth that comes back out.",
-       note:"acidcat accepts only {8, 16, 24, 32}."},
-      {label:"sample_rate",k:"enum",r:[12,15],val:"48000 Hz",
-       body:"u32 little-endian sample rate. 0x0000BB80 = 48000. Together with num_samples this is all a catalog needs for duration.",
-       note:"acidcat accepts 8000-384000 Hz."},
-      {label:"num_samples",k:"enum",r:[16,19],val:"439295",
-       body:"u32 little-endian count of sample frames in the decoded audio. 0x0006B3FF = 439295 frames; divided by the rate that is 9.152 seconds.",
-       note:"acidcat accepts 1 to 2e9 and derives duration = num_samples / sample_rate."},
-      {label:"table_offset",k:"sync",r:[20,23],val:"120",
-       body:"u32 little-endian: where the block table begins, which is also the size of this fixed header. 120 on the files examined; bytes 0x20-0x77 are zero.",
-       note:"the header is padded well past the fields drawn here."},
-      {label:"data_offset",k:"sync",r:[24,27],val:"3556",
-       body:"u32 little-endian: where the compressed audio body begins. Everything between table_offset and here is the block table; 3436 bytes on the corpus file, 859 u32 entries.",
-       note:"858 blocks of 512 frames cover the 439295 samples, plus one end-sentinel entry."},
-      {label:"data_size",k:"sync",r:[28,31],val:"1909184",
-       body:"u32 little-endian byte count of the compressed audio body. The last block-table entry equals this value, and data_offset + data_size equals the file size: 3556 + 1909184 = 1912740.",
-       note:"three independent numbers that must agree; a cheap integrity check before touching the audio."}
+      {label:"magic",k:"sync",r:[0,3],val:'"vawt"',
+       body:"The four-byte signature at offset 0. This is its own container, not a RIFF chunk, so vawt sits at the very start of the file.",
+       note:"do not confuse with the BWBM beat-map chunk Bitwig writes inside WAV files."},
+      {label:"frame_samples",k:"enum",r:[4,7],val:"2048",
+       body:"uint32 little-endian: the number of samples in one single-cycle wave. This is the wave length, not the total. Observed values are 256, 1024, and 2048.",
+       note:"little-endian: 00 08 00 00 = 0x00000800 = 2048."},
+      {label:"frame_count",k:"enum",r:[8,9],val:"256",
+       body:"uint16 little-endian: how many single-cycle waves are stacked in the table. 1 for a single waveform, up to 256 and beyond for a table the oscillator sweeps through.",
+       note:"00 01 = 0x0100 = 256. a WAV dropped in becomes as many waves as its length divides into."},
+      {label:"data_offset",k:"sync",r:[10,11],val:"12",
+       body:"uint16 little-endian: byte offset where the sample data begins. Always 12, the header length; the samples follow immediately with no gap.",
+       note:"0C 00 = 12."}
     ]);
 })();
 </script>
