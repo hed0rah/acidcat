@@ -40,14 +40,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .lede b{color:var(--ink);font-weight:500}
 .intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
 .intro .lede{margin-bottom:0}
-.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:0.5rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
-.sig .siglabel{align-self:stretch;text-align:center;font-size:0.52rem;letter-spacing:0.24em;text-transform:uppercase;color:var(--faint);padding-bottom:0.45rem;margin-bottom:0.1rem;border-bottom:1px solid var(--hair)}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
 .sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
 .sig .swsep{color:var(--faint);font-size:0.62rem}
 .sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
-/* two boxes per row: the dark (selected) state naming the colour, and the light
+/* two boxes per row: the dark (selected) state naming the color, and the light
    (resting) state naming the meaning, matching how a field looks in the map. */
-.sig .sw{display:inline-flex;align-items:center;justify-content:center;min-width:4.6rem;height:1.4rem;padding:0 0.5rem;font-size:0.58rem;letter-spacing:0.12em;text-transform:lowercase;flex-shrink:0}
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
 .sig .sw.dark{color:var(--paper)}
 .sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
 .sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
@@ -150,11 +151,13 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   </div>
 
   <div class="intro">
-  <p class="lede">A Bitwig preset is not audio. It is an ASCII <b>BtWg</b> header, a big-endian self-describing metadata block, an opaque device tree, and, when "embed files" was on, a ZIP archive of the referenced assets. The same container backs <b>.bwpreset</b>, <b>.bwclip</b>, and <b>.bwmodulator</b>; everything below is field-verified against real Bitwig Studio 6.x files. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Colour marks kind (see the key).</p>
-  <aside class="sig" aria-label="colour key">
-    <div class="siglabel">colour key</div>
+  <p class="lede">A Bitwig preset is not audio. It is an ASCII <b>BtWg</b> header, a big-endian self-describing metadata block, an opaque device tree, and, when "embed files" was on, a ZIP archive of the referenced assets. The same container backs <b>.bwpreset</b>, <b>.bwclip</b>, and <b>.bwmodulator</b>; everything below is field-verified against real Bitwig Studio 6.x files. <b>Hover</b> any field to light its exact bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Color marks kind (see the key).</p>
+  <aside class="sig" aria-label="color key">
+    <div class="legrows">
     <div class="row"><span class="sw dark k-enum">amber</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
     <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+    </div>
+    <div class="siglabel">color key</div>
   </aside>
   </div>
 
