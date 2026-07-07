@@ -186,19 +186,30 @@ def _apply_schema(conn):
 
 
 def _migrate(conn, cur, on_disk):
-    """Forward-only schema migration. Each step brings the DB up one version."""
-    if on_disk < 2:
-        # add the preset-metadata columns and widen the FTS index to cover them.
-        for col in PRESET_COLUMNS:
-            cur.execute(f"ALTER TABLE samples ADD COLUMN {col} TEXT")
-        cur.execute("DROP TABLE IF EXISTS samples_fts")
-        cur.execute(_SAMPLES_FTS_DDL)
-        for r in cur.execute("SELECT path FROM samples").fetchall():
-            rebuild_fts_for_path(conn, r["path"])
-    cur.execute(
-        "UPDATE meta SET v = ? WHERE k = 'schema_version'", (str(SCHEMA_VERSION),)
-    )
-    conn.commit()
+    """Forward-only schema migration, made interruption-safe. The whole step runs
+    in one explicit transaction that rolls back on error, and each ADD COLUMN is
+    guarded against a pre-existing column, so a migration killed midway cannot
+    wedge the DB with 'duplicate column name' on the next open (the columns from a
+    rolled-back attempt are gone, and the guard covers a legacy partial state)."""
+    try:
+        cur.execute("BEGIN")
+        if on_disk < 2:
+            # add the preset-metadata columns and widen the FTS to cover them.
+            have = {r["name"] for r in cur.execute("PRAGMA table_info(samples)")}
+            for col in PRESET_COLUMNS:
+                if col not in have:
+                    cur.execute(f"ALTER TABLE samples ADD COLUMN {col} TEXT")
+            cur.execute("DROP TABLE IF EXISTS samples_fts")
+            cur.execute(_SAMPLES_FTS_DDL)
+            for r in cur.execute("SELECT path FROM samples").fetchall():
+                rebuild_fts_for_path(conn, r["path"])
+        cur.execute(
+            "UPDATE meta SET v = ? WHERE k = 'schema_version'",
+            (str(SCHEMA_VERSION),))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 _SAMPLES_FTS_DDL = """

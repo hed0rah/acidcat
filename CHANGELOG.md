@@ -59,6 +59,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   result object) alongside the JSON text block, and every tool advertises a
   human-readable `title`. Previously-bare input fields gained descriptions.
 
+### Fixed
+
+- Index schema migration is now atomic and re-entry-safe: the whole step runs
+  in one transaction that rolls back on error, and each `ADD COLUMN` is guarded
+  against a pre-existing column, so a migration interrupted midway can no longer
+  wedge a DB with `duplicate column name` on the next open.
+
 ## [0.18.0] - 2026-07-06
 
 ### Added
