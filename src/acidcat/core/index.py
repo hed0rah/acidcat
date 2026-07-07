@@ -79,13 +79,16 @@ def tune_connection(conn):
         pass
 
 
-def open_db(path):
-    """Open (or create) a DB at path. Applies schema if new."""
+def open_db(path, check_same_thread=True):
+    """Open (or create) a DB at path. Applies schema if new. Pass
+    check_same_thread=False for a connection that will be shared across threads
+    (the long-lived MCP server's connection cache); the caller must then
+    serialize use with a lock."""
     parent = os.path.dirname(os.path.abspath(path))
     if parent and not os.path.isdir(parent):
         os.makedirs(parent, exist_ok=True)
 
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
