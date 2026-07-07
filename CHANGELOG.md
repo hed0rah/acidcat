@@ -8,6 +8,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Added
 
+- `query --compatible-with FILE`: find samples that mix with a reference
+  (harmonic key via the Camelot wheel + compatible tempo including
+  half/double-time) from the CLI, matching the MCP `find_compatible` tool.
+  Reads the reference's key/BPM/kind from the index or by parsing the file.
 - `inspect` walks Bitwig wavetable `.wt` files (the `vawt` container Bitwig
   writes from Polymer and other wavetable devices): frame count, samples per
   single-cycle wave, and the 16-bit sample block. Reverse-engineered and
@@ -23,6 +27,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- The compatible-sample engine (`find_compatible` + `infer_kind`) moved into
+  `core/search.py`, shared by the MCP tool and the new CLI command. The MCP
+  `find_compatible` gained half/double-time matching (`half_double`) and a
+  per-result compatibility note; keyless references now match only keyless
+  samples on both surfaces. Key matching is spelling-robust (normalized via
+  camelot), so 'A minor' and 'Am' match.
 - Index/DB tuning: the case-insensitive filters (`key`/`format`/`device`/
   `category`/`creator`/`product`) now hit `LOWER()`-expression indexes instead
   of a full scan (a per-filter lookup on a 32k-row library dropped from ~5.5ms
