@@ -23,6 +23,7 @@ import time
 
 from acidcat import __version__
 from acidcat.core import camelot
+from acidcat.core import query_sql
 from acidcat.core import search
 from acidcat.core import index as idx
 from acidcat.core import paths as acidpaths
@@ -229,55 +230,16 @@ def _analysis_unavailable():
 
 
 def search_samples(args):
-    where = []
-    params = []
-    joins = []
-
-    if args.get("bpm_min") is not None:
-        where.append("s.bpm >= ?")
-        params.append(float(args["bpm_min"]))
-    if args.get("bpm_max") is not None:
-        where.append("s.bpm <= ?")
-        params.append(float(args["bpm_max"]))
-    if args.get("duration_min") is not None:
-        where.append("s.duration >= ?")
-        params.append(float(args["duration_min"]))
-    if args.get("duration_max") is not None:
-        where.append("s.duration <= ?")
-        params.append(float(args["duration_max"]))
-    if args.get("key"):
-        where.append("LOWER(s.key) = LOWER(?)")
-        params.append(args["key"])
-    if args.get("format"):
-        where.append("LOWER(s.format) = LOWER(?)")
-        params.append(args["format"])
-
-    for key, col in (("device", "device"), ("category", "category"),
-                     ("creator", "creator"), ("product", "product")):
-        if args.get(key):
-            where.append(f"LOWER(s.{col}) = LOWER(?)")
-            params.append(args[key])
-
-    tags = args.get("tags") or []
-    if tags:
-        placeholders = ",".join("?" for _ in tags)
-        where.append(
-            f"s.path IN (SELECT path FROM tags WHERE tag IN ({placeholders}) "
-            f"GROUP BY path HAVING COUNT(DISTINCT tag) = ?)"
-        )
-        params.extend(tags)
-        params.append(len(tags))
-
-    if args.get("text"):
-        joins.append("JOIN samples_fts fts ON fts.path = s.path")
-        where.append("samples_fts MATCH ?")
-        params.append(args["text"])
-
+    where, params, joins = query_sql.build_filter(
+        bpm_min=args.get("bpm_min"), bpm_max=args.get("bpm_max"),
+        duration_min=args.get("duration_min"),
+        duration_max=args.get("duration_max"),
+        key=args.get("key"), file_format=args.get("format"),
+        device=args.get("device"), category=args.get("category"),
+        creator=args.get("creator"), product=args.get("product"),
+        tags=args.get("tags"), text=args.get("text"))
     limit = int(args.get("limit") or 50)
-    sql = "SELECT s.* FROM samples s " + " ".join(joins)
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY s.path LIMIT ?"
+    sql = query_sql.assemble(where, joins, order="s.path", limit_placeholder=True)
 
     pairs = _scope_libraries(_open_all_libraries(), args.get("root"))
     try:
