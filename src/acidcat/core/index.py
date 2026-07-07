@@ -50,6 +50,35 @@ def resolve_db_path(cli_value=None):
     return default_db_path()
 
 
+_CI_INDEX_COLS = ("key", "format", "device", "category", "creator", "product")
+
+
+def ensure_query_indexes(ex):
+    """Create the LOWER()-expression indexes the query layer relies on (its
+    predicates wrap these columns in LOWER(), which a plain B-tree index can't
+    serve). Idempotent, so it is safe on the write path (walk) for existing DBs,
+    which otherwise never get these since _apply_schema returns early when the
+    on-disk version already matches. Additive; no schema-version bump. `ex` is a
+    cursor or connection."""
+    for col in _CI_INDEX_COLS:
+        ex.execute(f"CREATE INDEX IF NOT EXISTS idx_samples_{col}_ci "
+                   f"ON samples(LOWER({col}))")
+
+
+def tune_connection(conn):
+    """Read-path pragmas for the query/fan-out workload. NORMAL is crash-safe
+    under WAL (only risks the last uncommitted txn, never integrity); a larger
+    page cache and mmap cut repeated cross-library reads. Cheap, per-connection,
+    no on-disk change. Shared so a connection cache can reuse it."""
+    try:
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA cache_size = -16000")     # ~16 MB page cache
+        conn.execute("PRAGMA mmap_size = 268435456")   # 256 MB
+        conn.execute("PRAGMA temp_store = MEMORY")
+    except sqlite3.DatabaseError:
+        pass
+
+
 def open_db(path):
     """Open (or create) a DB at path. Applies schema if new."""
     parent = os.path.dirname(os.path.abspath(path))
@@ -63,6 +92,7 @@ def open_db(path):
         conn.execute("PRAGMA journal_mode = WAL")
     except sqlite3.DatabaseError:
         pass
+    tune_connection(conn)
 
     _apply_schema(conn)
     return conn
@@ -245,6 +275,8 @@ def _create_tables(cur):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_category ON samples(category)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_creator ON samples(creator)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_product ON samples(product)")
+
+    ensure_query_indexes(cur)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS features (

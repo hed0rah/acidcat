@@ -5,6 +5,7 @@ dependency direction right (mcp -> core, never mcp -> commands)."""
 
 import json
 import os
+import sqlite3
 import sys
 import time
 
@@ -56,6 +57,12 @@ _COMMIT_EVERY_N_FILES = 100
 def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
                      quiet=False, force=False):
     walk_start = time.time()
+    # ensure the query-layer expression indexes exist (existing DBs never get
+    # them via _apply_schema, which returns early at the current version).
+    try:
+        idx.ensure_query_indexes(conn)
+    except sqlite3.DatabaseError:
+        pass
     added = updated = skipped = failed = 0
     seen_paths = 0
     since_commit = 0
@@ -135,6 +142,13 @@ def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
     pruned = idx.prune_missing(conn, scan_root, walk_start)
     idx.record_scan_root(conn, scan_root, seen_paths, walk_start)
     conn.commit()
+
+    # refresh planner statistics after a bulk change so the query layer's
+    # index choices are stats-driven, not guesses across the many indexes.
+    try:
+        conn.execute("PRAGMA optimize")
+    except sqlite3.DatabaseError:
+        pass
 
     return {
         "added": added,
