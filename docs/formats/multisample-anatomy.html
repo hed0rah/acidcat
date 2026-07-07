@@ -40,15 +40,16 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .lede b{color:var(--ink);font-weight:500}
 .intro{display:flex;gap:1.4rem;align-items:stretch;margin-bottom:2.2rem}
 .intro .lede{margin-bottom:0}
-/* colour key: a swatch of each hue instead of naming the colours in prose */
-.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:0.5rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
-.sig .siglabel{align-self:stretch;text-align:center;font-size:0.52rem;letter-spacing:0.24em;text-transform:uppercase;color:var(--faint);padding-bottom:0.45rem;margin-bottom:0.1rem;border-bottom:1px solid var(--hair)}
+/* color key: a swatch of each hue instead of naming the colors in prose */
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
 .sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
 .sig .swsep{color:var(--faint);font-size:0.62rem}
 .sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
-/* two boxes per row: the dark (selected) state naming the colour, and the light
+/* two boxes per row: the dark (selected) state naming the color, and the light
    (resting) state naming the meaning, matching how a field looks in the map. */
-.sig .sw{display:inline-flex;align-items:center;justify-content:center;min-width:4.6rem;height:1.4rem;padding:0 0.5rem;font-size:0.58rem;letter-spacing:0.12em;text-transform:lowercase;flex-shrink:0}
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
 .sig .sw.dark{color:var(--paper)}
 .sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
 .sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
@@ -151,10 +152,12 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   </div>
 
   <div class="intro">
-  <p class="lede">A <b>.multisample</b> is a ZIP: a <b>multisample.xml</b> zone map plus the member sample WAVs. The manifest binds each sample to a key range, root note, velocity layer, and loop, how a multi-sampled instrument is packaged into one file. It is the one Bitwig type not identified by leading magic (it shares <b>PK</b> with any zip), and Bitwig writes a <b>mismatched CRC</b> that trips a naive reader. Colour marks kind (see the key). Pure stdlib to read: zipfile + xml.etree.</p>
+  <p class="lede">A <b>.multisample</b> is a ZIP: a <b>multisample.xml</b> zone map plus the member sample WAVs. The manifest binds each sample to a key range, root note, velocity layer, and loop, how a multi-sampled instrument is packaged into one file. It is the one Bitwig type not identified by leading magic (it shares <b>PK</b> with any zip), and Bitwig writes a <b>mismatched CRC</b> that trips a naive reader. Color marks kind (see the key). Pure stdlib to read: zipfile + xml.etree.</p>
   <aside class="sig" aria-label="note">
+    <div class="legrows">
+    <div class="misnote">a zip of regions, not a byte map, so no color key here.</div>
+    </div>
     <div class="siglabel">note</div>
-    <div class="misnote">a zip of regions, not a byte map, so no colour key here.</div>
   </aside>
   </div>
 
