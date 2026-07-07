@@ -23,6 +23,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- Index/DB tuning: the case-insensitive filters (`key`/`format`/`device`/
+  `category`/`creator`/`product`) now hit `LOWER()`-expression indexes instead
+  of a full scan (a per-filter lookup on a 32k-row library dropped from ~5.5ms
+  to ~0.02ms); read connections are tuned (`synchronous=NORMAL` under WAL,
+  larger page cache + mmap + in-memory temp store); `PRAGMA optimize` runs after
+  a walk so index choices are stats-driven. Additive and idempotent, no
+  schema-version bump; existing libraries pick the indexes up on the next index.
 - MCP: tool-execution failures now return a `CallToolResult` with `isError: true`
   (and a handler that returns an `{"error": ...}` dict is flagged the same way),
   so clients and the model see errors as errors, not as a successful payload that
