@@ -13,12 +13,14 @@ strictly the JSON-RPC channel; the server logs warnings to stderr.
 """
 
 import argparse
+import contextlib
 import importlib.util
 import json
 import math
 import os
 import sqlite3
 import sys
+import threading
 import time
 
 from acidcat import __version__
@@ -39,78 +41,91 @@ _REGISTRY_PATH = None  # set once in main() before _run_stdio() starts; treat as
 # ── library access helpers ────────────────────────────────────────
 
 
-def _open_all_libraries():
-    """Return [(lib_row, conn), ...] for every existing registered library.
+# Process-lifetime read-connection cache for the long-lived server, so a
+# fan-out query does not re-connect + re-apply pragmas to every library DB on
+# every call. Keyed by db_path. Connections are opened check_same_thread=False
+# and every use is serialized under _CACHE_LOCK, so this stays correct if tool
+# dispatch ever moves off the single event-loop thread (anyio.to_thread). WAL
+# means these readers see the write path's committed changes without eviction;
+# only a change to the set of libraries (register/forget) or a reindex evicts.
+_CONN_CACHE = {}
+_CACHE_LOCK = threading.RLock()
 
-    Sorted deepest-root-first so dedup-by-path consistently picks the
-    most-specific library when paths overlap (which we forbid at register
-    time, but a stale registry could still produce briefly).
-    """
-    rconn = reg.open_registry(_REGISTRY_PATH)
-    try:
-        libs = reg.list_libraries(rconn, only_existing=True)
-    finally:
-        rconn.close()
-    libs = sorted(libs, key=lambda r: -len(r["root_path"] or ""))
-    pairs = []
-    for lib in libs:
+
+def _cached_conn(db_path):
+    """A cached read connection for db_path, revalidated on borrow (a DB file
+    swapped/removed out of band is evicted and reopened). Call under _CACHE_LOCK."""
+    conn = _CONN_CACHE.get(db_path)
+    if conn is not None:
         try:
-            pairs.append((lib, idx.open_db(lib["db_path"])))
-        except Exception:
-            # corrupt/locked DB: skip silently, the orphan check already
-            # filtered missing files
-            continue
-    return pairs
+            conn.execute("SELECT 1")
+            return conn
+        except sqlite3.DatabaseError:
+            _evict(db_path)
+    conn = idx.open_db(db_path, check_same_thread=False)
+    _CONN_CACHE[db_path] = conn
+    return conn
 
 
-def _close_all(pairs):
-    for _, c in pairs:
-        try:
-            c.close()
-        except Exception as e:
-            # log to stderr rather than swallowing silently. silent
-            # close failures masked "database is locked" and corruption
-            # signals from production debugging in past sessions.
-            print(
-                f"acidcat-mcp: connection close failed: "
-                f"{e.__class__.__name__}: {e}",
-                file=sys.stderr,
-            )
+def _evict(db_path=None):
+    """Drop and close cached connections (one db_path, or all). Called on the
+    lib set changing (register/forget) and after a reindex."""
+    with _CACHE_LOCK:
+        for p in ([db_path] if db_path else list(_CONN_CACHE)):
+            c = _CONN_CACHE.pop(p, None)
+            if c is not None:
+                try:
+                    c.close()
+                except Exception:
+                    pass
 
 
-def _scope_libraries(pairs, scope_arg):
-    """Filter (lib, conn) pairs by --root-style scope arg.
-
-    `scope_arg` is None, a single label/path, or a comma-separated list.
-    Matches by exact label or by root-path prefix overlap.
-    """
+def _scope_rows(libs, scope_arg):
+    """Filter library ROWS by a --root-style scope BEFORE opening any DB, so a
+    scoped query never touches out-of-scope libraries. None / label / path /
+    comma-list; matches by exact label or root-path prefix overlap."""
     if not scope_arg:
-        return pairs
+        return libs
     scopes = [s.strip() for s in str(scope_arg).split(",") if s.strip()]
     if not scopes:
-        return pairs
+        return libs
     keep = []
-    for lib, conn in pairs:
+    for lib in libs:
         for s in scopes:
             if lib["label"] == s:
-                keep.append((lib, conn))
+                keep.append(lib)
                 break
             if os.path.exists(s):
                 norm = acidpaths.compare_path(acidpaths.normalize(s))
                 root = acidpaths.compare_path(lib["root_path"])
                 if root == norm or root.startswith(norm + "/") \
                         or norm.startswith(root + "/"):
-                    keep.append((lib, conn))
+                    keep.append(lib)
                     break
-    # close the libraries we are filtering out
-    keep_ids = {id(c) for _, c in keep}
-    for _, c in pairs:
-        if id(c) not in keep_ids:
-            try:
-                c.close()
-            except Exception:
-                pass
     return keep
+
+
+@contextlib.contextmanager
+def _fanout_conns(scope=None):
+    """Cached read connections for the (optionally scoped) libraries, sorted
+    deepest-root-first so dedup-by-path picks the most-specific library. Holds
+    _CACHE_LOCK for the whole block, so the shared connections are never used
+    concurrently. Connections are cached, not closed on exit."""
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        libs = reg.list_libraries(rconn, only_existing=True)
+    finally:
+        rconn.close()
+    libs = sorted(libs, key=lambda r: -len(r["root_path"] or ""))
+    libs = _scope_rows(libs, scope)
+    with _CACHE_LOCK:
+        pairs = []
+        for lib in libs:
+            try:
+                pairs.append((lib, _cached_conn(lib["db_path"])))
+            except Exception:
+                continue          # corrupt/locked DB: skip, orphan check filtered missing
+        yield pairs
 
 
 def _open_owning_library(path):
@@ -241,9 +256,8 @@ def search_samples(args):
     limit = int(args.get("limit") or 50)
     sql = query_sql.assemble(where, joins, order="s.path", limit_placeholder=True)
 
-    pairs = _scope_libraries(_open_all_libraries(), args.get("root"))
-    try:
-        merged = []
+    merged = []
+    with _fanout_conns(args.get("root")) as pairs:
         for lib, conn in pairs:
             try:
                 rows = conn.execute(sql, params + [limit]).fetchall()
@@ -261,8 +275,6 @@ def search_samples(args):
                 d = dict(r)
                 d["library_label"] = lib["label"]
                 merged.append(d)
-    finally:
-        _close_all(pairs)
 
     merged = _dedup_by_path(merged)
     merged.sort(key=lambda r: r.get("path") or "")
@@ -316,9 +328,8 @@ def locate_sample(args):
     # "PL_Hypnotize_03_126_Kick_Wet.wav").
     like = "%" + idx.escape_like(name) + "%"
 
-    pairs = _open_all_libraries()
     merged = []
-    try:
+    with _fanout_conns() as pairs:
         for lib, conn in pairs:
             rows = conn.execute(
                 "SELECT path, scan_root, format, bpm, key, duration "
@@ -330,8 +341,6 @@ def locate_sample(args):
                 d = dict(r)
                 d["library_label"] = lib["label"]
                 merged.append(d)
-    finally:
-        _close_all(pairs)
 
     merged = _dedup_by_path(merged)
     merged.sort(key=lambda r: r.get("path") or "")
@@ -362,21 +371,18 @@ def list_libraries(_args):
 
 def list_tags(args):
     prefix = args.get("prefix") or ""
-    pairs = _open_all_libraries()
     counts = {}
-    try:
-        if prefix:
-            sql = ("SELECT tag, COUNT(*) AS c FROM tags "
-                   "WHERE tag LIKE ? ESCAPE '\\' GROUP BY tag")
-            params = (idx.escape_like(prefix) + "%",)
-        else:
-            sql = "SELECT tag, COUNT(*) AS c FROM tags GROUP BY tag"
-            params = ()
+    if prefix:
+        sql = ("SELECT tag, COUNT(*) AS c FROM tags "
+               "WHERE tag LIKE ? ESCAPE '\\' GROUP BY tag")
+        params = (idx.escape_like(prefix) + "%",)
+    else:
+        sql = "SELECT tag, COUNT(*) AS c FROM tags GROUP BY tag"
+        params = ()
+    with _fanout_conns() as pairs:
         for _, conn in pairs:
             for r in conn.execute(sql, params).fetchall():
                 counts[r["tag"]] = counts.get(r["tag"], 0) + r["c"]
-    finally:
-        _close_all(pairs)
     tags_out = sorted(
         ({"tag": t, "count": c} for t, c in counts.items()),
         key=lambda d: (-d["count"], d["tag"]),
@@ -385,17 +391,14 @@ def list_tags(args):
 
 
 def list_keys(_args):
-    pairs = _open_all_libraries()
     counts = {}
-    try:
+    with _fanout_conns() as pairs:
         for _, conn in pairs:
             for r in conn.execute(
                 "SELECT key, COUNT(*) AS c FROM samples "
                 "WHERE key IS NOT NULL GROUP BY key"
             ).fetchall():
                 counts[r["key"]] = counts.get(r["key"], 0) + r["c"]
-    finally:
-        _close_all(pairs)
     out = sorted(
         ({"key": k, "count": c} for k, c in counts.items()),
         key=lambda d: (-d["count"], d["key"]),
@@ -404,17 +407,14 @@ def list_keys(_args):
 
 
 def list_formats(_args):
-    pairs = _open_all_libraries()
     counts = {}
-    try:
+    with _fanout_conns() as pairs:
         for _, conn in pairs:
             for r in conn.execute(
                 "SELECT format, COUNT(*) AS c FROM samples "
                 "WHERE format IS NOT NULL GROUP BY format"
             ).fetchall():
                 counts[r["format"]] = counts.get(r["format"], 0) + r["c"]
-    finally:
-        _close_all(pairs)
     out = sorted(
         ({"format": f, "count": c} for f, c in counts.items()),
         key=lambda d: (-d["count"], d["format"]),
@@ -550,8 +550,7 @@ def find_similar(args):
     # we need duration + acid_beats to infer target kind for the filter.
     target_feats = None
     target_meta = None
-    pairs = _open_all_libraries()
-    try:
+    with _fanout_conns() as pairs:
         for _, conn in pairs:
             for candidate in (acidpaths.normalize(path), path):
                 feats = idx.get_features(conn, candidate)
@@ -570,8 +569,6 @@ def find_similar(args):
                 break
             if target_feats is not None:
                 break
-    finally:
-        _close_all(pairs)
 
     if target_feats is None:
         if not _librosa_available():
@@ -611,9 +608,8 @@ def find_similar(args):
 
     target_norm = acidpaths.normalize(path)
     scored = []
-    pairs = _open_all_libraries()
     population = 0
-    try:
+    with _fanout_conns() as pairs:
         for lib, conn in pairs:
             sql = (
                 "SELECT f.path, f.features_json, "
@@ -646,8 +642,6 @@ def find_similar(args):
                     "library_label": lib["label"],
                     "similarity": round(sim, 6),
                 })
-    finally:
-        _close_all(pairs)
 
     scored = [s for s in scored if s["path"] != target_norm]
     scored.sort(key=lambda x: x["similarity"], reverse=True)
@@ -724,6 +718,7 @@ def reindex(args):
 
     Walks the library's root and refreshes its DB. Updates the registry.
     """
+    _evict()                                    # cached readers rebuild after the reindex
     target = args.get("path") or args.get("label")
     if not target:
         raise ToolError("path or label is required")
@@ -790,6 +785,7 @@ def reindex(args):
 
 def reindex_features(args):
     """Extract librosa features for samples that lack them, across libraries."""
+    _evict()                                    # cached readers rebuild after the write
     if not _librosa_available():
         return _analysis_unavailable()
     from acidcat.core.features import extract_audio_features
@@ -915,6 +911,7 @@ def register_library(args):
     """Register a new library and create its DB. The user must run reindex
     afterwards (or call this after `acidcat index DIR --label NAME` from
     the CLI). This MCP tool is for letting an LLM expose the option."""
+    _evict()                                    # the library set changed
     root = _require_path(args, field="root")
     label = args.get("label") or os.path.basename(acidpaths.normalize(root)) \
         or "library"
@@ -953,6 +950,7 @@ def register_library(args):
 
 def forget_library(args):
     """Drop a library from the registry. Does NOT delete its DB file."""
+    _evict()                                    # the library set changed
     target = args.get("label") or args.get("root")
     if not target:
         raise ToolError("label or root is required")
