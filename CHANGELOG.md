@@ -27,6 +27,9 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- The filter SQL (bpm/duration/key/format/device/category/creator/product/
+  tags/text) is now built once in `core/query_sql.py`, shared by the CLI
+  `query` and the MCP `search_samples` tool instead of two drifting copies.
 - The compatible-sample engine (`find_compatible` + `infer_kind`) moved into
   `core/search.py`, shared by the MCP tool and the new CLI command. The MCP
   `find_compatible` gained half/double-time matching (`half_double`) and a
