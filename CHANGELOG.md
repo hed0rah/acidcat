@@ -27,6 +27,14 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- MCP server: a process-lifetime read-connection cache (keyed by db_path,
+  opened `check_same_thread=False`, every use serialized under a lock)
+  replaces re-opening every library DB on each tool call. A warm fan-out
+  query dropped from ~20ms to ~2ms across 18 libraries. Scoped queries now
+  open only the in-scope libraries (was: open all, discard the rest). WAL
+  means cached readers see committed writes; the cache is evicted on
+  register/forget/reindex and revalidated on borrow. Thread-safe if tool
+  dispatch ever moves off the event-loop thread.
 - The filter SQL (bpm/duration/key/format/device/category/creator/product/
   tags/text) is now built once in `core/query_sql.py`, shared by the CLI
   `query` and the MCP `search_samples` tool instead of two drifting copies.
