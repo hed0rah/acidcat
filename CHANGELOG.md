@@ -4,6 +4,22 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.19.1] - 2026-07-07
+
+### Added
+
+- Interactive anatomy datasheets for the newer formats: Bitwig wavetable (`.wt`),
+  Bitwig multisample, VST FXP, ReCycle RX2, and RMID
+  (`docs/formats/*-anatomy.html`).
+
+### Changed
+
+- Anatomy datasheets: the colour legend moved from prose ("green is a value,
+  clay is a flag, ...") into the panel beside the lede as a visual key, a
+  dark/light box pair per field kind (the selected and resting appearance)
+  naming the colour and its meaning, showing only the kinds each page uses. The
+  five new pages carry distinct per-format accents.
+
 ## [0.19.0] - 2026-07-07
 
 ### Added
