@@ -359,7 +359,8 @@ plus bookkeeping.
 
 ```sql
 CREATE TABLE samples (
-    path             TEXT PRIMARY KEY,
+    id               INTEGER PRIMARY KEY,   -- stable rowid alias (schema v3)
+    path             TEXT UNIQUE NOT NULL,
     scan_root        TEXT,
     mtime            REAL,
     size             INTEGER,
@@ -378,6 +379,11 @@ CREATE TABLE samples (
     channels         INTEGER,
     bits_per_sample  INTEGER,
     chunks           TEXT,       -- comma-separated chunk IDs for forensic queries
+    device           TEXT,       -- preset metadata (schema v2): Bitwig/NI/Vital/...
+    product          TEXT,
+    creator          TEXT,
+    category         TEXT,
+    preset_name      TEXT,
     indexed_at       REAL,
     last_seen_at     REAL
 );
@@ -387,13 +393,28 @@ CREATE INDEX idx_samples_key       ON samples(key);
 CREATE INDEX idx_samples_duration  ON samples(duration);
 CREATE INDEX idx_samples_format    ON samples(format);
 CREATE INDEX idx_samples_scan_root ON samples(scan_root);
+CREATE INDEX idx_samples_device    ON samples(device);
+CREATE INDEX idx_samples_category  ON samples(category);
+CREATE INDEX idx_samples_creator   ON samples(creator);
+CREATE INDEX idx_samples_product   ON samples(product);
+-- LOWER()-expression indexes so case-insensitive filters hit an index:
+--   idx_samples_{key,format,device,category,creator,product}_ci
 ```
 
 Design notes:
 
-- Path is the primary key. Paths are normalized with forward slashes
-  regardless of OS (`normalize_path` in `index.py`). This keeps Windows
-  and Unix paths comparable.
+- `id` is the primary key (schema v3): an explicit `INTEGER PRIMARY KEY`,
+  i.e. a rowid alias that VACUUM keeps stable, so the FTS mirror can key
+  its rows to it. `path` stays `UNIQUE NOT NULL` and is still the natural
+  key everything upserts on (`ON CONFLICT(path)`). Before v3 `path` was the
+  primary key of a plain rowid table, whose implicit rowids renumber on
+  VACUUM and so could not anchor the FTS.
+- Paths are normalized with forward slashes regardless of OS
+  (`normalize_path` in `index.py`). This keeps Windows and Unix paths
+  comparable.
+- The preset-metadata columns (`device`, `product`, `creator`, `category`,
+  `preset_name`) arrived in schema v2 for synth/DAW presets that carry no
+  audio-style tags but do carry authorship and device provenance.
 - The `chunks` column stores a CSV of chunk IDs seen in the file. It's
   denormalized on purpose. Forensic queries like "show me all files with
   a `bext` chunk" are much cheaper against a text column with `LIKE
@@ -438,6 +459,7 @@ the analysis + metadata and writing back a natural-language description.
 ```sql
 CREATE VIRTUAL TABLE samples_fts USING fts5(
     path, title, artist, album, genre, comment, description, tags,
+    preset_name, device, product, creator, category,
     tokenize='porter'
 );
 ```
@@ -446,7 +468,15 @@ Full-text search index. Populated from the other tables via
 `rebuild_fts_for_path`. Porter stemming so "dusty" matches "dust". The
 `tags` column is a space-joined flat string of all tags on the row, which
 lets a single FTS query match across structural metadata + descriptive
-text + user tags in one shot.
+text + user tags in one shot. `description` comes from the `descriptions`
+table and `tags` from the `tags` junction, so the mirror is content-stored
+(not FTS5 external-content, which could not read those derived columns).
+
+Each FTS row is keyed to `rowid = samples.id` (schema v3). `rebuild_fts_for_path`
+therefore refreshes a row with `DELETE ... WHERE rowid = ?` (one index lookup)
+rather than the old `WHERE path = ?`, where `path` is an FTS column, not the
+rowid, so the delete scanned the whole index. On a 32k-row library that turned
+a `--force` full rebuild from minutes (O(n^2)) into under a second (O(n)).
 
 ### `features` blob table
 
@@ -650,7 +680,9 @@ and scipy JIT-compile hot paths on first use.
 **Bulk operations**. `reindex` walks a directory. Rough ceiling is
 limited by filesystem stat() throughput and file-open rate, not by
 Python. On an NVMe SSD, expect a few thousand files per second for
-metadata-only indexing (no `--features`).
+metadata-only indexing (no `--features`). The FTS refresh each upsert
+triggers is O(1) per row (delete-by-rowid) since schema v3; before that a
+`--force` rebuild degraded to O(n^2) on the per-path FTS delete.
 
 **Cold librosa**. First call can take 60s+ because of numba JIT
 compilation. A pre-warm pattern on server startup would cut
