@@ -166,6 +166,7 @@ def find_compatible(libs, *, key=None, bpm=None, kind="any", bpm_tol=0.06,
             conn.close()
         for r in rows:
             d = dict(r)
+            d.pop("id", None)         # internal rowid alias, not part of the result
             p = d.get("path")
             if p in seen:
                 continue

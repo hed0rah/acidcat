@@ -4,6 +4,32 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Changed
+
+- Per-library schema bumped to v3. `samples` gains an explicit `id INTEGER
+  PRIMARY KEY` (a VACUUM-stable rowid alias) and the `samples_fts` mirror is
+  re-keyed to it. The per-path FTS refresh now deletes by rowid (one index
+  lookup) instead of `DELETE ... WHERE path = ?`, which scanned the whole FTS
+  index for a matching column, making a `--force` full rebuild O(n^2). Existing
+  v1/v2 DBs migrate in place on first open, inside the single atomic
+  transaction from 0.19.1; an interruption rolls back to the prior version.
+  Benchmarked on a 32k-row library: full FTS rebuild dropped from minutes to
+  under a second; migration is a one-time ~1s pass.
+- `find_similar` similarity is now meaningful, not a near-1.0 cluster. It scores
+  a fixed timbral/rhythmic vector (core/features.py `FEATURE_KEYS`) and
+  **z-standardizes each dimension across the candidate population** before the
+  cosine, so the small-magnitude timbral dims are no longer buried by the
+  10^3-10^6 spectral ones. The vector excludes non-sonic scale fields
+  (sample_rate, audio_length_samples, duration, beat_count).
+- Feature vectors are stored as a packed float32 BLOB (`features.feature_vec`,
+  schema v3) so `find_similar` unpacks them directly instead of JSON-parsing
+  every candidate. Scoring is numpy-vectorized when the analysis extra is
+  present and falls back to an identical pure-Python path otherwise, so scoring
+  a shared index needs no numpy. Existing feature rows are backfilled from their
+  stored JSON during the v3 migration (no librosa re-extraction).
+
 ## [0.19.1] - 2026-07-07
 
 ### Added
