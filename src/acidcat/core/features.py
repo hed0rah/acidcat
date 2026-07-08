@@ -5,6 +5,58 @@ Extracts 50+ spectral, rhythmic, and timbral features from audio files
 using librosa.
 """
 
+# canonical similarity vector: the ordered subset of the extracted features
+# that describes *timbre and rhythm*, used for nearest-neighbour search. The
+# raw dict also holds sample_rate, audio_length_samples, duration_sec, and
+# beat_count -- deliberately EXCLUDED here: they carry file/scale information,
+# not sonic character, and (being 10^4-10^6 in magnitude) would dominate a
+# cosine over the small-magnitude timbral dims and collapse every result into
+# one indistinguishable cluster. Bump FEATURE_SET_VERSION if this list changes,
+# so stale vectors can be detected and re-derived.
+FEATURE_KEYS = (
+    "spectral_centroid_mean", "spectral_centroid_std",
+    "spectral_rolloff_mean", "spectral_rolloff_std",
+    "spectral_bandwidth_mean", "spectral_bandwidth_std",
+    "zcr_mean", "zcr_std",
+    "mfcc_1_mean", "mfcc_1_std", "mfcc_2_mean", "mfcc_2_std",
+    "mfcc_3_mean", "mfcc_3_std", "mfcc_4_mean", "mfcc_4_std",
+    "mfcc_5_mean", "mfcc_5_std", "mfcc_6_mean", "mfcc_6_std",
+    "mfcc_7_mean", "mfcc_7_std", "mfcc_8_mean", "mfcc_8_std",
+    "mfcc_9_mean", "mfcc_9_std", "mfcc_10_mean", "mfcc_10_std",
+    "mfcc_11_mean", "mfcc_11_std", "mfcc_12_mean", "mfcc_12_std",
+    "mfcc_13_mean", "mfcc_13_std",
+    "chroma_mean", "chroma_std",
+    "mel_mean", "mel_std",
+    "tempo_librosa",
+    "rms_mean", "rms_std",
+    "spectral_contrast_mean", "spectral_contrast_std",
+    "tonnetz_mean", "tonnetz_std",
+)
+
+FEATURE_SET_VERSION = 2   # 1 = pre-vector JSON only; 2 = adds the FEATURE_KEYS vector
+
+FEATURE_DIMS = len(FEATURE_KEYS)
+
+
+def vector_from_features(feats):
+    """Project an extracted-features dict onto the canonical FEATURE_KEYS order,
+    returning a plain list of floats (stdlib only; no numpy). Missing/non-finite
+    values become 0.0. Returns None if `feats` is falsy."""
+    if not feats:
+        return None
+    out = []
+    for k in FEATURE_KEYS:
+        v = feats.get(k)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = 0.0
+        if v != v or v in (float("inf"), float("-inf")):   # NaN / inf guard
+            v = 0.0
+        out.append(v)
+    return out
+
+
 def extract_audio_features(filepath):
     """
     Extract audio features for ML analysis.

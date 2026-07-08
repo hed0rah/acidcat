@@ -14,10 +14,11 @@ on and WAL journaling for concurrent readers.
 import json
 import os
 import sqlite3
+import struct
 import time
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 # preset-metadata columns added in schema v2 (Bitwig/NI/Vital/etc.)
@@ -201,8 +202,11 @@ def _migrate(conn, cur, on_disk):
                     cur.execute(f"ALTER TABLE samples ADD COLUMN {col} TEXT")
             cur.execute("DROP TABLE IF EXISTS samples_fts")
             cur.execute(_SAMPLES_FTS_DDL)
-            for r in cur.execute("SELECT path FROM samples").fetchall():
-                rebuild_fts_for_path(conn, r["path"])
+            # FTS is repopulated by the v3 step below (which re-keys it to
+            # samples.id), so no per-path rebuild here: at this point samples has
+            # no id column yet, and rebuild_fts_for_path now keys on it.
+        if on_disk < 3:
+            _migrate_v3(conn, cur)
         cur.execute(
             "UPDATE meta SET v = ? WHERE k = 'schema_version'",
             (str(SCHEMA_VERSION),))
@@ -210,6 +214,54 @@ def _migrate(conn, cur, on_disk):
     except Exception:
         conn.rollback()
         raise
+
+
+def _migrate_v3(conn, cur):
+    """v2 -> v3: give `samples` an explicit `id INTEGER PRIMARY KEY` and re-key the
+    FTS mirror to it. Before this, samples was `path TEXT PRIMARY KEY` (a plain
+    rowid table) and samples_fts was refreshed with `DELETE ... WHERE path = ?`;
+    path is an FTS *column*, not the rowid, so that delete scanned the whole FTS
+    index for a match, making a full --force rebuild O(n^2). With id as a stable
+    rowid alias (VACUUM-safe, unlike an implicit rowid), the FTS row keys on
+    rowid = samples.id and the per-path refresh deletes by rowid in O(log n).
+
+    The samples table is rebuilt (you cannot ALTER a column into the primary key),
+    so this is the expensive step of the migration: one full copy of the table.
+    It runs inside the caller's single transaction, so an interruption rolls back
+    cleanly and re-opens at v2."""
+    cols = ",".join(SAMPLE_COLUMNS)
+    cur.execute(f"CREATE TABLE samples_new (\n{_SAMPLES_TABLE_COLS}\n)")
+    cur.execute(f"INSERT INTO samples_new ({cols}) SELECT {cols} FROM samples")
+    cur.execute("DROP TABLE samples")
+    cur.execute("ALTER TABLE samples_new RENAME TO samples")
+    _create_sample_indexes(cur)
+    # rowid must now equal samples.id, so rebuild the FTS mirror from scratch.
+    cur.execute("DROP TABLE IF EXISTS samples_fts")
+    cur.execute(_SAMPLES_FTS_DDL)
+    for r in cur.execute("SELECT path FROM samples").fetchall():
+        rebuild_fts_for_path(conn, r["path"])
+    # features gains a packed float32 similarity vector; backfill it from the
+    # existing JSON (parse once, no librosa re-extraction) so old rows are
+    # searchable immediately. ADD COLUMN is guarded for a legacy partial state.
+    from acidcat.core import features as feat
+    cur.execute(
+        "CREATE TABLE IF NOT EXISTS features (path TEXT PRIMARY KEY, "
+        "features_json TEXT, feature_vec BLOB, features_version INTEGER, "
+        "extracted_at REAL)")
+    have = {r["name"] for r in cur.execute("PRAGMA table_info(features)")}
+    if "feature_vec" not in have:
+        cur.execute("ALTER TABLE features ADD COLUMN feature_vec BLOB")
+    for r in cur.execute(
+            "SELECT path, features_json FROM features "
+            "WHERE feature_vec IS NULL AND features_json IS NOT NULL").fetchall():
+        try:
+            vec = feat.vector_from_features(json.loads(r["features_json"]))
+        except (ValueError, TypeError):
+            continue
+        blob = pack_vector(vec)
+        if blob is not None:
+            cur.execute("UPDATE features SET feature_vec = ? WHERE path = ?",
+                        (blob, r["path"]))
 
 
 _SAMPLES_FTS_DDL = """
@@ -220,43 +272,53 @@ _SAMPLES_FTS_DDL = """
     )
 """
 
+# column definitions shared by fresh creation and the v3 table rebuild. `id` is
+# an explicit INTEGER PRIMARY KEY (a rowid alias that VACUUM keeps stable) so the
+# FTS mirror can key on it; path keeps its uniqueness for upsert ON CONFLICT.
+_SAMPLES_TABLE_COLS = """
+    id INTEGER PRIMARY KEY,
+    path TEXT UNIQUE NOT NULL,
+    scan_root TEXT,
+    mtime REAL,
+    size INTEGER,
+    format TEXT,
+    duration REAL,
+    bpm REAL,
+    key TEXT,
+    title TEXT,
+    artist TEXT,
+    album TEXT,
+    genre TEXT,
+    comment TEXT,
+    acid_beats INTEGER,
+    root_note INTEGER,
+    sample_rate INTEGER,
+    channels INTEGER,
+    bits_per_sample INTEGER,
+    chunks TEXT,
+    device TEXT,
+    product TEXT,
+    creator TEXT,
+    category TEXT,
+    preset_name TEXT,
+    indexed_at REAL,
+    last_seen_at REAL
+"""
+
+
+def _create_sample_indexes(cur):
+    """(Re)create every index on `samples`. Shared by fresh creation and the v3
+    rebuild, which drops the table and must restore its indexes."""
+    for col in ("bpm", "key", "duration", "format", "scan_root",
+                "device", "category", "creator", "product"):
+        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_samples_{col} "
+                    f"ON samples({col})")
+    ensure_query_indexes(cur)
+
 
 def _create_tables(cur):
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS samples (
-            path TEXT PRIMARY KEY,
-            scan_root TEXT,
-            mtime REAL,
-            size INTEGER,
-            format TEXT,
-            duration REAL,
-            bpm REAL,
-            key TEXT,
-            title TEXT,
-            artist TEXT,
-            album TEXT,
-            genre TEXT,
-            comment TEXT,
-            acid_beats INTEGER,
-            root_note INTEGER,
-            sample_rate INTEGER,
-            channels INTEGER,
-            bits_per_sample INTEGER,
-            chunks TEXT,
-            device TEXT,
-            product TEXT,
-            creator TEXT,
-            category TEXT,
-            preset_name TEXT,
-            indexed_at REAL,
-            last_seen_at REAL
-        )
-    """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_bpm ON samples(bpm)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_key ON samples(key)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_duration ON samples(duration)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_format ON samples(format)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_scan_root ON samples(scan_root)")
+    cur.execute(f"CREATE TABLE IF NOT EXISTS samples (\n{_SAMPLES_TABLE_COLS}\n)")
+    _create_sample_indexes(cur)
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS scan_roots (
@@ -285,17 +347,11 @@ def _create_tables(cur):
 
     cur.execute(_SAMPLES_FTS_DDL)
 
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_device ON samples(device)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_category ON samples(category)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_creator ON samples(creator)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_samples_product ON samples(product)")
-
-    ensure_query_indexes(cur)
-
     cur.execute("""
         CREATE TABLE IF NOT EXISTS features (
             path TEXT PRIMARY KEY,
             features_json TEXT,
+            feature_vec BLOB,          -- packed float32 similarity vector (schema v3)
             features_version INTEGER,
             extracted_at REAL
         )
@@ -375,15 +431,41 @@ def upsert_description(conn, path, description):
     rebuild_fts_for_path(conn, path)
 
 
+def pack_vector(vec):
+    """Pack a list of floats into a little-endian float32 BLOB (stdlib struct, so
+    this stays importable without numpy). Returns None for an empty/None vec."""
+    if not vec:
+        return None
+    return struct.pack("<%df" % len(vec), *(float(x) for x in vec))
+
+
+def unpack_vector(blob, dims=None):
+    """Inverse of pack_vector: little-endian float32 BLOB -> list of floats
+    (stdlib only). Returns None for an empty blob or a length mismatch against
+    `dims`, so a stale-dimension vector is skipped rather than mis-scored."""
+    if not blob:
+        return None
+    n = len(blob) // 4
+    if n == 0 or (dims is not None and n != dims):
+        return None
+    return list(struct.unpack("<%df" % n, blob))
+
+
 def upsert_features(conn, path, features, version=1):
-    """Store librosa features as JSON blob."""
+    """Store librosa features as a JSON blob plus the packed similarity vector
+    (core.features.FEATURE_KEYS order). The JSON keeps the full dict for display
+    and re-derivation; the BLOB is what find_similar unpacks for fast, numpy
+    vectorized scoring."""
+    from acidcat.core import features as feat
     payload = json.dumps(features, default=str)
+    vec_blob = pack_vector(feat.vector_from_features(features))
     conn.execute(
-        "INSERT INTO features (path, features_json, features_version, extracted_at) "
-        "VALUES (?, ?, ?, ?) "
+        "INSERT INTO features (path, features_json, feature_vec, features_version, "
+        "extracted_at) VALUES (?, ?, ?, ?, ?) "
         "ON CONFLICT(path) DO UPDATE SET features_json=excluded.features_json, "
-        "features_version=excluded.features_version, extracted_at=excluded.extracted_at",
-        (path, payload, version, time.time()),
+        "feature_vec=excluded.feature_vec, features_version=excluded.features_version, "
+        "extracted_at=excluded.extracted_at",
+        (path, payload, vec_blob, version, time.time()),
     )
 
 
@@ -411,16 +493,23 @@ def rebuild_fts_for_path(conn, path):
     transaction from the preceding upsert). If the samples row is
     missing we leave the FTS row deleted, which is the correct end
     state.
+
+    The FTS row keys on rowid = samples.id, so the refresh deletes by rowid (a
+    single index lookup) instead of scanning the FTS index for a path-column
+    match. Callers that delete a sample outright (remove_root, prune_missing)
+    delete the FTS row by that same id themselves, since once the samples row is
+    gone we can no longer map its path back to an id here.
     """
-    conn.execute("DELETE FROM samples_fts WHERE path = ?", (path,))
     sample = conn.execute(
-        "SELECT title, artist, album, genre, comment, "
+        "SELECT id, title, artist, album, genre, comment, "
         "preset_name, device, product, creator, category "
         "FROM samples WHERE path = ?",
         (path,),
     ).fetchone()
     if sample is None:
         return
+    sid = sample["id"]
+    conn.execute("DELETE FROM samples_fts WHERE rowid = ?", (sid,))
     desc_row = conn.execute(
         "SELECT description FROM descriptions WHERE path = ?", (path,)
     ).fetchone()
@@ -431,10 +520,11 @@ def rebuild_fts_for_path(conn, path):
     tags_text = " ".join(r["tag"] for r in tag_rows)
     conn.execute(
         "INSERT INTO samples_fts "
-        "(path, title, artist, album, genre, comment, description, tags, "
+        "(rowid, path, title, artist, album, genre, comment, description, tags, "
         "preset_name, device, product, creator, category) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
+            sid,
             path,
             sample["title"] or "",
             sample["artist"] or "",
@@ -481,21 +571,19 @@ def list_roots(conn):
 def remove_root(conn, root):
     """Delete all samples under root and drop the scan_roots entry."""
     like = escape_like(root.rstrip("/")) + "/%"
-    paths = [
-        r["path"] for r in conn.execute(
-            "SELECT path FROM samples WHERE scan_root = ? "
-            "OR path LIKE ? ESCAPE '\\'",
-            (root, like),
-        ).fetchall()
-    ]
-    for p in paths:
-        conn.execute("DELETE FROM samples WHERE path = ?", (p,))
-        conn.execute("DELETE FROM tags WHERE path = ?", (p,))
-        conn.execute("DELETE FROM descriptions WHERE path = ?", (p,))
-        conn.execute("DELETE FROM features WHERE path = ?", (p,))
-        conn.execute("DELETE FROM samples_fts WHERE path = ?", (p,))
+    rows = conn.execute(
+        "SELECT id, path FROM samples WHERE scan_root = ? "
+        "OR path LIKE ? ESCAPE '\\'",
+        (root, like),
+    ).fetchall()
+    for r in rows:
+        conn.execute("DELETE FROM samples_fts WHERE rowid = ?", (r["id"],))
+        conn.execute("DELETE FROM samples WHERE id = ?", (r["id"],))
+        conn.execute("DELETE FROM tags WHERE path = ?", (r["path"],))
+        conn.execute("DELETE FROM descriptions WHERE path = ?", (r["path"],))
+        conn.execute("DELETE FROM features WHERE path = ?", (r["path"],))
     conn.execute("DELETE FROM scan_roots WHERE path = ?", (root,))
-    return len(paths)
+    return len(rows)
 
 
 def prune_missing(conn, scan_root, before_ts):
@@ -510,20 +598,18 @@ def prune_missing(conn, scan_root, before_ts):
     skipped junk filter will keep its old last_seen_at and IS pruned.
     Re-running the index recovers any wrongly-pruned file.
     """
-    paths = [
-        r["path"] for r in conn.execute(
-            "SELECT path FROM samples WHERE scan_root = ? AND "
-            "(last_seen_at IS NULL OR last_seen_at < ?)",
-            (scan_root, before_ts),
-        ).fetchall()
-    ]
-    for p in paths:
-        conn.execute("DELETE FROM samples WHERE path = ?", (p,))
-        conn.execute("DELETE FROM tags WHERE path = ?", (p,))
-        conn.execute("DELETE FROM descriptions WHERE path = ?", (p,))
-        conn.execute("DELETE FROM features WHERE path = ?", (p,))
-        conn.execute("DELETE FROM samples_fts WHERE path = ?", (p,))
-    return len(paths)
+    rows = conn.execute(
+        "SELECT id, path FROM samples WHERE scan_root = ? AND "
+        "(last_seen_at IS NULL OR last_seen_at < ?)",
+        (scan_root, before_ts),
+    ).fetchall()
+    for r in rows:
+        conn.execute("DELETE FROM samples_fts WHERE rowid = ?", (r["id"],))
+        conn.execute("DELETE FROM samples WHERE id = ?", (r["id"],))
+        conn.execute("DELETE FROM tags WHERE path = ?", (r["path"],))
+        conn.execute("DELETE FROM descriptions WHERE path = ?", (r["path"],))
+        conn.execute("DELETE FROM features WHERE path = ?", (r["path"],))
+    return len(rows)
 
 
 def index_stats(conn):
