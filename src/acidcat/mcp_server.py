@@ -273,6 +273,7 @@ def search_samples(args):
                 raise
             for r in rows:
                 d = dict(r)
+                d.pop("id", None)     # internal rowid alias, not part of the API
                 d["library_label"] = lib["label"]
                 merged.append(d)
 
@@ -295,6 +296,7 @@ def get_sample(args):
             "SELECT * FROM samples WHERE path = ?", (resolved,)
         ).fetchone()
         out = dict(row)
+        out.pop("id", None)          # internal rowid alias, not part of the API
         out["tags"] = [
             r["tag"] for r in conn.execute(
                 "SELECT tag FROM tags WHERE path = ? ORDER BY tag", (resolved,)
@@ -598,52 +600,56 @@ def find_similar(args):
         else (target_kind if kind_filter_enabled else "any")
     )
 
-    feature_keys = sorted(
-        k for k, v in target_feats.items()
-        if isinstance(v, (int, float)) and not isinstance(v, bool)
-    )
-    if not feature_keys:
-        raise ToolError("no numeric features available")
-    tv = [float(target_feats[k]) for k in feature_keys]
+    from acidcat.core import features as feat
+
+    tv = feat.vector_from_features(target_feats)
+    if not tv or not any(tv):
+        raise ToolError("no usable features for target")
+    dims = len(tv)
 
     target_norm = acidpaths.normalize(path)
-    scored = []
-    population = 0
+    vecs, meta = [], []
     with _fanout_conns() as pairs:
         for lib, conn in pairs:
             sql = (
-                "SELECT f.path, f.features_json, "
+                "SELECT f.path, f.feature_vec, f.features_json, "
                 "s.bpm, s.key, s.duration, s.format, s.acid_beats "
                 "FROM features f JOIN samples s ON s.path = f.path"
             )
-            params = []
             if effective_kind == "loop":
-                sql += (" WHERE (s.acid_beats > 0 OR s.duration >= 2.0)")
+                sql += " WHERE (s.acid_beats > 0 OR s.duration >= 2.0)"
             elif effective_kind == "one_shot":
-                sql += (
-                    " WHERE ((s.acid_beats IS NULL OR s.acid_beats = 0) "
-                    "AND (s.duration IS NULL OR s.duration < 1.0))"
-                )
-            rows = conn.execute(sql, params).fetchall()
-            population += len(rows)
-            for r in rows:
-                try:
-                    feats = json.loads(r["features_json"])
-                    v = [float(feats.get(k, 0.0) or 0.0) for k in feature_keys]
-                except Exception:
+                sql += (" WHERE ((s.acid_beats IS NULL OR s.acid_beats = 0) "
+                        "AND (s.duration IS NULL OR s.duration < 1.0))")
+            for r in conn.execute(sql).fetchall():
+                if r["path"] == target_norm:
                     continue
-                sim = _cosine(tv, v)
-                scored.append({
-                    "path": r["path"],
-                    "bpm": r["bpm"],
-                    "key": r["key"],
-                    "duration": r["duration"],
-                    "format": r["format"],
-                    "library_label": lib["label"],
-                    "similarity": round(sim, 6),
-                })
+                v = idx.unpack_vector(r["feature_vec"], dims)
+                if v is None:               # older row without a packed vector
+                    try:
+                        v = feat.vector_from_features(
+                            json.loads(r["features_json"]))
+                    except (ValueError, TypeError):
+                        v = None
+                    if v is not None and len(v) != dims:
+                        v = None
+                if v is None:
+                    continue
+                vecs.append(v)
+                meta.append((r["path"], r["bpm"], r["key"], r["duration"],
+                             r["format"], lib["label"]))
 
-    scored = [s for s in scored if s["path"] != target_norm]
+    population = len(vecs)
+    scored = []
+    if population:
+        sims = _standardized_cosine(tv, vecs)
+        for i, (p, bpm, key, dur, fmt, label) in enumerate(meta):
+            scored.append({
+                "path": p, "bpm": bpm, "key": key, "duration": dur,
+                "format": fmt, "library_label": label,
+                "similarity": round(float(sims[i]), 6),
+            })
+
     scored.sort(key=lambda x: x["similarity"], reverse=True)
     scored = _dedup_by_path(scored)
 
@@ -674,13 +680,57 @@ def find_similar(args):
     }
 
 
-def _cosine(a, b):
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(y * y for y in b))
-    if na == 0 or nb == 0:
-        return 0.0
-    return dot / (na * nb)
+def _standardized_cosine(target, cands):
+    """Cosine similarity between `target` and each vector in `cands`, after
+    per-dimension z-standardization across candidates + target. Standardizing is
+    the correctness fix: the raw spectral dims (10^3-10^6) otherwise dominate the
+    cosine and pin every score near 0.99, so ranking reflects scale, not timbre.
+
+    Uses numpy when importable (vectorized, fast on big libraries); otherwise a
+    pure-Python fallback with identical math, since scoring a shared index may
+    run somewhere the analysis extra (numpy) is not installed. Population std
+    (ddof=0) in both paths so results match."""
+    try:
+        import numpy as np
+    except ImportError:
+        return _standardized_cosine_py(target, cands)
+    M = np.asarray(cands, dtype=np.float64)
+    t = np.asarray(target, dtype=np.float64)
+    allv = np.vstack([M, t])
+    mu = allv.mean(axis=0)
+    sd = allv.std(axis=0)
+    sd[sd == 0] = 1.0                             # a constant dim carries no info
+    Mz = (M - mu) / sd
+    tz = (t - mu) / sd
+    denom = np.linalg.norm(Mz, axis=1) * np.linalg.norm(tz)
+    denom[denom == 0] = np.inf
+    return list((Mz @ tz) / denom)
+
+
+def _standardized_cosine_py(target, cands):
+    """Pure-Python twin of _standardized_cosine (no numpy). See that docstring."""
+    dims = len(target)
+    cnt = len(cands) + 1
+    mu = list(target)
+    for v in cands:
+        for j in range(dims):
+            mu[j] += v[j]
+    mu = [s / cnt for s in mu]
+    var = [(target[j] - mu[j]) ** 2 for j in range(dims)]
+    for v in cands:
+        for j in range(dims):
+            d = v[j] - mu[j]
+            var[j] += d * d
+    sd = [math.sqrt(x / cnt) if x > 0 else 1.0 for x in var]
+    tz = [(target[j] - mu[j]) / sd[j] for j in range(dims)]
+    tn = math.sqrt(sum(x * x for x in tz))
+    out = []
+    for v in cands:
+        vz = [(v[j] - mu[j]) / sd[j] for j in range(dims)]
+        vn = math.sqrt(sum(x * x for x in vz))
+        denom = vn * tn
+        out.append(sum(a * b for a, b in zip(vz, tz)) / denom if denom else 0.0)
+    return out
 
 
 def analyze_sample(args):
