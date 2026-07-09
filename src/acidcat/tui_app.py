@@ -225,6 +225,17 @@ class HexPane(Static):
             self.app._hexedit_key(event)
 
 
+# tagged-audio text fields the write engine (mutagen) can set, keyed by the
+# walker's field name: ID3 frame ids (mp3) and Vorbis comment keys (flac/ogg).
+_ID3_TEXT = {"TIT2": "title", "TPE1": "artist", "TALB": "album", "TCON": "genre",
+             "COMM": "comment", "TDRC": "date", "TYER": "date", "TBPM": "bpm",
+             "TKEY": "key", "TRCK": "track"}
+_VORBIS_TEXT = {"TITLE": "title", "ARTIST": "artist", "ALBUM": "album",
+                "GENRE": "genre", "COMMENT": "comment", "DESCRIPTION": "comment",
+                "DATE": "date", "BPM": "bpm", "KEY": "key", "INITIALKEY": "key",
+                "TRACKNUMBER": "track"}
+
+
 def text_field_for(profile, field_name):
     """If `field_name` (a walker field name) is a variable-length text field the
     write engine can edit, return the engine field name to route it through;
@@ -238,6 +249,9 @@ def text_field_for(profile, field_name):
         from acidcat.core.edit_aiff import _AIFF_TEXT
         rev = {v.decode("latin1").strip(): k for k, v in _AIFF_TEXT.items()}
         return rev.get(field_name)
+    if profile == "tagged":
+        n = field_name.strip()
+        return _ID3_TEXT.get(n) or _VORBIS_TEXT.get(n.upper())
     return None
 
 
