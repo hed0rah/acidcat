@@ -135,9 +135,17 @@ def _float80_decode(b):
 # named non-struct encodings a walker may declare in a field's `enc`:
 # name -> (byte length, encode(text)->bytes, decode(bytes)->number). Used for
 # the bespoke layouts struct can't express (ID3 synchsafe, AIFF 80-bit float).
+def _u24be_encode(text):
+    v = int(text, 0)
+    if not 0 <= v < (1 << 24):
+        raise ValueError("value out of 24-bit range")
+    return v.to_bytes(3, "big")
+
+
 _CODECS = {
     "synchsafe": (4, _synchsafe_encode, _synchsafe_decode),
     "float80": (10, _float80_encode, _float80_decode),
+    "u24be": (3, _u24be_encode, lambda b: int.from_bytes(bytes(b), "big")),
 }
 
 

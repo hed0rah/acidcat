@@ -22,8 +22,10 @@ def _flac_streaminfo(b):
     md5 = b[18:34].hex()
     fields.append(_f(0x00, 2, "min_block_size", min_block, "samples"))
     fields.append(_f(0x02, 2, "max_block_size", max_block, "samples"))
-    fields.append(_f(0x04, 3, "min_frame_size", min_frame, "bytes"))
-    fields.append(_f(0x07, 3, "max_frame_size", max_frame, "bytes"))
+    fields.append(_f(0x04, 3, "min_frame_size", min_frame, "bytes",
+                     enc="u24be", raw=min_frame))
+    fields.append(_f(0x07, 3, "max_frame_size", max_frame, "bytes",
+                     enc="u24be", raw=max_frame))
     fields.append(_f(0x0A, 3, "sample_rate", rate, "Hz"))
     fields.append(_f(0x0C, 1, "channels", channels))
     fields.append(_f(0x0D, 1, "bits_per_sample", bits))
