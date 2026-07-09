@@ -175,6 +175,54 @@ def test_edit_mode_toggle(tmp_path):
     asyncio.run(scenario())
 
 
+def test_text_field_routes_to_metadata_engine(tmp_path):
+    """A variable-length text field (INFO comment) edits as text via the write
+    engine, so a longer value is written correctly instead of a same-length byte
+    patch that couldn't change the length."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI
+    from acidcat.core.walk import walk_file
+    from textual.widgets import Tree, Input
+
+    orig = tmp_path / "c.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+    new = "a deliberately much longer comment than the original, to prove length"
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            node = None
+            for cn in app.query_one("#tree", Tree).root.children:
+                for fn in cn.children:
+                    lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                    if lbl.startswith("ICMT"):
+                        node = fn
+            assert node is not None
+            app._cur_node = node
+            app.action_edit_field()
+            await pilot.pause()
+            assert app._edit_target["mode"] == "text"
+            assert app._edit_target["metafield"] == "comment"
+            app.query_one("#editbar", Input).value = new
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.dirty
+            app.action_save()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    _f, chunks, _w = walk_file(str(orig), deep=True)
+    got = None
+    for c in chunks:
+        for fl in c.get("fields", []):
+            if fl["name"] == "ICMT":
+                got = fl["value"]
+    assert got == new
+
+
 def test_hex_text_offsets_and_empty(tmp_path):
     pytest.importorskip("textual")
     from acidcat.tui_app import hex_text

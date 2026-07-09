@@ -181,6 +181,22 @@ def edit_profile(path):
     return None
 
 
+def text_field_for(profile, field_name):
+    """If `field_name` (a walker field name) is a variable-length text field the
+    write engine can edit, return the engine field name to route it through;
+    else None. These must NOT be same-length byte-patched -- a longer title
+    shifts the file -- so the editor re-serializes via the metadata engine."""
+    if profile == "WAV":
+        from acidcat.core.edit_riff import _INFO_TAGS
+        rev = {v.decode("latin1").strip(): k for k, v in _INFO_TAGS.items()}
+        return rev.get(field_name)
+    if profile == "AIFF":
+        from acidcat.core.edit_aiff import _AIFF_TEXT
+        rev = {v.decode("latin1").strip(): k for k, v in _AIFF_TEXT.items()}
+        return rev.get(field_name)
+    return None
+
+
 class BrowseScreen(ModalScreen):
     """A file picker: navigate a directory tree, enter selects, esc cancels.
     dismiss()es with the chosen path string, or None on cancel."""
@@ -350,7 +366,9 @@ class AcidcatTUI(App):
         self.warns = []
         self.findings = []
         self._nodemeta = {}       # id(node) -> (off, length, accent)  for the hex pane
-        self._editval = {}        # id(node) -> value  for value-editable field nodes
+        self._editval = {}        # id(node) -> (value, enc, raw)  for field nodes
+        self._textfield = {}      # id(node) -> engine field  for variable-length text
+        self._profile = None      # edit profile of the current file (WAV/AIFF/...)
         self._cur_node = None     # last highlighted tree node
         self._edit_target = None  # active inline edit: dict(off,length,name,mode,fmt,accent)
 
@@ -476,10 +494,13 @@ class AcidcatTUI(App):
             head.append("   ● UNSAVED", style=f"bold {SEV['alert']}")
         self.query_one("#title", Static).update(head)
 
+        prof = edit_profile(self.work)
+        self._profile = prof[0] if prof else None
         tree = self.query_one("#tree", Tree)
         tree.clear()
         self._nodemeta = {}
         self._editval = {}
+        self._textfield = {}
         tree.root.set_label(Text(os.path.basename(self.src), style=f"bold {FG}"))
         tree.root.data = (0, self.fsize, ACCENT)
         self._nodemeta[id(tree.root)] = (0, self.fsize, ACCENT)
@@ -507,6 +528,9 @@ class AcidcatTUI(App):
                 if abs_off is not None:
                     self._editval[id(fnode)] = (fl.get("value"), fl.get("enc"),
                                                 fl.get("raw"))
+                    mf = text_field_for(self._profile, fl["name"])
+                    if mf is not None:
+                        self._textfield[id(fnode)] = mf
             # per-element rows: MIDI events, MP3 frames, device params, etc. --
             # the deep detail inspect --frames/--verbose shows. Rows carry no
             # uniform byte offset, so a row node uses its own if present else the
@@ -584,6 +608,23 @@ class AcidcatTUI(App):
         if off is None or not length:
             self.notify("this node has no editable byte range", severity="warning")
             return
+        # variable-length text field: edit as text through the metadata engine,
+        # which re-serializes the chunk so a longer/shorter value is valid.
+        mf = self._textfield.get(id(node))
+        if mf is not None:
+            value = self._editval.get(id(node), (None,))[0]
+            name = (node.label.plain if isinstance(node.label, Text)
+                    else str(node.label)).strip()
+            self._edit_target = {"off": off, "length": length, "name": name,
+                                 "mode": "text", "fmt": None, "metafield": mf,
+                                 "accent": accent}
+            bar = self.query_one("#editbar", Input)
+            bar.value = str(value) if value is not None else ""
+            bar.remove_class("hidden")
+            self._update_edit_title()
+            bar.focus()
+            self._render_preview()
+            return
         if length > _HEXEDIT_CAP:
             self.notify(f"region too large to edit ({length:,} bytes); pick a field",
                         severity="warning")
@@ -626,6 +667,8 @@ class AcidcatTUI(App):
         bar = self.query_one("#editbar", Input)
         if tgt["mode"] == "value":
             kind = f"value ({tgt['fmt']})"
+        elif tgt["mode"] == "text":
+            kind = f"text -> {tgt['metafield']} (variable length)"
         else:
             kind = f"raw hex ({tgt['length']}B)"
         toggle = "  ctrl+t=toggle" if tgt["fmt"] else ""
@@ -679,6 +722,15 @@ class AcidcatTUI(App):
         tgt = self._edit_target
         if not tgt:
             return
+        if tgt["mode"] == "text":
+            d = Text()
+            d.append(f"editing {tgt['name']} ", style=f"bold {PEND}")
+            d.append(f"as text -> {tgt['metafield']}; re-serialized on write "
+                     f"(length may change)", style=SOFT)
+            self.query_one("#detail", Static).update(d)
+            self.query_one("#hex", Static).update(
+                hex_text(self.work, tgt["off"], tgt["length"], PEND))
+            return
         text = self.query_one("#editbar", Input).value
         patch = self._patch_from_input(text)
         detail = self.query_one("#detail", Static)
@@ -704,6 +756,17 @@ class AcidcatTUI(App):
         if event.input.id != "editbar" or not self._edit_target:
             return
         tgt = self._edit_target
+        if tgt["mode"] == "text":
+            try:
+                _fmt, new_data, _applied = _write_edit(
+                    self.work, {tgt["metafield"]: event.value})
+            except (EditError, OSError, ValueError) as e:
+                self.notify(f"error: {e}", severity="error")
+                return
+            self._end_edit()
+            self._apply_to_work(new_data)
+            self.notify(f"set {tgt['metafield']} (unsaved -- ctrl+s to save)")
+            return
         patch = self._patch_from_input(event.value)
         if patch is None:
             self.notify(f"invalid value for a {tgt['length']}-byte field",
