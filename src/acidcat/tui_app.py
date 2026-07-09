@@ -31,7 +31,7 @@ from acidcat.core.walk import walk_file, Unsupported
 from acidcat.core import anomalies as ac_anom
 from acidcat.core import writer
 from acidcat.core.edits import EditError
-from acidcat.commands.write import _edit as _write_edit
+from acidcat.commands.write import _edit as _write_edit, _strip as _write_strip
 
 
 # palette carried over from the playground TUI (btop-ish); cyan accent.
@@ -298,6 +298,7 @@ class AcidcatTUI(App):
         ("o", "open", "open file"),
         ("e", "edit_field", "edit field"),
         ("w", "edit", "edit tags"),
+        ("s", "strip", "strip meta"),
         ("a", "expand_all", "expand"),
         ("c", "collapse_all", "collapse"),
         ("escape", "cancel_edit", "cancel edit"),
@@ -600,6 +601,23 @@ class AcidcatTUI(App):
                 self.notify(msg)
 
         self.push_screen(EditScreen(self.src, prof[0], prof[1]), after)
+
+    def action_strip(self):
+        if not self.src:
+            self.notify("open a file first (o)", severity="warning")
+            return
+        try:
+            _fmt, new_data, removed = _write_strip(self.src)
+            _written, backup = writer.commit(self.src, new_data)
+        except (EditError, OSError, ValueError) as e:
+            self.notify(f"strip failed: {e}", severity="error")
+            return
+        self._load()
+        what = ", ".join(removed) if removed else "nothing to remove"
+        msg = f"stripped: {what}"
+        if backup:
+            msg += f"; backup {os.path.basename(backup)}"
+        self.notify(msg)
 
     def action_expand_all(self):
         self.query_one("#tree", Tree).root.expand_all()

@@ -216,6 +216,34 @@ def _apply_custom_frames(tmp, suffix, changes):
     return applied
 
 
+def strip_tagged(data, suffix):
+    """Delete every tag from a tagged-audio container (mp3/flac/ogg/opus/m4a)
+    via mutagen, which owns the on-disk tag spec. Round-trips through a temp
+    file so the caller still gets bytes. Returns (new_bytes, [removed keys])."""
+    try:
+        import mutagen
+    except ImportError:
+        raise EditError("stripping tagged audio needs mutagen (pip install mutagen)")
+    fd, tmp = tempfile.mkstemp(suffix=suffix)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        audio = mutagen.File(tmp)
+        if audio is None:
+            raise EditError("mutagen could not read this audio file")
+        removed = sorted(audio.tags.keys()) if audio.tags else []
+        audio.delete()          # removes the tag block from the file on disk
+        with open(tmp, "rb") as r:
+            return r.read(), removed
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def edit_tagged(data, suffix, changes):
     """Edit tags on an mp3/flac/ogg/opus/m4a via mutagen (which owns the on-disk
     tag spec). Round-trips through a temp file so the caller still gets bytes."""
