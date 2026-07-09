@@ -181,6 +181,18 @@ def edit_profile(path):
     return None
 
 
+class HexPane(Static):
+    """The right-hand hex view. Focusable so it can host in-place hex editing:
+    when the app is in hex-edit mode, key events route to the app's handler
+    (cursor movement + nibble overwrite); otherwise it behaves as a plain
+    read-only pane."""
+    can_focus = True
+
+    def on_key(self, event):
+        if getattr(self.app, "_hexedit", None):
+            self.app._hexedit_key(event)
+
+
 def text_field_for(profile, field_name):
     """If `field_name` (a walker field name) is a variable-length text field the
     write engine can edit, return the engine field name to route it through;
@@ -346,6 +358,7 @@ class AcidcatTUI(App):
         ("ctrl+s", "save", "save"),
         ("o", "open", "open file"),
         ("e", "edit_field", "edit field"),
+        ("tab", "hex_focus", "hex edit"),
         ("ctrl+t", "toggle_mode", "value/hex"),
         ("w", "edit", "edit tags"),
         ("s", "strip", "strip meta"),
@@ -371,6 +384,7 @@ class AcidcatTUI(App):
         self._profile = None      # edit profile of the current file (WAV/AIFF/...)
         self._cur_node = None     # last highlighted tree node
         self._edit_target = None  # active inline edit: dict(off,length,name,mode,fmt,accent)
+        self._hexedit = None      # active in-pane hex edit: dict(off,length,buf,cur,nib)
 
     def compose(self) -> ComposeResult:
         yield Static(id="title")
@@ -379,7 +393,7 @@ class AcidcatTUI(App):
             with Vertical(id="right"):
                 yield Static(id="detail")
                 with VerticalScroll(id="hexwrap"):
-                    yield Static(id="hex")
+                    yield HexPane(id="hex")
                 yield Static(id="anom")
         yield Input(id="editbar", classes="hidden")
         yield Footer()
@@ -801,6 +815,115 @@ class AcidcatTUI(App):
         bar.value = ""
         bar.add_class("hidden")
         self.query_one("#tree", Tree).focus()
+
+    # ── in-pane hex editor: Tab into the hex pane and overwrite bytes ──
+
+    def action_hex_focus(self):
+        if len(self.screen_stack) > 1:       # a modal is open; leave Tab to it
+            return
+        if self._edit_target:
+            self.action_cancel_edit()
+        node = self._cur_node
+        data = self._nodemeta.get(id(node)) if node else None
+        if not data:
+            self.notify("highlight a field first", severity="warning")
+            return
+        off, length, _accent = data
+        if off is None or not length:
+            self.notify("this node has no editable byte range", severity="warning")
+            return
+        if length > _HEXEDIT_CAP:
+            self.notify(f"region too large ({length:,} bytes); pick a field",
+                        severity="warning")
+            return
+        self._hexedit = {"off": off, "length": length, "cur": 0, "nib": 0,
+                         "buf": bytearray(_read(self.work, off, length))}
+        self.query_one("#hex", HexPane).focus()
+        self._render_hexedit()
+
+    def _exit_hexedit(self):
+        self._hexedit = None
+        if self._cur_node:
+            data = self._nodemeta.get(id(self._cur_node))
+            if data:
+                name = (self._cur_node.label.plain
+                        if isinstance(self._cur_node.label, Text)
+                        else str(self._cur_node.label)).strip()
+                self._show(*data, name, "")
+        self.query_one("#tree", Tree).focus()
+
+    def _hexedit_key(self, event):
+        he = self._hexedit
+        if he is None:
+            return
+        k = event.key
+        if k == "escape":
+            event.stop()
+            self._exit_hexedit()
+            return
+        if k in ("enter", "return"):
+            event.stop()
+            with open(self.work, "rb") as f:
+                data = f.read()
+            new = (data[:he["off"]] + bytes(he["buf"])
+                   + data[he["off"] + he["length"]:])
+            length = he["length"]
+            self._hexedit = None
+            self._apply_to_work(new)
+            self.notify(f"patched {length} bytes (unsaved -- ctrl+s to save)")
+            self.query_one("#tree", Tree).focus()
+            return
+        n = he["length"]
+        digit = k.lower()
+        if k == "right":
+            he["cur"], he["nib"] = min(he["cur"] + 1, n - 1), 0
+        elif k == "left":
+            he["cur"], he["nib"] = max(he["cur"] - 1, 0), 0
+        elif k == "down":
+            he["cur"], he["nib"] = min(he["cur"] + 16, n - 1), 0
+        elif k == "up":
+            he["cur"], he["nib"] = max(he["cur"] - 16, 0), 0
+        elif len(digit) == 1 and digit in "0123456789abcdef":
+            d, i = int(digit, 16), he["cur"]
+            if he["nib"] == 0:
+                he["buf"][i] = (he["buf"][i] & 0x0f) | (d << 4)
+                he["nib"] = 1
+            else:
+                he["buf"][i] = (he["buf"][i] & 0xf0) | d
+                he["nib"] = 0
+                he["cur"] = min(he["cur"] + 1, n - 1)
+        else:
+            return
+        event.stop()
+        self._render_hexedit()
+
+    def _render_hexedit(self):
+        he = self._hexedit
+        off, buf, cur, nib = he["off"], he["buf"], he["cur"], he["nib"]
+        t = Text()
+        t.append("HEX EDIT  ", style=f"bold {SEV['alert']}")
+        t.append(f"byte {cur + 1}/{len(buf)} @ 0x{off + cur:08x}"
+                 f"{' low-nibble' if nib else ''}   arrows move  0-9a-f overwrite"
+                 f"  enter=apply  esc=cancel\n", style=DIM)
+        cur_st = "bold #10161a on #ffcc55"
+        for row in range(0, len(buf), 16):
+            chunk = buf[row:row + 16]
+            t.append(f"{off + row:08x}  ", style=GUTTER)
+            for i in range(16):
+                if i < len(chunk):
+                    t.append(f"{chunk[i]:02x} ",
+                             style=cur_st if row + i == cur else ACCENT)
+                else:
+                    t.append("   ")
+                if i == 7:
+                    t.append(" ")
+            t.append(" ")
+            for i, b in enumerate(chunk):
+                ch = chr(b) if 32 <= b < 127 else "."
+                t.append(ch, style=(cur_st if row + i == cur
+                                    else (FG if 32 <= b < 127 else DIM)))
+            t.append("\n")
+        self.query_one("#hex", Static).update(t)
 
     # ── other actions ─────────────────────────────────────────────────
 
