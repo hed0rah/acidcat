@@ -16,7 +16,9 @@ Imported lazily by commands/tui.py so textual stays behind the [tui] extra and
 the core remains zero-dependency.
 """
 import os
+import shutil
 import struct
+import tempfile
 
 from rich.text import Text
 
@@ -269,12 +271,42 @@ class EditScreen(ModalScreen):
         status = self.query_one("#editstatus", Static)
         try:
             _fmt, new_data, applied = _write_edit(self.path, changes)
-            _written, backup = writer.commit(self.path, new_data)
         except (EditError, OSError, ValueError) as e:
             status.update(Text(f"error: {e}", style=SEV["alert"]))
             return
-        self.dismiss({"applied": applied,
-                      "backup": os.path.basename(backup) if backup else None})
+        self.dismiss({"new_data": new_data, "applied": applied})
+
+
+class ConfirmScreen(ModalScreen):
+    """Unsaved-changes prompt. dismiss()es with 'save', 'discard', or None
+    (cancel)."""
+
+    CSS = """
+    ConfirmScreen { align: center middle; }
+    #confbox { width: 60; height: auto; border: round #ffcc55;
+               background: #10161a; padding: 1 2; }
+    #confmsg { color: #e6e6e1; padding-bottom: 1; }
+    #confbtns { height: auto; }
+    """
+    BINDINGS = [("escape", "cancel", "cancel")]
+
+    def __init__(self, prompt):
+        super().__init__()
+        self.prompt = prompt
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confbox"):
+            yield Static(Text(self.prompt, style=f"bold {PEND}"), id="confmsg")
+            with Horizontal(id="confbtns"):
+                yield Button("save", id="save", variant="success")
+                yield Button("discard", id="discard", variant="error")
+                yield Button("cancel", id="cancel")
+
+    def on_button_pressed(self, event):
+        self.dismiss(event.button.id if event.button.id != "cancel" else None)
+
+    def action_cancel(self):
+        self.dismiss(None)
 
 
 class AcidcatTUI(App):
@@ -294,7 +326,8 @@ class AcidcatTUI(App):
     """
 
     BINDINGS = [
-        ("q", "quit", "quit"),
+        ("q", "request_quit", "quit"),
+        ("ctrl+s", "save", "save"),
         ("o", "open", "open file"),
         ("e", "edit_field", "edit field"),
         ("w", "edit", "edit tags"),
@@ -306,8 +339,11 @@ class AcidcatTUI(App):
 
     def __init__(self, path=None):
         super().__init__()
-        self.src = path
-        self.fsize = os.path.getsize(path) if path else 0
+        self.src = path           # the file being edited (save target + display name)
+        self.work = None          # temp working copy: edits land here until save
+        self.dirty = False        # unsaved edits present
+        self._backed_up = False   # a _original backup was made this session
+        self.fsize = 0
         self.chunks = []
         self.fmt = "?"
         self.warns = []
@@ -331,23 +367,103 @@ class AcidcatTUI(App):
 
     def on_mount(self):
         if self.src:
-            self._load()
+            self._open_path(self.src)
         else:
             self.query_one("#title", Static).update(
                 Text(" acidcat tui   press o to open a file",
                      style=f"bold {ACCENT}"))
             self.action_open()
 
-    def _load(self):
-        """Walk the current file and (re)build the tree + panes. Also the refresh
-        after an edit or after opening a new file."""
-        self.fsize = os.path.getsize(self.src)
+    def on_unmount(self):
+        self._discard_work()
+
+    # ── working copy: all edits apply to a temp file until an explicit save ──
+
+    def _open_path(self, path):
+        """Point the app at `path`: make a fresh temp working copy and load it."""
+        self.src = path
+        self._make_work()
+        self._load()
+
+    def _make_work(self):
+        self._discard_work()
+        ext = os.path.splitext(self.src)[1]
+        fd, self.work = tempfile.mkstemp(suffix=ext or ".bin", prefix="acidcat_tui_")
+        os.close(fd)
+        shutil.copyfile(self.src, self.work)
+        self.dirty = False
+        self._backed_up = False
+
+    def _discard_work(self):
+        w = self.work
+        self.work = None
+        if w and os.path.isfile(w):
+            try:
+                os.unlink(w)
+            except OSError:
+                pass
+
+    def _apply_to_work(self, new_bytes):
+        """Write edited bytes to the working copy (no disk write to the original
+        yet) and refresh. Marks the session dirty."""
+        with open(self.work, "wb") as f:
+            f.write(new_bytes)
+        self.dirty = True
+        self._load()
+
+    def action_save(self):
+        if not self.work:
+            return
+        if not self.dirty:
+            self.notify("no unsaved changes")
+            return
         try:
-            self.fmt, self.chunks, self.warns = walk_file(self.src, deep=True)
+            with open(self.work, "rb") as f:
+                data = f.read()
+            # back up the pristine original only on the first save; later saves
+            # overwrite without clobbering that backup.
+            _written, backup = writer.commit(self.src, data,
+                                             overwrite=self._backed_up)
+        except (OSError, ValueError) as e:
+            self.notify(f"save failed: {e}", severity="error")
+            return
+        if backup:
+            self._backed_up = True
+        self.dirty = False
+        self._load()
+        self.notify("saved" + (f"; backup {os.path.basename(backup)}"
+                               if backup else ""))
+
+    def action_request_quit(self):
+        if self.dirty:
+            self.push_screen(
+                ConfirmScreen("unsaved changes -- save before quitting?"),
+                self._resolve_pending(lambda: self.exit()))
+        else:
+            self.exit()
+
+    def _resolve_pending(self, proceed):
+        """Return a ConfirmScreen callback: save/discard run `proceed`, cancel
+        stays. Used for both quit and open-another-file with unsaved edits."""
+        def cb(choice):
+            if choice == "save":
+                self.action_save()
+                proceed()
+            elif choice == "discard":
+                self.dirty = False
+                proceed()
+        return cb
+
+    def _load(self):
+        """Walk the working copy and (re)build the tree + panes. Also the refresh
+        after an edit or after opening a new file."""
+        self.fsize = os.path.getsize(self.work)
+        try:
+            self.fmt, self.chunks, self.warns = walk_file(self.work, deep=True)
         except Unsupported as e:
             self.fmt, self.chunks, self.warns = "unsupported", [], [str(e)]
         try:
-            self.findings = ac_anom.scan(self.src, self.fmt, self.chunks, self.warns)
+            self.findings = ac_anom.scan(self.work, self.fmt, self.chunks, self.warns)
         except Exception:
             self.findings = []
 
@@ -355,6 +471,8 @@ class AcidcatTUI(App):
         head.append(f" {os.path.basename(self.src)} ", style=f"bold {ACCENT}")
         head.append(f" {self.fmt}  {self.fsize:,} bytes  "
                     f"{len(self.chunks)} chunks", style=SOFT)
+        if self.dirty:
+            head.append("   ● UNSAVED", style=f"bold {SEV['alert']}")
         self.query_one("#title", Static).update(head)
 
         tree = self.query_one("#tree", Tree)
@@ -438,7 +556,7 @@ class AcidcatTUI(App):
         if note:
             d.append(f"\n{note}", style=SOFT)
         detail.update(d)
-        self.query_one("#hex", Static).update(hex_text(self.src, off, length, accent))
+        self.query_one("#hex", Static).update(hex_text(self.work, off, length, accent))
 
     def on_tree_node_highlighted(self, event):
         self._cur_node = event.node
@@ -468,7 +586,7 @@ class AcidcatTUI(App):
             self.notify(f"region too large to edit ({length:,} bytes); pick a field",
                         severity="warning")
             return
-        raw = _read(self.src, off, length)
+        raw = _read(self.work, off, length)
         name = (node.label.plain if isinstance(node.label, Text)
                 else str(node.label)).strip()
         # value mode if the field's displayed value round-trips to its bytes.
@@ -517,7 +635,7 @@ class AcidcatTUI(App):
         t = Text()
         t.append("preview (unsaved)\n", style=f"bold {PEND}")
         if patch is None:
-            _hex_rows(t, tgt["off"], _read(self.src, tgt["off"], tgt["length"]), DIM)
+            _hex_rows(t, tgt["off"], _read(self.work, tgt["off"], tgt["length"]), DIM)
         else:
             _hex_rows(t, tgt["off"], patch, PEND)
         self.query_one("#hex", Static).update(t)
@@ -536,19 +654,15 @@ class AcidcatTUI(App):
                         severity="error")
             return
         try:
-            with open(self.src, "rb") as f:
+            with open(self.work, "rb") as f:
                 data = f.read()
             new = data[:tgt["off"]] + patch + data[tgt["off"] + tgt["length"]:]
-            _written, backup = writer.commit(self.src, new)
-        except (OSError, ValueError, struct.error) as e:
+        except OSError as e:
             self.notify(f"error: {e}", severity="error")
             return
         self._end_edit()
-        self._load()
-        msg = f"wrote {len(patch)} bytes"
-        if backup:
-            msg += f"; backup {os.path.basename(backup)}"
-        self.notify(msg)
+        self._apply_to_work(new)
+        self.notify(f"patched {len(patch)} bytes (unsaved -- ctrl+s to save)")
 
     def action_cancel_edit(self):
         if not self._edit_target:
@@ -572,52 +686,52 @@ class AcidcatTUI(App):
     # ── other actions ─────────────────────────────────────────────────
 
     def action_open(self):
+        if self.dirty:
+            self.push_screen(
+                ConfirmScreen("unsaved changes -- save before opening another?"),
+                self._resolve_pending(self._browse))
+        else:
+            self._browse()
+
+    def _browse(self):
         start = os.path.dirname(os.path.abspath(self.src)) if self.src else os.getcwd()
 
         def after(path):
             if path and os.path.isfile(path):
-                self.src = path
-                self._load()
+                self._open_path(path)
 
         self.push_screen(BrowseScreen(start), after)
 
     def action_edit(self):
-        if not self.src:
+        if not self.work:
             self.notify("open a file first (o)", severity="warning")
             return
-        prof = edit_profile(self.src)
+        prof = edit_profile(self.work)
         if prof is None:
             self.notify(f"no metadata editor for this format ({self.fmt})",
                         severity="warning")
             return
 
         def after(result):
-            if result:
-                self._load()
+            if result and result.get("new_data") is not None:
+                self._apply_to_work(result["new_data"])
                 n = len(result.get("applied", []))
-                msg = f"saved {n} field(s)"
-                if result.get("backup"):
-                    msg += f"; backup {result['backup']}"
-                self.notify(msg)
+                self.notify(f"edited {n} field(s) (unsaved -- ctrl+s to save)")
 
-        self.push_screen(EditScreen(self.src, prof[0], prof[1]), after)
+        self.push_screen(EditScreen(self.work, prof[0], prof[1]), after)
 
     def action_strip(self):
-        if not self.src:
+        if not self.work:
             self.notify("open a file first (o)", severity="warning")
             return
         try:
-            _fmt, new_data, removed = _write_strip(self.src)
-            _written, backup = writer.commit(self.src, new_data)
+            _fmt, new_data, removed = _write_strip(self.work)
         except (EditError, OSError, ValueError) as e:
             self.notify(f"strip failed: {e}", severity="error")
             return
-        self._load()
+        self._apply_to_work(new_data)
         what = ", ".join(removed) if removed else "nothing to remove"
-        msg = f"stripped: {what}"
-        if backup:
-            msg += f"; backup {os.path.basename(backup)}"
-        self.notify(msg)
+        self.notify(f"stripped: {what} (unsaved -- ctrl+s to save)")
 
     def action_expand_all(self):
         self.query_one("#tree", Tree).root.expand_all()
