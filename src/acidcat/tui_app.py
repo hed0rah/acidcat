@@ -109,11 +109,35 @@ def _synchsafe_decode(b):
     return (b[0] << 21) | (b[1] << 14) | (b[2] << 7) | b[3]
 
 
+def _float80_encode(text):
+    import math
+    v = float(text)
+    if v == 0:
+        return b"\x00" * 10
+    sign = 0x80 if v < 0 else 0
+    v = abs(v)
+    m, e = math.frexp(v)                          # v = m * 2^e, 0.5 <= m < 1
+    exponent = e + 16382                          # inverse of the decoder below
+    mantissa = int(round(m * (1 << 64)))
+    if mantissa >> 64:                            # rounding overflow
+        mantissa >>= 1
+        exponent += 1
+    return (bytes([sign | ((exponent >> 8) & 0x7f), exponent & 0xff])
+            + mantissa.to_bytes(8, "big"))
+
+
+def _float80_decode(b):
+    from acidcat.core.aiff import _parse_ieee_extended
+    f = _parse_ieee_extended(bytes(b))
+    return int(f) if f == int(f) else f
+
+
 # named non-struct encodings a walker may declare in a field's `enc`:
-# name -> (byte length, encode(text)->bytes, decode(bytes)->int). Used for the
-# bespoke layouts struct can't express (ID3 synchsafe ints, ...).
+# name -> (byte length, encode(text)->bytes, decode(bytes)->number). Used for
+# the bespoke layouts struct can't express (ID3 synchsafe, AIFF 80-bit float).
 _CODECS = {
     "synchsafe": (4, _synchsafe_encode, _synchsafe_decode),
+    "float80": (10, _float80_encode, _float80_decode),
 }
 
 

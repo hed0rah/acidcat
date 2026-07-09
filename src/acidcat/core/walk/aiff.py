@@ -28,7 +28,8 @@ def _aiff_comm(b, ctx, form_type):
     fields.append(_f(0x02, 4, "num_sample_frames", frames))
     fields.append(_f(0x06, 2, "bits_per_sample", bits))
     rate_note = "80-bit IEEE 754 extended"
-    fields.append(_f(0x08, 10, "sample_rate", int(rate) if rate else 0, rate_note))
+    fields.append(_f(0x08, 10, "sample_rate", int(rate) if rate else 0, rate_note,
+                     enc="float80", raw=int(rate) if rate else 0))
     ctx.update({"channels": ch, "frames": frames, "bits": bits, "rate": rate})
     if not rate:
         warns.append("sample rate decodes to 0")
