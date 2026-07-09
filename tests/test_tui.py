@@ -89,6 +89,20 @@ def test_synchsafe_codec():
         encode_value("synchsafe", str(1 << 28))     # out of 28-bit range
 
 
+def test_float80_codec():
+    pytest.importorskip("textual")
+    from acidcat.tui_app import encode_value, decode_value, enc_size
+    from acidcat.core.aiff import _parse_ieee_extended
+    assert enc_size("float80") == 10
+    # standard sample rates round-trip through the 80-bit extended format
+    for hz in (8000, 22050, 44100, 48000, 96000):
+        b = encode_value("float80", str(hz))
+        assert len(b) == 10
+        assert int(_parse_ieee_extended(b)) == hz     # matches the walker's decoder
+        assert decode_value("float80", b) == hz
+    assert encode_value("float80", "44100")[:4] == b"\x40\x0e\xac\x44"
+
+
 def test_all_walker_enc_annotations_verify():
     """Every field a walker annotates with enc/raw must re-encode to its actual
     on-disk bytes across the fixture corpus. A wrong endianness/width would be
