@@ -48,7 +48,8 @@ def inspect_fxp(filepath):
 
     fields = [
         _f(0x00, 4, "magic", "CcnK"),
-        _f(0x04, 4, "byte_size", f"{byte_size:,}", "bytes after this field"),
+        _f(0x04, 4, "byte_size", f"{byte_size:,}", "bytes after this field",
+           enc=">I", raw=byte_size),
         _f(0x08, 4, "fx_magic", fx_magic.decode("latin-1", "replace"), kind),
         _f(0x0C, 4, "version", version),
         _f(0x10, 4, "plugin_id", id_str + (f" ({plugin})" if plugin else "")),
