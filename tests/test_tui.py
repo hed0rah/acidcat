@@ -223,6 +223,45 @@ def test_text_field_routes_to_metadata_engine(tmp_path):
     assert got == new
 
 
+def test_in_pane_hex_edit(tmp_path):
+    """Tab into the hex pane, move a cursor, and overwrite bytes in place; Enter
+    applies to the working copy (still unsaved until ctrl+s)."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI, HexPane
+    from textual.widgets import Tree
+
+    orig = tmp_path / "h.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            node = None
+            for cn in app.query_one("#tree", Tree).root.children:
+                for fn in cn.children:
+                    lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                    if lbl.startswith("sample_rate"):
+                        node = fn
+            app._cur_node = node
+            off, _length, _ = app._nodemeta[id(node)]
+            app.action_hex_focus()
+            await pilot.pause()
+            assert app._hexedit is not None
+            assert isinstance(app.focused, HexPane)
+            await pilot.press("4")             # high nibble
+            await pilot.press("5")             # low nibble -> byte 0 = 0x45
+            await pilot.pause()
+            assert app._hexedit["cur"] == 1    # cursor advanced
+            await pilot.press("enter")
+            await pilot.pause()
+            assert open(app.work, "rb").read()[off] == 0x45 and app.dirty
+
+    asyncio.run(scenario())
+
+
 def test_hex_text_offsets_and_empty(tmp_path):
     pytest.importorskip("textual")
     from acidcat.tui_app import hex_text
