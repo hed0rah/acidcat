@@ -179,9 +179,10 @@ def _parse_acid(b, ctx):
     if len(b) < 24:
         return "truncated", fields, [f"acid payload is {len(b)} bytes, expected 24"]
     flags, root, q1, q2, beats, denom, numer, tempo = struct.unpack_from("<IHHfIHHf", b, 0)
-    fields.append(_f(0x00, 4, "type_flags", f"0x{flags:08x}", _flag_names(flags, _ACID_FLAGS)))
+    fields.append(_f(0x00, 4, "type_flags", f"0x{flags:08x}",
+                     _flag_names(flags, _ACID_FLAGS), enc="<I", raw=flags))
     fields.append(_f(0x04, 2, "root_note", root, midi_note_to_name(root) if root else "unset"))
-    fields.append(_f(0x06, 2, "unknown1", f"0x{q1:04x}"))
+    fields.append(_f(0x06, 2, "unknown1", f"0x{q1:04x}", enc="<H", raw=q1))
     fields.append(_f(0x08, 4, "unknown2", round(q2, 4)))
     fields.append(_f(0x0C, 4, "num_beats", beats))
     fields.append(_f(0x10, 2, "meter_denominator", denom))

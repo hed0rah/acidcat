@@ -64,6 +64,48 @@ def test_f_carries_optional_enc_raw():
     assert "enc" not in plain and "raw" not in plain
 
 
+def test_all_walker_enc_annotations_verify():
+    """Every field a walker annotates with enc/raw must re-encode to its actual
+    on-disk bytes across the fixture corpus. A wrong endianness/width would be
+    caught here (the TUI would also safely reject it, but annotating is pointless
+    if it never verifies)."""
+    pytest.importorskip("textual")
+    from acidcat.core.walk import walk_file, Unsupported
+    from acidcat.tui_app import encode_value, _field_abs
+    fixtures = [
+        "data/samples/Drum_Loop.wav",
+        "data/test_formats/generated/mp3_44100.mp3",
+        "data/test_formats/generated/aiff_pcm.aiff",
+        "data/test_formats/generated/flac24.flac",
+        "data/test_formats/gs-16b-2c-44100hz.ogg",
+        "data/test_formats/gs-16b-2c-44100hz.m4a",
+        "data/test_formats/generated/aiff_pcm.aiff",
+    ]
+    checked = 0
+    for path in fixtures:
+        if not os.path.isfile(path):
+            continue
+        data = open(path, "rb").read()
+        try:
+            _f, chunks, _w = walk_file(path, deep=True)
+        except Unsupported:
+            continue
+        for c in chunks:
+            for fl in c.get("fields", []):
+                if "enc" not in fl:
+                    continue
+                ab = _field_abs(c, fl)
+                if ab is None:
+                    continue
+                rb = data[ab:ab + fl["len"]]
+                raw = fl.get("raw", fl.get("value"))
+                assert encode_value(fl["enc"], str(raw)) == rb, (
+                    f"{path} {c['id']} {fl['name']}: enc {fl['enc']!r} "
+                    f"does not reproduce the on-disk bytes")
+                checked += 1
+    assert checked > 0, "no enc-annotated fields were checked"
+
+
 def test_walker_enc_verified_against_bytes():
     """A walker's declared enc+raw must reproduce the on-disk bytes -- that is
     exactly the guard the TUI checks before trusting an annotation for value
