@@ -98,12 +98,44 @@ def infer_enc(value, raw):
     return None
 
 
-def encode_value(fmt, text):
-    """Encode user text as bytes using an inferred struct format. Ints accept
-    0x.. / 0b.. prefixes. Raises ValueError/struct.error on bad input."""
-    if fmt[-1] in "fd":
-        return struct.pack(fmt, float(text))
-    return struct.pack(fmt, int(text, 0))
+def _synchsafe_encode(text):
+    v = int(text, 0)
+    if not 0 <= v < (1 << 28):
+        raise ValueError("synchsafe value out of 28-bit range")
+    return bytes([(v >> 21) & 0x7f, (v >> 14) & 0x7f, (v >> 7) & 0x7f, v & 0x7f])
+
+
+def _synchsafe_decode(b):
+    return (b[0] << 21) | (b[1] << 14) | (b[2] << 7) | b[3]
+
+
+# named non-struct encodings a walker may declare in a field's `enc`:
+# name -> (byte length, encode(text)->bytes, decode(bytes)->int). Used for the
+# bespoke layouts struct can't express (ID3 synchsafe ints, ...).
+_CODECS = {
+    "synchsafe": (4, _synchsafe_encode, _synchsafe_decode),
+}
+
+
+def enc_size(enc):
+    return _CODECS[enc][0] if enc in _CODECS else struct.calcsize(enc)
+
+
+def encode_value(enc, text):
+    """Encode user text as bytes for a field's declared encoding: a named codec
+    (synchsafe, ...) or a struct format string. Ints accept 0x../0b.. prefixes.
+    Raises ValueError/struct.error on bad input."""
+    if enc in _CODECS:
+        return _CODECS[enc][1](text)
+    if enc[-1] in "fd":
+        return struct.pack(enc, float(text))
+    return struct.pack(enc, int(text, 0))
+
+
+def decode_value(enc, b):
+    if enc in _CODECS:
+        return _CODECS[enc][2](b)
+    return struct.unpack(enc, b)[0]
 
 
 def hex_text(path, off, length, accent):
@@ -711,8 +743,8 @@ class AcidcatTUI(App):
         else:
             try:                                  # bytes -> decoded value
                 b = bytes.fromhex(bar.value.replace(" ", ""))
-                if len(b) == struct.calcsize(tgt["fmt"]):
-                    bar.value = str(struct.unpack(tgt["fmt"], b)[0])
+                if len(b) == enc_size(tgt["fmt"]):
+                    bar.value = str(decode_value(tgt["fmt"], b))
             except (ValueError, struct.error):
                 pass
             tgt["mode"] = "value"

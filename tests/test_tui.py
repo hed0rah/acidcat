@@ -64,6 +64,18 @@ def test_f_carries_optional_enc_raw():
     assert "enc" not in plain and "raw" not in plain
 
 
+def test_synchsafe_codec():
+    pytest.importorskip("textual")
+    from acidcat.tui_app import encode_value, decode_value, enc_size
+    assert enc_size("synchsafe") == 4
+    assert encode_value("synchsafe", "35") == b"\x00\x00\x00\x23"
+    assert decode_value("synchsafe", b"\x00\x00\x00\x23") == 35
+    # every byte keeps its high bit clear -- the whole point of synchsafe
+    assert all(x < 0x80 for x in encode_value("synchsafe", str((1 << 28) - 1)))
+    with pytest.raises(ValueError):
+        encode_value("synchsafe", str(1 << 28))     # out of 28-bit range
+
+
 def test_all_walker_enc_annotations_verify():
     """Every field a walker annotates with enc/raw must re-encode to its actual
     on-disk bytes across the fixture corpus. A wrong endianness/width would be

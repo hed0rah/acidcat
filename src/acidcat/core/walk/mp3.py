@@ -160,7 +160,8 @@ def _id3v2_frames(filepath, hdr):
     fields.append(_f(0x05, 1, "flags", f"0x{flags:02x}",
                      ", ".join(flag_bits) if flag_bits else "none",
                      enc="B", raw=flags))
-    fields.append(_f(0x06, 4, "tag_size", f"{hdr['size']:,}", "synchsafe"))
+    fields.append(_f(0x06, 4, "tag_size", f"{hdr['size']:,}", "synchsafe",
+                     enc="synchsafe", raw=hdr["size"]))
 
     is_v22 = major == 2
     id_len = 3 if is_v22 else 4
