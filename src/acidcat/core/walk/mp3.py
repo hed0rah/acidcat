@@ -158,7 +158,8 @@ def _id3v2_frames(filepath, hdr):
     if flags & 0x10:
         flag_bits.append("footer")
     fields.append(_f(0x05, 1, "flags", f"0x{flags:02x}",
-                     ", ".join(flag_bits) if flag_bits else "none"))
+                     ", ".join(flag_bits) if flag_bits else "none",
+                     enc="B", raw=flags))
     fields.append(_f(0x06, 4, "tag_size", f"{hdr['size']:,}", "synchsafe"))
 
     is_v22 = major == 2
@@ -253,8 +254,9 @@ def _parse_vbri(buf, off):
     frame_count = _bu32(buf, off + 14)
     fields.append(_f(off, 4, "vbr_tag", "VBRI", "VBR (Fraunhofer)"))
     fields.append(_f(off + 4, 2, "version", version))
-    fields.append(_f(off + 10, 4, "byte_count", f"{nbytes:,}"))
-    fields.append(_f(off + 14, 4, "frame_count", f"{frame_count:,}"))
+    fields.append(_f(off + 10, 4, "byte_count", f"{nbytes:,}", enc=">I", raw=nbytes))
+    fields.append(_f(off + 14, 4, "frame_count", f"{frame_count:,}",
+                     enc=">I", raw=frame_count))
     return fields, [], frame_count, b"VBRI"
 
 
@@ -289,14 +291,15 @@ def _parse_xing_lame(filepath, frame_off, hdr):
             warns.append("Xing header truncated before frame_count")
             return fields, warns, frame_count, tag
         frame_count = _bu32(buf, pos)
-        fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}"))
+        fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}",
+                         enc=">I", raw=frame_count))
         pos += 4
     if flags & 0x02:
         if pos + 4 > len(buf):
             warns.append("Xing header truncated before byte_count")
             return fields, warns, frame_count, tag
         nbytes = _bu32(buf, pos)
-        fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}"))
+        fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}", enc=">I", raw=nbytes))
         pos += 4
     if flags & 0x04:
         if pos + 100 > len(buf):
