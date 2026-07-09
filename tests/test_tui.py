@@ -56,6 +56,31 @@ def test_field_abs_addressing():
     assert _field_abs(chunk, {"off": None, "len": 0}) is None
 
 
+def test_f_carries_optional_enc_raw():
+    from acidcat.core.walk.base import _f
+    d = _f(0, 2, "x", "0x0003", "note", enc="<H", raw=3)
+    assert d["enc"] == "<H" and d["raw"] == 3
+    plain = _f(0, 2, "y", 5)                          # optional, absent by default
+    assert "enc" not in plain and "raw" not in plain
+
+
+def test_walker_enc_verified_against_bytes():
+    """A walker's declared enc+raw must reproduce the on-disk bytes -- that is
+    exactly the guard the TUI checks before trusting an annotation for value
+    editing. format_tag stores a hex-string value, so enc/raw is what makes it
+    value-editable at all."""
+    pytest.importorskip("textual")
+    from acidcat.core.walk import walk_file
+    from acidcat.tui_app import encode_value, _field_abs
+    _fmt, chunks, _w = walk_file("data/samples/Drum_Loop.wav", deep=True)
+    fmtc = next(c for c in chunks if c["id"].strip() == "fmt")
+    f = next(fl for fl in fmtc["fields"] if fl["name"] == "format_tag")
+    assert f.get("enc") == "<H" and "raw" in f
+    abs_off = _field_abs(fmtc, f)
+    raw_bytes = open("data/samples/Drum_Loop.wav", "rb").read()[abs_off:abs_off + f["len"]]
+    assert encode_value(f["enc"], str(f["raw"])) == raw_bytes
+
+
 def test_infer_enc_roundtrip_and_encode():
     pytest.importorskip("textual")
     from acidcat.tui_app import infer_enc, encode_value

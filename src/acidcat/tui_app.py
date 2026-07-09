@@ -504,7 +504,8 @@ class AcidcatTUI(App):
                 fnode.data = (abs_off, fl.get("len") or 0, accent)
                 self._nodemeta[id(fnode)] = fnode.data
                 if abs_off is not None:
-                    self._editval[id(fnode)] = fl.get("value")
+                    self._editval[id(fnode)] = (fl.get("value"), fl.get("enc"),
+                                                fl.get("raw"))
             # per-element rows: MIDI events, MP3 frames, device params, etc. --
             # the deep detail inspect --frames/--verbose shows. Rows carry no
             # uniform byte offset, so a row node uses its own if present else the
@@ -586,15 +587,30 @@ class AcidcatTUI(App):
             self.notify(f"region too large to edit ({length:,} bytes); pick a field",
                         severity="warning")
             return
-        raw = _read(self.work, off, length)
+        raw_bytes = _read(self.work, off, length)
         name = (node.label.plain if isinstance(node.label, Text)
                 else str(node.label)).strip()
-        # value mode if the field's displayed value round-trips to its bytes.
-        fmt = infer_enc(self._editval.get(id(node)), raw)
+        value, enc, raw_val = self._editval.get(id(node), (None, None, None))
+        fmt = initial = None
+        # 1) trust the walker's declared encoding ONLY if it reproduces the
+        #    current bytes -- a wrong annotation must never write blind.
+        if enc is not None:
+            cand = raw_val if raw_val is not None else value
+            try:
+                if encode_value(enc, str(cand)) == raw_bytes:
+                    fmt, initial = enc, str(cand)
+            except (ValueError, struct.error):
+                pass
+        # 2) else infer the layout by round-tripping the displayed value.
+        if fmt is None:
+            fmt = infer_enc(value, raw_bytes)
+            if fmt is not None:
+                initial = str(value)
+        # 3) else raw hex.
         if fmt is not None:
-            mode, initial = "value", str(self._editval[id(node)])
+            mode = "value"
         else:
-            mode, initial = "hex", raw.hex(" ")
+            mode, initial = "hex", raw_bytes.hex(" ")
         self._edit_target = {"off": off, "length": length, "name": name,
                              "mode": mode, "fmt": fmt, "accent": accent}
         bar = self.query_one("#editbar", Input)

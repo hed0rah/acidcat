@@ -63,7 +63,8 @@ def _parse_fmt(b, ctx):
         return "truncated", fields, [f"fmt payload is {len(b)} bytes, spec minimum is 16"]
     tag, ch, rate, avg, align, bits = struct.unpack_from("<HHIIHH", b, 0)
     tag_name = _FORMAT_TAGS.get(tag, f"unknown 0x{tag:04x}")
-    fields.append(_f(0x00, 2, "format_tag", f"0x{tag:04x}", tag_name))
+    fields.append(_f(0x00, 2, "format_tag", f"0x{tag:04x}", tag_name,
+                     enc="<H", raw=tag))
     fields.append(_f(0x02, 2, "channels", ch))
     fields.append(_f(0x04, 4, "sample_rate", rate, "Hz"))
     fields.append(_f(0x08, 4, "avg_bytes_per_sec", avg))
