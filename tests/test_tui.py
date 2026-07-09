@@ -64,6 +64,19 @@ def test_f_carries_optional_enc_raw():
     assert "enc" not in plain and "raw" not in plain
 
 
+def test_tagged_text_field_mapping():
+    pytest.importorskip("textual")
+    from acidcat.tui_app import text_field_for
+    assert text_field_for("tagged", "TIT2") == "title"        # ID3 frame
+    assert text_field_for("tagged", "TPE1") == "artist"
+    assert text_field_for("tagged", "TITLE") == "title"       # Vorbis key
+    assert text_field_for("tagged", "ARTIST") == "artist"
+    assert text_field_for("tagged", "COMMENT") == "comment"
+    assert text_field_for("tagged", "TSSE") is None           # encoder, not routed
+    assert text_field_for("tagged", "ENCODER") is None
+    assert text_field_for("tagged", "vendor") is None
+
+
 def test_synchsafe_codec():
     pytest.importorskip("textual")
     from acidcat.tui_app import encode_value, decode_value, enc_size
