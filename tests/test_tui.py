@@ -4,6 +4,7 @@ these cover the pieces that must stay correct: the command registers without
 the textual extra present, and the byte-offset / hex helpers match inspect's
 addressing so the hex pane highlights the right bytes."""
 import argparse
+import os
 
 import pytest
 
@@ -69,6 +70,47 @@ def test_infer_enc_roundtrip_and_encode():
     # non-numeric or non-round-tripping value -> None (caller falls back to hex)
     assert infer_enc("Am", b"\x41\x6d") is None
     assert infer_enc(True, b"\x01") is None
+
+
+def test_working_copy_defers_write_until_save(tmp_path):
+    """Edits apply to a temp working copy; the original file is untouched until an
+    explicit save, which then makes a pristine backup."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI
+    from textual.widgets import Tree, Input
+
+    orig = tmp_path / "d.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+    pristine = orig.read_bytes()
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert app.work and os.path.isfile(app.work)
+            node = None
+            for cn in app.query_one("#tree", Tree).root.children:
+                for fn in cn.children:
+                    lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                    if lbl.startswith("sample_rate"):
+                        node = fn
+            assert node is not None
+            app._cur_node = node
+            app.action_edit_field()
+            await pilot.pause()
+            app.query_one("#editbar", Input).value = "69"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app.dirty and orig.read_bytes() == pristine   # not written yet
+            app.action_save()
+            await pilot.pause()
+            assert not app.dirty and orig.read_bytes() != pristine
+
+    asyncio.run(scenario())
+    bak = tmp_path / "d_original.wav"
+    assert bak.exists() and bak.read_bytes() == pristine
 
 
 def test_hex_text_offsets_and_empty(tmp_path):
