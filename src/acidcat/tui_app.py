@@ -330,6 +330,7 @@ class AcidcatTUI(App):
         ("ctrl+s", "save", "save"),
         ("o", "open", "open file"),
         ("e", "edit_field", "edit field"),
+        ("ctrl+t", "toggle_mode", "value/hex"),
         ("w", "edit", "edit tags"),
         ("s", "strip", "strip meta"),
         ("a", "expand_all", "expand"),
@@ -614,12 +615,51 @@ class AcidcatTUI(App):
         self._edit_target = {"off": off, "length": length, "name": name,
                              "mode": mode, "fmt": fmt, "accent": accent}
         bar = self.query_one("#editbar", Input)
-        kind = f"value ({fmt})" if mode == "value" else f"raw hex ({length}B)"
-        bar.border_title = (f"edit {name} @ 0x{off:08x}  {kind}  "
-                            f"enter=write  esc=cancel")
         bar.value = initial
         bar.remove_class("hidden")
+        self._update_edit_title()
         bar.focus()
+        self._render_preview()
+
+    def _update_edit_title(self):
+        tgt = self._edit_target
+        bar = self.query_one("#editbar", Input)
+        if tgt["mode"] == "value":
+            kind = f"value ({tgt['fmt']})"
+        else:
+            kind = f"raw hex ({tgt['length']}B)"
+        toggle = "  ctrl+t=toggle" if tgt["fmt"] else ""
+        bar.border_title = (f"edit {tgt['name']} @ 0x{tgt['off']:08x}  {kind}"
+                            f"  enter=write  esc=cancel{toggle}")
+
+    def action_toggle_mode(self):
+        """Flip the active field edit between value and raw-hex. Only offered
+        when the field has a known value encoding (fmt); a hex-only field stays
+        hex. Converts the bar's current text to the other representation so the
+        live preview stays consistent."""
+        tgt = self._edit_target
+        if not tgt:
+            return
+        if tgt["fmt"] is None:
+            self.notify("this field is hex-only (no known value encoding)",
+                        severity="warning")
+            return
+        bar = self.query_one("#editbar", Input)
+        if tgt["mode"] == "value":
+            try:                                  # value -> its bytes as hex
+                bar.value = encode_value(tgt["fmt"], bar.value.strip()).hex(" ")
+            except (ValueError, struct.error):
+                pass                              # keep text; preview flags invalid
+            tgt["mode"] = "hex"
+        else:
+            try:                                  # bytes -> decoded value
+                b = bytes.fromhex(bar.value.replace(" ", ""))
+                if len(b) == struct.calcsize(tgt["fmt"]):
+                    bar.value = str(struct.unpack(tgt["fmt"], b)[0])
+            except (ValueError, struct.error):
+                pass
+            tgt["mode"] = "value"
+        self._update_edit_title()
         self._render_preview()
 
     def _patch_from_input(self, text):
