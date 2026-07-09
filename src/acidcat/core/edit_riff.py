@@ -243,3 +243,39 @@ def edit_wav(data, changes):
     if data_after != data_before:
         raise EditError("internal: audio data changed during rewrite (aborted)")
     return bytes(out), applied
+
+
+# identifying / descriptive metadata chunks stripped by strip_wav. Functional
+# chunks (fmt, data, fact, smpl, inst, acid, cue, plst) are kept: they carry
+# playback and loop info, not authorship.
+_WAV_META_CHUNKS = {b"LIST", b"bext", b"iXML", b"cart", b"ID3 ", b"id3 ",
+                    b"_PMX", b"aXML", b"AXML"}
+
+
+def strip_wav(data):
+    """Drop the descriptive/identifying metadata chunks (LIST/INFO tags, bext
+    broadcast metadata, iXML, cart, embedded ID3, XMP) and re-emit. Audio and
+    functional chunks are preserved, verified byte-for-byte. Returns
+    (new_bytes, [dropped chunk ids]). Trailing bytes past the container are
+    left as-is."""
+    chunks, trailing = _iter_chunks(data)
+    data_before = next((c[1] for c in chunks if c[0] == b"data"), None)
+    kept, dropped = [], []
+    for c in chunks:
+        if c[0] in _WAV_META_CHUNKS:
+            dropped.append(c[0].decode("latin1").strip())
+        else:
+            kept.append(c)
+    out = bytearray(b"RIFF\x00\x00\x00\x00WAVE")
+    for cid, payload in kept:
+        out += cid + struct.pack("<I", len(payload)) + payload
+        if len(payload) & 1:
+            out += b"\x00"
+    riff_size = len(out) - 8
+    out += trailing
+    struct.pack_into("<I", out, 4, riff_size)
+    data_after = next((c[1] for c in _iter_chunks(bytes(out))[0]
+                       if c[0] == b"data"), None)
+    if data_after != data_before:
+        raise EditError("internal: audio data changed during strip (aborted)")
+    return bytes(out), dropped
