@@ -391,7 +391,9 @@ def inspect_mp3(filepath, deep=False):
         _f(None, 0, "samples_per_frame", fh["samples_per_frame"]),
     ]
     if fh["emphasis"] != "none":
-        fields.append(_f(None, 0, "emphasis", fh["emphasis"]))
+        # emphasis is bits 1-0 of the header word -> bitpos 30, width 2
+        fields.append(_f(0x00, 4, "emphasis", fh["emphasis"],
+                         enc="bitsmap:0:4:30:2:mpeg_emphasis"))
 
     try:
         xing_fields, xing_warns, vbr_frames, vbr_tag = \
