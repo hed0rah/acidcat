@@ -1,5 +1,6 @@
 """tests for acidcat's write/edit capability (safety + per-format editors)."""
 
+import os
 import struct
 
 import pytest
@@ -58,6 +59,34 @@ def test_commit_overwrite_skips_backup(tmp_path):
     p.write_bytes(b"original")
     _, backup = writer.commit(str(p), b"edited", overwrite=True)
     assert backup is None and p.read_bytes() == b"edited"
+
+
+def test_commit_second_edit_keeps_first_backup(tmp_path):
+    # the _original made on the first edit is the true original; a later edit
+    # must never overwrite it
+    p = tmp_path / "f.bin"
+    p.write_bytes(b"original")
+    writer.commit(str(p), b"edit1")
+    _, backup = writer.commit(str(p), b"edit2")
+    assert backup is None
+    assert open(writer.backup_path(str(p)), "rb").read() == b"original"
+
+
+def test_atomic_write_readback_detects_mismatch(tmp_path, monkeypatch):
+    # if the bytes on disk after os.replace are not the bytes we wrote
+    # (interference, filesystem fault), the write must raise instead of
+    # letting the caller report "wrote"/"saved"
+    p = tmp_path / "f.bin"
+    real_replace = os.replace
+
+    def corrupting_replace(src, dst):
+        real_replace(src, dst)
+        with open(dst, "wb") as f:
+            f.write(b"corrupted")
+
+    monkeypatch.setattr(os, "replace", corrupting_replace)
+    with pytest.raises(OSError, match="read-back"):
+        writer.atomic_write(str(p), b"edited")
 
 
 # ── WAV: INFO tags ─────────────────────────────────────────────────
