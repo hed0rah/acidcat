@@ -87,7 +87,8 @@ def _strip(path):
     head = data[:16]
     if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
         new, applied = edits.edit_vital(data, {"author": "", "comment": ""})
-        return ("Vital preset", new, [a[0] for a in applied])
+        # vital keys are cleared to "", not deleted; say so in the report
+        return ("Vital preset", new, [a[0] + " (cleared)" for a in applied])
     if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
         from acidcat.core import edit_riff
         return ("WAV",) + edit_riff.strip_wav(data)

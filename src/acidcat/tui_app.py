@@ -51,12 +51,24 @@ _HEX_CAP = 1024        # most bytes to render in the hex pane for one node
 _ROW_CAP = 400         # most per-element rows (events/frames) to list per chunk
 _HEXEDIT_CAP = 512     # refuse editing a byte region bigger than this (pick a field)
 _UNDO_CAP = 50         # most undo snapshots to keep
+_UNDO_BYTES_CAP = 64 * 1024 * 1024   # total snapshot bytes kept (latest always kept)
 
 # struct formats tried when inferring a numeric field's on-disk layout, smallest
-# to largest, LE before BE. Verified by round-trip against the actual bytes, so a
-# match is exact, never a guess.
+# to largest. Verified by round-trip against the actual bytes, so a match is
+# exact for the CURRENT value -- but endian-symmetric bytes (a zero, a
+# palindrome) round-trip both ways, and then the first candidate wins. The two
+# orders below exist so that tie breaks toward the format's native endianness;
+# a walker-declared enc annotation always beats inference.
 _ENC_TRY = ("<B", ">B", "<H", ">H", "<h", ">h", "<I", ">I", "<i", ">i",
             "<Q", ">Q", "<q", ">q", "<f", ">f", "<d", ">d")
+_ENC_TRY_BE = (">B", "<B", ">H", "<H", ">h", "<h", ">I", "<I", ">i", "<i",
+               ">Q", "<Q", ">q", "<q", ">f", "<f", ">d", "<d")
+
+# walk_file labels of formats whose field payloads are big-endian, so infer_enc
+# should try BE first there (RMID counts: its editable fields are the embedded
+# SMF's, not the RIFF wrapper's).
+_BE_FMTS = {"IFF/AIFF", "IFF/AIFC", "Standard MIDI File", "RMID (RIFF/MIDI)",
+            "VST FXP preset", "ReCycle RX2", "FLAC", "MP3/MPEG audio", "MP4/M4A"}
 
 
 def _read(path, off, length):
@@ -80,15 +92,20 @@ def _field_abs(chunk, field):
     return base + field["off"]
 
 
-def infer_enc(value, raw):
+def infer_enc(value, raw, prefer_be=False):
     """Find a struct format whose pack(value) reproduces `raw` exactly, so a new
     value can be re-encoded to the same on-disk layout. Verified against the real
     bytes (no guessing): returns the format string, or None if `value` is not a
     plain number or nothing round-trips (a rounded-for-display float, a string,
-    an odd width) -- in which case the caller falls back to raw hex editing."""
+    an odd width) -- in which case the caller falls back to raw hex editing.
+
+    Caveat: the round-trip proves the layout for the current value only. When
+    the bytes are endian-symmetric both endiannesses verify, so `prefer_be`
+    must reflect the format's native byte order or a later edit could write
+    the new value with the wrong one."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    for fmt in _ENC_TRY:
+    for fmt in (_ENC_TRY_BE if prefer_be else _ENC_TRY):
         if struct.calcsize(fmt) != len(raw):
             continue
         try:
@@ -615,9 +632,12 @@ class AcidcatTUI(App):
         self.warns = []
         self.findings = []
         self._nodemeta = {}       # id(node) -> (off, length, accent)  for the hex pane
+        self._nodekey = {}        # id(node) -> stable key, to restore the cursor
+                                  # and expansion across the post-edit tree rebuild
         self._editval = {}        # id(node) -> (value, enc, raw)  for field nodes
         self._textfield = {}      # id(node) -> engine field  for variable-length text
         self._profile = None      # edit profile of the current file (WAV/AIFF/...)
+        self._prefer_be = False   # format is big-endian: bias infer_enc that way
         self._cur_node = None     # last highlighted tree node
         self._edit_target = None  # active inline edit: dict(off,length,name,mode,fmt,accent)
         self._hexedit = None      # active in-pane hex edit: dict(off,length,buf,cur,nib)
@@ -680,6 +700,11 @@ class AcidcatTUI(App):
         with open(self.work, "rb") as f:
             self._undo.append(f.read())
         self._undo = self._undo[-_UNDO_CAP:]
+        # snapshots are whole files; also cap by bytes so a big file cannot pin
+        # gigabytes of history. The most recent snapshot always survives.
+        while (len(self._undo) > 1
+               and sum(len(s) for s in self._undo) > _UNDO_BYTES_CAP):
+            self._undo.pop(0)
         with open(self.work, "wb") as f:
             f.write(new_bytes)
         self._recompute_dirty()
@@ -743,6 +768,8 @@ class AcidcatTUI(App):
         def cb(choice):
             if choice == "save":
                 self.action_save()
+                if self.dirty:      # save failed: keep the session and the edits
+                    return
                 proceed()
             elif choice == "discard":
                 self.dirty = False
@@ -757,6 +784,7 @@ class AcidcatTUI(App):
             self.fmt, self.chunks, self.warns = walk_file(self.work, deep=True)
         except Unsupported as e:
             self.fmt, self.chunks, self.warns = "unsupported", [], [str(e)]
+        self._prefer_be = self.fmt in _BE_FMTS
         try:
             self.findings = ac_anom.scan(self.work, self.fmt, self.chunks, self.warns)
         except Exception:
@@ -773,10 +801,20 @@ class AcidcatTUI(App):
         prof = edit_profile(self.work)
         self._profile = prof[0] if prof else None
         tree = self.query_one("#tree", Tree)
+        # a rebuild (after an edit / undo / save) must not dump the user at the
+        # root with everything collapsed: remember the highlighted node and the
+        # expanded chunks by stable key (chunk index / field ordinal), restore
+        # them after the rebuild.
+        cur_key = (self._nodekey.get(id(self._cur_node))
+                   if self._cur_node is not None else None)
+        expanded = {self._nodekey[id(n)] for n in tree.root.children
+                    if n.is_expanded and id(n) in self._nodekey}
         tree.clear()
         self._nodemeta = {}
         self._editval = {}
         self._textfield = {}
+        self._nodekey = {}
+        keyed = {}
         tree.root.set_label(Text(os.path.basename(self.src), style=f"bold {FG}"))
         tree.root.data = (0, self.fsize, ACCENT)
         self._nodemeta[id(tree.root)] = (0, self.fsize, ACCENT)
@@ -790,7 +828,9 @@ class AcidcatTUI(App):
             node = tree.root.add(lbl)
             node.data = (c.get("offset", 0), c.get("size", 0), accent)
             self._nodemeta[id(node)] = node.data
-            for fl in c.get("fields", []):
+            self._nodekey[id(node)] = ("chunk", i)
+            keyed[("chunk", i)] = node
+            for j, fl in enumerate(c.get("fields", [])):
                 abs_off = _field_abs(c, fl)
                 flbl = Text()
                 flbl.append(f"{fl['name']}", style=SOFT)
@@ -801,6 +841,8 @@ class AcidcatTUI(App):
                 fnode = node.add_leaf(flbl)
                 fnode.data = (abs_off, fl.get("len") or 0, accent)
                 self._nodemeta[id(fnode)] = fnode.data
+                self._nodekey[id(fnode)] = ("field", i, j)
+                keyed[("field", i, j)] = fnode
                 if abs_off is not None:
                     self._editval[id(fnode)] = (fl.get("value"), fl.get("enc"),
                                                 fl.get("raw"))
@@ -812,8 +854,8 @@ class AcidcatTUI(App):
             # uniform byte offset, so a row node uses its own if present else the
             # chunk's range for the hex pane.
             rows = c.get("rows") or []
-            for row in rows[:_ROW_CAP]:
-                rlbl = Text("  ".join(f"{k}={v}" for k, v in row.items()),
+            for k, row in enumerate(rows[:_ROW_CAP]):
+                rlbl = Text("  ".join(f"{k2}={v}" for k2, v in row.items()),
                             style=SOFT)
                 roff = row.get("offset") if isinstance(row.get("offset"), int) else None
                 rlen = row.get("size") if isinstance(row.get("size"), int) else 0
@@ -821,13 +863,30 @@ class AcidcatTUI(App):
                 rnode.data = ((roff, rlen, accent) if roff is not None
                               else node.data)
                 self._nodemeta[id(rnode)] = rnode.data
+                self._nodekey[id(rnode)] = ("row", i, k)
+                keyed[("row", i, k)] = rnode
             if len(rows) > _ROW_CAP:
                 more = node.add_leaf(Text(f"... {len(rows) - _ROW_CAP} more rows",
                                           style=DIM))
                 self._nodemeta[id(more)] = node.data
         tree.root.expand()
+        for ek in expanded:
+            n = keyed.get(ek)
+            if n is not None:
+                n.expand()
         self._render_anomalies()
-        self._show(0, self.fsize, ACCENT, os.path.basename(self.src), "")
+        target = keyed.get(cur_key)
+        if target is not None:
+            if target.parent is not None and not target.parent.is_expanded:
+                target.parent.expand()
+            self._cur_node = target
+            # node lines are computed on the next refresh; moving now lands on -1
+            self.call_after_refresh(tree.move_cursor, target)
+            off, length, accent = self._nodemeta[id(target)]
+            self._show(off, length, accent, self._node_name(target),
+                       self._edit_hint(target, off, length))
+        else:
+            self._show(0, self.fsize, ACCENT, os.path.basename(self.src), "")
 
     def _render_anomalies(self):
         panel = self.query_one("#anom", Static)
@@ -846,6 +905,11 @@ class AcidcatTUI(App):
         if len(self.findings) > 8:
             t.append(f"  .. {len(self.findings) - 8} more\n", style=DIM)
         panel.update(t)
+
+    @staticmethod
+    def _node_name(node):
+        lbl = node.label
+        return (lbl.plain if isinstance(lbl, Text) else str(lbl)).strip()
 
     def _show(self, off, length, accent, name, note):
         detail = self.query_one("#detail", Static)
@@ -867,18 +931,17 @@ class AcidcatTUI(App):
         self._cur_node = event.node
         if self._edit_target:            # moving off the field cancels an edit
             self.action_cancel_edit()
+        self._hexedit = None             # ditto an abandoned in-pane hex edit
         data = self._nodemeta.get(id(event.node))
         if not data:
             return
         off, length, accent = data
-        label = event.node.label
-        name = label.plain if isinstance(label, Text) else str(label)
-        self._show(off, length, accent, name.strip(), self._edit_hint(event.node,
-                                                                      off, length))
+        self._show(off, length, accent, self._node_name(event.node),
+                   self._edit_hint(event.node, off, length))
 
     def _edit_hint(self, node, off, length):
         """A short note in the detail pane telling the user how the highlighted
-        field can be edited (value / hex / text), so it's discoverable."""
+        field can be edited (value / enum / hex / text), so it's discoverable."""
         if off is None or not length:
             return ""
         if id(node) in self._textfield:
@@ -886,18 +949,65 @@ class AcidcatTUI(App):
         value, enc, raw = self._editval.get(id(node), (None, None, None))
         rb = _read(self.work, off, length)
         if enc is not None:
+            bt = self._bit_target(off, value, enc)
+            if bt is not None:
+                if bt["mode"] == "bitfield":
+                    return (f"value-editable ({bt['width']}-bit packed) -- "
+                            "press e, or tab for hex")
+                return "enum-editable -- press e, or tab for hex"
             try:
                 if encode_value(enc, str(raw if raw is not None else value)) == rb:
                     return f"value-editable ({enc}) -- press e, or tab for hex"
             except (ValueError, struct.error):
                 pass
-        if infer_enc(value, rb) is not None:
+        if infer_enc(value, rb, self._prefer_be) is not None:
             return "value-editable -- press e, or tab for hex"
         if length <= _HEXEDIT_CAP:
             return "hex-editable -- press e or tab"
         return ""
 
     # ── inline byte / value editor with live hex preview ──────────────
+
+    def _bit_target(self, off, value, enc):
+        """If enc is a bits/bitsmap/bitsdyn annotation, verify it against the
+        working copy (the declared bits must decode to the displayed value; a
+        wrong annotation must never write blind) and return the edit-target
+        fields for it. None means not a bit annotation, or it did not verify --
+        the caller falls back to plain value/hex editing."""
+        for parse in (parse_bitsmap, parse_bitsdyn, parse_bitfield):
+            p = parse(enc)
+            if p is None:
+                continue
+            delta, clen, bitpos, width, extra = p
+            cont_off = off + delta
+            cur = _read(self.work, cont_off, clen)
+            if len(cur) != clen or clen * 8 - bitpos - width < 0:
+                return None
+            tgt = {"off": cont_off, "length": clen, "fmt": None,
+                   "bitpos": bitpos, "width": width}
+            if parse is parse_bitsmap:
+                ok = _BITMAPS.get(extra, {}).get(
+                    bitfield_extract(cur, bitpos, width, 0)) == value
+                tgt.update(mode="bitsmap", mapid=extra)
+            elif parse is parse_bitsdyn:
+                ok = _DYNMAPS[extra](cur).get(
+                    bitfield_extract(cur, bitpos, width, 0)) == value
+                tgt.update(mode="bitsdyn", dynid=extra)
+            else:
+                ok = bitfield_extract(cur, bitpos, width, extra) == value
+                tgt.update(mode="bitfield", bias=extra)
+            return tgt if ok else None
+        return None
+
+    def _arm_edit(self, target, initial):
+        """Activate the edit bar for `target` with `initial` as the text."""
+        self._edit_target = target
+        bar = self.query_one("#editbar", Input)
+        bar.value = initial
+        bar.remove_class("hidden")
+        self._update_edit_title()
+        bar.focus()
+        self._render_preview()
 
     def action_edit_field(self):
         node = self._cur_node
@@ -909,92 +1019,31 @@ class AcidcatTUI(App):
         if off is None or not length:
             self.notify("this node has no editable byte range", severity="warning")
             return
+        name = self._node_name(node)
         # variable-length text field: edit as text through the metadata engine,
         # which re-serializes the chunk so a longer/shorter value is valid.
         mf = self._textfield.get(id(node))
         if mf is not None:
             value = self._editval.get(id(node), (None,))[0]
-            name = (node.label.plain if isinstance(node.label, Text)
-                    else str(node.label)).strip()
-            self._edit_target = {"off": off, "length": length, "name": name,
-                                 "mode": "text", "fmt": None, "metafield": mf,
-                                 "accent": accent}
-            bar = self.query_one("#editbar", Input)
-            bar.value = str(value) if value is not None else ""
-            bar.remove_class("hidden")
-            self._update_edit_title()
-            bar.focus()
-            self._render_preview()
+            self._arm_edit({"off": off, "length": length, "name": name,
+                            "mode": "text", "fmt": None, "metafield": mf,
+                            "accent": accent},
+                           str(value) if value is not None else "")
             return
         if length > _HEXEDIT_CAP:
             self.notify(f"region too large to edit ({length:,} bytes); pick a field",
                         severity="warning")
             return
         raw_bytes = _read(self.work, off, length)
-        name = (node.label.plain if isinstance(node.label, Text)
-                else str(node.label)).strip()
         value, enc, raw_val = self._editval.get(id(node), (None, None, None))
-        # enum bit-field: raw bits map to a label; edit by name (or index).
-        bm = parse_bitsmap(enc)
-        if bm is not None:
-            delta, clen, bitpos, width, mapid = bm
-            cont_off = off + delta
-            cur = _read(self.work, cont_off, clen)
-            if (len(cur) == clen and clen * 8 - bitpos - width >= 0
-                    and _BITMAPS.get(mapid, {}).get(
-                        bitfield_extract(cur, bitpos, width, 0)) == value):
-                self._edit_target = {"off": cont_off, "length": clen, "name": name,
-                                     "mode": "bitsmap", "fmt": None, "accent": accent,
-                                     "bitpos": bitpos, "width": width, "mapid": mapid}
-                bar = self.query_one("#editbar", Input)
-                bar.value = str(value)
-                bar.remove_class("hidden")
-                self._update_edit_title()
-                bar.focus()
-                self._render_preview()
+        # bit-packed / enum field: read-modify-write inside its container bytes
+        # so neighbouring bit-fields survive. Only if the annotation verifies
+        # against the working copy; else fall through to plain value/hex.
+        if enc is not None:
+            bt = self._bit_target(off, value, enc)
+            if bt is not None:
+                self._arm_edit({**bt, "name": name, "accent": accent}, str(value))
                 return
-            # annotation did not verify -> fall through to hex
-        # context-dependent enum: the value map depends on other bits in the word
-        bd = parse_bitsdyn(enc)
-        if bd is not None:
-            delta, clen, bitpos, width, dynid = bd
-            cont_off = off + delta
-            cur = _read(self.work, cont_off, clen)
-            if (len(cur) == clen and clen * 8 - bitpos - width >= 0
-                    and _DYNMAPS[dynid](cur).get(
-                        bitfield_extract(cur, bitpos, width, 0)) == value):
-                self._edit_target = {"off": cont_off, "length": clen, "name": name,
-                                     "mode": "bitsdyn", "fmt": None, "accent": accent,
-                                     "bitpos": bitpos, "width": width, "dynid": dynid}
-                bar = self.query_one("#editbar", Input)
-                bar.value = str(value)
-                bar.remove_class("hidden")
-                self._update_edit_title()
-                bar.focus()
-                self._render_preview()
-                return
-            # annotation did not verify -> fall through to hex
-        # bit-packed field: read-modify-write the value inside its container bytes
-        # so neighbouring bit-fields survive. Only if the annotation decodes to
-        # the shown value (same self-verify guard).
-        bf = parse_bitfield(enc)
-        if bf is not None:
-            delta, clen, bitpos, width, bias = bf
-            cont_off = off + delta
-            cur = _read(self.work, cont_off, clen)
-            if (len(cur) == clen and clen * 8 - bitpos - width >= 0
-                    and bitfield_extract(cur, bitpos, width, bias) == value):
-                self._edit_target = {"off": cont_off, "length": clen, "name": name,
-                                     "mode": "bitfield", "fmt": None, "accent": accent,
-                                     "bitpos": bitpos, "width": width, "bias": bias}
-                bar = self.query_one("#editbar", Input)
-                bar.value = str(value)
-                bar.remove_class("hidden")
-                self._update_edit_title()
-                bar.focus()
-                self._render_preview()
-                return
-            # annotation did not verify -> fall through to hex of the field bytes
         fmt = initial = None
         # 1) trust the walker's declared encoding ONLY if it reproduces the
         #    current bytes -- a wrong annotation must never write blind.
@@ -1007,7 +1056,7 @@ class AcidcatTUI(App):
                 pass
         # 2) else infer the layout by round-tripping the displayed value.
         if fmt is None:
-            fmt = infer_enc(value, raw_bytes)
+            fmt = infer_enc(value, raw_bytes, self._prefer_be)
             if fmt is not None:
                 initial = str(value)
         # 3) else raw hex.
@@ -1015,14 +1064,8 @@ class AcidcatTUI(App):
             mode = "value"
         else:
             mode, initial = "hex", raw_bytes.hex(" ")
-        self._edit_target = {"off": off, "length": length, "name": name,
-                             "mode": mode, "fmt": fmt, "accent": accent}
-        bar = self.query_one("#editbar", Input)
-        bar.value = initial
-        bar.remove_class("hidden")
-        self._update_edit_title()
-        bar.focus()
-        self._render_preview()
+        self._arm_edit({"off": off, "length": length, "name": name,
+                        "mode": mode, "fmt": fmt, "accent": accent}, initial)
 
     def _update_edit_title(self):
         tgt = self._edit_target
@@ -1182,10 +1225,7 @@ class AcidcatTUI(App):
         if self._cur_node:
             data = self._nodemeta.get(id(self._cur_node))
             if data:
-                name = (self._cur_node.label.plain
-                        if isinstance(self._cur_node.label, Text)
-                        else str(self._cur_node.label)).strip()
-                self._show(*data, name, "")
+                self._show(*data, self._node_name(self._cur_node), "")
 
     def _end_edit(self):
         self._edit_target = None
@@ -1199,6 +1239,8 @@ class AcidcatTUI(App):
     def action_hex_focus(self):
         if len(self.screen_stack) > 1:       # a modal is open; leave Tab to it
             return
+        if self._hexedit:                    # already editing; Tab must not
+            return                           # restart and drop typed nibbles
         if self._edit_target:
             self.action_cancel_edit()
         node = self._cur_node
@@ -1224,10 +1266,7 @@ class AcidcatTUI(App):
         if self._cur_node:
             data = self._nodemeta.get(id(self._cur_node))
             if data:
-                name = (self._cur_node.label.plain
-                        if isinstance(self._cur_node.label, Text)
-                        else str(self._cur_node.label)).strip()
-                self._show(*data, name, "")
+                self._show(*data, self._node_name(self._cur_node), "")
         self.query_one("#tree", Tree).focus()
 
     def _hexedit_key(self, event):

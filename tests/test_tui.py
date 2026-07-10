@@ -409,6 +409,9 @@ def test_mp3_channel_mode_enum_edit(tmp_path):
                     if lbl.startswith("channel_mode"):
                         node = fn
             app._cur_node = node
+            off, ln, _ = app._nodemeta[id(node)]
+            # the hint must advertise the enum editor, not misreport hex-only
+            assert app._edit_hint(node, off, ln).startswith("enum-editable")
             app.action_edit_field()
             await pilot.pause()
             assert app._edit_target["mode"] == "bitsmap"
@@ -458,6 +461,9 @@ def test_flac_bitfield_edit_preserves_neighbours(tmp_path):
                     if lbl.startswith("channels"):
                         node = fn
             app._cur_node = node
+            off, ln, _ = app._nodemeta[id(node)]
+            # the hint must advertise the packed-value editor, not hex-only
+            assert "packed" in app._edit_hint(node, off, ln)
             app.action_edit_field()
             await pilot.pause()
             assert app._edit_target["mode"] == "bitfield"
@@ -510,6 +516,164 @@ def test_in_pane_hex_edit(tmp_path):
             await pilot.press("enter")
             await pilot.pause()
             assert open(app.work, "rb").read()[off] == 0x45 and app.dirty
+
+    asyncio.run(scenario())
+
+
+def test_infer_enc_endianness_preference():
+    """Endian-symmetric bytes (a zero, a palindrome) round-trip both ways, so
+    the tie must break toward the format's native byte order or a later write
+    would encode the new value with the wrong one."""
+    pytest.importorskip("textual")
+    from acidcat.tui_app import infer_enc
+    assert infer_enc(0, b"\x00\x00\x00\x00") == "<I"
+    assert infer_enc(0, b"\x00\x00\x00\x00", prefer_be=True) == ">I"
+    assert infer_enc(257, b"\x01\x01", prefer_be=True) == ">H"
+    # asymmetric bytes pin the layout regardless of the preference
+    assert infer_enc(2, b"\x00\x02") == ">H"
+    assert infer_enc(2, b"\x02\x00", prefer_be=True) == "<H"
+
+
+def test_failed_save_blocks_pending_action():
+    """The save choice at the quit/open prompt must not proceed when the save
+    fails: proceeding would tear down the temp working copy and silently lose
+    the edits the user just asked to keep."""
+    pytest.importorskip("textual")
+    from acidcat.tui_app import AcidcatTUI
+    app = AcidcatTUI("x.wav")
+    ran = []
+    app.dirty = True
+    app.action_save = lambda: None          # a failed save leaves dirty set
+    app._resolve_pending(lambda: ran.append(1))("save")
+    assert ran == []                        # stayed in the session
+
+    def ok_save():
+        app.dirty = False
+    app.action_save = ok_save
+    app._resolve_pending(lambda: ran.append(1))("save")
+    assert ran == [1]
+
+
+def test_hexedit_abandon_and_reentry(tmp_path):
+    """Moving the tree highlight abandons an in-pane hex edit (no stale buffer
+    left to write old bytes at old offsets), and Tab while already editing keeps
+    the buffer instead of silently restarting it."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    import types
+    from acidcat.tui_app import AcidcatTUI
+    from textual.widgets import Tree
+
+    orig = tmp_path / "s.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            node = None
+            for cn in app.query_one("#tree", Tree).root.children:
+                for fn in cn.children:
+                    lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                    if lbl.startswith("sample_rate"):
+                        node = fn
+            app._cur_node = node
+            app.action_hex_focus()
+            await pilot.pause()
+            await pilot.press("4")                    # half-typed byte
+            buf = bytes(app._hexedit["buf"])
+            app.action_hex_focus()                    # Tab again: no restart
+            assert bytes(app._hexedit["buf"]) == buf
+            root = app.query_one("#tree", Tree).root
+            app.on_tree_node_highlighted(types.SimpleNamespace(node=root))
+            assert app._hexedit is None               # highlight change abandons
+
+    asyncio.run(scenario())
+
+
+def test_undo_capped_by_bytes(tmp_path, monkeypatch):
+    """The undo stack is capped by total snapshot bytes, but the newest snapshot
+    always survives so one undo is always possible."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    import acidcat.tui_app as tui_app
+    from acidcat.tui_app import AcidcatTUI
+    from textual.widgets import Tree, Input
+
+    monkeypatch.setattr(tui_app, "_UNDO_BYTES_CAP", 1)   # any snapshot busts it
+    orig = tmp_path / "cap.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            def find_node():
+                found = None
+                for cn in app.query_one("#tree", Tree).root.children:
+                    for fn in cn.children:
+                        lbl = (fn.label.plain if hasattr(fn.label, "plain")
+                               else str(fn.label))
+                        if lbl.startswith("sample_rate"):
+                            found = fn
+                return found
+
+            off, _l, _ = app._nodemeta[id(find_node())]
+            for val in ("69", "70"):
+                # each edit rebuilds the tree, so re-find the field node
+                app._cur_node = find_node()
+                app.action_edit_field()
+                await pilot.pause()
+                app.query_one("#editbar", Input).value = val
+                await pilot.press("enter")
+                await pilot.pause()
+            assert len(app._undo) == 1                # older snapshot evicted
+            app.action_undo()
+            await pilot.pause()
+            assert open(app.work, "rb").read()[off] == 69   # back one edit
+
+    asyncio.run(scenario())
+
+
+def test_cursor_restored_after_edit(tmp_path):
+    """Applying an edit rebuilds the tree; the cursor must come back to the
+    edited field with its chunk re-expanded, not dump the user at the root
+    with everything collapsed."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI
+    from textual.widgets import Tree, Input
+
+    orig = tmp_path / "r.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            tree = app.query_one("#tree", Tree)
+            node = None
+            for cn in tree.root.children:
+                for fn in cn.children:
+                    lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                    if lbl.startswith("sample_rate"):
+                        node = fn
+            node.parent.expand()
+            app._cur_node = node
+            app.action_edit_field()
+            await pilot.pause()
+            app.query_one("#editbar", Input).value = "69"
+            await pilot.press("enter")
+            await pilot.pause()
+            cur = tree.cursor_node
+            assert cur is not None
+            lbl = cur.label.plain if hasattr(cur.label, "plain") else str(cur.label)
+            assert lbl.startswith("sample_rate")       # back on the edited field
+            assert lbl.split("=")[1].strip().startswith("69")   # showing new value
+            assert cur.parent.is_expanded              # chunk stayed open
 
     asyncio.run(scenario())
 
