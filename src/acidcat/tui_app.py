@@ -178,6 +178,35 @@ def bitfield_apply(container, bitpos, width, bias, value):
     return ((ci & ~mask) | (v << shift)).to_bytes(len(container), "big")
 
 
+# enum bit-fields: like bit-fields, but the raw bits map to a label via a table
+# (the walker's own decode table). enc="bitsmap:DELTA:CLEN:BITPOS:WIDTH:MAPID".
+# The reverse map (label -> raw) lets the user edit by name; the same RMW writes.
+from acidcat.core.mp3 import _CHANNEL_MODES as _MP3_CHANMODE  # noqa: E402
+_BITMAPS = {"mpeg_chanmode": dict(_MP3_CHANMODE)}
+
+
+def parse_bitsmap(enc):
+    if not isinstance(enc, str) or not enc.startswith("bitsmap:"):
+        return None
+    _tag, delta, clen, bitpos, width, mapid = enc.split(":")
+    return int(delta), int(clen), int(bitpos), int(width), mapid
+
+
+def resolve_bitsmap(mapid, text):
+    """User text (a label, case-insensitive, or a raw index) -> raw bits, or
+    None if it is neither."""
+    m = _BITMAPS.get(mapid, {})
+    t = text.strip()
+    for k, v in m.items():
+        if str(v).lower() == t.lower():
+            return k
+    try:
+        iv = int(t, 0)
+    except ValueError:
+        return None
+    return iv if iv in m else None
+
+
 def enc_size(enc):
     return _CODECS[enc][0] if enc in _CODECS else struct.calcsize(enc)
 
@@ -846,6 +875,26 @@ class AcidcatTUI(App):
         name = (node.label.plain if isinstance(node.label, Text)
                 else str(node.label)).strip()
         value, enc, raw_val = self._editval.get(id(node), (None, None, None))
+        # enum bit-field: raw bits map to a label; edit by name (or index).
+        bm = parse_bitsmap(enc)
+        if bm is not None:
+            delta, clen, bitpos, width, mapid = bm
+            cont_off = off + delta
+            cur = _read(self.work, cont_off, clen)
+            if (len(cur) == clen and clen * 8 - bitpos - width >= 0
+                    and _BITMAPS.get(mapid, {}).get(
+                        bitfield_extract(cur, bitpos, width, 0)) == value):
+                self._edit_target = {"off": cont_off, "length": clen, "name": name,
+                                     "mode": "bitsmap", "fmt": None, "accent": accent,
+                                     "bitpos": bitpos, "width": width, "mapid": mapid}
+                bar = self.query_one("#editbar", Input)
+                bar.value = str(value)
+                bar.remove_class("hidden")
+                self._update_edit_title()
+                bar.focus()
+                self._render_preview()
+                return
+            # annotation did not verify -> fall through to hex
         # bit-packed field: read-modify-write the value inside its container bytes
         # so neighbouring bit-fields survive. Only if the annotation decodes to
         # the shown value (same self-verify guard).
@@ -901,6 +950,9 @@ class AcidcatTUI(App):
         bar = self.query_one("#editbar", Input)
         if tgt["mode"] == "value":
             kind = f"value ({tgt['fmt']})"
+        elif tgt["mode"] == "bitsmap":
+            opts = " | ".join(str(v) for v in _BITMAPS.get(tgt["mapid"], {}).values())
+            kind = f"enum: {opts}"
         elif tgt["mode"] == "bitfield":
             kind = f"value ({tgt['width']}-bit packed field)"
         elif tgt["mode"] == "text":
@@ -946,6 +998,12 @@ class AcidcatTUI(App):
         None if invalid/incomplete."""
         tgt = self._edit_target
         try:
+            if tgt["mode"] == "bitsmap":
+                rawv = resolve_bitsmap(tgt["mapid"], text)
+                cur = _read(self.work, tgt["off"], tgt["length"])
+                if rawv is None or len(cur) != tgt["length"]:
+                    return None
+                return bitfield_apply(cur, tgt["bitpos"], tgt["width"], 0, rawv)
             if tgt["mode"] == "bitfield":
                 cur = _read(self.work, tgt["off"], tgt["length"])
                 if len(cur) != tgt["length"]:

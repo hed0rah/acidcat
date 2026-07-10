@@ -111,7 +111,7 @@ def test_all_walker_enc_annotations_verify():
     pytest.importorskip("textual")
     from acidcat.core.walk import walk_file, Unsupported
     from acidcat.tui_app import (encode_value, _field_abs, parse_bitfield,
-                                 bitfield_extract)
+                                 bitfield_extract, parse_bitsmap, _BITMAPS)
     fixtures = [
         "data/samples/Drum_Loop.wav",
         "data/test_formats/generated/mp3_44100.mp3",
@@ -138,11 +138,18 @@ def test_all_walker_enc_annotations_verify():
                 if ab is None:
                     continue
                 bf = parse_bitfield(fl["enc"])
+                bm = parse_bitsmap(fl["enc"])
                 if bf is not None:
                     delta, clen, bitpos, width, bias = bf
                     cont = data[ab + delta:ab + delta + clen]
                     assert bitfield_extract(cont, bitpos, width, bias) == fl["value"], (
                         f"{path} {c['id']} {fl['name']}: bitfield decodes wrong")
+                elif bm is not None:
+                    delta, clen, bitpos, width, mapid = bm
+                    cont = data[ab + delta:ab + delta + clen]
+                    raw = bitfield_extract(cont, bitpos, width, 0)
+                    assert _BITMAPS[mapid].get(raw) == fl["value"], (
+                        f"{path} {c['id']} {fl['name']}: bitsmap decodes wrong")
                 else:
                     rb = data[ab:ab + fl["len"]]
                     raw = fl.get("raw", fl.get("value"))
@@ -349,6 +356,65 @@ def test_undo_reverts_edit(tmp_path):
             assert open(app.work, "rb").read() == pristine
 
     asyncio.run(scenario())
+
+
+def test_resolve_bitsmap():
+    pytest.importorskip("textual")
+    from acidcat.tui_app import resolve_bitsmap
+    assert resolve_bitsmap("mpeg_chanmode", "mono") == 0b11       # by label
+    assert resolve_bitsmap("mpeg_chanmode", "STEREO") == 0b00     # case-insensitive
+    assert resolve_bitsmap("mpeg_chanmode", "1") == 1             # by raw index
+    assert resolve_bitsmap("mpeg_chanmode", "nonsense") is None
+    assert resolve_bitsmap("mpeg_chanmode", "9") is None          # index not in map
+
+
+def test_mp3_channel_mode_enum_edit(tmp_path):
+    """MP3 channel_mode edits by name via an enum bit-field, a read-modify-write
+    on the 4-byte header word that leaves the other packed fields (bitrate,
+    sample_rate) intact."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI
+    from acidcat.core.walk import walk_file
+    from textual.widgets import Tree, Input
+
+    orig = tmp_path / "cm.mp3"
+    shutil.copyfile("data/test_formats/generated/mp3_44100.mp3", orig)
+
+    def hdr(p):
+        _f, ch, _w = walk_file(str(p), deep=True)
+        keys = ("channel_mode", "bitrate", "sample_rate")
+        return {fl["name"]: fl["value"] for c in ch
+                for fl in c.get("fields", []) if fl["name"] in keys}
+
+    before = hdr(orig)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            node = None
+            for cn in app.query_one("#tree", Tree).root.children:
+                for fn in cn.children:
+                    lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                    if lbl.startswith("channel_mode"):
+                        node = fn
+            app._cur_node = node
+            app.action_edit_field()
+            await pilot.pause()
+            assert app._edit_target["mode"] == "bitsmap"
+            app.query_one("#editbar", Input).value = "mono"
+            await pilot.press("enter")
+            await pilot.pause()
+            app.action_save()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    after = hdr(orig)
+    assert after["channel_mode"] == "mono"                    # changed by name
+    assert after["bitrate"] == before["bitrate"]              # neighbours intact
+    assert after["sample_rate"] == before["sample_rate"]
 
 
 def test_flac_bitfield_edit_preserves_neighbours(tmp_path):

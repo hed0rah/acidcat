@@ -383,7 +383,10 @@ def inspect_mp3(filepath, deep=False):
         _f(0x00, 4, "sync", "0x7ff", f"{fh['version']}, {fh['layer']}"),
         _f(None, 0, "bitrate", fh["bitrate"], "kbps (first frame)"),
         _f(None, 0, "sample_rate", fh["sample_rate"], "Hz"),
-        _f(None, 0, "channel_mode", fh["channel_mode_name"]),
+        # channel_mode is bits 7-6 of the 4th header byte -> bitpos 24, width 2
+        # in the 4-byte header word at 0x00; enum-mapped to the mode name.
+        _f(0x00, 4, "channel_mode", fh["channel_mode_name"],
+           enc="bitsmap:0:4:24:2:mpeg_chanmode"),
         _f(None, 0, "crc_protected", fh["has_crc"]),
         _f(None, 0, "samples_per_frame", fh["samples_per_frame"]),
     ]
