@@ -45,7 +45,8 @@ def inspect_rx2(filepath):
     chunks = [{"id": "CAT ", "offset": 0, "size": size,
                "summary": f"ReCycle {form} container",
                "fields": [_f(0x00, 4, "container", "CAT "),
-                          _f(0x04, 4, "size", f"{cat_size:,}", "bytes in the group"),
+                          _f(0x04, 4, "size", f"{cat_size:,}", "bytes in the group",
+                             enc=">I", raw=cat_size),
                           _f(0x08, 4, "form", form)],
                "warnings": [], "payload_base": 0}]
 

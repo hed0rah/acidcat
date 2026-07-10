@@ -81,3 +81,33 @@ def edit_aiff(data, changes):
     if next(c[1] for c in _iter_chunks(bytes(out))[0] if c[0] == b"SSND") != audio:
         raise EditError("internal: audio data changed during rewrite (aborted)")
     return bytes(out), applied
+
+
+# text/identifying chunks stripped by strip_aiff. SSND/COMM/MARK/INST and the
+# rest of the structural chunks are kept.
+_AIFF_META_CHUNKS = {b"NAME", b"AUTH", b"ANNO", b"(c) ", b"ID3 ", b"APPL"}
+
+
+def strip_aiff(data):
+    """Drop the AIFF text/identifying chunks (NAME, AUTH, ANNO, copyright,
+    embedded ID3, application) and re-emit, preserving audio byte-for-byte.
+    Returns (new_bytes, [dropped chunk ids])."""
+    chunks, trailing = _iter_chunks(data)
+    audio = next(c[1] for c in chunks if c[0] == b"SSND")
+    kept, dropped = [], []
+    for c in chunks:
+        if c[0] in _AIFF_META_CHUNKS:
+            dropped.append(c[0].decode("latin1").strip())
+        else:
+            kept.append(c)
+    out = bytearray(b"FORM\x00\x00\x00\x00" + data[8:12])
+    for cid, payload in kept:
+        out += cid + struct.pack(">I", len(payload)) + payload
+        if len(payload) & 1:
+            out += b"\x00"
+    form_size = len(out) - 8
+    out += trailing
+    struct.pack_into(">I", out, 4, form_size)
+    if next(c[1] for c in _iter_chunks(bytes(out))[0] if c[0] == b"SSND") != audio:
+        raise EditError("internal: audio data changed during strip (aborted)")
+    return bytes(out), dropped

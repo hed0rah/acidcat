@@ -61,7 +61,8 @@ viz = ["acidcat[ml]", "matplotlib>=3.7", "seaborn>=0.12"]
 notebook = ["jupyter>=1.0", "ipykernel>=6.0"]
 mcp = ["mcp>=1.0"]
 mcp-http = ["acidcat[mcp]", "starlette>=0.37", "uvicorn>=0.30"]
-all = ["acidcat[ml,viz,notebook,mcp-http]"]
+tui = ["textual>=0.60"]
+all = ["acidcat[ml,viz,notebook,mcp-http,tui]"]
 
 [project.scripts]
 acidcat = "acidcat.cli:main"

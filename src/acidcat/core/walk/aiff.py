@@ -11,6 +11,9 @@ from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _dtext, _f
 from acidcat.core.walk.mp3 import _id3v2_frames
 from acidcat.util.midi import midi_note_to_name
 
+# INST sustain/release loop play mode (a big-endian int16)
+_LOOP_MODES = {0: "off", 1: "forward", 2: "ping-pong"}
+
 # AIFC compression types that store real PCM sample frames (so frames/rate
 # is an exact duration). Everything else is block/packet-coded, where
 # num_sample_frames is a packet count and the duration is only approximate.
@@ -28,7 +31,8 @@ def _aiff_comm(b, ctx, form_type):
     fields.append(_f(0x02, 4, "num_sample_frames", frames))
     fields.append(_f(0x06, 2, "bits_per_sample", bits))
     rate_note = "80-bit IEEE 754 extended"
-    fields.append(_f(0x08, 10, "sample_rate", int(rate) if rate else 0, rate_note))
+    fields.append(_f(0x08, 10, "sample_rate", int(rate) if rate else 0, rate_note,
+                     enc="float80", raw=int(rate) if rate else 0))
     ctx.update({"channels": ch, "frames": frames, "bits": bits, "rate": rate})
     if not rate:
         warns.append("sample rate decodes to 0")
@@ -142,9 +146,12 @@ def _aiff_inst(b, ctx):
     loop_ids = []
     for label, off in (("sustain_loop", 8), ("release_loop", 14)):
         mode, begin, end = struct.unpack_from(">hhh", b, off)
-        mode_name = {0: "off", 1: "forward", 2: "ping-pong"}.get(mode, f"unknown {mode}")
+        mode_name = _LOOP_MODES.get(mode, f"unknown {mode}")
+        # the loop mode is the first 2 bytes of the 6-byte field (a big-endian
+        # int16); edit it by name as an enum bit-field over that word.
         fields.append(_f(off, 6, label, mode_name,
-                         f"markers {begin}..{end}" if mode else ""))
+                         f"markers {begin}..{end}" if mode else "",
+                         enc="bitsmap:0:2:0:16:aiff_loop_mode"))
         if mode:
             loop_ids.extend((begin, end))
     ctx["inst_loop_marker_ids"] = loop_ids
@@ -226,6 +233,15 @@ def _aiff_aesd(b):
     rate = _AES_RATES.get((b0 >> 6) & 0x03, "?")
     fields.append(_f(0x00, 24, "channel_status", b[:24].hex(),
                      f"{pro}, {kind}, emphasis {emphasis}, {rate} Hz"))
+    # byte 0 packs four sub-fields; split them out as editable enum bit-fields
+    fields.append(_f(0x00, 1, "aes_professional", pro,
+                     enc="bitsmap:0:1:7:1:aes_pro"))
+    fields.append(_f(0x00, 1, "aes_data_type", kind,
+                     enc="bitsmap:0:1:6:1:aes_kind"))
+    fields.append(_f(0x00, 1, "aes_emphasis", emphasis,
+                     enc="bitsmap:0:1:3:3:aes_emphasis"))
+    fields.append(_f(0x00, 1, "aes_sample_rate", rate,
+                     enc="bitsmap:0:1:0:2:aes_rate"))
     return f"AES3 status: {pro}, {rate} Hz", fields, warns
 
 

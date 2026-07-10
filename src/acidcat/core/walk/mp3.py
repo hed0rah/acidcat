@@ -98,6 +98,8 @@ def _id3v1_fields(tag):
     g = tag[127]
     gname = _ID3_GENRES[g] if g < len(_ID3_GENRES) else ("none" if g == 255
                                                           else f"unknown {g}")
+    # value is the canonical ID3v1 genre code (already number-editable); the
+    # label is the note. A name-picker would drop the standard code, so keep it.
     fields.append(_f(0x7F, 1, "genre", g, gname))
     return fields, s(3, 33)
 
@@ -158,8 +160,10 @@ def _id3v2_frames(filepath, hdr):
     if flags & 0x10:
         flag_bits.append("footer")
     fields.append(_f(0x05, 1, "flags", f"0x{flags:02x}",
-                     ", ".join(flag_bits) if flag_bits else "none"))
-    fields.append(_f(0x06, 4, "tag_size", f"{hdr['size']:,}", "synchsafe"))
+                     ", ".join(flag_bits) if flag_bits else "none",
+                     enc="B", raw=flags))
+    fields.append(_f(0x06, 4, "tag_size", f"{hdr['size']:,}", "synchsafe",
+                     enc="synchsafe", raw=hdr["size"]))
 
     is_v22 = major == 2
     id_len = 3 if is_v22 else 4
@@ -253,8 +257,9 @@ def _parse_vbri(buf, off):
     frame_count = _bu32(buf, off + 14)
     fields.append(_f(off, 4, "vbr_tag", "VBRI", "VBR (Fraunhofer)"))
     fields.append(_f(off + 4, 2, "version", version))
-    fields.append(_f(off + 10, 4, "byte_count", f"{nbytes:,}"))
-    fields.append(_f(off + 14, 4, "frame_count", f"{frame_count:,}"))
+    fields.append(_f(off + 10, 4, "byte_count", f"{nbytes:,}", enc=">I", raw=nbytes))
+    fields.append(_f(off + 14, 4, "frame_count", f"{frame_count:,}",
+                     enc=">I", raw=frame_count))
     return fields, [], frame_count, b"VBRI"
 
 
@@ -289,14 +294,15 @@ def _parse_xing_lame(filepath, frame_off, hdr):
             warns.append("Xing header truncated before frame_count")
             return fields, warns, frame_count, tag
         frame_count = _bu32(buf, pos)
-        fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}"))
+        fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}",
+                         enc=">I", raw=frame_count))
         pos += 4
     if flags & 0x02:
         if pos + 4 > len(buf):
             warns.append("Xing header truncated before byte_count")
             return fields, warns, frame_count, tag
         nbytes = _bu32(buf, pos)
-        fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}"))
+        fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}", enc=">I", raw=nbytes))
         pos += 4
     if flags & 0x04:
         if pos + 100 > len(buf):
@@ -319,13 +325,28 @@ def _parse_xing_lame(filepath, frame_off, hdr):
         if pos + 24 <= len(buf):
             vbr_method = buf[pos + 9] & 0x0F
             lowpass = buf[pos + 10] * 100
+            # vbr_method is the low nibble of the byte (high nibble is the Info
+            # tag revision) -> bit-field over that byte, editable as the raw code
             fields.append(_f(pos + 9, 1, "vbr_method", vbr_method,
-                             _VBR_METHODS.get(vbr_method, "")))
+                             _VBR_METHODS.get(vbr_method, ""),
+                             enc="bits:0:1:4:4:0", raw=vbr_method))
             if lowpass:
                 fields.append(_f(pos + 10, 1, "lowpass", f"{lowpass} Hz"))
-            rg = _lame_replaygain(_bu16(buf, pos + 15))
+            rgword = _bu16(buf, pos + 15)
+            rg = _lame_replaygain(rgword)
             if rg:
                 fields.append(_f(pos + 15, 2, "replay_gain", rg))
+                # split the 16-bit word: name (3b), sign (1b), magnitude (9b)
+                rg_name = (rgword >> 13) & 0x07
+                fields.append(_f(pos + 15, 2, "replay_gain_type", rg_name,
+                                 {1: "radio", 2: "audiophile"}.get(rg_name, ""),
+                                 enc="bits:0:2:0:3:0", raw=rg_name))
+                fields.append(_f(pos + 15, 2, "replay_gain_sign", (rgword >> 9) & 1,
+                                 "1 = negative", enc="bits:0:2:6:1:0",
+                                 raw=(rgword >> 9) & 1))
+                fields.append(_f(pos + 15, 2, "replay_gain_mag", rgword & 0x1FF,
+                                 "0.1 dB units", enc="bits:0:2:7:9:0",
+                                 raw=rgword & 0x1FF))
             bitrate = buf[pos + 20]
             if bitrate:
                 fields.append(_f(pos + 20, 1, "bitrate", f"{bitrate} kbps",
@@ -334,6 +355,11 @@ def _parse_xing_lame(filepath, frame_off, hdr):
             padding = ((buf[pos + 22] & 0x0F) << 8) | buf[pos + 23]
             fields.append(_f(pos + 21, 3, "gapless", f"delay {delay}, pad {padding}",
                              "encoder delay / padding samples"))
+            # the two 12-bit halves of the 3-byte word, editable in place
+            fields.append(_f(pos + 21, 3, "encoder_delay", delay, "samples",
+                             enc="bits:0:3:0:12:0", raw=delay))
+            fields.append(_f(pos + 21, 3, "encoder_padding", padding, "samples",
+                             enc="bits:0:3:12:12:0", raw=padding))
     return fields, warns, frame_count, tag
 
 
@@ -377,14 +403,28 @@ def inspect_mp3(filepath, deep=False):
         )
     fields = [
         _f(0x00, 4, "sync", "0x7ff", f"{fh['version']}, {fh['layer']}"),
-        _f(None, 0, "bitrate", fh["bitrate"], "kbps (first frame)"),
-        _f(None, 0, "sample_rate", fh["sample_rate"], "Hz"),
-        _f(None, 0, "channel_mode", fh["channel_mode_name"]),
-        _f(None, 0, "crc_protected", fh["has_crc"]),
+        _f(0x00, 4, "version", fh["version"], enc="bitsmap:0:4:11:2:mpeg_version"),
+        _f(0x00, 4, "layer", fh["layer"], enc="bitsmap:0:4:13:2:mpeg_layer"),
+        # bitrate/sample_rate decode from indices in the header word, via tables
+        # chosen by the version+layer bits -> context-dependent enum bit-fields.
+        _f(0x00, 4, "bitrate", fh["bitrate"], "kbps (first frame)",
+           enc="bitsdyn:0:4:16:4:mpeg_bitrate"),
+        _f(0x00, 4, "sample_rate", fh["sample_rate"], "Hz",
+           enc="bitsdyn:0:4:20:2:mpeg_samplerate"),
+        # channel_mode is bits 7-6 of the 4th header byte -> bitpos 24, width 2
+        # in the 4-byte header word at 0x00; enum-mapped to the mode name.
+        _f(0x00, 4, "channel_mode", fh["channel_mode_name"],
+           enc="bitsmap:0:4:24:2:mpeg_chanmode"),
+        # protection bit is inverted (0 = CRC present); enum handles that
+        _f(0x00, 4, "crc_protected",
+           "protected" if fh["has_crc"] else "unprotected",
+           enc="bitsmap:0:4:15:1:mpeg_crc"),
         _f(None, 0, "samples_per_frame", fh["samples_per_frame"]),
     ]
     if fh["emphasis"] != "none":
-        fields.append(_f(None, 0, "emphasis", fh["emphasis"]))
+        # emphasis is bits 1-0 of the header word -> bitpos 30, width 2
+        fields.append(_f(0x00, 4, "emphasis", fh["emphasis"],
+                         enc="bitsmap:0:4:30:2:mpeg_emphasis"))
 
     try:
         xing_fields, xing_warns, vbr_frames, vbr_tag = \
