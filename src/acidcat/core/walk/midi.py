@@ -204,6 +204,13 @@ def inspect_midi(filepath, deep=False):
             f"{len(data):,} (cap)")
         file_size = len(data)
 
+    if len(data) < 14:
+        # sniffing requires 14 bytes, but the RMID walker (or a direct caller)
+        # can hand over a shorter payload; degrade to a warning, not a traceback
+        file_warns.append(
+            f"file is {len(data)} bytes; a complete MThd header needs 14")
+        return chunks, file_warns
+
     hdr_len = struct.unpack(">I", data[4:8])[0]
     fmt, ntrks, division = struct.unpack(">HHH", data[8:14])
     fields = [

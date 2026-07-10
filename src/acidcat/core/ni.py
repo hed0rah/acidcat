@@ -307,6 +307,11 @@ def _mp_decode(b, pos=0, depth=0):
 
 
 def _mp_map(b, pos, count, depth):
+    # every entry is at least two bytes (one per key/value), so a count larger
+    # than the remaining payload is forged; without this check a crafted map32
+    # header spins ~4 billion iterations (pos stops advancing at EOF)
+    if count * 2 > len(b) - pos:
+        raise ValueError("mp map count overruns")
     out = {}
     for _ in range(count):
         k, pos = _mp_decode(b, pos, depth + 1)
@@ -316,6 +321,9 @@ def _mp_map(b, pos, count, depth):
 
 
 def _mp_array(b, pos, count, depth):
+    # every element is at least one byte; see _mp_map
+    if count > len(b) - pos:
+        raise ValueError("mp array count overruns")
     out = []
     for _ in range(count):
         v, pos = _mp_decode(b, pos, depth + 1)

@@ -11,7 +11,10 @@ and decodes the common metadata: ftyp brands, the movie duration from mvhd,
 and the iTunes tags under udta > meta > ilst.
 """
 
+import math
 import struct
+
+from acidcat.core.mp3 import ID3V1_GENRES
 
 _CONTAINERS = {
     b"moov", b"trak", b"edts", b"mdia", b"minf", b"dinf", b"stbl",
@@ -155,13 +158,26 @@ def audio_info(data):
             return None
         codec, ehdr, _, _ = eh
         ap = ep + ehdr  # AudioSampleEntry payload
-        # 6 reserved + 2 data_ref_index + 8 reserved, then channelcount(2),
-        # samplesize(2), 2+2, samplerate(4, 16.16 fixed).
+        cstr = codec.decode("latin-1", errors="replace")
+        # 6 reserved + 2 data_ref_index, then version(2) at +8. v0 and v1
+        # share the layout up to samplerate: channelcount(2) at +16,
+        # samplesize(2), 2+2, samplerate(4, 16.16 fixed) at +24 (v1 appends
+        # four u32s after it). QuickTime v2 is a different struct: float64
+        # rate at +32, u32 channel count at +40.
         if ap + 28 > len(data):
-            return codec.decode("latin-1", errors="replace"), None, None
+            return cstr, None, None
+        version = struct.unpack_from(">H", data, ap + 8)[0]
+        if version == 2:
+            if ap + 44 > len(data):
+                return cstr, None, None
+            rate_f = struct.unpack_from(">d", data, ap + 32)[0]
+            rate = int(rate_f) if math.isfinite(rate_f) and 0 < rate_f < 1e7 \
+                else None
+            channels = struct.unpack_from(">I", data, ap + 40)[0]
+            return cstr, channels, rate
         channels = struct.unpack_from(">H", data, ap + 16)[0]
         rate = struct.unpack_from(">I", data, ap + 24)[0] >> 16
-        return codec.decode("latin-1", errors="replace"), channels, rate
+        return cstr, channels, rate
     return None
 
 
@@ -178,6 +194,19 @@ def _decode_data_box(data, start, end):
     if type_ind == 21 and 1 <= len(val) <= 8:  # int (bpm, track); real ones fit 8 bytes
         return int.from_bytes(val, "big")
     return f"{len(val):,} bytes (type {type_ind})"
+
+
+def _decode_gnre(data, start, end):
+    """Decode a 'gnre' data box: type indicator 0, a big-endian u16 holding
+    the ID3v1 genre index + 1. Older iTunes wrote genre this way instead of
+    the \\xa9gen text atom; without this it displays as raw bytes."""
+    val = data[start + 16:end]
+    if len(val) != 2:
+        return None
+    idx = struct.unpack_from(">H", val)[0] - 1
+    if 0 <= idx < len(ID3V1_GENRES):
+        return ID3V1_GENRES[idx]
+    return None
 
 
 def _decode_index_pair(data, start, end):
@@ -214,6 +243,8 @@ def parse_ilst(data):
                     cs, ce = c["offset"], c["offset"] + c["size"]
                     if label in ("track", "disc"):
                         v = _decode_index_pair(data, cs, ce) or _decode_data_box(data, cs, ce)
+                    elif tag["type"] == b"gnre":
+                        v = _decode_gnre(data, cs, ce) or _decode_data_box(data, cs, ce)
                     else:
                         v = _decode_data_box(data, cs, ce)
                     if v is not None:
