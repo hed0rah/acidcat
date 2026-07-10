@@ -64,16 +64,37 @@ def test_ogg_opus_identity_and_duration(tmp_path):
     head = (b"OpusHead" + bytes([1, 2]) + struct.pack("<H", 312)
             + struct.pack("<I", 48000) + struct.pack("<h", 0) + bytes([0]))
     tags = b"OpusTags" + struct.pack("<I", 4) + b"acid" + struct.pack("<I", 0)
+    # the final granule includes the 312 pre_skip priming samples; playable
+    # duration is (48312 - 312) / 48000 = exactly 1 s
     ogg = (_ogg_page(7, 0, 2, 0, head) + _ogg_page(7, 0, 0, 1, tags)
-           + _ogg_page(7, 48000, 0, 2, bytes(40)))            # granule 48000 -> 1.000 s
+           + _ogg_page(7, 48312, 0, 2, bytes(40)))
     f = tmp_path / "o.opus"
     f.write_bytes(ogg)
     label, chunks, warns = walk_file(str(f))
     assert label.startswith("Ogg")
     assert _field(chunks, "codec") == "Opus"
     assert _field(chunks, "channels") == 2
+    assert _field(chunks, "sample_rate") == 48000             # decode rate, not input
+    assert _field(chunks, "pre_skip") == 312
     dur = _field(chunks, "duration")
     assert dur is not None and dur.startswith("1.000")        # opus granule at 48 kHz
+
+
+def test_ogg_chained_streams_duration_scoped_to_first(tmp_path):
+    head = (b"OpusHead" + bytes([1, 2]) + struct.pack("<H", 0)
+            + struct.pack("<I", 48000) + struct.pack("<h", 0) + bytes([0]))
+    tags = b"OpusTags" + struct.pack("<I", 4) + b"acid" + struct.pack("<I", 0)
+    # a second logical bitstream (serial 99) with a huge granule must not
+    # inflate the first stream's duration
+    ogg = (_ogg_page(7, 0, 2, 0, head) + _ogg_page(7, 0, 0, 1, tags)
+           + _ogg_page(7, 96000, 0, 2, bytes(40))
+           + _ogg_page(99, 480000, 2, 0, bytes(40)))
+    f = tmp_path / "chained.opus"
+    f.write_bytes(ogg)
+    label, chunks, warns = walk_file(str(f))
+    dur = _field(chunks, "duration")
+    assert dur is not None and dur.startswith("2.000")        # 96000/48000, not 10 s
+    assert any("logical bitstreams" in w for w in warns)
 
 
 def test_fxp_vst_preset(tmp_path):

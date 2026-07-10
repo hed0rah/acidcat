@@ -211,8 +211,10 @@ def _parse_smpl(b, ctx):
     fields, warns = [], []
     if len(b) < 36:
         return "truncated", fields, [f"smpl payload is {len(b)} bytes, header needs 36"]
+    # all nine header fields are unsigned DWORDs (dwSMPTEFormat/dwSMPTEOffset
+    # included); a signed read would show large offsets as negatives
     (manuf, product, period, unity, frac,
-     smpte_fmt, smpte_off, n_loops, vendor) = struct.unpack_from("<IIIIIiiII", b, 0)
+     smpte_fmt, smpte_off, n_loops, vendor) = struct.unpack_from("<IIIIIIIII", b, 0)
     fields.append(_f(0x00, 4, "manufacturer", manuf))
     fields.append(_f(0x04, 4, "product", product))
     fields.append(_f(0x08, 4, "sample_period", period, "ns/sample"))
@@ -254,10 +256,12 @@ def _parse_smpl(b, ctx):
 def _parse_inst(b, ctx):
     if len(b) < 7:
         return "truncated", [], [f"inst payload is {len(b)} bytes, expected 7"]
-    base, detune, gain = struct.unpack_from("<bbb", b, 0)
+    # bUnshiftedNote is an unsigned BYTE (0-127); chFineTune and chGain are
+    # signed CHARs
+    base, detune, gain = struct.unpack_from("<Bbb", b, 0)
     low_n, high_n, low_v, high_v = b[3], b[4], b[5], b[6]
     fields = [
-        _f(0x00, 1, "base_note", base, midi_note_to_name(base) if base >= 0 else ""),
+        _f(0x00, 1, "base_note", base, midi_note_to_name(base) if base <= 127 else ""),
         _f(0x01, 1, "detune", detune, "cents"),
         _f(0x02, 1, "gain", gain, "dB"),
         _f(0x03, 1, "low_note", low_n, midi_note_to_name(low_n)),

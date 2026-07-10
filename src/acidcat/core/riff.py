@@ -110,7 +110,7 @@ def parse_riff(filepath, enumerate_all=False):
                         manufacturer, product, sample_period, midi_unity_note,
                         midi_pitch_fraction, smpte_format, smpte_offset,
                         sample_loops, sampler_data
-                    ) = struct.unpack("<IIIIIIiiI", chunk_data[:36])
+                    ) = struct.unpack("<IIIIIIIII", chunk_data[:36])
                     meta["smpl_root_key"] = midi_unity_note
                     if sample_loops > 0 and len(chunk_data) >= 36 + 24:
                         _, _, start, end, _, _ = struct.unpack("<IIIIII", chunk_data[36:60])

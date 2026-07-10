@@ -99,8 +99,14 @@ def identification(data):
         return "Vorbis", {"channels": p[11],
                           "sample_rate": struct.unpack_from("<I", p, 12)[0]}
     if p[:8] == b"OpusHead" and len(p) >= 16:
+        # OpusHead: version(1)@8, channels(1)@9, pre_skip(u16)@10, input
+        # sample rate(u32)@12. Opus always decodes at 48 kHz; the stored rate
+        # is the pre-encode input rate (informational, may be 0), and pre_skip
+        # is priming samples (at 48 kHz) a decoder drops from the start.
         return "Opus", {"channels": p[9],
-                        "sample_rate": struct.unpack_from("<I", p, 12)[0]}
+                        "sample_rate": 48000,
+                        "pre_skip": struct.unpack_from("<H", p, 10)[0],
+                        "input_sample_rate": struct.unpack_from("<I", p, 12)[0]}
     return None
 
 

@@ -34,7 +34,9 @@ def inspect_mp4(filepath):
                        "fLaC": "FLAC", "ac-3": "AC-3", "ec-3": "E-AC-3"}
         desc = codec_names.get(codec, codec)
         if ch:
-            desc += f", {ch}ch {rate} Hz"
+            desc += f", {ch}ch"
+            if rate:
+                desc += f" {rate} Hz"
         mfields.append(_f(None, 0, "codec", desc))
     if dur_s:
         mfields.append(_f(None, 0, "duration", f"{dur_s:.3f} s"))

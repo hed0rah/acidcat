@@ -125,6 +125,25 @@ class TestInspectWav:
         _, warns = inspect_wav(path)
         assert not any("avg_bytes_per_sec" in w for w in warns)
 
+    def test_smpl_smpte_fields_unsigned(self):
+        # dwSMPTEFormat/dwSMPTEOffset are unsigned DWORDs; a high offset must
+        # not display as a negative i32
+        from acidcat.core.walk.wav import _parse_smpl
+        b = struct.pack("<IIIIIIIII", 0, 0, 22675, 60, 0, 30, 0xFF000012, 0, 0)
+        _, fields, _ = _parse_smpl(b, {})
+        vals = {f["name"]: f["value"] for f in fields}
+        assert vals["smpte_offset"] == 0xFF000012
+        assert vals["smpte_format"] == 30
+
+    def test_inst_base_note_unsigned_detune_signed(self):
+        # bUnshiftedNote is an unsigned BYTE; chFineTune/chGain stay signed
+        from acidcat.core.walk.wav import _parse_inst
+        b = bytes([188, 0xFB, 0xFA, 48, 72, 1, 127])
+        _, fields, _ = _parse_inst(b, {})
+        vals = {f["name"]: f["value"] for f in fields}
+        assert vals["base_note"] == 188                 # not -68
+        assert vals["detune"] == -5 and vals["gain"] == -6
+
 
 RATE_44100 = bytes.fromhex("400eac440000000000000000")[:10]
 
@@ -737,6 +756,47 @@ class TestInspectMp3:
         assert by_name["TIT2"] == "My Title"
         assert by_name["TPE1"] == "Some Artist"
         assert warns == []
+
+    def test_id3v2_comm_and_tcon_decoded(self, tmp_path):
+        from acidcat.core.walk.mp3 import inspect_mp3
+        comm = b"\x00engmood\x00dusty breaks"     # latin-1, desc "mood"
+        frame = b"COMM" + struct.pack(">I", len(comm)) + b"\x00\x00" + comm
+        tag = _id3v2(frame, _id3_text_frame(b"TCON", "(17)"))
+        p = tmp_path / "t.mp3"
+        p.write_bytes(tag + _MP3_FRAME)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        vals = {f["name"]: (f["value"], f["note"]) for f in id3["fields"]}
+        assert vals["COMM"] == ("[mood] dusty breaks (eng)", "comment")
+        # the raw TCON text stays the value; the resolved name rides the note
+        assert vals["TCON"] == ("(17)", "genre: Rock")
+
+    def test_id3v24_data_length_indicator_skipped(self, tmp_path):
+        from acidcat.core.walk.mp3 import inspect_mp3
+        payload = b"\x00Hi"
+        body = b"\x00\x00\x00" + bytes([len(payload)]) + payload  # synchsafe DLI
+        frame = (b"TIT2" + bytes([0, 0, 0, len(body)])            # synchsafe size
+                 + b"\x00\x01" + body)                            # format flag 0x01
+        tag = _id3v2(frame, major=4)
+        p = tmp_path / "t.mp3"
+        p.write_bytes(tag + _MP3_FRAME)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        vals = {f["name"]: f["value"] for f in id3["fields"]}
+        assert vals["TIT2"] == "Hi"                # not 4 bytes of DLI garbage
+
+    def test_id3v23_compressed_frame_not_decoded_as_text(self, tmp_path):
+        from acidcat.core.walk.mp3 import inspect_mp3
+        blob = struct.pack(">I", 64) + b"\x78\x9c" + b"\x00" * 6  # size + zlib-ish
+        frame = b"TIT2" + struct.pack(">I", len(blob)) + b"\x00\x80" + blob
+        tag = _id3v2(frame, major=3)
+        p = tmp_path / "t.mp3"
+        p.write_bytes(tag + _MP3_FRAME)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        tit = next(f for f in id3["fields"] if f["name"] == "TIT2")
+        assert "bytes" in str(tit["value"])        # size shown, not garbage text
+        assert "zlib-compressed" in tit["note"]
 
     def test_xing_frame_count_divergence_flagged(self, tmp_path):
         from acidcat.core.walk.mp3 import inspect_mp3
