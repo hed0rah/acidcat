@@ -490,14 +490,24 @@ def inspect_mp3(filepath, deep=False):
             f"{frame_off - audio_start} bytes of junk between the tag and the "
             f"first frame sync"
         )
+    if fh.get("free_format"):
+        # bitrate index 0: the length was measured from sync spacing, so the
+        # true bitrate is derived, not tabled -- and not bit-editable
+        derived = mp3mod.free_format_bitrate(fh, fh["frame_length"])
+        bitrate_field = _f(0x00, 4, "bitrate", "free",
+                           f"free format; ~{derived} kbps measured from "
+                           f"{fh['frame_length']:,}-byte frames")
+    else:
+        bitrate_field = _f(0x00, 4, "bitrate", fh["bitrate"],
+                           "kbps (first frame)",
+                           enc="bitsdyn:0:4:16:4:mpeg_bitrate")
     fields = [
         _f(0x00, 4, "sync", "0x7ff", f"{fh['version']}, {fh['layer']}"),
         _f(0x00, 4, "version", fh["version"], enc="bitsmap:0:4:11:2:mpeg_version"),
         _f(0x00, 4, "layer", fh["layer"], enc="bitsmap:0:4:13:2:mpeg_layer"),
         # bitrate/sample_rate decode from indices in the header word, via tables
         # chosen by the version+layer bits -> context-dependent enum bit-fields.
-        _f(0x00, 4, "bitrate", fh["bitrate"], "kbps (first frame)",
-           enc="bitsdyn:0:4:16:4:mpeg_bitrate"),
+        bitrate_field,
         _f(0x00, 4, "sample_rate", fh["sample_rate"], "Hz",
            enc="bitsdyn:0:4:20:2:mpeg_samplerate"),
         # channel_mode is bits 7-6 of the 4th header byte -> bitpos 24, width 2
@@ -526,8 +536,10 @@ def inspect_mp3(filepath, deep=False):
     is_vbr_header = vbr_tag in (b"Xing", b"VBRI")
     if xing_fields is not None:
         fields.extend(xing_fields)
+    kbps_txt = ("free format" if fh.get("free_format")
+                else f"{fh['bitrate']} kbps")
     chunks.append({"id": "frame0", "offset": frame_off, "size": fh["frame_length"],
-                   "summary": (f"{fh['version']} {fh['layer']}, {fh['bitrate']} kbps, "
+                   "summary": (f"{fh['version']} {fh['layer']}, {kbps_txt}, "
                                f"{fh['sample_rate']} Hz, {fh['channel_mode_name']}"),
                    "fields": fields, "warnings": xing_warns,
                    "payload_base": frame_off})  # fields are frame-relative
@@ -557,7 +569,7 @@ def inspect_mp3(filepath, deep=False):
             rows.append({
                 "#": len(rows),
                 "offset": f"0x{off:08x}",
-                "kbps": f2["bitrate"],
+                "kbps": "free" if f2.get("free_format") else f2["bitrate"],
                 "Hz": f2["sample_rate"],
                 "mode": f2["channel_mode_name"],
                 "bytes": f2["frame_length"],

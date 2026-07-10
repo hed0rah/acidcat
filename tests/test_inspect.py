@@ -903,6 +903,44 @@ class TestInspectMp3:
         assert "bytes" in str(tit["value"])        # size shown, not garbage text
         assert "zlib-compressed" in tit["note"]
 
+    def test_free_format_stream_measured(self, tmp_path):
+        from acidcat.core.walk.mp3 import inspect_mp3
+        # bitrate index 0 is the spec's "free format": a constant bitrate
+        # outside the table; the frame length must be measured from the sync
+        # spacing. MPEG1 Layer III mono 44100, 300-byte frames -> 91.9 kbps
+        frame = bytes([0xFF, 0xFB, 0x00, 0xC0]) + b"\x00" * 296
+        p = tmp_path / "free.mp3"
+        p.write_bytes(frame * 5)
+        chunks, warns = inspect_mp3(str(p))
+        f0 = next(c for c in chunks if c["id"] == "frame0")
+        d = {f["name"]: f for f in f0["fields"]}
+        assert d["bitrate"]["value"] == "free"
+        assert "91.9 kbps" in d["bitrate"]["note"]
+        assert "300" in d["bitrate"]["note"]          # measured frame length
+        assert "enc" not in d["bitrate"]              # derived, not bit-editable
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert frames["summary"].startswith("5 frames")
+        assert "CBR" in frames["summary"]             # constant by definition
+
+    def test_lone_free_sync_is_not_a_stream(self, tmp_path):
+        from acidcat.core.walk.mp3 import inspect_mp3
+        # a single free-format sync with no matching twin must be treated as
+        # a false sync, not decoded as a one-frame stream
+        p = tmp_path / "junk.mp3"
+        p.write_bytes(bytes([0xFF, 0xFB, 0x00, 0xC0]) + b"\x11" * 500)
+        chunks, warns = inspect_mp3(str(p))
+        assert any("no valid MPEG audio frame" in w for w in warns)
+
+    def test_free_format_rejected_by_strict_predicate(self):
+        # sniffing predicates stay strict: index 0 is only accepted when the
+        # caller opts in (the frame walker, which verifies the twin sync)
+        import acidcat.core.mp3 as m
+        hdr = bytes([0xFF, 0xFB, 0x00, 0xC0])
+        assert m.decode_frame_header(hdr) is None
+        h = m.decode_frame_header(hdr, allow_free=True)
+        assert h["free_format"] is True and h["frame_length"] == 0
+        assert m.free_format_bitrate(h, 300) == 91.9
+
     def test_xing_frame_count_divergence_flagged(self, tmp_path):
         from acidcat.core.walk.mp3 import inspect_mp3
         # forge a Xing header (offset 21 for MPEG1 mono) declaring 9999
