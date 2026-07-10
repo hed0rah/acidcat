@@ -94,7 +94,22 @@ def sniff(filepath):
     # header magic alone cannot tell it from any other zip).
     if fmt is None and head[:4] == b"PK\x03\x04" and _is_multisample(filepath):
         return "multisample"
+    # a free-format MPEG sync (bitrate index 0): sniff_bytes stays strict
+    # because 16 bytes cannot confirm it; with the file in hand, accept only
+    # when the constant frame length is measurable (a matching second sync).
+    if fmt is None and len(head) >= 4 and _free_format_mp3(filepath, head):
+        return "mp3"
     return fmt
+
+
+def _free_format_mp3(filepath, head):
+    hdr = mp3mod.decode_frame_header(head[:4], allow_free=True)
+    if hdr is None or not hdr.get("free_format"):
+        return False
+    import os
+    end = min(os.path.getsize(filepath), 2 * mp3mod._FREE_SCAN_CAP)
+    with open(filepath, "rb") as f:
+        return mp3mod._free_frame_length(f, 0, hdr, end) is not None
 
 
 def _is_multisample(filepath):

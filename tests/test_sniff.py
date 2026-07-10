@@ -89,3 +89,16 @@ class TestSniffFile:
         p = tmp_path / "tagged.mp3"
         p.write_bytes(tag + frame)
         assert sniff(str(p)) == "mp3"
+
+    def test_free_format_mp3_confirmed_by_twin_sync(self, tmp_path):
+        # bitrate index 0 (free format) sniffs as mp3 only when a matching
+        # second sync confirms the constant frame length
+        frame = bytes([0xFF, 0xFB, 0x00, 0xC0]) + b"\x00" * 296
+        p = tmp_path / "free.bin"                  # extensionless on purpose
+        p.write_bytes(frame * 3)
+        assert sniff(str(p)) == "mp3"
+
+    def test_lone_free_sync_not_sniffed(self, tmp_path):
+        p = tmp_path / "junk.bin"
+        p.write_bytes(bytes([0xFF, 0xFB, 0x00, 0xC0]) + b"\x11" * 500)
+        assert sniff(str(p)) is None

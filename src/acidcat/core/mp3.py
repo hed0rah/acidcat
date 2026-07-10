@@ -106,14 +106,17 @@ def read_id3v2(filepath):
             "size": size, "total": total, "has_footer": has_footer}
 
 
-def decode_frame_header(b4):
+def decode_frame_header(b4, allow_free=False):
     """Decode a 4-byte MPEG audio frame header.
 
     Returns a dict of decoded fields plus the computed frame_length and
     samples_per_frame, or None if the bytes are not a valid frame header
-    (bad sync, reserved version/layer, free/invalid bitrate, reserved
-    sample rate).
-    """
+    (bad sync, reserved version/layer, invalid bitrate, reserved sample
+    rate). Bitrate index 0 is the spec's "free format" (a constant bitrate
+    outside the table, ISO 11172-3): rejected by default so the sniffing
+    predicates stay strict, accepted with ``allow_free`` -- then
+    ``free_format`` is True and ``frame_length`` is 0, because the length
+    must be measured from the sync spacing (see iter_frames)."""
     if len(b4) < 4 or b4[0] != 0xFF or (b4[1] & 0xE0) != 0xE0:
         return None
     version_id = (b4[1] >> 3) & 0x03
@@ -141,7 +144,9 @@ def decode_frame_header(b4):
         table = _BR_V1_L3 if is_v1 else _BR_V2_L23
     bitrate = table[br_index]            # kbps; 0 = free, -1 = invalid
     sample_rate = _SAMPLE_RATES[version_id][sr_index]
-    if bitrate <= 0 or sample_rate <= 0:
+    if bitrate < 0 or sample_rate <= 0:
+        return None
+    if bitrate == 0 and not allow_free:
         return None
 
     if layer == "Layer I":
@@ -151,13 +156,17 @@ def decode_frame_header(b4):
     else:
         samples = 1152
 
-    bps = bitrate * 1000
-    if layer == "Layer I":
-        frame_length = (12 * bps // sample_rate + padding) * 4
+    if bitrate == 0:
+        frame_length = 0                 # free format: measured, not derived
     else:
-        frame_length = (samples // 8) * bps // sample_rate + padding
+        bps = bitrate * 1000
+        if layer == "Layer I":
+            frame_length = (12 * bps // sample_rate + padding) * 4
+        else:
+            frame_length = (samples // 8) * bps // sample_rate + padding
 
     return {
+        "free_format": bitrate == 0,
         "version_id": version_id,
         "version": _VERSION[version_id],
         "layer": layer,
@@ -177,24 +186,72 @@ def decode_frame_header(b4):
     }
 
 
+# how far past a free-format sync to look for its twin; generous versus the
+# largest table frame (Layer I at 448 kbps / 32 kHz is ~672 bytes)
+_FREE_SCAN_CAP = 65536
+
+
+def _free_frame_length(f, pos, hdr, end):
+    """The constant frame length of a free-format stream, measured as the
+    distance from the sync at ``pos`` to the next header with the same
+    version, layer, and sample rate (and free bitrate). None when no such
+    twin exists, in which case the sync at ``pos`` is treated as false."""
+    f.seek(pos + 4)
+    window = f.read(min(_FREE_SCAN_CAP, max(0, end - pos - 4)))
+    for i in range(len(window) - 3):
+        if window[i] != 0xFF or (window[i + 1] & 0xE0) != 0xE0:
+            continue
+        h2 = decode_frame_header(window[i:i + 4], allow_free=True)
+        if (h2 and h2["free_format"]
+                and h2["version_id"] == hdr["version_id"]
+                and h2["layer"] == hdr["layer"]
+                and h2["sample_rate"] == hdr["sample_rate"]):
+            return i + 4
+    return None
+
+
+def free_format_bitrate(hdr, frame_length):
+    """Actual kbps of a measured free-format frame: the frame-length formula
+    solved for the bitrate. None when the inputs don't allow it."""
+    rate = hdr.get("sample_rate")
+    if not rate or not frame_length:
+        return None
+    if hdr["layer"] == "Layer I":
+        bps = (frame_length // 4 - hdr["padding"]) * rate / 12
+    else:
+        bps = (frame_length - hdr["padding"]) * rate / (hdr["samples_per_frame"] // 8)
+    return round(bps / 1000, 1)
+
+
 def iter_frames(filepath, start, end, max_frames=None):
     """Walk MPEG audio frames from ``start`` up to ``end``.
 
     Yields (offset, header) for each decoded frame. Steps by the frame's
     own computed length; on a sync loss it scans forward byte by byte for
     the next valid header (so a stray ID3/APE chunk mid-stream doesn't
-    abort the walk). Stops after ``max_frames`` if given.
+    abort the walk). Free-format frames (bitrate index 0) are supported:
+    the constant length is measured once from the first two matching syncs,
+    and a lone free-format sync with no twin is treated as a false sync,
+    not a stream. Stops after ``max_frames`` if given.
     """
     count = 0
+    free_len = None
     with open(filepath, "rb") as f:
         pos = start
         while pos + 4 <= end:
             f.seek(pos)
             b4 = f.read(4)
-            hdr = decode_frame_header(b4)
+            hdr = decode_frame_header(b4, allow_free=True)
             if hdr is None:
                 pos += 1
                 continue
+            if hdr["free_format"]:
+                if free_len is None:
+                    free_len = _free_frame_length(f, pos, hdr, end)
+                if free_len is None:
+                    pos += 1
+                    continue
+                hdr["frame_length"] = free_len
             yield pos, hdr
             count += 1
             if max_frames is not None and count >= max_frames:
