@@ -224,6 +224,10 @@ def _parse_acid(b, ctx):
     fields.append(_f(0x12, 2, "meter_numerator", numer))
     fields.append(_f(0x14, 4, "tempo", round(tempo, 2), "BPM"))
 
+    ctx["acid_bpm"] = round(tempo, 2) if tempo else None
+    ctx["acid_root"] = root
+    ctx["acid_beats"] = beats
+    ctx["acid_one_shot"] = bool(flags & 0x01)
     if tempo and not (40 <= tempo <= 300):
         warns.append(f"acid tempo {tempo:.2f} outside sane range 40-300")
     dur = ctx.get("duration")
@@ -261,6 +265,7 @@ def _parse_smpl(b, ctx):
     fields.append(_f(0x1C, 4, "num_sample_loops", n_loops))
     fields.append(_f(0x20, 4, "sampler_data", vendor, "trailing vendor bytes"))
 
+    ctx["smpl_root"] = unity
     rate = ctx.get("sample_rate")
     if rate and period and abs(period - round(1e9 / rate)) > 1:
         warns.append(f"sample_period {period} disagrees with fmt rate {rate}")
@@ -513,13 +518,18 @@ _PARSERS = {
 # ── walk ───────────────────────────────────────────────────────────
 
 
-def inspect_wav(filepath):
+def inspect_wav(filepath, ctx=None):
     """Walk a WAV file and return (chunks, file_warnings).
 
     Each chunk is a dict: id, offset, size, summary, fields, warnings.
+    A caller-supplied ``ctx`` dict is filled with the semantic values the
+    per-chunk parsers accumulate (sample_rate, duration, acid_bpm,
+    smpl_root, ...) -- the scan/index path reads those instead of running
+    a second decoder over the same bytes.
     """
     file_size = os.path.getsize(filepath)
-    ctx = {}
+    if ctx is None:
+        ctx = {}
     chunks = []
     file_warns = []
     seen = []
