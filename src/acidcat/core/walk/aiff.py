@@ -233,6 +233,15 @@ def _aiff_aesd(b):
     rate = _AES_RATES.get((b0 >> 6) & 0x03, "?")
     fields.append(_f(0x00, 24, "channel_status", b[:24].hex(),
                      f"{pro}, {kind}, emphasis {emphasis}, {rate} Hz"))
+    # byte 0 packs four sub-fields; split them out as editable enum bit-fields
+    fields.append(_f(0x00, 1, "aes_professional", pro,
+                     enc="bitsmap:0:1:7:1:aes_pro"))
+    fields.append(_f(0x00, 1, "aes_data_type", kind,
+                     enc="bitsmap:0:1:6:1:aes_kind"))
+    fields.append(_f(0x00, 1, "aes_emphasis", emphasis,
+                     enc="bitsmap:0:1:3:3:aes_emphasis"))
+    fields.append(_f(0x00, 1, "aes_sample_rate", rate,
+                     enc="bitsmap:0:1:0:2:aes_rate"))
     return f"AES3 status: {pro}, {rate} Hz", fields, warns
 
 
