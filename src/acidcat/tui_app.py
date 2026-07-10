@@ -684,6 +684,19 @@ class AcidcatTUI(App):
         self.dirty = False
         self._backed_up = False
         self._undo = []
+        self._src_stat = self._stat_src()
+        self._force_stale = False
+
+    def _stat_src(self):
+        """(mtime_ns, size) of the source file, or None if it can't be stat'd.
+        Taken at open and after each save; save refuses on a mismatch so an
+        external change is never silently clobbered (and the _original backup
+        never captures bytes the user wasn't editing)."""
+        try:
+            st = os.stat(self.src)
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
 
     def _discard_work(self):
         w = self.work
@@ -737,6 +750,14 @@ class AcidcatTUI(App):
         if not self.dirty:
             self.notify("no unsaved changes")
             return
+        if self._src_stat is not None and self._stat_src() != self._src_stat:
+            if not self._force_stale:
+                self._force_stale = True
+                self.notify("file changed on disk since it was opened; "
+                            "press s again to overwrite it anyway",
+                            severity="error")
+                return
+        self._force_stale = False
         try:
             with open(self.work, "rb") as f:
                 data = f.read()
@@ -750,9 +771,17 @@ class AcidcatTUI(App):
         if backup:
             self._backed_up = True
         self.dirty = False
+        self._src_stat = self._stat_src()
         self._load()
-        self.notify("saved" + (f"; backup {os.path.basename(backup)}"
-                               if backup else ""))
+        if backup:
+            msg = f"saved; backup {os.path.basename(backup)}"
+        elif not self._backed_up and os.path.exists(writer.backup_path(self.src)):
+            # first save found a <name>_original already on disk and kept it;
+            # that file may predate acidcat and not hold this original
+            msg = "saved; existing backup kept"
+        else:
+            msg = "saved"
+        self.notify(msg)
 
     def action_request_quit(self):
         if self.dirty:

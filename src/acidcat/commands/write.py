@@ -119,11 +119,30 @@ def _run_strip(args):
               f"stripped: {', '.join(removed) if removed else '(nothing to remove)'}")
         if args.dry_run:
             continue
+        rc = _commit_and_report(path, new_data, args) or rc
+    return rc
+
+
+def _commit_and_report(path, new_data, args):
+    """Persist edited bytes and print the outcome; returns 1 on failure, 0 on
+    success. A commit failure (locked target, disk full, read-back mismatch)
+    must print like any other per-file error, not traceback."""
+    try:
         written, backup = writer.commit(
             path, new_data, out=args.output, overwrite=args.overwrite)
-        note = f"  (backup: {os.path.basename(backup)})" if backup else ""
-        print(f"  wrote {os.path.basename(written)}{note}")
-    return rc
+    except OSError as e:
+        print(f"acidcat write: {path}: {e}", file=sys.stderr)
+        return 1
+    if backup:
+        note = f"  (backup: {os.path.basename(backup)})"
+    elif not args.output and not args.overwrite:
+        # commit found a <name>_original already on disk and kept it; say so,
+        # because that file may predate acidcat and not hold this original
+        note = "  (existing backup kept)"
+    else:
+        note = ""
+    print(f"  wrote {os.path.basename(written)}{note}")
+    return 0
 
 
 def run(args):
@@ -155,8 +174,5 @@ def run(args):
             print(f"  {field}: {old!r} -> {new!r}")
         if args.dry_run:
             continue
-        written, backup = writer.commit(
-            path, new_data, out=args.output, overwrite=args.overwrite)
-        note = f"  (backup: {os.path.basename(backup)})" if backup else ""
-        print(f"  wrote {os.path.basename(written)}{note}")
+        rc = _commit_and_report(path, new_data, args) or rc
     return rc
