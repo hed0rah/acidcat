@@ -4,6 +4,47 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.23.0] - 2026-07-10
+
+### Added
+
+- MP4 `stsd` descent: sample entries and their codec-config boxes join the
+  box tree. The esds descriptor chain decodes down to the AAC
+  AudioSpecificConfig (object type, frequency index including the 24-bit
+  escape, channel configuration, SBR/PS extension rate), so the codec line
+  names the exact profile ("AAC LC", "SBR (HE-AAC)") instead of "AAC".
+  ALAC magic cookies and dOps decode fully; QuickTime `wave` wrappers are
+  flattened; freeform `----` atoms (Serato, MusicBrainz, iTunNORM) surface
+  as namespace:name tags (#56).
+- WAV `fmt ` extension decode per format tag: MS ADPCM samples-per-block
+  and predictor coefficients (the standard 7-pair set recognized), IMA
+  ADPCM samples-per-block, MPEGLAYER3WAVEFORMAT fields; cue points show
+  play order and compressed-data chunk/block starts (#56).
+- MIDI wall-clock duration on the MThd chunk, tempo-independent for SMPTE
+  division and honestly annotated for PPQ (approximation on tempo changes,
+  the SMF-default-120 case called out) (#56).
+- FLAC SEEKTABLE points listed (sample @ +offset, frame samples), with
+  placeholders counted; AIFF COMT timestamps rendered from the 1904 Mac
+  epoch and FVER decoded; MP3 VBRI encoder delay, quality, and seek-TOC
+  geometry (#56).
+- Free-format MP3 (bitrate index 0): the constant frame length is measured
+  from sync spacing, the derived bitrate reported, and a lone free-format
+  sync without a matching twin is treated as a false sync. New fixture
+  specimen at ~91.9 kbps, a rate no table entry can express (#58).
+
+### Changed
+
+- The field value/bytes codec engine moved from the TUI into
+  `core/fieldcodec.py` with no behavior change; it no longer requires the
+  `[tui]` extra, and the codec test suite runs on a bare install (#57).
+
+### Fixed
+
+- Capped file reads are clamped to the file size: `read(N)` pre-allocates
+  the full N-byte buffer, so the 256 MB MIDI read cap cost ~50 ms per file
+  regardless of size. Library scans are ~19x faster (measured 17.7 s to
+  0.91 s over a 2,615-file corpus) (#59).
+
 ## [0.22.0] - 2026-07-10
 
 ### Fixed
