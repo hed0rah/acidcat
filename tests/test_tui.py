@@ -242,6 +242,44 @@ def test_working_copy_defers_write_until_save(tmp_path):
     assert bak.exists() and bak.read_bytes() == pristine
 
 
+def test_save_refuses_when_source_changed_on_disk(tmp_path):
+    """An external change to the source between open and save is not silently
+    clobbered: the first save refuses with a notice, a second press forces."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI
+
+    orig = tmp_path / "s.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            # dirty the working copy directly (byte flip inside the file)
+            with open(app.work, "r+b") as f:
+                f.seek(0x60)
+                b = f.read(1)
+                f.seek(0x60)
+                f.write(bytes([b[0] ^ 0xFF]))
+            app._recompute_dirty()
+            assert app.dirty
+            # simulate an external program rewriting the source
+            external = orig.read_bytes() + b"X"
+            orig.write_bytes(external)
+            app.action_save()
+            await pilot.pause()
+            assert orig.read_bytes() == external      # refused, not clobbered
+            assert app.dirty
+            app.action_save()                          # second press: forced
+            await pilot.pause()
+            assert not app.dirty
+            assert orig.read_bytes() != external
+
+    asyncio.run(scenario())
+
+
 def test_edit_mode_toggle(tmp_path):
     """ctrl+t flips a field edit between value and raw hex, converting the bar
     text so the two views stay consistent."""
