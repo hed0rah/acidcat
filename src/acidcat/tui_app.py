@@ -181,8 +181,10 @@ def bitfield_apply(container, bitpos, width, bias, value):
 # enum bit-fields: like bit-fields, but the raw bits map to a label via a table
 # (the walker's own decode table). enc="bitsmap:DELTA:CLEN:BITPOS:WIDTH:MAPID".
 # The reverse map (label -> raw) lets the user edit by name; the same RMW writes.
-from acidcat.core.mp3 import _CHANNEL_MODES as _MP3_CHANMODE  # noqa: E402
-_BITMAPS = {"mpeg_chanmode": dict(_MP3_CHANMODE)}
+from acidcat.core.mp3 import (_CHANNEL_MODES as _MP3_CHANMODE,  # noqa: E402
+                              _EMPHASIS as _MP3_EMPHASIS)
+_BITMAPS = {"mpeg_chanmode": dict(_MP3_CHANMODE),
+            "mpeg_emphasis": dict(_MP3_EMPHASIS)}
 
 
 def parse_bitsmap(enc):
