@@ -3,6 +3,7 @@ Xing/LAME/VBRI first-frame headers. Frame and tag primitives live in
 core/mp3.py; this module shapes them into the chunk model."""
 
 import os
+import re
 import struct
 
 from acidcat.core import mp3 as mp3mod
@@ -33,36 +34,8 @@ _VBR_METHODS = {
     5: "VBR (rh2)", 6: "VBR (constrained)",
 }
 
-# ID3v1 genre index -> name: 0-79 the original spec, 80-191 the Winamp
-# extensions. 255 (and anything past the table) is "none/unknown".
-_ID3_GENRES = [
-    "Blues", "Classic Rock", "Country", "Dance", "Disco", "Funk", "Grunge",
-    "Hip-Hop", "Jazz", "Metal", "New Age", "Oldies", "Other", "Pop", "R&B",
-    "Rap", "Reggae", "Rock", "Techno", "Industrial", "Alternative", "Ska",
-    "Death Metal", "Pranks", "Soundtrack", "Euro-Techno", "Ambient",
-    "Trip-Hop", "Vocal", "Jazz+Funk", "Fusion", "Trance", "Classical",
-    "Instrumental", "Acid", "House", "Game", "Sound Clip", "Gospel", "Noise",
-    "AlternRock", "Bass", "Soul", "Punk", "Space", "Meditative",
-    "Instrumental Pop", "Instrumental Rock", "Ethnic", "Gothic", "Darkwave",
-    "Techno-Industrial", "Electronic", "Pop-Folk", "Eurodance", "Dream",
-    "Southern Rock", "Comedy", "Cult", "Gangsta", "Top 40", "Christian Rap",
-    "Pop/Funk", "Jungle", "Native American", "Cabaret", "New Wave",
-    "Psychadelic", "Rave", "Showtunes", "Trailer", "Lo-Fi", "Tribal",
-    "Acid Punk", "Acid Jazz", "Polka", "Retro", "Musical", "Rock & Roll",
-    "Hard Rock", "Folk", "Folk-Rock", "National Folk", "Swing", "Fast Fusion",
-    "Bebob", "Latin", "Revival", "Celtic", "Bluegrass", "Avantgarde",
-    "Gothic Rock", "Progressive Rock", "Psychedelic Rock", "Symphonic Rock",
-    "Slow Rock", "Big Band", "Chorus", "Easy Listening", "Acoustic", "Humour",
-    "Speech", "Chanson", "Opera", "Chamber Music", "Sonata", "Symphony",
-    "Booty Bass", "Primus", "Porn Groove", "Satire", "Slow Jam", "Club",
-    "Tango", "Samba", "Folklore", "Ballad", "Power Ballad", "Rhythmic Soul",
-    "Freestyle", "Duet", "Punk Rock", "Drum Solo", "A capella", "Euro-House",
-    "Dance Hall", "Goa", "Drum & Bass", "Club-House", "Hardcore", "Terror",
-    "Indie", "BritPop", "Negerpunk", "Polsk Punk", "Beat",
-    "Christian Gangsta Rap", "Heavy Metal", "Black Metal", "Crossover",
-    "Contemporary Christian", "Christian Rock", "Merengue", "Salsa",
-    "Thrash Metal", "Anime", "Jpop", "Synthpop",
-]
+# the ID3v1 genre table lives in core/mp3.py (shared with the MP4 gnre atom)
+_ID3_GENRES = mp3mod.ID3V1_GENRES
 
 
 def _lame_replaygain(word):
@@ -137,6 +110,73 @@ def _decode_txxx(raw, fid):
     vcodec = "latin-1" if fid == "WXXX" else codec
     v = val.decode(vcodec, "replace").replace("\x00", " ").strip()
     return f"{d} = {v}" if d else v
+
+
+def _decode_comm(raw):
+    """Decode a COMM/USLT-shaped frame: [enc][language 3][description NUL][text].
+    Shown as the text, prefixed with the description in brackets when one is
+    set and suffixed with the language when it is meaningful."""
+    if len(raw) < 4:
+        return ""
+    enc = raw[0]
+    lang = raw[1:4].decode("latin-1", "replace").strip("\x00 ")
+    body = raw[4:]
+    codecs = {0: "latin-1", 1: "utf-16", 2: "utf-16-be", 3: "utf-8"}
+    codec = codecs.get(enc, "latin-1")
+    sep = b"\x00\x00" if enc in (1, 2) else b"\x00"
+    idx = body.find(sep)
+    if idx < 0:
+        desc, text = b"", body
+    else:
+        desc, text = body[:idx], body[idx + len(sep):]
+    d = desc.decode(codec, "replace").strip()
+    t = text.decode(codec, "replace").replace("\x00", " ").strip()
+    out = f"[{d}] {t}" if d else t
+    if lang and lang.lower() not in ("", "xxx", "und"):
+        out += f" ({lang})"
+    return out
+
+
+def _resolve_tcon(text):
+    """Resolve numeric TCON genre references against the ID3v1 table: v2.3
+    parenthesized '(17)' (possibly several, with an optional refinement after)
+    and a bare v2.4 numeric string. Text genres pass through unchanged."""
+    def name(num):
+        return (_ID3_GENRES[num] if num < len(_ID3_GENRES)
+                else f"unknown {num}")
+    if text.isdigit() and len(text) <= 3:
+        return name(int(text))
+    out = re.sub(r"\((\d{1,3})\)", lambda m: name(int(m.group(1))) + " ", text)
+    out = out.replace("(RX)", "Remix ").replace("(CR)", "Cover ")
+    return " ".join(out.split())
+
+
+def _frame_extra_skip(major, fflags):
+    """Bytes of per-frame header extras that precede the payload, and a label
+    for payloads that cannot be decoded as text. v2.3 appends decompressed-size
+    (4), encryption method (1), group id (1) in that order; v2.4 appends group
+    id (1), encryption method (1), data-length indicator (4) in flag order."""
+    skip, opaque = 0, ""
+    if major == 4:
+        if fflags & 0x0040:
+            skip += 1
+        if fflags & 0x0004:
+            skip += 1
+            opaque = "encrypted"
+        if fflags & 0x0008:
+            opaque = opaque or "zlib-compressed"
+        if fflags & 0x0001:
+            skip += 4
+    else:
+        if fflags & 0x0080:
+            skip += 4
+            opaque = "zlib-compressed"
+        if fflags & 0x0040:
+            skip += 1
+            opaque = "encrypted"
+        if fflags & 0x0020:
+            skip += 1
+    return skip, opaque
 
 
 def _id3v2_frames(filepath, hdr):
@@ -221,11 +261,37 @@ def _id3v2_frames(filepath, hdr):
             break
         raw = body[data_start:data_start + fsize]
         note = (_ID3V22_TEXT_FRAMES if is_v22 else _ID3_TEXT_FRAMES).get(fid_s, "")
-        if fid_s in ("TXXX", "WXXX"):
+        opaque = ""
+        if not is_v22 and pos + 10 <= len(body):
+            # v2.3/v2.4 frame headers carry two flag bytes; the format byte can
+            # prepend extras (group id, decompressed size / data-length
+            # indicator, encryption method) that would otherwise be decoded as
+            # the first payload bytes.
+            fflags = _bu16(body, pos + 8)
+            skip, opaque = _frame_extra_skip(major, fflags)
+            if major == 4 and fflags & 0x0002 and not opaque:
+                # per-frame unsynchronisation (v2.4): undo before decoding.
+                # the extras are synchsafe/single bytes and never unsync-escaped
+                raw = raw[:skip] + raw[skip:].replace(b"\xff\x00", b"\xff")
+            raw = raw[skip:]
+        if opaque:
+            # compressed/encrypted payloads cannot be shown as text; say why
+            # instead of decoding garbage
+            value = f"{fsize:,} bytes"
+            note = (note + ", " if note else "") + opaque
+        elif fid_s in ("TXXX", "WXXX"):
             value = _decode_txxx(raw, fid_s)
             note = "user-defined text" if fid_s == "TXXX" else "user-defined URL"
+        elif fid_s in ("COMM", "USLT", "COM", "ULT"):
+            value = _decode_comm(raw)
+            if not note:
+                note = "lyrics" if fid_s in ("USLT", "ULT") else "comment"
         elif fid_s.startswith("T"):        # every T*** frame is text (id3 spec)
             value = _decode_id3_text(raw)
+            if fid_s in ("TCON", "TCO"):
+                resolved = _resolve_tcon(value)
+                if resolved != value:
+                    note = f"genre: {resolved}"
         elif fid_s == "APIC" or fid_s == "PIC":
             value = f"{fsize:,} bytes"
             note = "attached picture"
