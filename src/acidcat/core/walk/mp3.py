@@ -98,6 +98,8 @@ def _id3v1_fields(tag):
     g = tag[127]
     gname = _ID3_GENRES[g] if g < len(_ID3_GENRES) else ("none" if g == 255
                                                           else f"unknown {g}")
+    # value is the canonical ID3v1 genre code (already number-editable); the
+    # label is the note. A name-picker would drop the standard code, so keep it.
     fields.append(_f(0x7F, 1, "genre", g, gname))
     return fields, s(3, 33)
 
