@@ -184,14 +184,19 @@ def bitfield_apply(container, bitpos, width, bias, value):
 from acidcat.core.mp3 import (_CHANNEL_MODES as _MP3_CHANMODE,  # noqa: E402
                               _EMPHASIS as _MP3_EMPHASIS,
                               _VERSION as _MP3_VERSION, _LAYER as _MP3_LAYER)
-from acidcat.core.walk.aiff import _LOOP_MODES as _AIFF_LOOP_MODES  # noqa: E402
+from acidcat.core.walk.aiff import (_LOOP_MODES as _AIFF_LOOP_MODES,  # noqa: E402
+                                    _AES_RATES, _AES_EMPHASIS)
 _BITMAPS = {"mpeg_chanmode": dict(_MP3_CHANMODE),
             "mpeg_emphasis": dict(_MP3_EMPHASIS),
             "mpeg_version": dict(_MP3_VERSION),
             "mpeg_layer": dict(_MP3_LAYER),
             # protection bit is inverted: stored 0 = CRC present (protected)
             "mpeg_crc": {0: "protected", 1: "unprotected"},
-            "aiff_loop_mode": dict(_AIFF_LOOP_MODES)}
+            "aiff_loop_mode": dict(_AIFF_LOOP_MODES),
+            "aes_rate": dict(_AES_RATES),
+            "aes_emphasis": dict(_AES_EMPHASIS),
+            "aes_pro": {0: "consumer", 1: "professional"},
+            "aes_kind": {0: "PCM audio", 1: "non-audio"}}
 
 
 def parse_bitsmap(enc):

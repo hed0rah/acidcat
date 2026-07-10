@@ -330,9 +330,21 @@ def _parse_xing_lame(filepath, frame_off, hdr):
                              enc="bits:0:1:4:4:0", raw=vbr_method))
             if lowpass:
                 fields.append(_f(pos + 10, 1, "lowpass", f"{lowpass} Hz"))
-            rg = _lame_replaygain(_bu16(buf, pos + 15))
+            rgword = _bu16(buf, pos + 15)
+            rg = _lame_replaygain(rgword)
             if rg:
                 fields.append(_f(pos + 15, 2, "replay_gain", rg))
+                # split the 16-bit word: name (3b), sign (1b), magnitude (9b)
+                rg_name = (rgword >> 13) & 0x07
+                fields.append(_f(pos + 15, 2, "replay_gain_type", rg_name,
+                                 {1: "radio", 2: "audiophile"}.get(rg_name, ""),
+                                 enc="bits:0:2:0:3:0", raw=rg_name))
+                fields.append(_f(pos + 15, 2, "replay_gain_sign", (rgword >> 9) & 1,
+                                 "1 = negative", enc="bits:0:2:6:1:0",
+                                 raw=(rgword >> 9) & 1))
+                fields.append(_f(pos + 15, 2, "replay_gain_mag", rgword & 0x1FF,
+                                 "0.1 dB units", enc="bits:0:2:7:9:0",
+                                 raw=rgword & 0x1FF))
             bitrate = buf[pos + 20]
             if bitrate:
                 fields.append(_f(pos + 20, 1, "bitrate", f"{bitrate} kbps",
@@ -341,6 +353,11 @@ def _parse_xing_lame(filepath, frame_off, hdr):
             padding = ((buf[pos + 22] & 0x0F) << 8) | buf[pos + 23]
             fields.append(_f(pos + 21, 3, "gapless", f"delay {delay}, pad {padding}",
                              "encoder delay / padding samples"))
+            # the two 12-bit halves of the 3-byte word, editable in place
+            fields.append(_f(pos + 21, 3, "encoder_delay", delay, "samples",
+                             enc="bits:0:3:0:12:0", raw=delay))
+            fields.append(_f(pos + 21, 3, "encoder_padding", padding, "samples",
+                             enc="bits:0:3:12:12:0", raw=padding))
     return fields, warns, frame_count, tag
 
 

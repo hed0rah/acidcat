@@ -239,6 +239,8 @@ def _parse_smpl(b, ctx):
         plays = "forever" if count == 0 else f"{count}x"
         fields.append(_f(base, 24, f"loop[{i}]",
                          f"{start}..{end}", f"{type_name}, {plays}"))
+        # split out the loop type (a little-endian u32) as its own editable field
+        fields.append(_f(base + 4, 4, f"loop[{i}]_type", ltype, type_name))
         if end < start:
             warns.append(f"loop[{i}] end {end} before start {start}")
         elif frames and end > frames:
