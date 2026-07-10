@@ -116,6 +116,35 @@ class TestWavRowExtraction:
         assert row["acid_beats"] == 2          # one-shot flag clear: trusted
         assert row["chunks"] == "smpl,acid"
 
+    def test_aiff_walker_backed_row(self, tmp_path):
+        # AIFF row also comes from the inspect walker's ctx since the
+        # unification; craft a loop with COMM + NAME/AUTH + basc
+        from acidcat.core.indexing import _from_aiff
+
+        def ck(cid, payload):
+            return (cid + struct.pack(">I", len(payload)) + payload
+                    + (b"\x00" if len(payload) & 1 else b""))
+        rate80 = bytes.fromhex("400EAC44000000000000")   # 44100 Hz
+        # 88200 frames at 44100 -> 2.0 s; basc 4 beats -> 120 bpm
+        comm = ck(b"COMM", struct.pack(">hIh", 2, 88200, 16) + rate80)
+        ssnd = ck(b"SSND", struct.pack(">II", 0, 0) + b"\x00" * 16)
+        name = ck(b"NAME", b"Bounce 7")
+        auth = ck(b"AUTH", b"me")
+        # basc: ver, beats, then root(H) scale(H) sig_n(H) sig_d(H)
+        basc = ck(b"basc", struct.pack(">II", 0, 4) + struct.pack(">HHHH", 60, 0, 4, 4) + b"\x00" * 68)
+        body = b"AIFF" + comm + name + auth + basc + ssnd
+        p = tmp_path / "loop.aiff"
+        p.write_bytes(b"FORM" + struct.pack(">I", len(body)) + body)
+        row = _from_aiff(str(p), {})
+        assert row["format"] == "aiff"
+        assert row["duration"] == 2.0
+        assert row["sample_rate"] == 44100 and row["channels"] == 2
+        assert row["bits_per_sample"] == 16
+        assert row["title"] == "Bounce 7" and row["artist"] == "me"
+        assert row["bpm"] == 120.0                # derived from basc beats
+        assert row["key"] == "C"                  # basc root 60
+        assert "COMM" in row["chunks"] and "basc" in row["chunks"]
+
     def test_unset_smpl_root_falls_back_to_filename(self, tmp_path):
         # smpl root 0 is the documented unset sentinel; the filename token
         # fallback must still engage through the walker-backed path

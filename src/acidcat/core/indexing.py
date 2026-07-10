@@ -15,8 +15,7 @@ from acidcat.core import registry as reg
 from acidcat.core.riff import (
     smpl_root_or_none, acid_root_or_none, effective_acid_beats,
 )
-from acidcat.core.aiff import is_aiff, parse_aiff
-from acidcat.core.midi import is_midi, parse_midi
+from acidcat.core.midi import parse_midi
 from acidcat.core.mp3 import decode_frame_header
 from acidcat.core.serum import is_serum_preset, parse_serum_preset
 from acidcat.core.tagged import is_tagged_format
@@ -310,19 +309,25 @@ def _from_wav(filepath, row, do_deep=False):
 
 
 def _from_aiff(filepath, row, do_deep=False):
+    """AIFF/AIFC row extraction, driven by the inspect walker (the single
+    AIFF decoder since the 2026-07-10 unification)."""
     from acidcat.core.detect import parse_key_from_path, parse_bpm_from_filename
     from acidcat.util.midi import midi_note_to_pitch_class
+    from acidcat.core.walk.aiff import inspect_aiff
 
-    _, meta, seen = parse_aiff(filepath, enumerate_all=False)
+    with open(filepath, "rb") as f:
+        form = "AIFC" if f.read(12)[8:12] == b"AIFC" else "AIFF"
+    ctx = {}
+    chunks, _warns = inspect_aiff(filepath, form, ctx=ctx)
     row["format"] = "aiff"
-    row["duration"] = meta.get("duration_sec")
-    row["sample_rate"] = meta.get("sample_rate")
-    row["channels"] = meta.get("channels")
-    row["bits_per_sample"] = meta.get("bits_per_sample")
-    row["title"] = meta.get("name")
-    row["artist"] = meta.get("author")
-    row["comment"] = meta.get("copyright")
-    row["chunks"] = ",".join(seen) if seen else None
+    row["duration"] = ctx.get("duration")
+    row["sample_rate"] = ctx.get("sample_rate")
+    row["channels"] = ctx.get("channels")
+    row["bits_per_sample"] = ctx.get("bits")
+    row["title"] = ctx.get("name")
+    row["artist"] = ctx.get("author")
+    row["comment"] = ctx.get("copyright")
+    row["chunks"] = ",".join(dict.fromkeys(c["id"] for c in chunks)) or None
 
     # Apple Loops carry beat count and root key in the basc chunk.
     # tempo is derived, not stored: the loops are tempo-flexible and
@@ -330,10 +335,10 @@ def _from_aiff(filepath, row, do_deep=False):
     # filename bpm on 103/103 surveyed loops). root is a MIDI note;
     # the scale enum is unverified, so only the pitch class is used,
     # same convention as the WAV smpl root.
-    if row.get("bpm") is None and meta.get("basc_beats") and row["duration"]:
-        row["bpm"] = round(meta["basc_beats"] / row["duration"] * 60, 2)
-    if row.get("key") is None and meta.get("basc_root_key"):
-        row["key"] = midi_note_to_pitch_class(meta["basc_root_key"])
+    if row.get("bpm") is None and ctx.get("basc_beats") and row["duration"]:
+        row["bpm"] = round(ctx["basc_beats"] / row["duration"] * 60, 2)
+    if row.get("key") is None and ctx.get("basc_root_key"):
+        row["key"] = midi_note_to_pitch_class(ctx["basc_root_key"])
 
     # otherwise fall back to filename/folder tokens.
     if row.get("key") is None:
