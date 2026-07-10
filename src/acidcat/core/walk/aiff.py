@@ -5,14 +5,13 @@ import os
 import struct
 
 from acidcat.core import mp3 as mp3mod
-from acidcat.core.aiff import _AIFC_KNOWN_COMPRESSION, _parse_ieee_extended
+from acidcat.core.aiff import (_AES_EMPHASIS, _AES_RATES,
+                               _AIFC_KNOWN_COMPRESSION, _LOOP_MODES,
+                               _parse_ieee_extended)
 from acidcat.core.aiff import iter_chunks as iter_aiff_chunks
 from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _dtext, _f
 from acidcat.core.walk.mp3 import _id3v2_frames
 from acidcat.util.midi import midi_note_to_name
-
-# INST sustain/release loop play mode (a big-endian int16)
-_LOOP_MODES = {0: "off", 1: "forward", 2: "ping-pong"}
 
 # AIFC compression types that store real PCM sample frames (so frames/rate
 # is an exact duration). Everything else is block/packet-coded, where
@@ -232,11 +231,6 @@ def _aiff_comt(b):
         pos += 8 + count + (count & 1)
         shown += 1
     return f"{shown} comment(s)", fields, warns
-
-
-_AES_RATES = {0: "unindicated", 1: "48000", 2: "44100", 3: "32000"}
-_AES_EMPHASIS = {0b000: "unindicated", 0b100: "none",
-                 0b110: "50/15 us", 0b111: "CCITT J.17"}
 
 
 def _aiff_aesd(b):
