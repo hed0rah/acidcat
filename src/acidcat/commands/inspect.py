@@ -279,6 +279,15 @@ def _select_chunks(chunks, only, exclude):
     return out
 
 
+# keys that exist on a field only to drive the interactive editor (encoding hint
+# + numeric value to re-encode); they stay out of the public inspect JSON.
+_EDITOR_FIELD_KEYS = ("enc", "raw")
+
+
+def _public_field(f):
+    return {k: v for k, v in f.items() if k not in _EDITOR_FIELD_KEYS}
+
+
 def _full_chunk(chunk, filepath):
     """Enrich a chunk for --full into a self-contained record: its absolute
     payload base, the raw region bytes as hex (capped), and every field's
@@ -288,7 +297,7 @@ def _full_chunk(chunk, filepath):
     c["payload_base"] = pb
     fields = []
     for f in chunk["fields"]:
-        f2 = dict(f)
+        f2 = _public_field(f)
         # absolute file offset, so a field maps to raw[abs - offset]
         f2["abs"] = pb + f["off"] if f["off"] is not None else None
         fields.append(f2)
@@ -371,8 +380,11 @@ def run(args):
                 if full:
                     out_chunks = [_full_chunk(c, filepath) for c in shown]
                 else:
-                    out_chunks = [{k: v for k, v in c.items() if k != "_idx"}
-                                  for c in shown]
+                    out_chunks = []
+                    for c in shown:
+                        oc = {k: v for k, v in c.items() if k != "_idx"}
+                        oc["fields"] = [_public_field(f) for f in c.get("fields", [])]
+                        out_chunks.append(oc)
                 sys.stdout.write(json.dumps({
                     "file": filepath,
                     "format": fmt_label,
