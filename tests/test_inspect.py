@@ -144,6 +144,53 @@ class TestInspectWav:
         assert vals["base_note"] == 188                 # not -68
         assert vals["detune"] == -5 and vals["gain"] == -6
 
+    def test_fmt_ms_adpcm_extension_decoded(self, tmp_path):
+        # MS ADPCM stores samples/block and its 7 standard predictor pairs
+        # in the cbSize extension; previously only the byte count showed
+        coefs = ((256, 0), (512, -256), (0, 0), (192, 64), (240, 0),
+                 (460, -208), (392, -232))
+        ext = struct.pack("<HH", 500, 7)
+        for c1, c2 in coefs:
+            ext += struct.pack("<hh", c1, c2)
+        fmt = _chunk(b"fmt ", struct.pack(
+            "<HHIIHH", 0x0002, 2, 44100, 22311, 1024, 4)
+            + struct.pack("<H", len(ext)) + ext)
+        path = _wav(tmp_path, fmt, _data())
+        chunks, _ = inspect_wav(path)
+        f = next(c for c in chunks if c["id"].strip() == "fmt")
+        vals = {x["name"]: x for x in f["fields"]}
+        assert vals["samples_per_block"]["value"] == 500
+        assert vals["num_coef_pairs"]["value"] == 7
+        assert vals["adpcm_coefficients"]["note"] == "the standard predictor set"
+
+    def test_fmt_mp3_extension_decoded(self, tmp_path):
+        # MPEGLAYER3WAVEFORMAT (tag 0x0055): id/flags/block/frames/delay
+        ext = struct.pack("<HIHHH", 1, 2, 417, 1, 1105)
+        fmt = _chunk(b"fmt ", struct.pack(
+            "<HHIIHH", 0x0055, 2, 44100, 16000, 1, 0)
+            + struct.pack("<H", len(ext)) + ext)
+        path = _wav(tmp_path, fmt, _data())
+        chunks, _ = inspect_wav(path)
+        f = next(c for c in chunks if c["id"].strip() == "fmt")
+        vals = {x["name"]: x["value"] for x in f["fields"]}
+        assert vals["mp3_id"] == 1
+        assert vals["block_size"] == 417
+        assert vals["frames_per_block"] == 1
+        assert vals["codec_delay"] == 1105
+
+    def test_cue_full_fields(self, tmp_path):
+        # dwPosition (play order) surfaces; chunk/block start only when set
+        pt1 = struct.pack("<II4sIII", 1, 7, b"data", 0, 0, 44100)
+        pt2 = struct.pack("<II4sIII", 2, 8, b"data", 1000, 2000, 88200)
+        cue = _chunk(b"cue ", struct.pack("<I", 2) + pt1 + pt2)
+        path = _wav(tmp_path, _fmt(), _data(), cue)
+        chunks, _ = inspect_wav(path)
+        c = next(ch for ch in chunks if ch["id"].strip() == "cue")
+        vals = {x["name"]: x for x in c["fields"]}
+        assert "play order 7" in vals["cue[0]"]["note"]
+        assert "cue[0]_block" not in vals              # zeros: not shown
+        assert vals["cue[1]_block"]["value"] == "chunk_start 1000, block_start 2000"
+
 
 RATE_44100 = bytes.fromhex("400eac440000000000000000")[:10]
 
@@ -221,6 +268,38 @@ class TestInspectAiff:
         chunks, _ = inspect_aiff(path, "AIFF")
         comm = next(c for c in chunks if c["id"] == "COMM")
         assert any("implies more audio" in w for w in comm["warnings"])
+
+    def test_comt_timestamp_decoded(self, tmp_path):
+        # COMT records carry a u32 timestamp in seconds since 1904-01-01
+        # (the classic Mac/HFS epoch); it must surface as a real date
+        import datetime
+        ts = int((datetime.datetime(2020, 6, 15, 12, 0, 0)
+                  - datetime.datetime(1904, 1, 1)).total_seconds())
+        text = b"bounced from session 7"
+        comt = _aiff_chunk(b"COMT", struct.pack(">H", 1)
+                           + struct.pack(">IhH", ts, 0, len(text)) + text)
+        path = _aiff(tmp_path, _comm(), _ssnd(), comt)
+        chunks, _ = inspect_aiff(path, "AIFF")
+        c = next(ch for ch in chunks if ch["id"].strip() == "COMT")
+        f = next(x for x in c["fields"] if x["name"] == "comment[0]")
+        assert f["value"] == "bounced from session 7"
+        assert "2020-06-15" in f["note"]
+
+    def test_fver_decoded(self, tmp_path):
+        fver = _aiff_chunk(b"FVER", struct.pack(">I", 0xA2805140))
+        path = _aiff(tmp_path, fver, _comm(), _ssnd(), form=b"AIFC")
+        chunks, _ = inspect_aiff(path, "AIFC")
+        c = next(ch for ch in chunks if ch["id"].strip() == "FVER")
+        assert c["summary"] == "AIFC Version 1"
+        f = next(x for x in c["fields"] if x["name"] == "format_version")
+        assert f["value"] == "0xA2805140"
+        # the one non-canonical case warns: no other version was ever defined
+        bad = _aiff_chunk(b"FVER", struct.pack(">I", 0xDEADBEEF))
+        path2 = _aiff(tmp_path, bad, _comm(), _ssnd(), form=b"AIFC",
+                      name="bad.aifc")
+        chunks2, _ = inspect_aiff(path2, "AIFC")
+        c2 = next(ch for ch in chunks2 if ch["id"].strip() == "FVER")
+        assert any("canonical" in w for w in c2["warnings"])
 
     def test_markers_and_inst_loops(self, tmp_path):
         path = _aiff(tmp_path, _comm(),
@@ -310,6 +389,29 @@ class TestInspectMidi:
         div = next(f for f in chunks[0]["fields"] if f["name"] == "division")
         assert "SMPTE" in div["note"]
         assert "25" in div["note"]
+
+    def test_wall_clock_duration_on_mthd(self, tmp_path):
+        # 960 ticks at division 480 = 2 beats; at 120 bpm that is exactly 1 s.
+        # the walker previously computed everything needed and never said it
+        track = (b"\x00\xFF\x51\x03\x07\xA1\x20"   # tempo 500000 us = 120 bpm
+                 b"\x87\x40\x90\x3C\x64"           # delta 960, note on
+                 b"\x00\xFF\x2F\x00")              # end of track
+        path = _smf(tmp_path, [track], division=480)
+        chunks, _ = inspect_midi(path)
+        dur = next(f for f in chunks[0]["fields"] if f["name"] == "duration")
+        assert dur["value"] == "1.000 s"
+        assert "120" in dur["note"]
+        assert "~1.0 s" in chunks[0]["summary"]
+
+    def test_duration_smpte_is_tempo_independent(self, tmp_path):
+        # 0xE728 = -25 fps, 40 ticks/frame = 1000 ticks/s; 2000 ticks = 2 s
+        track = (b"\x00\xFF\x51\x03\x07\xA1\x20"
+                 b"\x8F\x50\xFF\x2F\x00")          # delta 2000, end of track
+        path = _smf(tmp_path, [track], division=0xE728)
+        chunks, _ = inspect_midi(path)
+        dur = next(f for f in chunks[0]["fields"] if f["name"] == "duration")
+        assert dur["value"] == "2.000 s"
+        assert "tempo-independent" in dur["note"]
 
     def test_missing_eot_flagged(self, tmp_path):
         path = _smf(tmp_path, [b"\x00\x90\x3C\x64"])
@@ -740,6 +842,9 @@ class TestInspectMp3:
         d = {f["name"]: f["value"] for f in f0["fields"]}
         assert d.get("vbr_tag") == "VBRI"
         assert d.get("frame_count") == "42"
+        assert d.get("encoder_delay") == 0
+        assert d.get("quality") == 100
+        assert d.get("toc_entries") == 0            # zeros past the header
         frames = next(c for c in chunks if c["id"] == "frames")
         assert any(f["name"] == "vbr" and f["value"] is True
                    for f in frames["fields"])
@@ -1132,6 +1237,24 @@ class TestParseBext:
 
 
 class TestFlacCuesheet:
+    def test_seektable_rows_decoded(self, tmp_path):
+        # each 18-byte point: sample u64, byte offset u64, frame samples u16;
+        # all-ones sample number is a placeholder reserved-space point
+        pts = (struct.pack(">QQH", 0, 0, 4096)
+               + struct.pack(">QQH", 44100, 81920, 4096)
+               + struct.pack(">QQH", 0xFFFFFFFFFFFFFFFF, 0, 0))
+        path = _flac(tmp_path, _flac_block(0, _streaminfo()),
+                     _flac_block(3, pts, last=True))
+        from acidcat.core.walk.flac import inspect_flac
+        chunks, _ = inspect_flac(path)
+        st = next(c for c in chunks if c["id"] == "SEEKTABLE")
+        vals = {f["name"]: f for f in st["fields"]}
+        assert vals["num_points"]["value"] == 3
+        assert vals["num_points"]["note"] == "1 placeholder"
+        assert vals["point[0]"]["value"] == "sample 0 @ +0"
+        assert vals["point[1]"]["value"] == "sample 44,100 @ +81,920"
+        assert "point[2]" not in vals            # placeholder: counted, not listed
+
     def test_cuesheet_tracks_and_leadout(self):
         from acidcat.core.walk.flac import _flac_cuesheet
         b = b"1234567890123".ljust(128, b"\x00") + struct.pack(">Q", 88200)

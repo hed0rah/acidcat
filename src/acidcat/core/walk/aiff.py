@@ -187,6 +187,19 @@ def _aiff_basc(b, ctx):
     return summary, fields, warns
 
 
+def _mac_timestamp(ts):
+    """Render a classic Mac timestamp (u32 seconds since 1904-01-01, the HFS
+    epoch AIFF inherited from the Apple II era) as an ISO date, or '' for 0."""
+    if not ts:
+        return ""
+    import datetime
+    try:
+        dt = datetime.datetime(1904, 1, 1) + datetime.timedelta(seconds=ts)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except OverflowError:
+        return ""
+
+
 def _aiff_comt(b):
     """AIFF Comments chunk: numComments then timestamped, marker-linked
     comment records (big-endian, text padded to even)."""
@@ -201,15 +214,21 @@ def _aiff_comt(b):
         if pos + 8 > len(b):
             warns.append(f"declares {n} comments but payload ends at {i}")
             break
+        ts = struct.unpack_from(">I", b, pos)[0]
         marker = struct.unpack_from(">h", b, pos + 4)[0]
         count = _bu16(b, pos + 6)
         if pos + 8 + count > len(b):
             warns.append(f"comment[{i}] text overruns payload")
             break
         text = _dtext(b[pos + 8:pos + 8 + count]).strip()
-        note = f"marker {marker}" if marker else ""
+        bits = []
+        when = _mac_timestamp(ts)
+        if when:
+            bits.append(when)
+        if marker:
+            bits.append(f"marker {marker}")
         fields.append(_f(pos, 8 + count + (count & 1), f"comment[{i}]",
-                         text[:60], note))
+                         text[:60], ", ".join(bits)))
         pos += 8 + count + (count & 1)
         shown += 1
     return f"{shown} comment(s)", fields, warns
@@ -343,6 +362,27 @@ def inspect_aiff(filepath, form_type):
                 elif cid == "COMT":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_comt(payload)
+                elif cid == "FVER":
+                    # AIFC format-version: a Mac timestamp; the spec froze it
+                    # at 0xA2805140 (1990-05-23), the only value ever defined
+                    if len(payload) >= 4:
+                        ts = struct.unpack_from(">I", payload, 0)[0]
+                        canon = ts == 0xA2805140
+                        entry["fields"] = [_f(0x00, 4, "format_version",
+                                              f"0x{ts:08X}",
+                                              "AIFC Version 1 (1990-05-23)"
+                                              if canon else
+                                              _mac_timestamp(ts) or "unknown",
+                                              enc=">I", raw=ts)]
+                        entry["summary"] = ("AIFC Version 1" if canon
+                                            else f"version 0x{ts:08X}")
+                        if not canon:
+                            entry["warnings"] = [
+                                "format_version is not the canonical "
+                                "0xA2805140; no other version was ever defined"]
+                    else:
+                        entry["summary"] = "truncated"
+                        entry["warnings"] = ["FVER payload under 4 bytes"]
                 elif cid == "AESD":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_aesd(payload)
