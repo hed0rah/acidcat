@@ -93,7 +93,7 @@ def _parse_fmt(b, ctx):
         fields.append(_f(0x10, 2, "cb_size", cb))
         fields.append(_f(0x12, 2, "valid_bits_per_sample", valid_bits))
         fields.append(_f(0x14, 4, "channel_mask", f"0x{mask:x}",
-                         _channel_mask_names(mask)))
+                         _channel_mask_names(mask), enc="<I", raw=mask))
         fields.append(_f(0x18, 16, "sub_format", sub_name,
                          "KSDATAFORMAT_SUBTYPE" if tail_ok else "non-standard GUID"))
         if not tail_ok:

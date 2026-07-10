@@ -183,8 +183,10 @@ def bitfield_apply(container, bitpos, width, bias, value):
 # The reverse map (label -> raw) lets the user edit by name; the same RMW writes.
 from acidcat.core.mp3 import (_CHANNEL_MODES as _MP3_CHANMODE,  # noqa: E402
                               _EMPHASIS as _MP3_EMPHASIS)
+from acidcat.core.walk.aiff import _LOOP_MODES as _AIFF_LOOP_MODES  # noqa: E402
 _BITMAPS = {"mpeg_chanmode": dict(_MP3_CHANMODE),
-            "mpeg_emphasis": dict(_MP3_EMPHASIS)}
+            "mpeg_emphasis": dict(_MP3_EMPHASIS),
+            "aiff_loop_mode": dict(_AIFF_LOOP_MODES)}
 
 
 def parse_bitsmap(enc):
