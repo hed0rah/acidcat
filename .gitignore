@@ -65,3 +65,6 @@ logo/
 
 # local-only scratch (reports, notes, anything not for the repo)
 .stash/
+
+# internal whitepapers/session reports (local-only)
+internal_docs/
