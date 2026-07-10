@@ -4,6 +4,40 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.22.0] - 2026-07-10
+
+### Fixed
+
+- A crafted `.nksf` MessagePack header claiming ~4 billion array/map elements
+  could hang `inspect` and unattended `index` scans and exhaust memory; forged
+  counts are now rejected and degrade to the normal warning path (#53).
+- ID3v2 COMM/USLT (and v2.2 COM/ULT) frames decode to their text instead of a
+  byte count; v2.3/v2.4 per-frame format flags are honored, so group ids,
+  data-length indicators, and per-frame unsynchronisation no longer corrupt
+  the payload decode, and compressed/encrypted frames are labeled rather than
+  rendered as garbage; numeric TCON genre references resolve against the
+  ID3v1 table (#54).
+- MP4 `gnre` genre atoms (how older iTunes stored genre) resolve to the genre
+  name instead of raw bytes; QuickTime version-2 audio sample entries report
+  their real channel count and sample rate instead of v0-offset constants (#54).
+- Ogg Opus durations subtract the pre-skip priming samples and report the
+  48 kHz decode rate (the encoder input rate is shown separately); duration
+  is scoped to the first logical bitstream, and chained/muxed files warn (#54).
+- WAV `smpl` SMPTE fields and `inst` base note are read unsigned per spec (#54).
+- Writes are read back from disk and verified before "saved" is reported; a
+  commit failure (locked file, full disk) prints a per-file error instead of
+  a traceback; a pre-existing `_original` file is reported as "existing
+  backup kept" rather than passing silently as a fresh backup (#53).
+- The TUI refuses to save over a source file that changed on disk since it
+  was opened (press save again to force), so external edits are never
+  silently clobbered and the first-save backup always captures the bytes
+  that were actually being edited (#53).
+- Tag edits and strips on MP3/FLAC/OGG/Opus/M4A (including cover-art
+  changes) now verify the audio payload survived the rewrite, matching the
+  guarantee WAV/AIFF edits already had (#55).
+- A file truncated inside the MIDI MThd header degrades to a warning instead
+  of a parse error (#53).
+
 ## [0.21.0] - 2026-07-10
 
 ### Added
