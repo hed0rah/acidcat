@@ -21,6 +21,15 @@ _AIFC_KNOWN_COMPRESSION = frozenset({
     "MAC3", "MAC6", "ima4", "QDMC", "QDM2", "Qclp",
 })
 
+# INST sustain/release loop play mode (a big-endian int16)
+_LOOP_MODES = {0: "off", 1: "forward", 2: "ping-pong"}
+
+# AESD channel-status byte 0 enums (AES3)
+_AES_RATES = {0: "unindicated", 1: "48000", 2: "44100", 3: "32000"}
+_AES_EMPHASIS = {0b000: "unindicated", 0b100: "none",
+                 0b110: "50/15 us", 0b111: "CCITT J.17"}
+
+
 
 def _parse_ieee_extended(data):
     """
