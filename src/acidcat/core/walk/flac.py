@@ -116,14 +116,38 @@ def _flac_picture(b):
     return f"{types.get(ptype, 'image')}, {mime}, {width}x{height}", fields, warns
 
 
-def _flac_seektable(b):
-    n = len(b) // 18
-    placeholders = sum(
-        1 for i in range(n)
-        if struct.unpack_from(">Q", b, i * 18)[0] == 0xFFFFFFFFFFFFFFFF
-    )
+_SEEKPOINT_ROW_CAP = 64
+
+
+def _flac_seektable(b, block_length=None):
+    """SEEKTABLE: 18-byte points of (sample_number u64, byte offset from the
+    first frame u64, samples in the target frame u16). sample_number
+    0xFFFF... is a placeholder reserved-space point."""
+    fields, warns = [], []
+    # count from the declared block length, not the (possibly capped) payload
+    n = (block_length if block_length is not None else len(b)) // 18
+    avail = len(b) // 18
+    placeholders = 0
+    for i in range(avail):
+        base = i * 18
+        sample, offset = struct.unpack_from(">QQ", b, base)
+        span = struct.unpack_from(">H", b, base + 16)[0]
+        if sample == 0xFFFFFFFFFFFFFFFF:
+            placeholders += 1
+            continue
+        if i < _SEEKPOINT_ROW_CAP:
+            fields.append(_f(base, 18, f"point[{i}]",
+                             f"sample {sample:,} @ +{offset:,}",
+                             f"{span} samples in frame"))
+    if avail > _SEEKPOINT_ROW_CAP:
+        fields.append(_f(None, 0, "...",
+                         f"{avail - _SEEKPOINT_ROW_CAP} more points"))
+    if n > avail:
+        warns.append(f"table declares {n} points; listing the {avail} within "
+                     "the read cap")
     note = f"{placeholders} placeholder" if placeholders else ""
-    return f"{n} seek point(s)", [_f(0x00, len(b), "num_points", n, note)], []
+    fields.insert(0, _f(None, 0, "num_points", n, note))
+    return f"{n} seek point(s)", fields, warns
 
 
 def _flac_application(b):
@@ -207,7 +231,7 @@ def inspect_flac(filepath):
                     _flac_picture(payload)
             elif btype == 3:
                 entry["summary"], entry["fields"], entry["warnings"] = \
-                    _flac_seektable(payload)
+                    _flac_seektable(payload, block_length=length)
             elif btype == 2:
                 entry["summary"], entry["fields"], entry["warnings"] = \
                     _flac_application(payload)

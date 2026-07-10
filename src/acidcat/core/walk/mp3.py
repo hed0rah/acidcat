@@ -314,19 +314,42 @@ def _xing_offset(hdr):
 
 
 def _parse_vbri(buf, off):
-    """Decode a Fraunhofer VBRI header. Returns the Xing-path 4-tuple
-    (fields, warns, frame_count, tag). Offsets are frame-relative to match
-    the frame0 chunk's payload_base. All fields are big-endian."""
-    fields = []
+    """Decode a Fraunhofer VBRI header (the FhG encoder's answer to Xing).
+    Returns the Xing-path 4-tuple (fields, warns, frame_count, tag). Offsets
+    are frame-relative to match the frame0 chunk's payload_base. Layout after
+    'VBRI', all big-endian: version u16, delay u16, quality u16, bytes u32,
+    frames u32, TOC entry count u16, TOC scale u16, bytes per TOC entry u16,
+    frames per TOC entry u16, then the seek TOC itself."""
+    fields, warns = [], []
     version = _bu16(buf, off + 4)
+    delay = _bu16(buf, off + 6)
+    quality = _bu16(buf, off + 8)
     nbytes = _bu32(buf, off + 10)
     frame_count = _bu32(buf, off + 14)
     fields.append(_f(off, 4, "vbr_tag", "VBRI", "VBR (Fraunhofer)"))
     fields.append(_f(off + 4, 2, "version", version))
+    fields.append(_f(off + 6, 2, "encoder_delay", delay, "samples",
+                     enc=">H", raw=delay))
+    fields.append(_f(off + 8, 2, "quality", quality, enc=">H", raw=quality))
     fields.append(_f(off + 10, 4, "byte_count", f"{nbytes:,}", enc=">I", raw=nbytes))
     fields.append(_f(off + 14, 4, "frame_count", f"{frame_count:,}",
                      enc=">I", raw=frame_count))
-    return fields, [], frame_count, b"VBRI"
+    if off + 26 <= len(buf):
+        toc_n = _bu16(buf, off + 18)
+        scale = _bu16(buf, off + 20)
+        esize = _bu16(buf, off + 22)
+        fpe = _bu16(buf, off + 24)
+        fields.append(_f(off + 18, 2, "toc_entries", toc_n))
+        fields.append(_f(off + 20, 2, "toc_scale", scale))
+        fields.append(_f(off + 22, 2, "toc_entry_size", esize, "bytes"))
+        fields.append(_f(off + 24, 2, "toc_frames_per_entry", fpe))
+        if toc_n and esize:
+            fields.append(_f(off + 26, toc_n * esize, "toc",
+                             f"{toc_n} x {esize}-byte seek entries"))
+        if esize not in (0, 1, 2, 3, 4):
+            warns.append(f"VBRI TOC entry size {esize} is outside the "
+                         "1-4 byte range the spec allows")
+    return fields, warns, frame_count, b"VBRI"
 
 
 def _parse_xing_lame(filepath, frame_off, hdr):
