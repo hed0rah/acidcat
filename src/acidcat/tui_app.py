@@ -199,7 +199,10 @@ def parse_bitsmap(enc):
 def resolve_bitsmap(mapid, text):
     """User text (a label, case-insensitive, or a raw index) -> raw bits, or
     None if it is neither."""
-    m = _BITMAPS.get(mapid, {})
+    return _resolve_in_map(_BITMAPS.get(mapid, {}), text)
+
+
+def _resolve_in_map(m, text):
     t = text.strip()
     for k, v in m.items():
         if str(v).lower() == t.lower():
@@ -209,6 +212,48 @@ def resolve_bitsmap(mapid, text):
     except ValueError:
         return None
     return iv if iv in m else None
+
+
+# context-dependent enum bit-fields: the raw->value map is COMPUTED from the
+# container bytes (e.g. MP3 bitrate depends on the version+layer bits in the same
+# header word). enc="bitsdyn:DELTA:CLEN:BITPOS:WIDTH:DYNID"; _DYNMAPS[DYNID] is a
+# function(container_bytes)->{raw: value}.
+def _mpeg_ctx(container):
+    word = int.from_bytes(container, "big")     # the 4-byte MPEG header word
+    return (word >> 19) & 0x03, (word >> 17) & 0x03    # version_id, layer_id
+
+
+def _mpeg_bitrate_map(container):
+    from acidcat.core.mp3 import (_LAYER, _BR_V1_L1, _BR_V1_L2, _BR_V1_L3,
+                                  _BR_V2_L1, _BR_V2_L23)
+    vid, lid = _mpeg_ctx(container)
+    layer, is_v1 = _LAYER.get(lid), vid == 0b11
+    if layer == "Layer I":
+        table = _BR_V1_L1 if is_v1 else _BR_V2_L1
+    elif layer == "Layer II":
+        table = _BR_V1_L2 if is_v1 else _BR_V2_L23
+    elif layer == "Layer III":
+        table = _BR_V1_L3 if is_v1 else _BR_V2_L23
+    else:
+        return {}
+    return {i: v for i, v in enumerate(table) if v > 0}
+
+
+def _mpeg_samplerate_map(container):
+    from acidcat.core.mp3 import _SAMPLE_RATES
+    vid, _lid = _mpeg_ctx(container)
+    return {i: r for i, r in enumerate(_SAMPLE_RATES.get(vid, ())) if r > 0}
+
+
+_DYNMAPS = {"mpeg_bitrate": _mpeg_bitrate_map,
+            "mpeg_samplerate": _mpeg_samplerate_map}
+
+
+def parse_bitsdyn(enc):
+    if not isinstance(enc, str) or not enc.startswith("bitsdyn:"):
+        return None
+    _tag, delta, clen, bitpos, width, dynid = enc.split(":")
+    return int(delta), int(clen), int(bitpos), int(width), dynid
 
 
 def enc_size(enc):
@@ -899,6 +944,26 @@ class AcidcatTUI(App):
                 self._render_preview()
                 return
             # annotation did not verify -> fall through to hex
+        # context-dependent enum: the value map depends on other bits in the word
+        bd = parse_bitsdyn(enc)
+        if bd is not None:
+            delta, clen, bitpos, width, dynid = bd
+            cont_off = off + delta
+            cur = _read(self.work, cont_off, clen)
+            if (len(cur) == clen and clen * 8 - bitpos - width >= 0
+                    and _DYNMAPS[dynid](cur).get(
+                        bitfield_extract(cur, bitpos, width, 0)) == value):
+                self._edit_target = {"off": cont_off, "length": clen, "name": name,
+                                     "mode": "bitsdyn", "fmt": None, "accent": accent,
+                                     "bitpos": bitpos, "width": width, "dynid": dynid}
+                bar = self.query_one("#editbar", Input)
+                bar.value = str(value)
+                bar.remove_class("hidden")
+                self._update_edit_title()
+                bar.focus()
+                self._render_preview()
+                return
+            # annotation did not verify -> fall through to hex
         # bit-packed field: read-modify-write the value inside its container bytes
         # so neighbouring bit-fields survive. Only if the annotation decodes to
         # the shown value (same self-verify guard).
@@ -957,6 +1022,10 @@ class AcidcatTUI(App):
         elif tgt["mode"] == "bitsmap":
             opts = " | ".join(str(v) for v in _BITMAPS.get(tgt["mapid"], {}).values())
             kind = f"enum: {opts}"
+        elif tgt["mode"] == "bitsdyn":
+            cur = _read(self.work, tgt["off"], tgt["length"])
+            opts = " | ".join(str(v) for v in _DYNMAPS[tgt["dynid"]](cur).values())
+            kind = f"enum: {opts}"
         elif tgt["mode"] == "bitfield":
             kind = f"value ({tgt['width']}-bit packed field)"
         elif tgt["mode"] == "text":
@@ -1006,6 +1075,14 @@ class AcidcatTUI(App):
                 rawv = resolve_bitsmap(tgt["mapid"], text)
                 cur = _read(self.work, tgt["off"], tgt["length"])
                 if rawv is None or len(cur) != tgt["length"]:
+                    return None
+                return bitfield_apply(cur, tgt["bitpos"], tgt["width"], 0, rawv)
+            if tgt["mode"] == "bitsdyn":
+                cur = _read(self.work, tgt["off"], tgt["length"])
+                if len(cur) != tgt["length"]:
+                    return None
+                rawv = _resolve_in_map(_DYNMAPS[tgt["dynid"]](cur), text)
+                if rawv is None:
                     return None
                 return bitfield_apply(cur, tgt["bitpos"], tgt["width"], 0, rawv)
             if tgt["mode"] == "bitfield":
