@@ -60,6 +60,80 @@ def test_commit_overwrite_skips_backup(tmp_path):
     assert backup is None and p.read_bytes() == b"edited"
 
 
+def test_aiff_edit_clear_odd_and_unicode():
+    # clearing a chunk, inserting an odd-length utf-8 value (pad byte), and
+    # keeping metadata ahead of SSND -- the thin spots in AIFF edit coverage
+    from acidcat.core import edit_aiff
+
+    def ck(cid, payload):
+        return (cid + struct.pack(">I", len(payload)) + payload
+                + (b"\x00" if len(payload) & 1 else b""))
+    rate80 = bytes.fromhex("400EAC44000000000000")
+    ssnd = struct.pack(">II", 0, 0) + bytes(range(8))
+    body = (b"AIFF" + ck(b"COMM", struct.pack(">HIH", 1, 4, 16) + rate80)
+            + ck(b"NAME", b"Old") + ck(b"SSND", ssnd))
+    data = b"FORM" + struct.pack(">I", len(body)) + body
+    new, applied = edit_aiff.edit_aiff(
+        data, {"title": None, "comment": "né 13!"})   # 7 utf-8 bytes, odd
+    chunks, _ = edit_aiff._iter_chunks(new)
+    ids = [c[0] for c in chunks]
+    assert b"NAME" not in ids
+    assert ids.index(b"ANNO") < ids.index(b"SSND")
+    assert next(c[1] for c in chunks if c[0] == b"ANNO").decode("utf-8") == "né 13!"
+    assert next(c[1] for c in chunks if c[0] == b"SSND") == ssnd
+    assert len(new) % 2 == 0                       # odd payload got its pad
+    assert struct.unpack_from(">I", new, 4)[0] == len(new) - 8
+
+
+def test_verify_audio_preserved_catches_flac_frame_change():
+    streaminfo = b"\x80" + (34).to_bytes(3, "big") + bytes(34)  # last-flag block
+    old = b"fLaC" + streaminfo + b"FRAMESFRAMES"
+    new = b"fLaC" + streaminfo + b"FRAMESFRAMEX"
+    edits._verify_audio_preserved(old, old)          # identical passes
+    with pytest.raises(edits.EditError):
+        edits._verify_audio_preserved(old, new)      # altered frames refused
+
+
+def test_mp3_audio_digest_ignores_tag_blocks():
+    # adding an ID3v2 header and an ID3v1 trailer must not change the audio
+    # fingerprint; changing a frame byte must
+    frame = b"\xff\xfb\x90\xc0" + b"\x00" * 413
+    bare = frame * 2
+    id3 = b"ID3\x03\x00\x00" + bytes([0, 0, 0, 20]) + bytes(20)
+    tagged = id3 + bare + b"TAG" + bytes(125)
+    assert edits._audio_digest(bare) == edits._audio_digest(tagged)
+    corrupt = id3 + bare[:100] + b"\x55" + bare[101:] + b"TAG" + bytes(125)
+    assert edits._audio_digest(bare) != edits._audio_digest(corrupt)
+
+
+@pytest.mark.parametrize("name,suffix", [
+    ("gs-16b-2c-44100hz.mp3", ".mp3"),
+    ("gs-16b-2c-44100hz.flac", ".flac"),
+    ("gs-16b-2c-44100hz.ogg", ".ogg"),
+    ("gs-16b-2c-44100hz.opus", ".opus"),
+    ("gs-16b-2c-44100hz.m4a", ".m4a"),
+])
+def test_tagged_easy_fields_roundtrip(name, suffix, tmp_path):
+    # bpm/genre/date via the easy interface: previously only exercised as a
+    # setup step; assert the values actually land and the audio is untouched
+    mutagen = pytest.importorskip("mutagen")
+    import os
+    p = os.path.join("data/test_formats", name)
+    if not os.path.isfile(p):
+        pytest.skip(f"no {suffix} fixture")
+    data = open(p, "rb").read()
+    new, applied = edits.edit_tagged(
+        data, suffix, {"bpm": "128", "genre": "Techno", "date": "2020"})
+    assert {a[0] for a in applied} == {"bpm", "genre", "date"}
+    out = tmp_path / ("t" + suffix)
+    out.write_bytes(new)
+    m = mutagen.File(str(out), easy=True)
+    assert m["bpm"] == ["128"]
+    assert m["genre"] == ["Techno"]
+    assert str(m["date"][0]).startswith("2020")
+    assert edits._audio_digest(data) == edits._audio_digest(new)
+
+
 # ── WAV: INFO tags ─────────────────────────────────────────────────
 
 def test_wav_info_roundtrip_preserves_audio():

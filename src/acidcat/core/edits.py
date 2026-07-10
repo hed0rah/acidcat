@@ -111,6 +111,69 @@ def edit_ni(data, changes):
 
 # ── tagged audio (mp3/flac/ogg/m4a via mutagen) ────────────────────
 
+def _audio_digest(data):
+    """(kind, fingerprint) of the audio payload in a tagged container, for
+    verifying that a tag rewrite left the stream untouched. Byte hashes for
+    formats whose audio region is byte-stable across a tag edit (flac: after
+    the last metadata block; mp4: mdat payloads; mp3: between the leading
+    ID3v2 and a trailing ID3v1); for ogg the header repaging legitimately
+    renumbers pages, so the fingerprint is the audio pages' (serial, granule,
+    length) sequence instead. fingerprint is None when there is nothing
+    comparable (e.g. an mp4 read without its mdat)."""
+    import hashlib
+    mv = memoryview(data)
+    h = hashlib.sha256()
+    if data[:4] == b"fLaC":
+        pos = 4
+        while pos + 4 <= len(data):
+            last = data[pos] & 0x80
+            blen = int.from_bytes(data[pos + 1:pos + 4], "big")
+            pos += 4 + blen
+            if last:
+                break
+        h.update(mv[min(pos, len(data)):])
+        return "flac", h.hexdigest()
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        from acidcat.core import mp4 as mp4mod
+        found = False
+        for b in mp4mod.iter_boxes(data):
+            if b["depth"] == 0 and b["type"] == b"mdat" and not b["truncated"]:
+                h.update(mv[b["offset"] + b["hdr"]:b["offset"] + b["size"]])
+                found = True
+        return "mp4", h.hexdigest() if found else None
+    if data[:4] == b"OggS":
+        from acidcat.core import ogg as oggmod
+        return "ogg", tuple((p["serial"], p["granule"], p["data_len"])
+                            for p in oggmod.iter_pages(data)
+                            if p["granule"] != 0)
+    # mp3: the frame run between the leading ID3v2 tag (if any) and a
+    # trailing 128-byte ID3v1 block (if any); both may appear/disappear
+    # across an edit, the frames in between must not change
+    start = 0
+    if data[:3] == b"ID3" and len(data) >= 10:
+        size = ((data[6] & 0x7F) << 21) | ((data[7] & 0x7F) << 14) \
+            | ((data[8] & 0x7F) << 7) | (data[9] & 0x7F)
+        start = min(10 + size + (10 if data[5] & 0x10 else 0), len(data))
+    end = len(data)
+    if end - start >= 128 and data[end - 128:end - 125] == b"TAG":
+        end -= 128
+    h.update(mv[start:end])
+    return "mp3", h.hexdigest()
+
+
+def _verify_audio_preserved(old, new):
+    """Raise EditError when the audio payload changed across a tag rewrite.
+    Metadata edits must never touch the stream; this is the tagged-format
+    equivalent of the in-memory guards in edit_riff/edit_aiff."""
+    okind, ofp = _audio_digest(old)
+    nkind, nfp = _audio_digest(new)
+    if ofp is None or nfp is None:
+        return
+    if okind != nkind or ofp != nfp:
+        raise EditError("audio payload changed during the tag rewrite; "
+                        "refusing to return corrupted audio")
+
+
 # field -> mutagen "easy" key (the normalized cross-format interface)
 _EASY_FIELDS = {
     "title": "title", "name": "title",
@@ -236,7 +299,9 @@ def strip_tagged(data, suffix):
         removed = sorted(audio.tags.keys()) if audio.tags else []
         audio.delete()          # removes the tag block from the file on disk
         with open(tmp, "rb") as r:
-            return r.read(), removed
+            new = r.read()
+        _verify_audio_preserved(data, new)
+        return new, removed
     finally:
         try:
             os.unlink(tmp)
@@ -292,7 +357,9 @@ def edit_tagged(data, suffix, changes):
         if custom:
             applied += _apply_custom_frames(tmp, suffix, custom)
         with open(tmp, "rb") as r:
-            return r.read(), applied
+            new = r.read()
+        _verify_audio_preserved(data, new)
+        return new, applied
     finally:
         try:
             os.unlink(tmp)

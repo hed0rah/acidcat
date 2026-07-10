@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 from acidcat.core import cover as covermod
-from acidcat.core import writer
+from acidcat.core import edits, writer
 
 _EXT = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif",
         "image/webp": "webp"}
@@ -33,7 +33,8 @@ def register(subparsers):
 
 
 def _mutate(path, fn, overwrite):
-    """Run fn(tmp) on a temp copy, then commit the result to path (backup+atomic)."""
+    """Run fn(tmp) on a temp copy, then commit the result to path (backup+atomic).
+    The audio payload is verified unchanged before anything is committed."""
     with open(path, "rb") as f:
         data = f.read()
     fd, tmp = tempfile.mkstemp(suffix=os.path.splitext(path)[1])
@@ -48,6 +49,10 @@ def _mutate(path, fn, overwrite):
             os.unlink(tmp)
         except OSError:
             pass
+    try:
+        edits._verify_audio_preserved(data, new)
+    except edits.EditError as e:
+        raise covermod.CoverError(str(e))
     return writer.commit(path, new, overwrite=overwrite)
 
 
