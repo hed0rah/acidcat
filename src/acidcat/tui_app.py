@@ -50,6 +50,7 @@ SEV = {"alert": "#ff6e83", "warn": "#ffcc55", "notice": "#8fa4ff"}
 _HEX_CAP = 1024        # most bytes to render in the hex pane for one node
 _ROW_CAP = 400         # most per-element rows (events/frames) to list per chunk
 _HEXEDIT_CAP = 512     # refuse editing a byte region bigger than this (pick a field)
+_UNDO_CAP = 50         # most undo snapshots to keep
 
 # struct formats tried when inferring a numeric field's on-disk layout, smallest
 # to largest, LE before BE. Verified by round-trip against the actual bytes, so a
@@ -415,6 +416,45 @@ class ConfirmScreen(ModalScreen):
         self.dismiss(None)
 
 
+class HelpScreen(ModalScreen):
+    """Key reference overlay. Any of esc / ? closes it."""
+
+    CSS = """
+    HelpScreen { align: center middle; }
+    #helpbox { width: 74; height: auto; max-height: 90%; border: round #56e0f0;
+               background: #10161a; padding: 1 2; }
+    """
+    BINDINGS = [("escape", "close", "close"), ("question_mark", "close", "close")]
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append("acidcat tui  --  keys\n\n", style=f"bold {ACCENT}")
+        rows = [
+            ("arrows / enter", "move + expand the tree"),
+            ("a / c", "expand all / collapse all"),
+            ("e", "edit the selected field (value or hex)"),
+            ("ctrl+t", "toggle the edit between value and raw hex"),
+            ("tab", "hex-edit the field in the pane (arrows move, 0-9a-f type)"),
+            ("w", "edit tags (metadata form)"),
+            ("s", "strip identifying metadata"),
+            ("ctrl+s", "save to the original (writes a _original backup)"),
+            ("ctrl+z", "undo the last edit"),
+            ("o", "open another file"),
+            ("esc", "cancel the current edit"),
+            ("q", "quit"),
+        ]
+        for k, d in rows:
+            t.append(f"  {k:16}", style=f"bold {PEND}")
+            t.append(f"{d}\n", style=SOFT)
+        t.append("\nEdits go to a temp working copy; nothing touches the original "
+                 "until ctrl+s.", style=DIM)
+        with Vertical(id="helpbox"):
+            yield Static(t)
+
+    def action_close(self):
+        self.dismiss(None)
+
+
 class AcidcatTUI(App):
     CSS = """
     Screen { background: #10161a; }
@@ -434,6 +474,7 @@ class AcidcatTUI(App):
     BINDINGS = [
         ("q", "request_quit", "quit"),
         ("ctrl+s", "save", "save"),
+        ("ctrl+z", "undo", "undo"),
         ("o", "open", "open file"),
         ("e", "edit_field", "edit field"),
         ("tab", "hex_focus", "hex edit"),
@@ -442,6 +483,7 @@ class AcidcatTUI(App):
         ("s", "strip", "strip meta"),
         ("a", "expand_all", "expand"),
         ("c", "collapse_all", "collapse"),
+        ("question_mark", "help", "help"),
         ("escape", "cancel_edit", "cancel edit"),
     ]
 
@@ -463,6 +505,7 @@ class AcidcatTUI(App):
         self._cur_node = None     # last highlighted tree node
         self._edit_target = None  # active inline edit: dict(off,length,name,mode,fmt,accent)
         self._hexedit = None      # active in-pane hex edit: dict(off,length,buf,cur,nib)
+        self._undo = []           # working-copy byte snapshots for undo
 
     def compose(self) -> ComposeResult:
         yield Static(id="title")
@@ -504,6 +547,7 @@ class AcidcatTUI(App):
         shutil.copyfile(self.src, self.work)
         self.dirty = False
         self._backed_up = False
+        self._undo = []
 
     def _discard_work(self):
         w = self.work
@@ -516,11 +560,35 @@ class AcidcatTUI(App):
 
     def _apply_to_work(self, new_bytes):
         """Write edited bytes to the working copy (no disk write to the original
-        yet) and refresh. Marks the session dirty."""
+        yet), snapshotting the prior state for undo, and refresh."""
+        with open(self.work, "rb") as f:
+            self._undo.append(f.read())
+        self._undo = self._undo[-_UNDO_CAP:]
         with open(self.work, "wb") as f:
             f.write(new_bytes)
-        self.dirty = True
+        self._recompute_dirty()
         self._load()
+
+    def _recompute_dirty(self):
+        """Dirty iff the working copy differs from the saved file, so undoing back
+        to the saved state (or saving) clears the flag."""
+        try:
+            with open(self.work, "rb") as f:
+                w = f.read()
+            with open(self.src, "rb") as f:
+                self.dirty = w != f.read()
+        except OSError:
+            self.dirty = True
+
+    def action_undo(self):
+        if not self._undo:
+            self.notify("nothing to undo")
+            return
+        with open(self.work, "wb") as f:
+            f.write(self._undo.pop())
+        self._recompute_dirty()
+        self._load()
+        self.notify("undid last edit")
 
     def action_save(self):
         if not self.work:
@@ -676,6 +744,9 @@ class AcidcatTUI(App):
         detail.update(d)
         self.query_one("#hex", Static).update(hex_text(self.work, off, length, accent))
 
+    def action_help(self):
+        self.push_screen(HelpScreen())
+
     def on_tree_node_highlighted(self, event):
         self._cur_node = event.node
         if self._edit_target:            # moving off the field cancels an edit
@@ -686,7 +757,29 @@ class AcidcatTUI(App):
         off, length, accent = data
         label = event.node.label
         name = label.plain if isinstance(label, Text) else str(label)
-        self._show(off, length, accent, name.strip(), "")
+        self._show(off, length, accent, name.strip(), self._edit_hint(event.node,
+                                                                      off, length))
+
+    def _edit_hint(self, node, off, length):
+        """A short note in the detail pane telling the user how the highlighted
+        field can be edited (value / hex / text), so it's discoverable."""
+        if off is None or not length:
+            return ""
+        if id(node) in self._textfield:
+            return f"text-editable ({self._textfield[id(node)]}) -- press e"
+        value, enc, raw = self._editval.get(id(node), (None, None, None))
+        rb = _read(self.work, off, length)
+        if enc is not None:
+            try:
+                if encode_value(enc, str(raw if raw is not None else value)) == rb:
+                    return f"value-editable ({enc}) -- press e, or tab for hex"
+            except (ValueError, struct.error):
+                pass
+        if infer_enc(value, rb) is not None:
+            return "value-editable -- press e, or tab for hex"
+        if length <= _HEXEDIT_CAP:
+            return "hex-editable -- press e or tab"
+        return ""
 
     # ── inline byte / value editor with live hex preview ──────────────
 
