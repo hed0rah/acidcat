@@ -32,7 +32,9 @@ def _aiff_comm(b, ctx, form_type):
     rate_note = "80-bit IEEE 754 extended"
     fields.append(_f(0x08, 10, "sample_rate", int(rate) if rate else 0, rate_note,
                      enc="float80", raw=int(rate) if rate else 0))
-    ctx.update({"channels": ch, "frames": frames, "bits": bits, "rate": rate})
+    ctx.update({"channels": ch, "frames": frames, "bits": bits, "rate": rate,
+                "sample_rate": int(rate) if rate else 0,
+                "duration": round(frames / rate, 4) if rate else None})
     if not rate:
         warns.append("sample rate decodes to 0")
 
@@ -174,6 +176,9 @@ def _aiff_basc(b, ctx):
                      midi_note_to_name(root) if root else "unset"))
     fields.append(_f(0x0A, 2, "scale_type", scale, "enum unverified"))
     fields.append(_f(0x0C, 4, "time_sig", f"{sig_n}/{sig_d}"))
+    ctx["basc_beats"] = beats
+    ctx["basc_root_key"] = root
+    ctx["basc_scale"] = scale
     summary = f"apple loop, {beats} beats"
     frames, rate = ctx.get("frames"), ctx.get("rate")
     if beats and frames and rate:
@@ -299,10 +304,16 @@ def _aiff_id3_fields(tag_bytes):
             pass
 
 
-def inspect_aiff(filepath, form_type):
-    """Walk an AIFF/AIFC file and return (chunks, file_warnings)."""
+def inspect_aiff(filepath, form_type, ctx=None):
+    """Walk an AIFF/AIFC file and return (chunks, file_warnings).
+
+    A caller-supplied ``ctx`` dict is filled with the semantic values the
+    per-chunk parsers accumulate (channels, rate, frames, bits, duration,
+    NAME/AUTH/copyright text, basc beats/root) so the scan path can read
+    them instead of running a second decoder."""
     file_size = os.path.getsize(filepath)
-    ctx = {}
+    if ctx is None:
+        ctx = {}
     chunks = []
     file_warns = []
     seen = []
@@ -387,6 +398,8 @@ def inspect_aiff(filepath, form_type):
                     text = _dtext(payload).strip("\x00").strip()
                     entry["summary"] = text[:60]
                     entry["fields"] = [_f(0x00, size, "text", text[:200])]
+                    ctx[{"NAME": "name", "AUTH": "author",
+                         "(c) ": "copyright"}.get(cid, "annotation")] = text
                 elif cid == "ID3 ":
                     entry["fields"] = _aiff_id3_fields(payload)
                     entry["summary"] = f"embedded ID3v2 tag, {size:,} bytes"
