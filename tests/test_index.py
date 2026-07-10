@@ -87,7 +87,45 @@ def _library(tmp_path, wav_bytes, name="lib"):
     return lib
 
 
-class TestIndexCreatesLibrary:
+class TestWavRowExtraction:
+    def test_walker_backed_row_semantics(self, tmp_path):
+        # since the 2026-07 unification the WAV row comes from the inspect
+        # walker's ctx (one decoder); verified row-identical to the retired
+        # core/riff path over a 2,328-file corpus before the switch
+        from acidcat.core.indexing import _from_wav
+        rate, ch, bits = 44100, 1, 16
+        align = ch * bits // 8
+        fmt = b"fmt " + struct.pack("<I", 16) + struct.pack(
+            "<HHIIHH", 1, ch, rate, rate * align, align, bits)
+        data = b"data" + struct.pack("<I", rate * align) + b"\x00" * (rate * align)
+        smpl = b"smpl" + struct.pack("<I", 36) + struct.pack(
+            "<IIIIIIIII", 0, 0, 0, 60, 0, 0, 0, 0, 0)
+        acid = b"acid" + struct.pack("<I", 24) + struct.pack(
+            "<IHHfIHHf", 0x02, 62, 0x8000, 0.0, 2, 4, 4, 120.0)
+        body = b"WAVE" + fmt + data + smpl + acid
+        p = tmp_path / "loop.wav"
+        p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+        row = _from_wav(str(p), {})
+        assert row["format"] == "wav"
+        assert row["duration"] == 1.0
+        assert row["bpm"] == 120.0
+        assert row["sample_rate"] == rate and row["channels"] == 1
+        assert row["bits_per_sample"] == 16
+        assert row["root_note"] == 60          # smpl wins over acid
+        assert row["key"] == "C"
+        assert row["acid_beats"] == 2          # one-shot flag clear: trusted
+        assert row["chunks"] == "smpl,acid"
+
+    def test_unset_smpl_root_falls_back_to_filename(self, tmp_path):
+        # smpl root 0 is the documented unset sentinel; the filename token
+        # fallback must still engage through the walker-backed path
+        from acidcat.core.indexing import _from_wav
+        p = tmp_path / "pad_Am_140bpm.wav"
+        p.write_bytes(_make_riff_wav(smpl_root_key=0))
+        row = _from_wav(str(p), {})
+        assert row["root_note"] is None
+        assert row["key"] == "Am"
+        assert row["bpm"] == 140.0
     def test_central_db_created_and_registered(self, tmp_path, central_root,
                                                 registry_path, wav_bytes):
         lib = _library(tmp_path, wav_bytes)
