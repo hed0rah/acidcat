@@ -20,21 +20,38 @@ def inspect_ogg(filepath):
     fields = [_f(0x00, 4, "codec", codec),
               _f(None, 0, "pages", len(pages)),
               _f(None, 0, "bitstream_serial", serial)]
+    warns = []
+    serials = {p["serial"] for p in pages}
+    if len(serials) > 1:
+        warns.append(f"{len(serials)} logical bitstreams (chained/muxed); "
+                     "duration and pages describe the first stream only")
     rate_txt = ""
     if ident and ident[1]:
-        chn, sr = ident[1].get("channels"), ident[1].get("sample_rate")
+        info = ident[1]
+        chn, sr = info.get("channels"), info.get("sample_rate")
         if chn is not None:
             fields.append(_f(None, 0, "channels", chn))
         if sr:
-            fields.append(_f(None, 0, "sample_rate", sr))
+            note = "Opus always decodes at 48 kHz" if "pre_skip" in info else ""
+            fields.append(_f(None, 0, "sample_rate", sr, note))
             rate_txt = f", {chn}ch {sr} Hz"
-        # duration from the last page's granule position (a running sample count).
-        # opus always counts granules at 48 kHz regardless of the decode rate.
+        if "pre_skip" in info:
+            fields.append(_f(None, 0, "pre_skip", info["pre_skip"],
+                             "priming samples dropped at decode start"))
+            if info.get("input_sample_rate"):
+                fields.append(_f(None, 0, "input_sample_rate",
+                                 info["input_sample_rate"],
+                                 "encoder input rate (informational)"))
+        # duration from the last granule position (a running sample count),
+        # scoped to the first stream's serial so a chained/muxed file does not
+        # mix counters. opus granules run at 48 kHz and include pre_skip.
         gran_rate = 48000 if "opus" in codec.lower() else sr
-        last_gran = max((p["granule"] for p in pages if p.get("granule", -1) >= 0),
+        last_gran = max((p["granule"] for p in pages
+                         if p["serial"] == serial and p.get("granule", -1) >= 0),
                         default=0)
         if gran_rate and last_gran > 0:
-            duration = last_gran / gran_rate
+            samples = max(0, last_gran - info.get("pre_skip", 0))
+            duration = samples / gran_rate
             fields.append(_f(None, 0, "duration", f"{duration:.3f} s"))
             rate_txt += f", {duration:.3f} s"
     chunks = [{"id": "OggS", "offset": 0, "size": file_size,
@@ -52,4 +69,4 @@ def inspect_ogg(filepath):
         chunks.append({"id": "comments", "offset": 0, "size": 0,
                        "summary": f"{len(tags)} Vorbis comment(s)",
                        "fields": fields, "warnings": []})
-    return chunks, []
+    return chunks, warns
