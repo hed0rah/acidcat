@@ -70,3 +70,112 @@ def test_audio_info_v2_quicktime_sample_entry():
             + struct.pack(">I", 6)                         # numAudioChannels
             + b"\x00" * 8)
     assert mp4.audio_info(_stsd(_box(b"lpcm", body))) == ("lpcm", 6, 96000)
+
+
+# ── esds / codec-config decoding ───────────────────────────────────
+
+def _esds_chain(asc, oti=0x40, max_br=256000, avg_br=192000):
+    """Build an ES_Descriptor -> DecoderConfig -> DecoderSpecificInfo chain."""
+    dsi = b"\x05" + bytes([len(asc)]) + asc
+    dcd = (b"\x04" + bytes([13 + len(dsi)]) + bytes([oti, 0x15])
+           + b"\x00\x00\x00" + struct.pack(">II", max_br, avg_br) + dsi)
+    return b"\x03" + bytes([3 + len(dcd)]) + b"\x00\x01\x00" + dcd
+
+
+def test_esds_descriptor_chain_and_asc():
+    # AAC LC (aot 2), 44100 (freq index 4), stereo: the classic 0x12 0x10
+    info = mp4.parse_esds(_esds_chain(b"\x12\x10"))
+    assert info["object_type_indication"] == 0x40
+    assert info["stream_type"] == 0x05                 # audio
+    assert info["max_bitrate"] == 256000
+    assert info["avg_bitrate"] == 192000
+    asc = mp4.parse_audio_specific_config(info["dsi"])
+    assert asc == {"object_type": 2, "sample_rate": 44100, "channels": 2}
+
+
+def test_asc_he_aac_explicit_sbr():
+    # aot 5 (SBR), core 22050 (index 7), stereo, extension rate 44100 (index 4)
+    # bits: 00101 0111 0010 0100 -> 0x2B 0x92 0x00
+    asc = mp4.parse_audio_specific_config(b"\x2b\x92\x00")
+    assert asc["object_type"] == 5
+    assert asc["sample_rate"] == 22050
+    assert asc["channels"] == 2
+    assert asc["ext_sample_rate"] == 44100
+
+
+def test_asc_explicit_24bit_rate():
+    # freq index 15 = a literal 24-bit rate follows; aot 2, 37800 Hz, mono
+    v = (2 << 35) | (15 << 31) | (37800 << 7) | (1 << 3)
+    asc = mp4.parse_audio_specific_config(v.to_bytes(5, "big"))
+    assert asc["sample_rate"] == 37800 and asc["channels"] == 1
+
+
+def test_alac_cookie_and_dops():
+    cookie = struct.pack(">IBBBBBBHIII", 4096, 0, 16, 40, 10, 14, 2, 255,
+                         0, 0, 44100)
+    c = mp4.parse_alac_cookie(cookie)
+    assert c["frame_length"] == 4096 and c["bit_depth"] == 16
+    assert c["channels"] == 2 and c["sample_rate"] == 44100
+    # dOps is big-endian (OpusHead in Ogg is little-endian -- same fields)
+    dops = (bytes([0, 2]) + struct.pack(">H", 312) + struct.pack(">I", 44100)
+            + struct.pack(">h", -256) + bytes([0]))
+    d = mp4.parse_dops(dops)
+    assert d["pre_skip"] == 312 and d["input_sample_rate"] == 44100
+    assert d["output_gain_db"] == -1.0 and d["mapping_family"] == 0
+
+
+def _audio_entry(codec, esds_asc=None):
+    body = (b"\x00" * 6 + struct.pack(">H", 1)
+            + struct.pack(">HH", 0, 0) + b"\x00" * 4
+            + struct.pack(">HHHH", 2, 16, 0, 0)
+            + struct.pack(">I", 44100 << 16))
+    if esds_asc is not None:
+        body += _box(b"esds", b"\x00\x00\x00\x00" + _esds_chain(esds_asc))
+    return _box(codec, body)
+
+
+def test_sample_entries_enumerates_config_children():
+    tree = _box(b"moov", _box(b"trak", _box(b"mdia", _box(b"minf", _box(
+        b"stbl", _stsd(_audio_entry(b"mp4a", esds_asc=b"\x12\x10")))))))
+    entries = list(mp4.sample_entries(tree))
+    assert len(entries) == 1
+    e = entries[0]
+    assert e["codec"] == b"mp4a" and e["channels"] == 2
+    assert e["sample_rate"] == 44100 and e["version"] == 0
+    kinds = [c[0] for c in e["children"]]
+    assert kinds == [b"esds"]
+
+
+def test_freeform_atoms_decoded():
+    def ff(mean, name, value):
+        return _box(b"----",
+                    _box(b"mean", b"\x00\x00\x00\x00" + mean)
+                    + _box(b"name", b"\x00\x00\x00\x00" + name)
+                    + _box(b"data", struct.pack(">II", 1, 0) + value))
+    ilst = _box(b"ilst", ff(b"com.serato.dj", b"bpm", b"128")
+                + ff(b"com.apple.iTunes", b"iTunNORM", b"0000 1234"))
+    tree = _box(b"moov", _box(b"udta", _box(
+        b"meta", b"\x00\x00\x00\x00" + ilst)))
+    meta = mp4.parse_ilst(tree)
+    assert meta["com.serato.dj:bpm"] == "128"
+    assert meta["iTunNORM"] == "0000 1234"    # apple namespace elided
+
+
+def test_walker_descends_stsd(tmp_path):
+    from acidcat.core.walk.mp4 import inspect_mp4
+    ftyp = _box(b"ftyp", b"M4A \x00\x00\x00\x00")
+    tree = ftyp + _box(b"moov", _box(b"trak", _box(b"mdia", _box(
+        b"minf", _box(b"stbl", _stsd(_audio_entry(b"mp4a",
+                                                  esds_asc=b"\x12\x10")))))))
+    p = tmp_path / "t.m4a"
+    p.write_bytes(tree)
+    chunks, warns = inspect_mp4(str(p))
+    ids = [c["id"] for c in chunks]
+    assert "mp4a" in ids and "esds" in ids            # entries now in the tree
+    esds = next(c for c in chunks if c["id"] == "esds")
+    vals = {f["name"]: f["value"] for f in esds["fields"]}
+    assert vals["aac_object_type"] == 2               # AAC LC
+    assert vals["asc_sample_rate"] == 44100
+    tags = next(c for c in chunks if c["id"] == "tags")
+    codec = next(f["value"] for f in tags["fields"] if f["name"] == "codec")
+    assert codec.startswith("AAC LC")                 # profile from the esds

@@ -78,9 +78,44 @@ def _parse_fmt(b, ctx):
     if tag == 1 and rate and align and avg != rate * align:
         warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
 
-    # a WAVEFORMATEX (extended, non-extensible) carries a cbSize at 0x10.
+    # a WAVEFORMATEX (extended, non-extensible) carries a cbSize at 0x10;
+    # its extension bytes are format-specific and worth breaking out.
     if tag != 0xFFFE and len(b) >= 18:
-        fields.append(_f(0x10, 2, "cb_size", _u16(b, 0x10), "extension bytes"))
+        cb = _u16(b, 0x10)
+        fields.append(_f(0x10, 2, "cb_size", cb, "extension bytes"))
+        ext = b[0x12:0x12 + cb]
+        if tag == 0x0002 and len(ext) >= 4:        # MS ADPCM
+            spb, ncoef = _u16(ext, 0), _u16(ext, 2)
+            fields.append(_f(0x12, 2, "samples_per_block", spb))
+            fields.append(_f(0x14, 2, "num_coef_pairs", ncoef))
+            pairs = []
+            for i in range(min(ncoef, (len(ext) - 4) // 4)):
+                c1, c2 = struct.unpack_from("<hh", ext, 4 + i * 4)
+                pairs.append(f"({c1},{c2})")
+            if pairs:
+                std = pairs[:7] == ["(256,0)", "(512,-256)", "(0,0)",
+                                    "(192,64)", "(240,0)", "(460,-208)",
+                                    "(392,-232)"] and ncoef == 7
+                fields.append(_f(0x16, len(pairs) * 4, "adpcm_coefficients",
+                                 " ".join(pairs),
+                                 "the standard predictor set" if std
+                                 else "custom predictors"))
+                if ncoef > len(pairs):
+                    warns.append(f"declares {ncoef} coefficient pairs but the "
+                                 f"extension holds {len(pairs)}")
+        elif tag == 0x0011 and len(ext) >= 2:      # IMA/DVI ADPCM
+            fields.append(_f(0x12, 2, "samples_per_block", _u16(ext, 0)))
+        elif tag == 0x0055 and len(ext) >= 12:     # MPEGLAYER3WAVEFORMAT
+            wid = _u16(ext, 0)
+            fdw = _u32(ext, 2)
+            pad = {0: "ISO padding", 1: "padding always", 2: "padding never"}
+            fields.append(_f(0x12, 2, "mp3_id", wid,
+                             "MPEGLAYER3_ID_MPEG" if wid == 1 else ""))
+            fields.append(_f(0x14, 4, "mp3_flags", f"0x{fdw:x}",
+                             pad.get(fdw & 0x3, ""), enc="<I", raw=fdw))
+            fields.append(_f(0x18, 2, "block_size", _u16(ext, 6), "bytes/frame"))
+            fields.append(_f(0x1A, 2, "frames_per_block", _u16(ext, 8)))
+            fields.append(_f(0x1C, 2, "codec_delay", _u16(ext, 10), "samples"))
 
     if tag == 0xFFFE and len(b) >= 40:
         cb = _u16(b, 0x10)
@@ -286,8 +321,14 @@ def _parse_cue(b, ctx):
     for i in range(min(declared, capacity)):
         base = 4 + i * 24
         cid, pos, fcc, cstart, bstart, sample = struct.unpack_from("<II4sIII", b, base)
-        fields.append(_f(base, 24, f"cue[{i}]", sample,
-                         f"id {cid}, in '{fcc.decode('ascii', errors='replace')}'"))
+        note = f"id {cid}, play order {pos}, in '{fcc.decode('ascii', errors='replace')}'"
+        fields.append(_f(base, 24, f"cue[{i}]", sample, note))
+        if cstart or bstart:
+            # nonzero only for block-compressed data: byte offset of the
+            # enclosing chunk and of the block holding the sample
+            fields.append(_f(base + 12, 8, f"cue[{i}]_block",
+                             f"chunk_start {cstart}, block_start {bstart}",
+                             "compressed-data addressing"))
     return f"{min(declared, capacity)} marker(s)", fields, warns
 
 
