@@ -384,8 +384,12 @@ def inspect_mp3(filepath, deep=False):
         )
     fields = [
         _f(0x00, 4, "sync", "0x7ff", f"{fh['version']}, {fh['layer']}"),
-        _f(None, 0, "bitrate", fh["bitrate"], "kbps (first frame)"),
-        _f(None, 0, "sample_rate", fh["sample_rate"], "Hz"),
+        # bitrate/sample_rate decode from indices in the header word, via tables
+        # chosen by the version+layer bits -> context-dependent enum bit-fields.
+        _f(0x00, 4, "bitrate", fh["bitrate"], "kbps (first frame)",
+           enc="bitsdyn:0:4:16:4:mpeg_bitrate"),
+        _f(0x00, 4, "sample_rate", fh["sample_rate"], "Hz",
+           enc="bitsdyn:0:4:20:2:mpeg_samplerate"),
         # channel_mode is bits 7-6 of the 4th header byte -> bitpos 24, width 2
         # in the 4-byte header word at 0x00; enum-mapped to the mode name.
         _f(0x00, 4, "channel_mode", fh["channel_mode_name"],

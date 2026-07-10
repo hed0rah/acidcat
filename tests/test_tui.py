@@ -111,7 +111,8 @@ def test_all_walker_enc_annotations_verify():
     pytest.importorskip("textual")
     from acidcat.core.walk import walk_file, Unsupported
     from acidcat.tui_app import (encode_value, _field_abs, parse_bitfield,
-                                 bitfield_extract, parse_bitsmap, _BITMAPS)
+                                 bitfield_extract, parse_bitsmap, _BITMAPS,
+                                 parse_bitsdyn, _DYNMAPS)
     fixtures = [
         "data/samples/Drum_Loop.wav",
         "data/test_formats/wav51.wav",             # WAVE_FORMAT_EXTENSIBLE channel_mask
@@ -151,6 +152,12 @@ def test_all_walker_enc_annotations_verify():
                     raw = bitfield_extract(cont, bitpos, width, 0)
                     assert _BITMAPS[mapid].get(raw) == fl["value"], (
                         f"{path} {c['id']} {fl['name']}: bitsmap decodes wrong")
+                elif parse_bitsdyn(fl["enc"]) is not None:
+                    delta, clen, bitpos, width, dynid = parse_bitsdyn(fl["enc"])
+                    cont = data[ab + delta:ab + delta + clen]
+                    raw = bitfield_extract(cont, bitpos, width, 0)
+                    assert _DYNMAPS[dynid](cont).get(raw) == fl["value"], (
+                        f"{path} {c['id']} {fl['name']}: bitsdyn decodes wrong")
                 else:
                     rb = data[ab:ab + fl["len"]]
                     raw = fl.get("raw", fl.get("value"))
