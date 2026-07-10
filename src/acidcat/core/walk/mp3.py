@@ -384,6 +384,8 @@ def inspect_mp3(filepath, deep=False):
         )
     fields = [
         _f(0x00, 4, "sync", "0x7ff", f"{fh['version']}, {fh['layer']}"),
+        _f(0x00, 4, "version", fh["version"], enc="bitsmap:0:4:11:2:mpeg_version"),
+        _f(0x00, 4, "layer", fh["layer"], enc="bitsmap:0:4:13:2:mpeg_layer"),
         # bitrate/sample_rate decode from indices in the header word, via tables
         # chosen by the version+layer bits -> context-dependent enum bit-fields.
         _f(0x00, 4, "bitrate", fh["bitrate"], "kbps (first frame)",
@@ -394,7 +396,10 @@ def inspect_mp3(filepath, deep=False):
         # in the 4-byte header word at 0x00; enum-mapped to the mode name.
         _f(0x00, 4, "channel_mode", fh["channel_mode_name"],
            enc="bitsmap:0:4:24:2:mpeg_chanmode"),
-        _f(None, 0, "crc_protected", fh["has_crc"]),
+        # protection bit is inverted (0 = CRC present); enum handles that
+        _f(0x00, 4, "crc_protected",
+           "protected" if fh["has_crc"] else "unprotected",
+           enc="bitsmap:0:4:15:1:mpeg_crc"),
         _f(None, 0, "samples_per_frame", fh["samples_per_frame"]),
     ]
     if fh["emphasis"] != "none":

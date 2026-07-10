@@ -182,10 +182,15 @@ def bitfield_apply(container, bitpos, width, bias, value):
 # (the walker's own decode table). enc="bitsmap:DELTA:CLEN:BITPOS:WIDTH:MAPID".
 # The reverse map (label -> raw) lets the user edit by name; the same RMW writes.
 from acidcat.core.mp3 import (_CHANNEL_MODES as _MP3_CHANMODE,  # noqa: E402
-                              _EMPHASIS as _MP3_EMPHASIS)
+                              _EMPHASIS as _MP3_EMPHASIS,
+                              _VERSION as _MP3_VERSION, _LAYER as _MP3_LAYER)
 from acidcat.core.walk.aiff import _LOOP_MODES as _AIFF_LOOP_MODES  # noqa: E402
 _BITMAPS = {"mpeg_chanmode": dict(_MP3_CHANMODE),
             "mpeg_emphasis": dict(_MP3_EMPHASIS),
+            "mpeg_version": dict(_MP3_VERSION),
+            "mpeg_layer": dict(_MP3_LAYER),
+            # protection bit is inverted: stored 0 = CRC present (protected)
+            "mpeg_crc": {0: "protected", 1: "unprotected"},
             "aiff_loop_mode": dict(_AIFF_LOOP_MODES)}
 
 
