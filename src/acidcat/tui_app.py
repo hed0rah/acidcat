@@ -150,6 +150,34 @@ _CODECS = {
 }
 
 
+# bit-packed fields declare enc="bits:DELTA:CLEN:BITPOS:WIDTH:BIAS": the field
+# lives inside a CLEN-byte container starting DELTA bytes from the field's own
+# offset; its value occupies WIDTH bits starting BITPOS bits from the container
+# MSB; the stored bits are (display value + BIAS) (e.g. FLAC channels store
+# count-1, so BIAS=-1). Editing does a read-modify-write on the container so the
+# neighbouring bit-fields sharing those bytes are preserved.
+def parse_bitfield(enc):
+    if not isinstance(enc, str) or not enc.startswith("bits:"):
+        return None
+    delta, clen, bitpos, width, bias = (int(x) for x in enc.split(":")[1:])
+    return delta, clen, bitpos, width, bias
+
+
+def bitfield_extract(container, bitpos, width, bias):
+    shift = len(container) * 8 - bitpos - width
+    return ((int.from_bytes(container, "big") >> shift) & ((1 << width) - 1)) - bias
+
+
+def bitfield_apply(container, bitpos, width, bias, value):
+    shift = len(container) * 8 - bitpos - width
+    v = int(value) + bias
+    if shift < 0 or v < 0 or v >= (1 << width):
+        raise ValueError("bitfield value out of range")
+    ci = int.from_bytes(container, "big")
+    mask = ((1 << width) - 1) << shift
+    return ((ci & ~mask) | (v << shift)).to_bytes(len(container), "big")
+
+
 def enc_size(enc):
     return _CODECS[enc][0] if enc in _CODECS else struct.calcsize(enc)
 
@@ -818,6 +846,27 @@ class AcidcatTUI(App):
         name = (node.label.plain if isinstance(node.label, Text)
                 else str(node.label)).strip()
         value, enc, raw_val = self._editval.get(id(node), (None, None, None))
+        # bit-packed field: read-modify-write the value inside its container bytes
+        # so neighbouring bit-fields survive. Only if the annotation decodes to
+        # the shown value (same self-verify guard).
+        bf = parse_bitfield(enc)
+        if bf is not None:
+            delta, clen, bitpos, width, bias = bf
+            cont_off = off + delta
+            cur = _read(self.work, cont_off, clen)
+            if (len(cur) == clen and clen * 8 - bitpos - width >= 0
+                    and bitfield_extract(cur, bitpos, width, bias) == value):
+                self._edit_target = {"off": cont_off, "length": clen, "name": name,
+                                     "mode": "bitfield", "fmt": None, "accent": accent,
+                                     "bitpos": bitpos, "width": width, "bias": bias}
+                bar = self.query_one("#editbar", Input)
+                bar.value = str(value)
+                bar.remove_class("hidden")
+                self._update_edit_title()
+                bar.focus()
+                self._render_preview()
+                return
+            # annotation did not verify -> fall through to hex of the field bytes
         fmt = initial = None
         # 1) trust the walker's declared encoding ONLY if it reproduces the
         #    current bytes -- a wrong annotation must never write blind.
@@ -852,6 +901,8 @@ class AcidcatTUI(App):
         bar = self.query_one("#editbar", Input)
         if tgt["mode"] == "value":
             kind = f"value ({tgt['fmt']})"
+        elif tgt["mode"] == "bitfield":
+            kind = f"value ({tgt['width']}-bit packed field)"
         elif tgt["mode"] == "text":
             kind = f"text -> {tgt['metafield']} (variable length)"
         else:
@@ -891,10 +942,16 @@ class AcidcatTUI(App):
         self._render_preview()
 
     def _patch_from_input(self, text):
-        """Turn the current editbar text into bytes, or None if invalid/incomplete
-        for the field's length."""
+        """Turn the current editbar text into bytes for the field's byte range, or
+        None if invalid/incomplete."""
         tgt = self._edit_target
         try:
+            if tgt["mode"] == "bitfield":
+                cur = _read(self.work, tgt["off"], tgt["length"])
+                if len(cur) != tgt["length"]:
+                    return None
+                return bitfield_apply(cur, tgt["bitpos"], tgt["width"],
+                                      tgt["bias"], int(text.strip(), 0))
             if tgt["mode"] == "value":
                 patch = encode_value(tgt["fmt"], text.strip())
             else:
