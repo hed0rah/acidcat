@@ -97,6 +97,25 @@ def test_ogg_chained_streams_duration_scoped_to_first(tmp_path):
     assert any("logical bitstreams" in w for w in warns)
 
 
+def test_ncw_header_decoded(tmp_path):
+    # NI Compressed Wave: magic + audio params at fixed offsets; the walker
+    # was previously the only one with no test at all
+    head = bytearray(0x78)
+    head[0:4] = b"\x01\xa8\x9e\xd6"
+    struct.pack_into("<H", head, 0x08, 2)
+    struct.pack_into("<H", head, 0x0A, 24)
+    struct.pack_into("<I", head, 0x0C, 44100)
+    struct.pack_into("<I", head, 0x10, 88200)
+    f = tmp_path / "s.ncw"
+    f.write_bytes(bytes(head))
+    label, chunks, warns = walk_file(str(f))
+    assert "Compressed Wave" in label
+    assert _field(chunks, "channels") == 2
+    assert _field(chunks, "bits_per_sample") == 24
+    assert _field(chunks, "sample_rate") == 44100
+    assert _field(chunks, "num_samples") == 88200
+
+
 def test_fxp_vst_preset(tmp_path):
     # VST2 .fxp: CcnK + FPCh (opaque-chunk preset), plugin id, 28-byte name
     name = b"My Preset".ljust(28, b"\x00")
