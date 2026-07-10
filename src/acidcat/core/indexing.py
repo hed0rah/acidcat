@@ -13,7 +13,6 @@ from acidcat.core import index as idx
 from acidcat.core import paths as acidpaths
 from acidcat.core import registry as reg
 from acidcat.core.riff import (
-    parse_riff, get_duration, get_fmt_info,
     smpl_root_or_none, acid_root_or_none, effective_acid_beats,
 )
 from acidcat.core.aiff import is_aiff, parse_aiff
@@ -256,34 +255,46 @@ def _extract_for_index(filepath, scan_root, mtime, size, walk_start,
 
 
 def _from_wav(filepath, row, do_deep=False):
+    """WAV row extraction, driven by the inspect walker (the single WAV
+    decoder since the 2026-07-10 unification): one walk fills a semantic
+    ctx dict; the legacy core/riff parse is no longer run here."""
     from acidcat.util.midi import midi_note_to_pitch_class
     from acidcat.core.detect import parse_key_from_path, parse_bpm_from_filename
+    from acidcat.core.walk.wav import inspect_wav
 
-    _, meta, seen = parse_riff(filepath, enumerate_all=False)
-    duration = get_duration(filepath)
-    fmt = get_fmt_info(filepath)
+    ctx = {}
+    chunks, _warns = inspect_wav(filepath, ctx=ctx)
+    # rounded to match the retired core/riff.get_duration, so migrated rows
+    # compare equal to previously indexed ones
+    duration = round(ctx["duration"], 4) if ctx.get("duration") else None
 
     row["format"] = "wav"
     row["duration"] = duration
-    row["bpm"] = meta.get("bpm")
+    row["bpm"] = ctx.get("acid_bpm")
 
-    # SMPL/ACID root_note = 0 (MIDI C-1) is the default "unset" value.
+    # SMPL/ACID root_note = 0 (MIDI C-1) is the documented "unset" value.
     # Treat it as missing so we can fall back to filename parsing.
-    smpl = smpl_root_or_none(meta)
-    acid = acid_root_or_none(meta)
+    smpl = smpl_root_or_none(ctx.get("smpl_root"))
+    acid = acid_root_or_none(ctx.get("acid_root"))
 
     # key stores pitch class only (no octave); full MIDI int lives in root_note.
     row["key"] = midi_note_to_pitch_class(smpl) or midi_note_to_pitch_class(acid)
-    row["acid_beats"] = effective_acid_beats(meta, duration)
+    row["acid_beats"] = effective_acid_beats(
+        {"acid_beats": ctx.get("acid_beats"),
+         "acid_one_shot": ctx.get("acid_one_shot"),
+         "bpm": ctx.get("acid_bpm")}, duration)
     row["root_note"] = smpl or acid
-    row["chunks"] = ",".join(
-        c for c in seen if c not in ("RIFF", "WAVE", "fmt ", "data")
-    ) or None
+    # unique ids in first-seen order (a file can carry two LIST chunks;
+    # the legacy path listed each id once and queries substring-match)
+    row["chunks"] = ",".join(dict.fromkeys(
+        c["id"] for c in chunks
+        if c["id"] not in ("RIFF", "WAVE", "fmt ", "data")
+    )) or None
 
-    if fmt:
-        row["sample_rate"] = fmt.get("sample_rate")
-        row["channels"] = fmt.get("channels")
-        row["bits_per_sample"] = fmt.get("bits_per_sample")
+    if ctx.get("sample_rate"):
+        row["sample_rate"] = ctx.get("sample_rate")
+        row["channels"] = ctx.get("channels")
+        row["bits_per_sample"] = ctx.get("bits")
 
     if row["key"] is None:
         row["key"] = parse_key_from_path(filepath)
