@@ -1030,8 +1030,9 @@ class AcidcatTUI(App):
         if tgt["mode"] == "value":
             kind = f"value ({tgt['fmt']})"
         elif tgt["mode"] == "bitsmap":
-            opts = " | ".join(str(v) for v in _BITMAPS.get(tgt["mapid"], {}).values())
-            kind = f"enum: {opts}"
+            vals = list(_BITMAPS.get(tgt["mapid"], {}).values())
+            kind = (f"enum ({tgt['mapid']}, {len(vals)} options)" if len(vals) > 8
+                    else "enum: " + " | ".join(str(v) for v in vals))
         elif tgt["mode"] == "bitsdyn":
             cur = _read(self.work, tgt["off"], tgt["length"])
             opts = " | ".join(str(v) for v in _DYNMAPS[tgt["dynid"]](cur).values())
