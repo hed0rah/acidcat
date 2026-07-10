@@ -170,6 +170,17 @@ def test_whole_file_read_is_capped(tmp_path, monkeypatch):
     assert meta["tempo_bpm"] == 120.0
 
 
+def test_inspect_midi_short_mthd_degrades(tmp_path):
+    """a file cut off inside the MThd header (reachable via a truncated RMID
+    data chunk or a direct call) degrades to a warning, not a struct.error."""
+    from acidcat.core.walk.midi import inspect_midi
+    f = tmp_path / "cut.mid"
+    f.write_bytes(b"MThd\x00\x00\x00\x06")   # 8 bytes; a full header needs 14
+    chunks, warns = inspect_midi(str(f))
+    assert chunks == []
+    assert any("MThd" in w for w in warns)
+
+
 def test_sysex_noncommercial_id_flagged_as_cavity(tmp_path):
     """A SysEx event with the 0x7D non-commercial manufacturer id (no synth acts
     on it) is a payload-cavity tell; the walker warns."""

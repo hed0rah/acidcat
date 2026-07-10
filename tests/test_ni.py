@@ -31,6 +31,30 @@ def test_msgpack_round_trip():
         assert pos == len(enc)
 
 
+def test_msgpack_forged_count_rejected():
+    # array/map headers claiming more elements than the remaining payload could
+    # possibly hold must raise, not iterate: _mp_decode stops advancing at EOF,
+    # so an unchecked count of ~4 billion is a multi-minute hang plus an
+    # OOM-sized output list.
+    for payload in (b"\xdd\xff\xff\xff\xff",     # array32, count 2^32-1, no body
+                    b"\xdf\xff\xff\xff\xff",     # map32
+                    b"\xdc\xff\xff",             # array16
+                    b"\xde\xff\xff",             # map16
+                    b"\x9f\x01\x01\x01"):        # fixarray of 15, 3 bytes left
+        with pytest.raises(ValueError):
+            ni._mp_decode(payload)
+
+
+def test_parse_nksf_forged_count_degrades():
+    # the same forged header inside a real RIFF/NIKS container: parse_nksf must
+    # return None promptly (this is also the unattended `acidcat index` path)
+    nisi = struct.pack("<I", 1) + b"\xdd\xff\xff\xff\xff"
+    body = (b"NIKS" + b"NISI" + struct.pack("<I", len(nisi)) + nisi
+            + (b"\x00" if len(nisi) & 1 else b""))
+    data = b"RIFF" + struct.pack("<I", len(body)) + body
+    assert ni.parse_nksf(data) is None
+
+
 def test_msgpack_decodes_real_int_widths():
     # a genuine NI msgpack map can carry uint16/uint32/int8/float64 fields; the
     # decoder must read them (a value >127 previously raised "unsupported type").
