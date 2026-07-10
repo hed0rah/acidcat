@@ -246,6 +246,7 @@ def inspect_midi(filepath, deep=False):
     offset = 8 + hdr_len
     found = 0
     first_tempo = None
+    tempo_lists = []
     max_ticks = 0
     while offset + 8 <= file_size and found < ntrks:
         if data[offset:offset + 4] != b"MTrk":
@@ -298,6 +299,7 @@ def inspect_midi(filepath, deep=False):
                        "on it" if reserved else f"oversized ({slen:,} bytes)")
                 entry["warnings"].append(f"SysEx {why}: possible payload cavity")
         max_ticks = max(max_ticks, st["ticks"])
+        tempo_lists.append(st["tempos"])
 
         bits = []
         if st["names"]:
@@ -315,5 +317,28 @@ def inspect_midi(filepath, deep=False):
         file_warns.append(f"MThd declares {ntrks} tracks, found {found}")
     if not (division & 0x8000) and first_tempo is None and found:
         file_warns.append("no tempo event in any track; players assume 120 bpm")
+
+    # wall-clock duration on the MThd chunk (matches core/midi.py): SMPTE
+    # division is tempo-independent; PPQ uses the first tempo (the SMF
+    # default 120 when none), noted as approximate if the tempo changes.
+    dur = note = None
+    n_tempos = sum(len(c) for c in tempo_lists)
+    if division & 0x8000:
+        tps = ctx.get("ticks_per_sec")
+        if tps and max_ticks:
+            dur = max_ticks / tps
+            note = "SMPTE timing, tempo-independent"
+    elif division and max_ticks:
+        bpm = first_tempo or 120.0
+        dur = (max_ticks / division) * 60.0 / bpm
+        note = f"at {bpm:g} bpm"
+        if first_tempo is None:
+            note = "at the SMF default 120 bpm (no tempo event)"
+        elif n_tempos > 1:
+            note += f"; {n_tempos} tempo events make this approximate"
+    if dur is not None:
+        chunks[0]["fields"].append(
+            _f(None, 0, "duration", f"{dur:.3f} s", note))
+        chunks[0]["summary"] += f", ~{dur:.1f} s"
 
     return chunks, file_warns

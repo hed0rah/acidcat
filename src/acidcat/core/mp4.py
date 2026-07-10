@@ -196,6 +196,209 @@ def _decode_data_box(data, start, end):
     return f"{len(val):,} bytes (type {type_ind})"
 
 
+# ── stsd sample-entry / codec-config decoding ──────────────────────
+
+# ISO 14496-3 samplingFrequencyIndex table (index 15 = explicit 24-bit rate)
+_ASC_RATES = (96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050,
+              16000, 12000, 11025, 8000, 7350)
+
+_AAC_OBJECT_TYPES = {
+    1: "AAC Main", 2: "AAC LC", 3: "AAC SSR", 4: "AAC LTP",
+    5: "SBR (HE-AAC)", 6: "AAC Scalable", 17: "ER AAC LC", 23: "ER AAC LD",
+    29: "PS (HE-AACv2)", 39: "ER AAC ELD", 42: "USAC (xHE-AAC)",
+}
+
+# objectTypeIndication in the DecoderConfigDescriptor
+_ESDS_OTI = {
+    0x40: "MPEG-4 Audio", 0x66: "MPEG-2 AAC Main", 0x67: "MPEG-2 AAC LC",
+    0x68: "MPEG-2 AAC SSR", 0x69: "MPEG-2 audio (Layer 1/2/3)",
+    0x6B: "MPEG-1 audio (MP3)",
+}
+
+
+def _desc_len(data, pos, end):
+    """MPEG-4 descriptor 'expandable' length: base-128, the high bit of each
+    byte says another follows, at most 4 bytes. Returns (size, new_pos) or
+    (None, pos) on truncation."""
+    size = 0
+    for _ in range(4):
+        if pos >= end:
+            return None, pos
+        b = data[pos]
+        pos += 1
+        size = (size << 7) | (b & 0x7F)
+        if not (b & 0x80):
+            return size, pos
+    return size, pos
+
+
+def parse_esds(payload):
+    """Decode an esds box payload (after its 4-byte version/flags): the
+    ES_Descriptor -> DecoderConfigDescriptor -> DecoderSpecificInfo chain.
+    Returns {es_id, object_type_indication, stream_type, buffer_size,
+    max_bitrate, avg_bitrate, dsi} with whatever was present."""
+    out = {}
+    pos, end = 0, len(payload)
+    while pos < end:
+        tag = payload[pos]
+        pos += 1
+        size, pos = _desc_len(payload, pos, end)
+        if size is None:
+            break
+        body_end = min(pos + size, end)
+        if tag == 0x03:                     # ES_Descriptor: descend
+            if pos + 3 > body_end:
+                break
+            out["es_id"] = int.from_bytes(payload[pos:pos + 2], "big")
+            flags = payload[pos + 2]
+            skip = 3
+            if flags & 0x80:                # streamDependenceFlag
+                skip += 2
+            if flags & 0x40 and pos + skip < body_end:   # URL_Flag
+                skip += 1 + payload[pos + skip]
+            if flags & 0x20:                # OCRstreamFlag
+                skip += 2
+            pos += skip
+        elif tag == 0x04:                   # DecoderConfigDescriptor: descend
+            if pos + 13 > body_end:
+                break
+            out["object_type_indication"] = payload[pos]
+            out["stream_type"] = payload[pos + 1] >> 2
+            out["buffer_size"] = int.from_bytes(payload[pos + 2:pos + 5], "big")
+            out["max_bitrate"] = int.from_bytes(payload[pos + 5:pos + 9], "big")
+            out["avg_bitrate"] = int.from_bytes(payload[pos + 9:pos + 13], "big")
+            pos += 13
+        elif tag == 0x05:                   # DecoderSpecificInfo (leaf)
+            out["dsi"] = bytes(payload[pos:body_end])
+            pos = body_end
+        else:                               # SLConfig (0x06) and friends
+            pos = body_end
+    return out or None
+
+
+def parse_audio_specific_config(dsi):
+    """Decode the leading bits of an AudioSpecificConfig (ISO 14496-3):
+    audioObjectType (5 bits, escape 31 -> +6 bits), samplingFrequencyIndex
+    (4 bits, 15 -> explicit 24-bit rate), channelConfiguration (4 bits),
+    plus the extension rate when SBR/PS is signalled explicitly."""
+    if len(dsi) < 2:
+        return None
+    v = int.from_bytes(dsi[:12].ljust(12, b"\0"), "big")
+    nbits, pos = 96, 0
+
+    def take(n):
+        nonlocal pos
+        pos += n
+        return (v >> (nbits - pos)) & ((1 << n) - 1)
+
+    aot = take(5)
+    if aot == 31:
+        aot = 32 + take(6)
+    fi = take(4)
+    rate = take(24) if fi == 15 else (
+        _ASC_RATES[fi] if fi < len(_ASC_RATES) else None)
+    out = {"object_type": aot, "sample_rate": rate, "channels": take(4)}
+    if aot in (5, 29):                      # explicit SBR/PS: extension rate
+        efi = take(4)
+        out["ext_sample_rate"] = take(24) if efi == 15 else (
+            _ASC_RATES[efi] if efi < len(_ASC_RATES) else None)
+    return out
+
+
+def parse_alac_cookie(payload):
+    """Decode an alac box payload (after its 4-byte version/flags): the ALAC
+    magic cookie, 24 big-endian bytes of codec parameters."""
+    if len(payload) < 24:
+        return None
+    fl, cv, bits, pb, mb, kb, ch, maxrun = struct.unpack_from(
+        ">IBBBBBBH", payload, 0)
+    maxframe, avgbr, rate = struct.unpack_from(">III", payload, 12)
+    return {"frame_length": fl, "compatible_version": cv, "bit_depth": bits,
+            "pb": pb, "mb": mb, "kb": kb, "channels": ch, "max_run": maxrun,
+            "max_frame_bytes": maxframe, "avg_bitrate": avgbr,
+            "sample_rate": rate}
+
+
+def parse_dops(payload):
+    """Decode a dOps box payload (no version/flags prefix). NB: unlike the
+    OpusHead packet in Ogg (little-endian), the ISO-BMFF dOps box is
+    big-endian -- same fields, opposite byte order."""
+    if len(payload) < 11:
+        return None
+    ver, ch = payload[0], payload[1]
+    pre_skip = struct.unpack_from(">H", payload, 2)[0]
+    in_rate = struct.unpack_from(">I", payload, 4)[0]
+    gain = struct.unpack_from(">h", payload, 8)[0]
+    family = payload[10]
+    return {"version": ver, "channels": ch, "pre_skip": pre_skip,
+            "input_sample_rate": in_rate, "output_gain_db": gain / 256.0,
+            "mapping_family": family}
+
+
+def sample_entries(data):
+    """Enumerate the stsd box's sample entries. Yields dicts {codec, offset,
+    size, hdr, depth, version, channels, sample_size, sample_rate, children}
+    where children are the entry's own codec-config boxes (esds, alac, dOps,
+    and the contents of a QuickTime 'wave' wrapper), each as (type, offset,
+    hdr, size)."""
+    for b in iter_boxes(data):
+        if b["type"] != b"stsd" or b["truncated"]:
+            continue
+        send = b["offset"] + b["size"]
+        if b["offset"] + b["hdr"] + 8 > len(data):
+            return
+        count = struct.unpack_from(">I", data, b["offset"] + b["hdr"] + 4)[0]
+        pos = b["offset"] + b["hdr"] + 8
+        for _ in range(min(count, 64)):
+            eh = _box_header(data, pos, send, len(data))
+            if eh is None:
+                return
+            codec, ehdr, esize, _ = eh
+            entry = {"codec": codec, "offset": pos, "size": esize,
+                     "hdr": ehdr, "depth": b["depth"] + 1, "children": []}
+            ap = pos + ehdr
+            child_start = None
+            if ap + 28 <= min(len(data), pos + esize):
+                version = struct.unpack_from(">H", data, ap + 8)[0]
+                entry["version"] = version
+                if version == 2 and ap + 64 <= len(data):
+                    rate_f = struct.unpack_from(">d", data, ap + 32)[0]
+                    entry["sample_rate"] = int(rate_f) if (
+                        math.isfinite(rate_f) and 0 < rate_f < 1e7) else None
+                    entry["channels"] = struct.unpack_from(">I", data, ap + 40)[0]
+                    entry["sample_size"] = struct.unpack_from(">I", data, ap + 48)[0]
+                    child_start = ap + 64
+                else:
+                    entry["channels"] = struct.unpack_from(">H", data, ap + 16)[0]
+                    entry["sample_size"] = struct.unpack_from(">H", data, ap + 18)[0]
+                    entry["sample_rate"] = struct.unpack_from(
+                        ">I", data, ap + 24)[0] >> 16
+                    # v1 appends four u32s (samples/packet etc.) after the rate
+                    child_start = ap + 28 + (16 if version == 1 else 0)
+            if child_start is not None:
+                entry["children"] = _config_children(
+                    data, child_start, pos + esize)
+            yield entry
+            pos += esize
+
+
+def _config_children(data, start, end, depth=0):
+    """The codec-config boxes inside a sample entry, flattening one level of
+    QuickTime 'wave' wrapper (which holds frma/mp4a/esds/terminator)."""
+    out = []
+    pos = start
+    while pos + 8 <= end and depth < 3:
+        hd = _box_header(data, pos, end, len(data))
+        if hd is None:
+            break
+        btype, hdr, size, _ = hd
+        out.append((btype, pos, hdr, size))
+        if btype == b"wave":
+            out.extend(_config_children(data, pos + hdr, pos + size, depth + 1))
+        pos += size
+    return out
+
+
 def _decode_gnre(data, start, end):
     """Decode a 'gnre' data box: type indicator 0, a big-endian u16 holding
     the ID3v1 genre index + 1. Older iTunes wrote genre this way instead of
@@ -207,6 +410,31 @@ def _decode_gnre(data, start, end):
     if 0 <= idx < len(ID3V1_GENRES):
         return ID3V1_GENRES[idx]
     return None
+
+
+def _decode_freeform(data, tag):
+    """Decode a '----' freeform tag box: children are 'mean' (a FullBox whose
+    payload is a reverse-DNS namespace, e.g. com.apple.iTunes or
+    com.serato.dj), 'name' (a FullBox with the key name), and 'data'. Returns
+    (namespace:name, value); the com.apple.iTunes namespace is elided since
+    it is the overwhelming default."""
+    mean = name = value = None
+    tstart = tag["offset"] + tag["hdr"]
+    tend = tag["offset"] + tag["size"]
+    for c in iter_boxes(data, tstart, tend, depth=tag["depth"] + 1):
+        if c["depth"] != tag["depth"] + 1 or c["truncated"]:
+            continue
+        cs, ce = c["offset"], c["offset"] + c["size"]
+        if c["type"] == b"mean" and ce - cs > 12:
+            mean = data[cs + 12:ce].decode("utf-8", errors="replace")
+        elif c["type"] == b"name" and ce - cs > 12:
+            name = data[cs + 12:ce].decode("utf-8", errors="replace")
+        elif c["type"] == b"data":
+            value = _decode_data_box(data, cs, ce)
+    if not name:
+        return None, None
+    prefix = "" if mean in (None, "com.apple.iTunes") else f"{mean}:"
+    return f"{prefix}{name}", value
 
 
 def _decode_index_pair(data, start, end):
@@ -233,6 +461,13 @@ def parse_ilst(data):
         istart, iend = b["offset"] + b["hdr"], b["offset"] + b["size"]
         for tag in iter_boxes(data, istart, iend, depth=b["depth"] + 1):
             if tag["depth"] != b["depth"] + 1:  # direct children of ilst only
+                continue
+            if tag["type"] == b"----":
+                # freeform atom: mean (reverse-DNS namespace) + name + data.
+                # Serato, MusicBrainz, and iTunes normalization data live here.
+                key, v = _decode_freeform(data, tag)
+                if key and v is not None and key not in meta:
+                    meta[key] = v
                 continue
             label = _ILST_TAGS.get(tag["type"])
             if not label or label in meta:
