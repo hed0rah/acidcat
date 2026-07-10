@@ -4,6 +4,55 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.21.0] - 2026-07-10
+
+### Added
+
+- `acidcat tui` (new `[tui]` extra): an interactive terminal inspector and
+  byte-level metadata editor built on textual, imported lazily so the core
+  stays dependency-light. Chunk/field/row tree with a hex pane and forensics
+  panel, a file browser, a metadata form, and a layered field editor:
+  variable-length text fields route through the write engine (so lengths can
+  change); numeric fields value-edit via a verified encoding (struct formats,
+  ID3 synchsafe, AIFF 80-bit float, u24be, bit-packed fields, enum bit-fields
+  editable by name, and context-dependent enums such as MP3 bitrate and
+  sample rate, whose value tables depend on the version/layer bits); anything
+  else hex-edits in place. Every walker-declared encoding is trusted only
+  after it re-encodes to the field's actual on-disk bytes, so a wrong
+  annotation can never write blind. All edits apply to a temp working copy;
+  nothing touches the original until ctrl+s, which makes a pristine
+  `_original` backup. Undo, unsaved-changes prompts, a help overlay, and
+  per-field editability hints. The cursor and expansion state survive the
+  tree rebuild after each edit.
+- `write --strip` (and the TUI `s` key): remove identifying metadata (WAV
+  LIST/bext/iXML/cart/ID3/XMP, AIFF NAME/AUTH/ANNO/copyright/ID3/APPL, all
+  tags on MP3/FLAC/OGG/M4A, Vital author/comments) while preserving the audio
+  byte-for-byte, verified after the rewrite.
+- Walker coverage pass: formatted and bit-packed fields across WAV, MP3,
+  AIFF, FLAC, MIDI, RX2, and FXP carry verified encoding annotations;
+  composite fields (MP3 gapless and replay_gain, AIFF AESD channel status,
+  WAV smpl loops) split into editable subfields; FLAC STREAMINFO is fully
+  value-editable via a read-modify-write that preserves neighbouring
+  bit-fields.
+
+### Changed
+
+- MP3 inspect output decodes more of the frame header in place: `version`
+  and `layer` are their own fields, `crc_protected` reports
+  `protected`/`unprotected` instead of a boolean, and
+  `bitrate`/`sample_rate`/`channel_mode`/`emphasis` carry the header word's
+  real offset and length instead of null. New fields: LAME
+  `replay_gain_type`/`replay_gain_sign`/`replay_gain_mag`,
+  `encoder_delay`/`encoder_padding`, AIFF `aes_*` status subfields, and WAV
+  `loop[N]_type`. Consumers parsing inspect JSON for MP3 will see the new
+  shape.
+
+### Fixed
+
+- inspect JSON (plain and `--full`) no longer leaks the editor-only
+  `enc`/`raw` field keys; the field-level `raw` also collided with the
+  chunk-level `raw` hex bytes that `--full` emits.
+
 ## [0.20.0] - 2026-07-08
 
 ### Changed
