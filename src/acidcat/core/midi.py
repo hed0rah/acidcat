@@ -57,8 +57,11 @@ def parse_midi(filepath):
         "channels_used": set(),
     }
 
+    # clamp the read to the real size: read(N) PRE-ALLOCATES an N-byte buffer
+    # before reading, so an unclamped 256 MB cap costs ~50 ms per file on
+    # Windows even for a 66-byte loop (found by benchmark, 2026-07-10)
     with open(filepath, "rb") as f:
-        data = f.read(MAX_SMF_BYTES)
+        data = f.read(min(MAX_SMF_BYTES, os.path.getsize(filepath)))
 
     if len(data) < 14 or data[0:4] != b"MThd":
         return meta

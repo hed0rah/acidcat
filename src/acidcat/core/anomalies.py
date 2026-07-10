@@ -83,7 +83,8 @@ def scan(filepath, fmt_label, chunks, warns):
                                     f"container end"})
         with open(filepath, "rb") as f:
             f.seek(end)
-            tail = f.read(1 << 20)
+            # clamped: read(N) pre-allocates N bytes (see core/midi.py)
+            tail = f.read(min(1 << 20, size - end))
         for magic, label in _MAGICS:
             if magic in tail:
                 findings.append({"severity": "alert", "offset": end, "rule": "polyglot",
@@ -182,7 +183,9 @@ def scan(filepath, fmt_label, chunks, warns):
         try:
             from acidcat.core import ogg as _ogg
             with open(filepath, "rb") as f:
-                ogg_data = f.read(16 * 1024 * 1024)
+                # clamped: read(N) pre-allocates N bytes (see core/midi.py)
+                ogg_data = f.read(min(16 * 1024 * 1024,
+                                      os.path.getsize(filepath)))
             serials = {pg["serial"] for pg in _ogg.iter_pages(ogg_data)
                        if pg["header_type"] & 0x02}
             if len(serials) > 1:

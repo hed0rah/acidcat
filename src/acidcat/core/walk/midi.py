@@ -194,8 +194,9 @@ def inspect_midi(filepath, deep=False):
     """Walk a Standard MIDI File and return (chunks, file_warnings).
     With ``deep``, each MTrk carries a per-event listing."""
     file_size = os.path.getsize(filepath)
+    # clamped read: read(N) pre-allocates N bytes (see core/midi.py)
     with open(filepath, "rb") as f:
-        data = f.read(midimod.MAX_SMF_BYTES)
+        data = f.read(min(midimod.MAX_SMF_BYTES, file_size))
     chunks = []
     file_warns = []
     if file_size > len(data):
