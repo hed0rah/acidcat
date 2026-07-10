@@ -110,7 +110,8 @@ def test_all_walker_enc_annotations_verify():
     if it never verifies)."""
     pytest.importorskip("textual")
     from acidcat.core.walk import walk_file, Unsupported
-    from acidcat.tui_app import encode_value, _field_abs
+    from acidcat.tui_app import (encode_value, _field_abs, parse_bitfield,
+                                 bitfield_extract)
     fixtures = [
         "data/samples/Drum_Loop.wav",
         "data/test_formats/generated/mp3_44100.mp3",
@@ -136,11 +137,18 @@ def test_all_walker_enc_annotations_verify():
                 ab = _field_abs(c, fl)
                 if ab is None:
                     continue
-                rb = data[ab:ab + fl["len"]]
-                raw = fl.get("raw", fl.get("value"))
-                assert encode_value(fl["enc"], str(raw)) == rb, (
-                    f"{path} {c['id']} {fl['name']}: enc {fl['enc']!r} "
-                    f"does not reproduce the on-disk bytes")
+                bf = parse_bitfield(fl["enc"])
+                if bf is not None:
+                    delta, clen, bitpos, width, bias = bf
+                    cont = data[ab + delta:ab + delta + clen]
+                    assert bitfield_extract(cont, bitpos, width, bias) == fl["value"], (
+                        f"{path} {c['id']} {fl['name']}: bitfield decodes wrong")
+                else:
+                    rb = data[ab:ab + fl["len"]]
+                    raw = fl.get("raw", fl.get("value"))
+                    assert encode_value(fl["enc"], str(raw)) == rb, (
+                        f"{path} {c['id']} {fl['name']}: enc {fl['enc']!r} "
+                        f"does not reproduce the on-disk bytes")
                 checked += 1
     assert checked > 0, "no enc-annotated fields were checked"
 
@@ -341,6 +349,56 @@ def test_undo_reverts_edit(tmp_path):
             assert open(app.work, "rb").read() == pristine
 
     asyncio.run(scenario())
+
+
+def test_flac_bitfield_edit_preserves_neighbours(tmp_path):
+    """Editing a FLAC STREAMINFO bit-packed field (channels) does a read-modify-
+    write on its shared word, so the neighbouring bit-fields (sample_rate,
+    bits_per_sample, total_samples) are untouched."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI
+    from acidcat.core.walk import walk_file
+    from textual.widgets import Tree, Input
+
+    orig = tmp_path / "b.flac"
+    shutil.copyfile("data/test_formats/generated/flac24.flac", orig)
+
+    def stream(p):
+        _f, ch, _w = walk_file(str(p), deep=True)
+        keys = ("sample_rate", "channels", "bits_per_sample", "total_samples")
+        return {fl["name"]: fl["value"] for c in ch
+                for fl in c.get("fields", []) if fl["name"] in keys}
+
+    before = stream(orig)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            node = None
+            for cn in app.query_one("#tree", Tree).root.children:
+                for fn in cn.children:
+                    lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                    if lbl.startswith("channels"):
+                        node = fn
+            app._cur_node = node
+            app.action_edit_field()
+            await pilot.pause()
+            assert app._edit_target["mode"] == "bitfield"
+            app.query_one("#editbar", Input).value = "1"       # stereo -> mono
+            await pilot.press("enter")
+            await pilot.pause()
+            app.action_save()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    after = stream(orig)
+    assert after["channels"] == 1                              # changed
+    assert after["sample_rate"] == before["sample_rate"]       # neighbours intact
+    assert after["bits_per_sample"] == before["bits_per_sample"]
+    assert after["total_samples"] == before["total_samples"]
 
 
 def test_in_pane_hex_edit(tmp_path):

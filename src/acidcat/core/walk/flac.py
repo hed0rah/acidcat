@@ -26,12 +26,19 @@ def _flac_streaminfo(b):
                      enc="u24be", raw=min_frame))
     fields.append(_f(0x07, 3, "max_frame_size", max_frame, "bytes",
                      enc="u24be", raw=max_frame))
-    fields.append(_f(0x0A, 3, "sample_rate", rate, "Hz"))
-    fields.append(_f(0x0C, 1, "channels", channels))
-    fields.append(_f(0x0D, 1, "bits_per_sample", bits))
+    # sample_rate/channels/bits_per_sample/total_samples are bit-packed into the
+    # 8-byte word at 0x0A; enc="bits:DELTA:CLEN:BITPOS:WIDTH:BIAS" edits each via a
+    # read-modify-write on that word (DELTA back to 0x0A; BIAS -1 where stored -1).
+    fields.append(_f(0x0A, 3, "sample_rate", rate, "Hz",
+                     enc="bits:0:8:0:20:0", raw=rate))
+    fields.append(_f(0x0C, 1, "channels", channels,
+                     enc="bits:-2:8:20:3:-1", raw=channels))
+    fields.append(_f(0x0D, 1, "bits_per_sample", bits,
+                     enc="bits:-3:8:23:5:-1", raw=bits))
     dur = total / rate if rate else 0
     fields.append(_f(0x0D, 5, "total_samples", total,
-                     f"{dur:.3f} s at {rate} Hz" if rate else ""))
+                     f"{dur:.3f} s at {rate} Hz" if rate else "",
+                     enc="bits:-3:8:28:36:0", raw=total))
     fields.append(_f(0x12, 16, "md5_signature",
                      md5 if md5 != "0" * 32 else "0 (unset)"))
     if rate == 0:
