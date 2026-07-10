@@ -25,11 +25,21 @@ _ID3_READ_CAP = 16 * 1024 * 1024
 
 
 # ── field helpers ──────────────────────────────────────────────────
-# a field is a dict: off (relative to payload), len, name, value, note
+# a field is a dict: off (relative to payload), len, name, value, note.
+# optional: enc (a struct format string, e.g. "<I", describing the on-disk
+# layout) and raw (the numeric value to re-encode with enc, when `value` is a
+# formatted display string like "1,234"). These let an editor re-encode a new
+# value byte-for-byte; a consumer must still VERIFY enc/raw against the actual
+# bytes before trusting them (a wrong annotation must never write blind).
 
 
-def _f(off, length, name, value, note=""):
-    return {"off": off, "len": length, "name": name, "value": value, "note": note}
+def _f(off, length, name, value, note="", enc=None, raw=None):
+    d = {"off": off, "len": length, "name": name, "value": value, "note": note}
+    if enc is not None:
+        d["enc"] = enc
+    if raw is not None:
+        d["raw"] = raw
+    return d
 
 
 def _u16(b, off):

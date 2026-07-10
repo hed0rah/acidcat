@@ -28,6 +28,9 @@ def register(subparsers):
                    help="Show the diff and write nothing.")
     p.add_argument("--overwrite", action="store_true",
                    help="Skip the _original backup on in-place edits.")
+    p.add_argument("--strip", action="store_true",
+                   help="Remove identifying metadata (tags/bext/iXML/ID3/etc.); "
+                        "keeps audio and functional chunks. Ignores --set.")
     p.set_defaults(func=run)
 
 
@@ -75,7 +78,57 @@ def _edit(path, changes):
     raise edits.EditError("no metadata editor for this file type")
 
 
+def _strip(path):
+    """Return (format_label, new_bytes, removed) with identifying metadata gone.
+    Routes by format like _edit; audio and functional data are preserved."""
+    with open(path, "rb") as f:
+        data = f.read()
+    ext = os.path.splitext(path)[1].lower()
+    head = data[:16]
+    if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
+        new, applied = edits.edit_vital(data, {"author": "", "comment": ""})
+        # vital keys are cleared to "", not deleted; say so in the report
+        return ("Vital preset", new, [a[0] + " (cleared)" for a in applied])
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        from acidcat.core import edit_riff
+        return ("WAV",) + edit_riff.strip_wav(data)
+    if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
+        from acidcat.core import edit_aiff
+        return ("AIFF",) + edit_aiff.strip_aiff(data)
+    tagged = (head[:4] == b"fLaC" or head[:3] == b"ID3" or head[:4] == b"OggS"
+              or head[4:8] == b"ftyp"
+              or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
+    if tagged:
+        return ("tagged audio",) + edits.strip_tagged(data, ext or ".mp3")
+    raise edits.EditError("no metadata to strip for this file type")
+
+
+def _run_strip(args):
+    if args.output and len(args.inputs) > 1:
+        print("acidcat write: -o works with a single input file", file=sys.stderr)
+        return 2
+    rc = 0
+    for path in args.inputs:
+        try:
+            fmt, new_data, removed = _strip(path)
+        except (edits.EditError, OSError, ValueError) as e:
+            print(f"acidcat write: {path}: {e}", file=sys.stderr)
+            rc = 1
+            continue
+        print(f"{os.path.basename(path)}  [{fmt}]  "
+              f"stripped: {', '.join(removed) if removed else '(nothing to remove)'}")
+        if args.dry_run:
+            continue
+        written, backup = writer.commit(
+            path, new_data, out=args.output, overwrite=args.overwrite)
+        note = f"  (backup: {os.path.basename(backup)})" if backup else ""
+        print(f"  wrote {os.path.basename(written)}{note}")
+    return rc
+
+
 def run(args):
+    if args.strip:
+        return _run_strip(args)
     try:
         changes = _parse_sets(args.sets)
     except edits.EditError as e:

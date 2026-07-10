@@ -63,7 +63,8 @@ def _parse_fmt(b, ctx):
         return "truncated", fields, [f"fmt payload is {len(b)} bytes, spec minimum is 16"]
     tag, ch, rate, avg, align, bits = struct.unpack_from("<HHIIHH", b, 0)
     tag_name = _FORMAT_TAGS.get(tag, f"unknown 0x{tag:04x}")
-    fields.append(_f(0x00, 2, "format_tag", f"0x{tag:04x}", tag_name))
+    fields.append(_f(0x00, 2, "format_tag", f"0x{tag:04x}", tag_name,
+                     enc="<H", raw=tag))
     fields.append(_f(0x02, 2, "channels", ch))
     fields.append(_f(0x04, 4, "sample_rate", rate, "Hz"))
     fields.append(_f(0x08, 4, "avg_bytes_per_sec", avg))
@@ -92,7 +93,7 @@ def _parse_fmt(b, ctx):
         fields.append(_f(0x10, 2, "cb_size", cb))
         fields.append(_f(0x12, 2, "valid_bits_per_sample", valid_bits))
         fields.append(_f(0x14, 4, "channel_mask", f"0x{mask:x}",
-                         _channel_mask_names(mask)))
+                         _channel_mask_names(mask), enc="<I", raw=mask))
         fields.append(_f(0x18, 16, "sub_format", sub_name,
                          "KSDATAFORMAT_SUBTYPE" if tail_ok else "non-standard GUID"))
         if not tail_ok:
@@ -178,9 +179,10 @@ def _parse_acid(b, ctx):
     if len(b) < 24:
         return "truncated", fields, [f"acid payload is {len(b)} bytes, expected 24"]
     flags, root, q1, q2, beats, denom, numer, tempo = struct.unpack_from("<IHHfIHHf", b, 0)
-    fields.append(_f(0x00, 4, "type_flags", f"0x{flags:08x}", _flag_names(flags, _ACID_FLAGS)))
+    fields.append(_f(0x00, 4, "type_flags", f"0x{flags:08x}",
+                     _flag_names(flags, _ACID_FLAGS), enc="<I", raw=flags))
     fields.append(_f(0x04, 2, "root_note", root, midi_note_to_name(root) if root else "unset"))
-    fields.append(_f(0x06, 2, "unknown1", f"0x{q1:04x}"))
+    fields.append(_f(0x06, 2, "unknown1", f"0x{q1:04x}", enc="<H", raw=q1))
     fields.append(_f(0x08, 4, "unknown2", round(q2, 4)))
     fields.append(_f(0x0C, 4, "num_beats", beats))
     fields.append(_f(0x10, 2, "meter_denominator", denom))
@@ -237,6 +239,8 @@ def _parse_smpl(b, ctx):
         plays = "forever" if count == 0 else f"{count}x"
         fields.append(_f(base, 24, f"loop[{i}]",
                          f"{start}..{end}", f"{type_name}, {plays}"))
+        # split out the loop type (a little-endian u32) as its own editable field
+        fields.append(_f(base + 4, 4, f"loop[{i}]_type", ltype, type_name))
         if end < start:
             warns.append(f"loop[{i}] end {end} before start {start}")
         elif frames and end > frames:

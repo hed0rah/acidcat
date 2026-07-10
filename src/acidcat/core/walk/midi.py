@@ -216,7 +216,8 @@ def inspect_midi(filepath, deep=False):
         tpf = division & 0xFF
         shown = 29.97 if fps == 29 else fps
         fields.append(_f(0x04, 2, "division", f"0x{division:04x}",
-                         f"SMPTE: {shown} fps, {tpf} ticks/frame"))
+                         f"SMPTE: {shown} fps, {tpf} ticks/frame",
+                         enc=">H", raw=division))
         ctx["ticks_per_sec"] = (29.97 if fps == 29 else fps) * tpf
     else:
         fields.append(_f(0x04, 2, "division", division, "ticks per quarter note"))
