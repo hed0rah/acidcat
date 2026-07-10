@@ -11,6 +11,9 @@ from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _dtext, _f
 from acidcat.core.walk.mp3 import _id3v2_frames
 from acidcat.util.midi import midi_note_to_name
 
+# INST sustain/release loop play mode (a big-endian int16)
+_LOOP_MODES = {0: "off", 1: "forward", 2: "ping-pong"}
+
 # AIFC compression types that store real PCM sample frames (so frames/rate
 # is an exact duration). Everything else is block/packet-coded, where
 # num_sample_frames is a packet count and the duration is only approximate.
@@ -143,9 +146,12 @@ def _aiff_inst(b, ctx):
     loop_ids = []
     for label, off in (("sustain_loop", 8), ("release_loop", 14)):
         mode, begin, end = struct.unpack_from(">hhh", b, off)
-        mode_name = {0: "off", 1: "forward", 2: "ping-pong"}.get(mode, f"unknown {mode}")
+        mode_name = _LOOP_MODES.get(mode, f"unknown {mode}")
+        # the loop mode is the first 2 bytes of the 6-byte field (a big-endian
+        # int16); edit it by name as an enum bit-field over that word.
         fields.append(_f(off, 6, label, mode_name,
-                         f"markers {begin}..{end}" if mode else ""))
+                         f"markers {begin}..{end}" if mode else "",
+                         enc="bitsmap:0:2:0:16:aiff_loop_mode"))
         if mode:
             loop_ids.extend((begin, end))
     ctx["inst_loop_marker_ids"] = loop_ids

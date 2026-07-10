@@ -114,12 +114,13 @@ def test_all_walker_enc_annotations_verify():
                                  bitfield_extract, parse_bitsmap, _BITMAPS)
     fixtures = [
         "data/samples/Drum_Loop.wav",
+        "data/test_formats/wav51.wav",             # WAVE_FORMAT_EXTENSIBLE channel_mask
+        "data/test_formats/wav24.wav",
         "data/test_formats/generated/mp3_44100.mp3",
         "data/test_formats/generated/aiff_pcm.aiff",
         "data/test_formats/generated/flac24.flac",
         "data/test_formats/gs-16b-2c-44100hz.ogg",
         "data/test_formats/gs-16b-2c-44100hz.m4a",
-        "data/test_formats/generated/aiff_pcm.aiff",
     ]
     checked = 0
     for path in fixtures:

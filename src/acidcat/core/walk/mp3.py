@@ -323,8 +323,11 @@ def _parse_xing_lame(filepath, frame_off, hdr):
         if pos + 24 <= len(buf):
             vbr_method = buf[pos + 9] & 0x0F
             lowpass = buf[pos + 10] * 100
+            # vbr_method is the low nibble of the byte (high nibble is the Info
+            # tag revision) -> bit-field over that byte, editable as the raw code
             fields.append(_f(pos + 9, 1, "vbr_method", vbr_method,
-                             _VBR_METHODS.get(vbr_method, "")))
+                             _VBR_METHODS.get(vbr_method, ""),
+                             enc="bits:0:1:4:4:0", raw=vbr_method))
             if lowpass:
                 fields.append(_f(pos + 10, 1, "lowpass", f"{lowpass} Hz"))
             rg = _lame_replaygain(_bu16(buf, pos + 15))
