@@ -50,7 +50,8 @@ class Violation:
         if self.field == "pad_byte":
             return f"{self.path} pad byte: 0x{self.stored:02x} -> 0x{self.computed:02x}"
         if isinstance(self.stored, int) and isinstance(self.computed, int):
-            return f"{self.path} {self.field}: {self.stored:,} -> {self.computed:,} bytes"
+            unit = {SIZE: " bytes", COUNT: " records"}.get(self.kind, "")
+            return f"{self.path} {self.field}: {self.stored:,} -> {self.computed:,}{unit}"
         return f"{self.path} {self.field}: {self.stored} -> {self.computed}"
 
 
@@ -94,9 +95,9 @@ class Repairer:
 # walkers that may import back here in future).
 
 def _repairers():
-    from acidcat.core.repairers import (FlacRepairer, IffRepairer,
+    from acidcat.core.repairers import (CountRepairer, FlacRepairer, IffRepairer,
                                         Mp4OffsetRepairer)
-    return (IffRepairer(), Mp4OffsetRepairer(), FlacRepairer())
+    return (IffRepairer(), Mp4OffsetRepairer(), FlacRepairer(), CountRepairer())
 
 
 def repairer_for(data):
@@ -107,15 +108,43 @@ def repairer_for(data):
     return None
 
 
+def applicable(data):
+    """Every registered repairer that handles ``data`` (a file can have violations
+    of more than one kind -- a stale size and an over-capacity count -- from
+    independent repairers)."""
+    return [r for r in _repairers() if r.applies(data)]
+
+
 def analyze(data, opts=None):
-    """Read-only: the Report for ``data`` (validate/audit entry point). Returns
-    None when no repairer applies."""
-    r = repairer_for(data)
-    return r.analyze(data, opts) if r else None
+    """Read-only: the combined Report across every applicable repairer (validate/
+    audit entry point). Returns None when no repairer applies."""
+    reps = applicable(data)
+    if not reps:
+        return None
+    violations, note, label = [], "", None
+    for r in reps:
+        rep = r.analyze(data, opts)
+        violations += rep.violations
+        if label is None and rep.label:
+            label = rep.label
+        if not note and rep.note:
+            note = rep.note
+    return Report(label, violations, note)
 
 
 def repair(data, opts=None):
-    """Fix the witnessed violations in ``data``. Returns (new_bytes, Report), or
-    None when no repairer applies."""
-    r = repairer_for(data)
-    return r.apply(data, opts) if r else None
+    """Fix the witnessed violations from every applicable repairer, threading the
+    bytes through each. Returns (new_bytes, Report), or None when none apply."""
+    reps = applicable(data)
+    if not reps:
+        return None
+    cur, violations, note, label = data, [], "", None
+    for r in reps:
+        new_data, rep = r.apply(cur, opts)
+        cur = new_data
+        violations += rep.violations
+        if label is None and rep.label:
+            label = rep.label
+        if not note and rep.note:
+            note = rep.note
+    return cur, Report(label, violations, note)
