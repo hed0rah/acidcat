@@ -77,7 +77,7 @@ def test_resolve_chunk_and_field(tmp_path):
 
 def _args(file, verb, **kw):
     base = dict(file=file, verb=verb, type="u32", count=1, be=False, le=False,
-                min=4, length=256)
+                min=4, length=256, width=72, order=4, no_color=True)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -105,3 +105,38 @@ def test_cmd_diff(tmp_path, capsys):
     rc = cmd.run(_args(a, "diff", other=str(b)))
     out = capsys.readouterr().out
     assert rc == 0 and "changed range" in out
+
+
+# ── viz primitives ─────────────────────────────────────────────────
+
+def test_windowed_entropy_uniform_vs_random():
+    from acidcat.core import viz
+    zeros = viz.windowed_entropy(b"\x00" * 4096, 8)
+    assert max(zeros) == 0.0                     # a constant byte = 0 entropy
+    varied = viz.windowed_entropy(bytes(range(256)) * 16, 8)
+    assert min(varied) > 7.5                      # a full byte spread ~ 8 bits
+
+
+def test_hilbert_grid_shape():
+    from acidcat.core import viz
+    grid, side = viz.hilbert_grid(bytes(range(256)) * 4, order=4)
+    assert side == 16 and len(grid) == 16 and len(grid[0]) == 16
+    assert any(cell is not None for row in grid for cell in row)
+
+
+def test_byte_class():
+    from acidcat.core import viz
+    assert viz.byte_class(0x00)[0] == "."
+    assert viz.byte_class(0xFF)[0] == "#"
+    assert viz.byte_class(ord("A"))[0] == "o"
+    assert viz.byte_class(None)[0] == " "
+
+
+def test_cmd_entropy_and_map(tmp_path, capsys):
+    p = _wav(tmp_path)
+    assert cmd.run(_args(p, "entropy")) == 0
+    out = capsys.readouterr().out
+    assert "entropy" in out and "bits/byte" in out
+    assert cmd.run(_args(p, "map")) == 0
+    out = capsys.readouterr().out
+    assert "byte map" in out and "legend" in out
