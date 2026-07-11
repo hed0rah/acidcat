@@ -76,3 +76,34 @@ def test_expanded_converter_canon():
     assert c("Lavf58.76.100 (via foobar2000)") in (
         "FFmpeg (libav 58.76.100)", "foobar2000")   # first match wins (FFmpeg)
     assert c("created with SoX") == "SoX"
+
+
+def test_lame_tag_enrichment():
+    chunks = [{"id": "frame0", "fields": [
+        {"name": "encoder", "value": "LAME3.100"},
+        {"name": "vbr_method", "value": 4, "note": "VBR (mtrh)"},
+        {"name": "lowpass", "value": "20500 Hz"},
+        {"name": "bitrate", "value": "0 kbps"},          # VBR min -> suppressed
+    ]}]
+    sigs = provenance.identify("MP3/MPEG audio", chunks, b"")
+    assert len(sigs) == 1
+    tool = sigs[0]["tool"]
+    assert tool.startswith("LAME 3.100") and "VBR (mtrh)" in tool and "lowpass" in tool
+    assert "0 kbps" not in tool                          # suppressed
+    assert sigs[0]["basis"] == "LAME tag"
+
+
+def test_lame_not_double_listed():
+    # the bare LAME encoder string must not also appear as a separate signal
+    chunks = [{"id": "frame0", "fields": [
+        {"name": "encoder", "value": "LAME3.99"},
+        {"name": "vbr_method", "value": 3, "note": "ABR"},
+    ]}]
+    sigs = provenance.identify("MP3/MPEG audio", chunks, b"")
+    assert sum(1 for s in sigs if s["tool"].startswith("LAME")) == 1
+
+
+def test_id3_tsse_encoder_frame():
+    chunks = [{"id": "ID3v2", "fields": [{"name": "TSSE", "value": "Lavf62.13.101"}]}]
+    sigs = provenance.identify("MP3/MPEG audio", chunks, b"")
+    assert any(s["tool"] == "FFmpeg (libav 62.13.101)" for s in sigs)
