@@ -4,6 +4,20 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.32.0] - 2026-07-11
+
+### Added
+
+- FLAC structural validate/repair/audit -- the third container grammar under the
+  constraint model (a chain of metadata blocks, after the IFF tree and the MP4
+  box). Two witnessed derived fields: the last-metadata-block flag (witnessed by
+  the audio frame sync -- a flag set too early or missing is corrected) and
+  PADDING body zero-fill (witnessed by the spec, the FLAC analog of the RIFF pad
+  byte). Length-preserving; the audio frames are never touched. Fields that would
+  need the audio decoded to witness them (STREAMINFO MD5/total-samples, seektable
+  offsets) are out of scope -- acidcat bundles no FLAC decoder. `acidcat validate`
+  now covers `.flac`, and `audit` reports its structure and encoder provenance.
+
 ## [0.31.0] - 2026-07-11
 
 ### Added
