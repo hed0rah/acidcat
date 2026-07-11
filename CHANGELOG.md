@@ -4,6 +4,24 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.28.0] - 2026-07-11
+
+### Added
+
+- `acidcat repair`: fix structural inconsistencies in RIFF/WAVE, RF64, and
+  AIFF/AIFC containers without touching a byte of audio. Recomputes stale
+  container sizes (the common "riff_size says X, file is Y" left by a crash or
+  a tool that appended without adjusting) and normalizes a non-zero pad byte,
+  driven by a new generic IFF structural model (`core/structure.py`). Data
+  appended past the container is preserved; the audio payload is compared
+  before and after as a hard guard. Sits on the same `writer.commit` backup +
+  atomic + read-back-verify sink as `write`. `--dry-run`, `-o`, `--keep-pad`.
+- `core/structure.py`: an IFF container model whose bedrock invariant is
+  byte-exact round-trip (validated on 2,358 real corpus files, zero false
+  positives). This is the first piece of the declarative-structure direction:
+  write and repair become one operation, re-satisfying the size cascade after
+  a mutation.
+
 ## [0.27.0] - 2026-07-11
 
 ### Added
