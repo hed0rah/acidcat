@@ -4,6 +4,19 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.34.0] - 2026-07-11
+
+### Added
+
+- Integrity checks in `acidcat audit` (`core/integrity.py`): does the header match
+  the audio. The anchor check is effective bit depth (fake hi-res): a file can
+  declare 24-bit while every sample's low byte is zero, meaning it was upsampled
+  from 16-bit. The witness is the PCM itself -- the lowest set bit across all
+  samples tells how many bits actually carry data. Handles WAVE_FORMAT_EXTENSIBLE
+  (resolves the real format tag from the sub-format GUID), skips float and
+  compressed codecs and pure silence, and caps the read. A new INTEGRITY section
+  in the audit report and `--json`.
+
 ## [0.33.0] - 2026-07-11
 
 ### Added
