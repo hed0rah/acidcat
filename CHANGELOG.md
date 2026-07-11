@@ -4,6 +4,22 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.43.0] - 2026-07-11
+
+### Added
+
+- `acidcat probe`: low-level byte dissection, the RE-tool surface. Read a file as
+  raw bytes the way a reverse engineer does -- `read` (typed read at an offset,
+  pwndbg `x`), `scan` (find every offset holding a value, in both byte orders,
+  Cheat-Engine style), `find` (byte-pattern search), `strings`, `hexdump`, and
+  `diff` (changed byte ranges between two files). The scalpel's edge over
+  `xxd`+`grep`: an address can be a raw offset (`0x2c`) OR a structural name
+  resolved through the walker -- a chunk id (`data`) or a chunk field
+  (`fmt.sample_rate`) -- so you dissect by structure, not by counting bytes.
+  `core/probe.py` holds the primitives; the `write`/`repair` edit path stays as
+  the experimentation bench it was meant to be, with `probe` the read-only
+  dissection face.
+
 ## [0.42.0] - 2026-07-11
 
 ### Added

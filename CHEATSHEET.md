@@ -21,6 +21,7 @@ A low-level audio and preset metadata tool. readelf/exiftool for audio.
 | `acidcat query [flags]` | filter the index by bpm/key/tag/text |
 | `acidcat query --compatible-with FILE` | samples that mix with FILE (key + tempo, `--same-key` `--bpm-tolerance` `--kind`) |
 | `acidcat convert FILE` | export/extract: bwclip -> MIDI, NCW -> WAV, SF2/SF3 -> a folder of samples |
+| `acidcat probe FILE read AT\|scan V\|find HEX\|strings\|hexdump AT\|diff F2` | byte dissection (RE surface): typed read, value scan, pattern find, strings, hexdump, diff; AT can be an offset or `chunk`/`chunk.field` |
 | `acidcat carve FILE --chunk ID\|--trailing\|--offset N` | extract a byte region (chunk / appended blob / range) to a file |
 | `acidcat repair FILE` | fix stale sizes, offset tables, counts, pad bytes (audio untouched, keeps a backup) |
 | `acidcat validate FILE\|DIR` | read-only structural check, exit 0 clean / 1 broken |
