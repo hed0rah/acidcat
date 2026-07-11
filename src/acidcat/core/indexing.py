@@ -16,7 +16,6 @@ from acidcat.core.riff import (
     smpl_root_or_none, acid_root_or_none, effective_acid_beats,
 )
 from acidcat.core.mp3 import decode_frame_header
-from acidcat.core.serum import is_serum_preset, parse_serum_preset
 from acidcat.core.tagged import is_tagged_format
 
 
@@ -373,7 +372,12 @@ def _from_midi(filepath, row):
 
 
 def _from_serum(filepath, row):
-    meta = parse_serum_preset(filepath)
+    """Serum preset row extraction, driven by the inspect walker (the single
+    Serum decoder since the 2026-07-10 unification)."""
+    from acidcat.core.walk.serum import inspect_serum
+
+    meta = {}
+    inspect_serum(filepath, ctx=meta)
     row["format"] = "serum"
     if meta.get("presetName"):
         row["title"] = meta["presetName"]
