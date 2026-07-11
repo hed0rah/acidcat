@@ -77,6 +77,14 @@ def _parse_fmt(b, ctx):
         warns.append(f"block_align {align} != channels*bits/8 = {ch * bits // 8}")
     if tag == 1 and rate and align and avg != rate * align:
         warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
+    # physically implausible but structurally valid values -- a crafted-file
+    # tell. Bounds are deliberately generous (real audio never trips them):
+    # 8-channel surround and 384 kHz masters are fine; 255 channels or a 1 Hz
+    # rate are not.
+    if rate and not (1000 <= rate <= 768000):
+        warns.append(f"sample_rate {rate} Hz is outside any plausible range")
+    if ch > 64:
+        warns.append(f"{ch} channels is implausibly high")
 
     # a WAVEFORMATEX (extended, non-extensible) carries a cbSize at 0x10;
     # its extension bytes are format-specific and worth breaking out.

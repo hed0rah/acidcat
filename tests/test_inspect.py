@@ -178,6 +178,28 @@ class TestInspectWav:
         assert vals["frames_per_block"] == 1
         assert vals["codec_delay"] == 1105
 
+    def _fmt_warns(self, path):
+        chunks, _ = inspect_wav(path)
+        fmt = next(c for c in chunks if c["id"].strip() == "fmt")
+        return fmt["warnings"]
+
+    def test_implausible_rate_and_channels_flagged(self, tmp_path):
+        # structurally valid but physically impossible values are a crafted-file
+        # tell; the bounds are generous so real audio never trips them
+        low = _chunk(b"fmt ", struct.pack("<HHIIHH", 1, 1, 1, 2, 2, 16))  # 1 Hz
+        path = _wav(tmp_path, low, _data())
+        assert any("plausible range" in w for w in self._fmt_warns(path))
+        many = _chunk(b"fmt ", struct.pack("<HHIIHH", 1, 200, 44100, 44100 * 400, 400, 16))
+        path2 = _wav(tmp_path, many, _data(), name="many.wav")
+        assert any("implausibly high" in w for w in self._fmt_warns(path2))
+
+    def test_normal_rate_channels_not_flagged(self, tmp_path):
+        # 8-channel 384 kHz is a legit high-end master, must stay silent
+        fmt8 = _chunk(b"fmt ", struct.pack("<HHIIHH", 1, 8, 384000, 384000 * 16, 16, 16))
+        path = _wav(tmp_path, fmt8, _data())
+        w = self._fmt_warns(path)
+        assert not any("plausible range" in x or "implausibly" in x for x in w)
+
     def test_cue_full_fields(self, tmp_path):
         # dwPosition (play order) surfaces; chunk/block start only when set
         pt1 = struct.pack("<II4sIII", 1, 7, b"data", 0, 0, 44100)
@@ -719,6 +741,23 @@ class TestInspectFlac:
         path = _flac(tmp_path, _flac_block(0, _streaminfo()))
         _, warns = inspect_flac(path)
         assert any("last-metadata-block" in w for w in warns)
+
+    def test_block_after_last_flag_flagged(self, tmp_path):
+        from acidcat.core.walk.flac import inspect_flac
+        # STREAMINFO with last-flag set, then a metadata-like block hidden past
+        # the terminator (real audio would start with the 0xFF sync byte)
+        after = _flac_block(4, b"\x00" * 40)          # a VORBIS_COMMENT-shaped block
+        path = _flac(tmp_path, _flac_block(0, _streaminfo(), last=True), after)
+        _, warns = inspect_flac(path)
+        assert any("hidden past the block table" in w for w in warns)
+
+    def test_real_audio_after_last_flag_not_flagged(self, tmp_path):
+        from acidcat.core.walk.flac import inspect_flac
+        # genuine audio frames (sync byte 0xFF) after the terminator are silent
+        path = _flac(tmp_path, _flac_block(0, _streaminfo(), last=True),
+                     b"\xff\xf8\x00\x00" + b"\x00" * 40)
+        _, warns = inspect_flac(path)
+        assert not any("hidden past" in w for w in warns)
 
     def test_metadata_block_overrun_flagged(self, tmp_path):
         from acidcat.core.walk.flac import inspect_flac
