@@ -606,6 +606,24 @@ class TestInspectSerum:
         assert chunks[2]["size"] == 128
         assert warns == []
 
+    def test_ctx_feeds_scan_row(self, tmp_path):
+        # the walker fills a ctx dict (raw values, tags kept as a list) that
+        # the scan path reads since the unification
+        from acidcat.core.walk.serum import inspect_serum
+        from acidcat.core.indexing import _from_serum
+        meta = (b'{"presetName": "Growl X", "presetAuthor": "u", '
+                b'"presetDescription": "nasty", "tags": ["bass", "growl"]}')
+        p = tmp_path / "g.serumpreset"
+        p.write_bytes(b"XferJson" + meta + b"\x01\x02" * 64)
+        ctx = {}
+        inspect_serum(str(p), ctx=ctx)
+        assert ctx["presetName"] == "Growl X"
+        assert ctx["tags"] == ["bass", "growl"]         # list preserved
+        row = _from_serum(str(p), {})
+        assert row["title"] == "Growl X" and row["artist"] == "u"
+        assert row["comment"] == "nasty"
+        assert row["_tags"] == ["bass", "growl"]
+
     def test_missing_json_flagged(self, tmp_path):
         from acidcat.core.walk.serum import inspect_serum
         p = tmp_path / "bad.serumpreset"
