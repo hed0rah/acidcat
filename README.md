@@ -4,14 +4,19 @@
 
 # acidcat
 
-A pure-Python inspector for audio files and synth/DAW presets: read the
-metadata, decode the format structure byte by byte, and flag anomalies.
+A pure-Python inspector, editor, and forensic tool for audio files and synth/DAW
+presets: read the metadata, decode the format structure byte by byte, flag
+anomalies, repair broken containers, and identify how a file was made.
 
 Reads BPM, key, duration, tags, and format info from WAV, AIFF, MP3, FLAC,
 OGG, Opus, M4A, MIDI, and Serum presets. Also structurally decodes Bitwig
 (.bwpreset/.bwclip), Native Instruments (Massive/Absynth/Kontakt/NKS/KORE),
-Vital, NCW, MP4, VST FXP, ReCycle RX2, and RMID containers via `inspect`. One pure-Python
-dependency (mutagen); the native `inspect` walkers need nothing.
+Vital, NCW, SoundFont (SF2/SF3), tracker modules (MOD/XM/IT), MP4, VST FXP,
+ReCycle RX2, and RMID containers via `inspect`. Beyond reading: `repair` and
+`validate` fix and check container structure (stale sizes, offset tables,
+counts, pad bytes) without touching a byte of audio, and `audit` gives a
+forensic verdict (structure, integrity, hidden data, and the writing tool).
+One pure-Python dependency (mutagen); the native `inspect` walkers need nothing.
 Optional librosa analysis for BPM/key detection and ML feature extraction.
 
 Also ships per-library SQLite indexes (`acidcat index`) tracked in a
@@ -71,8 +76,10 @@ full-text.
 | Bitwig multisample | `.multisample` | Zone map: per-sample root note, key/velocity range, loop (inspect) |
 | Native Instruments | `.nmsv`, `.nabs`, `.ksd`, `.nksf`, `.nki` | Preset metadata, NKS tags, FastLZ subtree (inspect + index) |
 | Vital  | `.vital`  | Patch name, author, tags, modulation matrix (inspect + index) |
-| NCW    | `.ncw`    | NI Compressed Wave header, channel/block info (inspect) |
-| MP4    | `.mp4`    | Box tree, codec info, iTunes tags (inspect) |
+| NCW    | `.ncw`    | NI Compressed Wave header, channel/block info (inspect + convert to WAV) |
+| SoundFont | `.sf2`, `.sf3` | sfbk metadata + every named sample with its byte offset; SF3 = Ogg-Vorbis samples (inspect + convert to WAV/Ogg) |
+| Tracker | `.mod`, `.xm`, `.it` | ProTracker / FastTracker II / Impulse Tracker: header, pattern order, every embedded sample at its byte offset; IT offset tables as pointers (inspect) |
+| MP4    | `.mp4`, `.m4a` | Box tree, codec info, iTunes tags, `stco`/`co64` offset tables (inspect + repair) |
 
 ## Commands
 
@@ -95,8 +102,13 @@ full-text.
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
 | `acidcat query --compatible-with FILE` | Find samples that mix with FILE: harmonic key (Camelot) + compatible tempo (incl. half/double-time) |
-| `acidcat convert clip.bwclip -o out.mid` | Export a DAW clip's notes to a Standard MIDI File |
-| `acidcat write FILE --set field=value` | Edit metadata in place, with a `_original` backup, `-o` copy, and `--dry-run`; custom frames via `txxx:NAME=value` |
+| `acidcat convert FILE [-o OUT]` | Export/extract: `.bwclip` -> MIDI, NCW -> WAV (single file or a directory), SF2/SF3 -> a folder of samples |
+| `acidcat write FILE --set field=value` | Edit metadata in place, with a `_original` backup, `-o` copy, and `--dry-run`; custom frames via `txxx:NAME=value`; Bitwig/NI preset editing (experimental) |
+| `acidcat carve FILE (--chunk ID \| --trailing \| --offset N [--length N])` | Extract a structurally-identified byte region (a chunk payload, an appended blob, or an explicit range) to a file or stdout |
+| `acidcat repair FILE [--dry-run] [-o OUT]` | Fix stale container sizes, offset tables, table counts, and pad bytes without touching a byte of audio (WAV, RF64, AIFF, MP4, FLAC); keeps a `_original` backup |
+| `acidcat validate FILE\|DIR [-q]` | Read-only structural check with an exit code (0 = all consistent, 1 = any violation); walks a directory tree |
+| `acidcat audit FILE [--json]` | Forensic verdict in four parts: STRUCTURE (repairable inconsistencies), INTEGRITY (fake hi-res, duration mismatch), HIDDEN (concealed/appended data + a carve command), PROVENANCE (the writing tool) |
+| `acidcat tui FILE` | Interactive terminal inspector: goto/search, follow pointers (`x`), byte map (`m`), edit fields, and validate/repair (`v`/`r`) |
 | `acidcat cover FILE [-o art.jpg] [--set img] [--remove]` | Extract, embed, or remove embedded cover art (MP3/FLAC/MP4/Ogg) |
 | `acidcat explore FILE [-o out.html]` | Build a standalone interactive HTML byte-explorer (hex grid + tinted fields + LSB heat-map) |
 
