@@ -20,7 +20,13 @@ A low-level audio and preset metadata tool. readelf/exiftool for audio.
 | `acidcat index DIR` | upsert into the global SQLite index |
 | `acidcat query [flags]` | filter the index by bpm/key/tag/text |
 | `acidcat query --compatible-with FILE` | samples that mix with FILE (key + tempo, `--same-key` `--bpm-tolerance` `--kind`) |
-| `acidcat convert clip.bwclip -o out.mid` | export a DAW clip's notes to Standard MIDI |
+| `acidcat convert FILE` | export/extract: bwclip -> MIDI, NCW -> WAV, SF2/SF3 -> a folder of samples |
+| `acidcat carve FILE --chunk ID\|--trailing\|--offset N` | extract a byte region (chunk / appended blob / range) to a file |
+| `acidcat repair FILE` | fix stale sizes, offset tables, counts, pad bytes (audio untouched, keeps a backup) |
+| `acidcat validate FILE\|DIR` | read-only structural check, exit 0 clean / 1 broken |
+| `acidcat audit FILE` | forensic verdict: structure, integrity (fake hi-res, duration), hidden data, provenance |
+| `acidcat tui FILE` | interactive inspector (goto/search, follow pointers, byte map, edit, validate/repair) |
+| `acidcat write FILE --set k=v` | edit metadata (backup + `-o` + `--dry-run`); Bitwig/NI presets (experimental) |
 | `acidcat --version` | version |
 
 Read from stdin: `acidcat -` or `cat f.wav | acidcat`.
@@ -50,10 +56,26 @@ acidcat inspect FILE... [-f table|json] [--pretty] [--hex] [--frames]
 ## formats `inspect` decodes natively
 
 audio: WAV/RIFF, RF64, AIFF/AIFC, FLAC, MP3 (ID3v2/v1, Xing/VBRI/LAME), MIDI,
-MP4/M4A (box tree, codec, iTunes tags).
+RMID, Ogg/Opus, MP4/M4A (box tree, codec, iTunes tags).
+samplers: SoundFont (`.sf2`/`.sf3`, samples carveable at their byte offset),
+tracker modules (`.mod`/`.xm`/`.it`), NI Compressed Wave (`.ncw`).
 presets: Serum 1 + 2 (`.serum`/`.SerumPreset`), Bitwig (`.bwpreset`/`.bwclip`),
 Vital (`.vital`), Native Instruments (`.nmsv`/`.nabs`/`.ksd`/`.nksf`/`.nki`),
-NI Compressed Wave (`.ncw`).
+VST FXP (`.fxp`), ReCycle RX2 (`.rx2`), Bitwig wavetable (`.wt`).
+
+## repair / validate / audit (the constraint model)
+
+A container is a set of derived fields (sizes, offsets, counts, pad bytes) whose
+correct value is a function of the data. `validate` reports the ones that don't
+match; `repair` fixes the witnessed ones; `audit` adds forensics + provenance.
+Audio is never touched; `repair` keeps a `_original` backup.
+
+```
+acidcat validate DIR              # sweep a tree, exit 1 if any file is broken
+acidcat repair broken.wav         # fix stale riff_size / cue count / pad byte
+acidcat audit suspect.wav         # STRUCTURE / INTEGRITY / HIDDEN / PROVENANCE
+acidcat audit file.wav --json     # machine-readable verdict
+```
 
 ## recipes
 
