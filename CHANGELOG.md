@@ -4,6 +4,30 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.24.0] - 2026-07-10
+
+### Changed
+
+- Library indexing now decodes each file once. The scan-row extraction for
+  WAV, AIFF, MIDI, and Serum is driven by the inspect walkers (via a shared
+  `ctx` dict) instead of a second parser re-reading the same bytes, ending
+  the double-maintenance that let the two paths drift (the `smpl` signedness
+  bug in 0.22.0 had to be fixed in both). Verified row-identical to the
+  previous extractor across the local corpus (2,328 WAV, 270 MIDI, 85 Serum,
+  4 AIFF). Tagged audio (mp3/flac/ogg/m4a) intentionally stays on mutagen,
+  which owns the on-disk tag spec.
+- MIDI key signatures resolve through one shared `key_signature_name`
+  helper, so the inspector and the library index can no longer disagree on a
+  key: the structural view now shows the real key name ("D", "Bm") where it
+  previously showed the raw signature ("+2 sharps").
+
+### Fixed
+
+- A MIDI file with no tempo event no longer stores a duration derived from
+  the assumed 120 bpm default in the library index (it would be a wrong
+  number to filter on); the inspector still shows the estimate, clearly
+  labeled.
+
 ## [0.23.0] - 2026-07-10
 
 ### Added
