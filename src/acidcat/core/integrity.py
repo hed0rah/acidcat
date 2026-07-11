@@ -14,6 +14,8 @@ read). Reads are capped, so a huge file is sampled, not slurped.
 
 import struct
 
+from acidcat.core import mp4 as mp4mod
+
 _SCAN_CAP = 8 * 1024 * 1024        # bytes of PCM to sample for the bit-depth read
 
 
@@ -110,14 +112,65 @@ def _aiff_pcm(data, chunks):
     return bits, "big", start, size
 
 
+def _mp4_duration(data):
+    """The MP4 duration-consistency check: the sample table (stts) sums to a media
+    duration that must match the media header (mdhd). A mismatch means the header
+    and the samples disagree -- a truncation or a mux/edit that updated one and not
+    the other. Pure timescale math, no codec knowledge. Single-track only (multi-
+    track is ambiguous here). Returns a finding dict or None."""
+    mdhd = stts = None
+    for b in mp4mod.iter_boxes(data):
+        if b["truncated"]:
+            continue
+        if b["type"] == b"mdhd":
+            mdhd = b if mdhd is None else "multi"
+        elif b["type"] == b"stts":
+            stts = b if stts is None else "multi"
+    if mdhd in (None, "multi") or stts in (None, "multi"):
+        return None
+    try:
+        p = mdhd["offset"] + mdhd["hdr"]
+        version = data[p]
+        if version == 1:
+            timescale = struct.unpack_from(">I", data, p + 20)[0]
+            declared = struct.unpack_from(">Q", data, p + 24)[0]
+        else:
+            timescale = struct.unpack_from(">I", data, p + 12)[0]
+            declared = struct.unpack_from(">I", data, p + 16)[0]
+        q = stts["offset"] + stts["hdr"]
+        n = struct.unpack_from(">I", data, q + 4)[0]
+        summed = 0
+        for i in range(n):
+            cnt, delta = struct.unpack_from(">II", data, q + 8 + i * 8)
+            summed += cnt * delta
+    except struct.error:
+        return None
+    if not timescale or not declared:
+        return None
+    # allow one sample-delta of slack; a real mismatch is far larger
+    if abs(summed - declared) <= max(2, declared // 1000):
+        return None
+    return {
+        "check": "duration",
+        "verdict": f"declared {declared / timescale:.3f} s, sample table sums to "
+                   f"{summed / timescale:.3f} s",
+        "detail": "the media header (mdhd) duration and the sample table (stts) "
+                  "disagree -- the file was truncated or re-muxed without both "
+                  "being updated",
+    }
+
+
 def analyze(label, chunks, data):
     """Return a list of ``{check, verdict, detail}`` integrity findings. Read-only.
-    Covers WAV/RF64 (little-endian) and AIFF (big-endian) integer PCM -- the bulk
-    of sample files. (AIFC may be compressed, so it is left alone.)"""
+    Covers WAV/RF64 (little-endian) and AIFF (big-endian) integer-PCM bit depth --
+    the bulk of sample files -- and MP4/M4A duration consistency."""
     if label in ("RIFF/WAVE", "RF64/WAVE"):
         spec = _wav_pcm(data, chunks)
     elif label == "IFF/AIFF":
         spec = _aiff_pcm(data, chunks)
+    elif label == "MP4/M4A":
+        d = _mp4_duration(data)
+        return [d] if d else []
     else:
         return []
     if spec is None:

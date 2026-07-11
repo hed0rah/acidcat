@@ -95,3 +95,34 @@ def test_aiff_genuine_24bit_not_flagged(tmp_path):
 def test_aiff_genuine_16bit_not_flagged(tmp_path):
     vals = [(i * 40503) & 0xFFFF for i in range(4000)]
     assert _run_aiff(_aiff(tmp_path, 16, vals)) == []
+
+
+def _mp4_dur(mdhd_dur, stts_pairs):
+    def box(t, p): return struct.pack(">I", 8 + len(p)) + t + p
+    # mdhd v0: ver/flags, creation, mod, timescale(1000), duration, lang, pre
+    mdhd = box(b"mdhd", struct.pack(">I", 0) + b"\x00" * 8
+               + struct.pack(">II", 1000, mdhd_dur) + b"\x00" * 4)
+    stts_body = struct.pack(">I", 0) + struct.pack(">I", len(stts_pairs))
+    for cnt, delta in stts_pairs:
+        stts_body += struct.pack(">II", cnt, delta)
+    stts = box(b"stts", stts_body)
+    stbl = box(b"stbl", stts)
+    minf = box(b"minf", stbl)
+    mdia = box(b"mdia", mdhd + minf)
+    tree = box(b"moov", box(b"trak", mdia))
+    ftyp = box(b"ftyp", b"M4A \x00\x00\x00\x00")
+    return ftyp + tree + box(b"mdat", b"\x00" * 16)
+
+
+def test_mp4_duration_consistent_not_flagged():
+    # mdhd duration 8000 == stts sum (1000 * 8)
+    data = _mp4_dur(8000, [(1000, 8)])
+    assert integrity.analyze("MP4/M4A", [], data) == []
+
+
+def test_mp4_duration_mismatch_flagged():
+    # mdhd says 4000 but the sample table sums to 8000
+    data = _mp4_dur(4000, [(1000, 8)])
+    findings = integrity.analyze("MP4/M4A", [], data)
+    assert findings and findings[0]["check"] == "duration"
+    assert "disagree" in findings[0]["detail"]
