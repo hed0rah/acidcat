@@ -258,6 +258,21 @@ def inspect_flac(filepath):
         file_warns.append("no block had the last-metadata-block flag set")
     if seen and seen[0] != "STREAMINFO":
         file_warns.append("first metadata block is not STREAMINFO, violating the FLAC spec")
+    # data hidden past the terminator: real audio frames begin with the sync
+    # code 0xFFF8, so a byte at last_end that instead parses as a metadata-block
+    # header (known type, in-bounds length) is a block smuggled after the
+    # last-metadata-block flag, which no conformant decoder reads.
+    if saw_last and last_end + 4 <= file_size:
+        with open(filepath, "rb") as f:
+            f.seek(last_end)
+            h = f.read(4)
+        btype = h[0] & 0x7F
+        blen = (h[1] << 16) | (h[2] << 8) | h[3]
+        if h[0] != 0xFF and btype <= 6 and 0 < last_end + 4 + blen <= file_size:
+            file_warns.append(
+                f"a metadata-like block (type {btype}, {blen:,} bytes) follows "
+                f"the last-metadata-block flag at 0x{last_end:08x}; conformant "
+                f"decoders never read it (data hidden past the block table)")
     audio_bytes = file_size - last_end
     if audio_bytes > 0:
         chunks.append({"id": "frames", "offset": last_end, "size": audio_bytes,
