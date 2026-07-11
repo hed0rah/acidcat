@@ -61,3 +61,23 @@ def test_audit_json(tmp_path, capsys):
     assert doc["format"] and doc["structure"]
     assert doc["structure"][0]["kind"] == "size"
     assert doc["structure"][0]["repairable"] is True
+
+
+def test_audit_hidden_section_and_carve_hint(tmp_path, capsys):
+    # a WAV with an appended blob past the container -> HIDDEN region + carve hint
+    wav = _wav(b"\x33" * 200)
+    p = tmp_path / "poly.wav"
+    p.write_bytes(wav + b"APPENDED-SECRET-PAYLOAD" * 4)
+    audit.run(_args(str(p)))
+    out = capsys.readouterr().out
+    assert "HIDDEN" in out and "past the" in out
+    assert "carve" in out and "--trailing" in out
+    assert "hidden region" in out.lower()      # verdict mentions it
+
+
+def test_audit_clean_file_no_hidden(tmp_path, capsys):
+    p = tmp_path / "clean.wav"
+    p.write_bytes(_wav())
+    audit.run(_args(str(p)))
+    out = capsys.readouterr().out
+    assert "no concealed or appended data" in out

@@ -4,6 +4,19 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.35.0] - 2026-07-11
+
+### Added
+
+- HIDDEN section in `acidcat audit`: concealed or appended data, split out from
+  the general forensic findings and made actionable. Trailing blobs past the
+  container, polyglots (an appended ZIP/PDF/PNG/etc), non-zero cavity content,
+  FLAC APPLICATION data, and MP4 mdat coverage gaps are each reported with an
+  exact `acidcat carve` command to extract the region. `audit` now gives the full
+  four-part verdict -- STRUCTURE, INTEGRITY, HIDDEN, PROVENANCE -- with the rest
+  of the anomaly findings under FORENSICS. `--json` splits `hidden` from
+  `forensics`.
+
 ## [0.34.0] - 2026-07-11
 
 ### Added
