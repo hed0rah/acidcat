@@ -350,6 +350,8 @@ class HelpScreen(ModalScreen):
             ("/", "search: text=fuzzy name/value, 0x..=hex, \"..\"=ascii"),
             ("n / N", "next / previous search match"),
             ("f", "jump to the next forensics finding"),
+            ("x", "follow a pointer field to where it points (flags dangling)"),
+            ("m", "byte map: where the file's bytes go, biggest regions first"),
             ("y", "yank the selected bytes as hex to the clipboard"),
             ("d", "review all pending changes (offset old->new) before save"),
             ("e", "edit the selected field (value or hex)"),
@@ -421,6 +423,46 @@ class DiffScreen(ModalScreen):
         self.dismiss(None)
 
 
+class MapScreen(ModalScreen):
+    """A byte-budget map: where the file's bytes actually go, top-level regions
+    biggest first with a proportional bar. Any of esc / m closes it."""
+
+    CSS = """
+    MapScreen { align: center middle; }
+    #mapbox { width: 86; height: auto; max-height: 90%; border: round #56e0f0;
+              background: #10161a; padding: 1 2; }
+    """
+    BINDINGS = [("escape", "close", "close"), ("m", "close", "close")]
+
+    def __init__(self, segments, fsize, unaccounted):
+        super().__init__()
+        self.segments = segments
+        self.fsize = fsize
+        self.unaccounted = unaccounted
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append("byte map  ", style=f"bold {ACCENT}")
+        t.append(f"{self.fsize:,} bytes, {len(self.segments)} top-level region(s)\n",
+                 style=SOFT)
+        for i, (cid, off, size, pct, accent) in enumerate(self.segments):
+            bar = "#" * max(1, round(pct / 100 * 40)) if size else ""
+            t.append(f"\n0x{off:08x}  ", style=DIM)
+            t.append(f"{cid:<8}", style=f"bold {accent}")
+            t.append(f"{size:>12,}  {pct:5.1f}%\n", style=SOFT)
+            t.append("  " + bar + "\n", style=accent)
+        if self.unaccounted > 0:
+            t.append(f"\n{self.unaccounted:,} bytes unaccounted "
+                     f"({self.unaccounted / self.fsize * 100:.1f}%): gaps, chunk "
+                     f"headers, or trailing data\n", style=f"bold {SEV['warn']}")
+        t.append("\nesc / m to close.", style=DIM)
+        with Vertical(id="mapbox"):
+            yield Static(t)
+
+    def action_close(self):
+        self.dismiss(None)
+
+
 class AcidcatTUI(App):
     CSS = """
     Screen { background: #10161a; }
@@ -445,8 +487,10 @@ class AcidcatTUI(App):
         ("n", "search_next", "next match"),
         ("N", "search_prev", "prev match"),
         ("f", "next_finding", "next finding"),
+        ("x", "follow_xref", "follow pointer"),
         ("y", "yank", "yank hex"),
         ("d", "diff", "pending changes"),
+        ("m", "map", "byte map"),
         ("ctrl+s", "save", "save"),
         ("ctrl+z", "undo", "undo"),
         ("ctrl+r", "redo", "redo"),
@@ -461,6 +505,14 @@ class AcidcatTUI(App):
         ("question_mark", "help", "help"),
         ("escape", "cancel_edit", "cancel edit"),
     ]
+
+    def check_action(self, action, parameters):
+        # while a modal (edit form / file browser / help / diff / map / confirm)
+        # is open, the app-global single-letter bindings must not fire under it
+        # -- so typing in the browser or a form does not trigger edit/strip/etc.
+        if len(self.screen_stack) > 1:
+            return False
+        return True
 
     def __init__(self, path=None):
         super().__init__()
@@ -489,6 +541,7 @@ class AcidcatTUI(App):
         self._allnodes = []       # (node, off, length) for offset/fuzzy navigation
         self._search = None       # active search: dict(desc, hits, idx)
         self._finding_idx = -1    # cursor into self.findings for jump-to-finding
+        self._xref = {}           # id(field node) -> absolute target offset (pointer)
 
     def compose(self) -> ComposeResult:
         yield Static(id="title")
@@ -745,6 +798,7 @@ class AcidcatTUI(App):
         self._textfield = {}
         self._nodekey = {}
         self._allnodes = []       # rebuilt each load, for goto/search/finding jumps
+        self._xref = {}
         keyed = {}
         tree.root.set_label(Text(os.path.basename(self.src), style=f"bold {FG}"))
         tree.root.data = (0, self.fsize, ACCENT)
@@ -775,6 +829,8 @@ class AcidcatTUI(App):
                 self._nodemeta[id(fnode)] = fnode.data
                 self._nodekey[id(fnode)] = ("field", i, j)
                 keyed[("field", i, j)] = fnode
+                if fl.get("xref") is not None:
+                    self._xref[id(fnode)] = fl["xref"]
                 if abs_off is not None:
                     self._allnodes.append((fnode, abs_off, fl.get("len") or 0))
                 if abs_off is not None:
@@ -1075,6 +1131,49 @@ class AcidcatTUI(App):
         regions, sl, wl = self._pending_changes()
         self.push_screen(DiffScreen(regions, sl, wl))
 
+    def _byte_map(self):
+        """(segments, unaccounted): the file's top-level byte regions biggest
+        first, each (id, offset, size, pct, accent). Excludes the whole-file
+        container and any chunk nested inside another (e.g. SF2 samples inside
+        smpl), so the map answers 'where do the bytes go' at the top level."""
+        cand = [(c["id"], c["offset"], c["size"], PALETTE[i % len(PALETTE)])
+                for i, c in enumerate(self.chunks)
+                if isinstance(c.get("offset"), int) and isinstance(c.get("size"), int)
+                and c["size"] > 0 and not (c["offset"] == 0 and c["size"] >= self.fsize)]
+
+        def nested(off, size):
+            return any(o <= off and off + size <= o + s and s > size
+                       for _i, o, s, _a in cand)
+        top = [(cid, off, size, _a) for cid, off, size, _a in cand
+               if not nested(off, size)]
+        top.sort(key=lambda x: -x[2])
+        fsize = max(1, self.fsize)
+        segs = [(str(cid).strip()[:8], off, size, size / fsize * 100, a)
+                for cid, off, size, a in top]
+        unaccounted = max(0, self.fsize - sum(s for _c, _o, s, _a in top))
+        return segs, unaccounted
+
+    def action_map(self):
+        if not self.chunks:
+            return
+        segs, un = self._byte_map()
+        self.push_screen(MapScreen(segs, self.fsize, un))
+
+    def action_follow_xref(self):
+        """Follow the selected field's pointer (its `xref` absolute offset) to
+        where it points, flagging a dangling (out-of-bounds) one -- a real
+        forensic tell as well as a navigation aid."""
+        node = self._cur_node
+        target = self._xref.get(id(node)) if node else None
+        if target is None:
+            self.notify("this field is not a pointer (no xref)", severity="warning")
+            return
+        if not (0 <= target < self.fsize):
+            self.notify(f"DANGLING pointer -> 0x{target:x} is outside the file "
+                        f"(0..0x{self.fsize:x})", severity="error")
+            return
+        self._jump_to_offset(target, 1, f"followed pointer -> 0x{target:08x}")
+
     def on_tree_node_highlighted(self, event):
         self._cur_node = event.node
         if self._edit_target:            # moving off the field cancels an edit
@@ -1084,8 +1183,13 @@ class AcidcatTUI(App):
         if not data:
             return
         off, length, accent = data
-        self._show(off, length, accent, self._node_name(event.node),
-                   self._edit_hint(event.node, off, length))
+        hint = self._edit_hint(event.node, off, length)
+        xref = self._xref.get(id(event.node))
+        if xref is not None:
+            danger = "" if 0 <= xref < self.fsize else " (DANGLING, out of bounds)"
+            ptr = f"pointer -> 0x{xref:08x}{danger} -- press x to follow"
+            hint = f"{hint}\n{ptr}" if hint else ptr
+        self._show(off, length, accent, self._node_name(event.node), hint)
 
     def _edit_hint(self, node, off, length):
         """A short note in the detail pane telling the user how the highlighted

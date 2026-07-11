@@ -136,9 +136,14 @@ def _flac_seektable(b, block_length=None):
             placeholders += 1
             continue
         if i < _SEEKPOINT_ROW_CAP:
-            fields.append(_f(base, 18, f"point[{i}]",
-                             f"sample {sample:,} @ +{offset:,}",
-                             f"{span} samples in frame"))
+            pf = _f(base, 18, f"point[{i}]",
+                    f"sample {sample:,} @ +{offset:,}",
+                    f"{span} samples in frame")
+            # the byte offset is relative to the first audio frame, which is not
+            # known until every metadata block is walked; inspect_flac resolves
+            # this to an absolute `xref` (a followable, dangling-checkable pointer)
+            pf["_xref_rel"] = offset
+            fields.append(pf)
     if avail > _SEEKPOINT_ROW_CAP:
         fields.append(_f(None, 0, "...",
                          f"{avail - _SEEKPOINT_ROW_CAP} more points"))
@@ -273,6 +278,19 @@ def inspect_flac(filepath):
                 f"a metadata-like block (type {btype}, {blen:,} bytes) follows "
                 f"the last-metadata-block flag at 0x{last_end:08x}; conformant "
                 f"decoders never read it (data hidden past the block table)")
+    # resolve SEEKTABLE point offsets (relative to the first frame) into absolute
+    # xref pointers now that last_end -- the first frame -- is known
+    for c in chunks:
+        if c["id"] != "SEEKTABLE":
+            continue
+        for fl in c["fields"]:
+            if "_xref_rel" in fl:
+                target = last_end + fl.pop("_xref_rel")
+                fl["xref"] = target
+                if not (0 <= target < file_size):
+                    file_warns.append(
+                        f"SEEKTABLE {fl['name']} points to 0x{target:08x}, "
+                        f"outside the file (a dangling seek pointer)")
     audio_bytes = file_size - last_end
     if audio_bytes > 0:
         chunks.append({"id": "frames", "offset": last_end, "size": audio_bytes,

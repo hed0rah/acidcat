@@ -33,12 +33,16 @@ _ID3_READ_CAP = 16 * 1024 * 1024
 # bytes before trusting them (a wrong annotation must never write blind).
 
 
-def _f(off, length, name, value, note="", enc=None, raw=None):
+def _f(off, length, name, value, note="", enc=None, raw=None, xref=None):
     d = {"off": off, "len": length, "name": name, "value": value, "note": note}
     if enc is not None:
         d["enc"] = enc
     if raw is not None:
         d["raw"] = raw
+    if xref is not None:
+        # this field is a pointer: `xref` is the absolute file offset it points
+        # at, so the TUI can follow it and flag a dangling (out-of-bounds) one
+        d["xref"] = xref
     return d
 
 
