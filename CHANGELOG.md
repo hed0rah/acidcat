@@ -4,6 +4,20 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.37.0] - 2026-07-11
+
+### Added
+
+- Provenance depth: DAW/tool structural fingerprints and more converters. `audit`
+  now identifies a writing tool from the signature chunks it leaves even when no
+  encoder string is present -- Avid Pro Tools (`regn`/`minf`/`elm1`), Steinberg
+  (`SMED`), the AFsp library, a SMPTE-UMID broadcast tool -- reported at "likely"
+  (a structural tell, not a stamp). The encoder-string table gained the common
+  rip/convert tools (Exact Audio Copy, dBpoweramp, XLD, foobar2000, fre:ac, SoX,
+  GoldWave, Ocenaudio, TwistedWave, Serato, Traktor). Broadcast-Wave `bext`
+  originator and CodingHistory already flow into provenance, so field-recorder
+  and mastering chains are covered.
+
 ## [0.36.0] - 2026-07-11
 
 ### Added
