@@ -19,7 +19,7 @@ import json
 import os
 import sys
 
-from acidcat.core import anomalies, constraints, provenance
+from acidcat.core import anomalies, constraints, integrity, provenance
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
 
@@ -43,17 +43,18 @@ def _gather(path):
         label, chunks, warns = walk_file(path)
         findings = anomalies.scan(path, label, chunks, warns)
         prov = provenance.identify(label, chunks, data)
+        integ = integrity.analyze(label, chunks, data)
     except Unsupported:
-        pass
+        integ = []
     if report is not None and label is None:
         label = report.label
-    return label, report, findings, prov
+    return label, report, findings, prov, integ
 
 
 def run(args):
     path = args.input
     try:
-        label, report, findings, prov = _gather(path)
+        label, report, findings, prov, integ = _gather(path)
     except OSError as e:
         print(f"acidcat audit: {path}: {e}", file=sys.stderr)
         return 1
@@ -68,6 +69,7 @@ def run(args):
                           for v in (report.violations if report else [])],
             "forensics": findings,
             "provenance": prov,
+            "integrity": integ,
         }
         print(json.dumps(out, indent=2, default=str))
         return 0
@@ -95,6 +97,14 @@ def run(args):
             at = f" @ 0x{f['offset']:08x}" if f.get("offset") else ""
             print(f"                {f['severity']:<6} {f['message']}{at}")
 
+    if not integ:
+        print("  INTEGRITY   header matches the audio (or not checkable)")
+    else:
+        print(f"  INTEGRITY   {len(integ)} mismatch(es)")
+        for it in integ:
+            print(f"                {it['verdict']}")
+            print(f"                  {it['detail']}")
+
     if prov:
         top = prov[0]
         conf = "" if top["confidence"] == "high" else f" ({top['confidence']})"
@@ -109,6 +119,8 @@ def run(args):
     n_fix = len(report.repairable) if report else 0
     alerts = sum(1 for f in findings if f["severity"] == "alert")
     bits = []
+    if integ:
+        bits.append(f"{len(integ)} integrity mismatch(es)")
     if n_fix:
         bits.append(f"{n_fix} structural fix(es) available")
     if alerts:
