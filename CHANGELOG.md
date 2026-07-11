@@ -4,6 +4,28 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.30.0] - 2026-07-11
+
+### Added
+
+- `acidcat validate`: read-only structural checking with an exit code. Runs the
+  same analysis `repair` uses but writes nothing, over files or a whole directory
+  tree, so it fits a CI check or a sweep to find broken files before they bite.
+  Exit 0 when every checked file is consistent, 1 when any has a violation.
+- The constraint framework (`core/constraints.py`, `core/repairers.py`): a
+  `Violation` (a derived field disagreeing with its function) is now a first-class
+  object carrying its witness and one of four kinds (size, offset, count, zero).
+  Every verb is a move over violations -- `analyze` (read-only: validate) vs
+  `apply` (fix: repair) -- and the IFF size cascade and MP4 offset rebuild are
+  both expressed through the shared protocol, so the command layer is
+  format-agnostic and adding a repairer wires it into both verbs at once.
+
+### Changed
+
+- `acidcat repair` now dispatches through the constraint framework; behavior is
+  unchanged, and it reports a non-witnessed violation as "left as-is" rather than
+  silently touching it.
+
 ## [0.29.0] - 2026-07-11
 
 ### Added
