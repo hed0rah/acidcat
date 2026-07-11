@@ -307,9 +307,3 @@ def parse_aiff(filepath, enumerate_all=False):
                 pos += 1
 
     return results, meta, seen_order
-
-
-def get_aiff_info(filepath):
-    """Quick info extraction for the info command."""
-    _, meta, seen = parse_aiff(filepath, enumerate_all=False)
-    return meta, seen
