@@ -21,6 +21,7 @@ import os
 import sys
 
 from acidcat.core import probe as pr
+from acidcat.core import viz
 
 
 def register(subparsers):
@@ -57,7 +58,25 @@ def register(subparsers):
     d = sub.add_parser("diff", help="Changed byte ranges vs another file.")
     d.add_argument("other", help="The file to compare against.")
 
+    en = sub.add_parser("entropy",
+                        help="Shannon entropy curve + byte histogram (spot encrypted/compressed spans).")
+    en.add_argument("--width", "-w", type=int, default=72, help="Plot width in cells.")
+
+    mp = sub.add_parser("map",
+                        help="Hilbert byte-class map (binvis): the file's shape at a glance.")
+    mp.add_argument("--order", "-o", type=int, default=5,
+                    help="Grid is 2^order per side (default 5 = 32x32).")
+    mp.add_argument("--no-color", action="store_true", help="Glyphs instead of color blocks.")
+
     p.set_defaults(func=run)
+
+
+def _rgb(hexc):
+    return int(hexc[1:3], 16), int(hexc[3:5], 16), int(hexc[5:7], 16)
+
+
+def _use_color(no_color):
+    return (not no_color) and sys.stdout.isatty() and not os.environ.get("NO_COLOR")
 
 
 def _byteorder(args, label):
@@ -164,6 +183,40 @@ def run(args):
             print(f"  0x{s:08x}..0x{e:08x}  ({e - s} bytes)")
         if la != lb:
             print(f"  lengths differ by {abs(la - lb):,} bytes")
+        return 0
+
+    if verb == "entropy":
+        ent = viz.windowed_entropy(data, max(8, args.width))
+        print(f"entropy  {os.path.basename(path)}  {len(data):,} bytes  (0 = uniform .. 8 = random)")
+        for line in viz.braille_line(ent, width=args.width, height=8, vmin=0, vmax=8):
+            print("  " + line)
+        hi = sum(1 for e in ent if e >= 7.2)
+        summary = (f"  min {min(ent):.2f}  max {max(ent):.2f}  "
+                   f"mean {sum(ent) / len(ent):.2f} bits/byte")
+        if hi:
+            summary += f"   [{hi} window(s) >= 7.2: encrypted or compressed]"
+        print(summary)
+        print("  byte distribution:")
+        for line in viz.byte_histogram(data, width=128, height=5):
+            print("  " + line)
+        return 0
+
+    if verb == "map":
+        grid, side = viz.hilbert_grid(data, args.order)
+        color = _use_color(args.no_color)
+        print(f"byte map  {os.path.basename(path)}  {len(data):,} bytes  "
+              f"({side}x{side} Hilbert; adjacent cells are adjacent bytes)")
+        for row in grid:
+            cells = []
+            for b in row:
+                glyph, hexc = viz.byte_class(b)
+                if color:
+                    r, g, bl = _rgb(hexc)
+                    cells.append(f"\x1b[38;2;{r};{g};{bl}m█\x1b[0m")
+                else:
+                    cells.append(glyph)
+            print("  " + "".join(cells))
+        print("  legend:  . null   o ascii   - control   + high   # 0xFF")
         return 0
 
     return 2
