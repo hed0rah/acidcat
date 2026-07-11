@@ -19,13 +19,9 @@ import json
 import os
 import sys
 
-from acidcat.core import anomalies, constraints
+from acidcat.core import anomalies, constraints, provenance
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
-
-# field names (as the walkers label them) that identify the writing tool
-_PROVENANCE = {"software", "encoder", "originator", "writing_library", "vendor",
-               "product", "engineer", "muxer", "isft", "tool"}
 
 
 def register(subparsers):
@@ -36,29 +32,19 @@ def register(subparsers):
     p.set_defaults(func=run)
 
 
-def _provenance(chunks):
-    seen = {}
-    for c in chunks:
-        for f in c.get("fields") or []:
-            name = str(f.get("name", "")).lower()
-            val = f.get("value")
-            if name in _PROVENANCE and val and str(val).strip():
-                seen.setdefault(f["name"], str(val).strip()[:100])
-    return seen
-
-
 def _gather(path):
     with open(path, "rb") as f:
         data = f.read()
     report = constraints.analyze(data)              # structural violations (or None)
     findings = []
     label = None
+    prov = []
     try:
         label, chunks, warns = walk_file(path)
         findings = anomalies.scan(path, label, chunks, warns)
-        prov = _provenance(chunks)
+        prov = provenance.identify(label, chunks, data)
     except Unsupported:
-        chunks, prov = [], {}
+        pass
     if report is not None and label is None:
         label = report.label
     return label, report, findings, prov
@@ -110,7 +96,12 @@ def run(args):
             print(f"                {f['severity']:<6} {f['message']}{at}")
 
     if prov:
-        print("  PROVENANCE  " + "; ".join(f"{k}: {v}" for k, v in prov.items()))
+        top = prov[0]
+        conf = "" if top["confidence"] == "high" else f" ({top['confidence']})"
+        print(f"  PROVENANCE  written by: {top['tool']}{conf}")
+        print(f"                basis: {top['basis']}")
+        for s in prov[1:]:
+            print(f"                also: {s['tool']} ({s['basis']})")
     else:
         print("  PROVENANCE  no writer tells")
 
