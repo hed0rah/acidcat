@@ -962,16 +962,23 @@ class TestInspectMp3:
     def test_xing_frame_count_divergence_flagged(self, tmp_path):
         from acidcat.core.walk.mp3 import inspect_mp3
         # forge a Xing header (offset 21 for MPEG1 mono) declaring 9999
-        # frames while only 3 are actually present.
+        # frames while only 3 are actually present. The cross-check requires
+        # walking every frame, so it is a deep-mode (--frames) diagnostic;
+        # the fast path trusts the Xing count and skips the walk.
         fr = bytearray(_MP3_FRAME)
         fr[21:25] = b"Xing"
         fr[25:29] = struct.pack(">I", 0x01)      # frames flag
         fr[29:33] = struct.pack(">I", 9999)      # bogus frame count
         p = tmp_path / "vbr.mp3"
         p.write_bytes(bytes(fr) + _MP3_FRAME * 2)
-        chunks, _ = inspect_mp3(str(p))
+        chunks, _ = inspect_mp3(str(p), deep=True)
         frames = next(c for c in chunks if c["id"] == "frames")
         assert any("diverges" in w for w in frames["warnings"])
+        # the fast path trusts Xing and does not walk (no divergence warning)
+        fast, _ = inspect_mp3(str(p))
+        ff = next(c for c in fast if c["id"] == "frames")
+        assert not any("diverges" in w for w in ff["warnings"])
+        assert ff["fields"][0]["value"] == "9,999"    # Xing count, unverified
 
     def test_info_tag_is_cbr(self, tmp_path):
         # is_vbr_header was true for both Xing and Info; an Info tag is
