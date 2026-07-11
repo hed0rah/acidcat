@@ -56,3 +56,42 @@ def test_float_pcm_skipped(tmp_path):
     # tag 3 (IEEE float): not integer PCM, must be ignored
     path = _wav(tmp_path, 32, [1] * 4000, tag=3)
     assert _run(path) == []
+
+
+from acidcat.core.walk.aiff import inspect_aiff
+
+
+def _aiff(tmp_path, bits, samples, name="t.aiff"):
+    bps = bits // 8
+    pcm = b"".join(int(s & ((1 << bits) - 1)).to_bytes(bps, "big") for s in samples)
+    # COMM: channels, frames, sampleSize, 80-bit sample rate (44100 Hz)
+    comm = struct.pack(">HIH", 1, len(samples), bits) + b"\x40\x0e\xacD\x00\x00\x00\x00\x00\x00"
+    ssnd = struct.pack(">II", 0, 0) + pcm            # offset, blockSize, then PCM
+    body = (b"AIFF" + b"COMM" + struct.pack(">I", len(comm)) + comm
+            + b"SSND" + struct.pack(">I", len(ssnd)) + ssnd)
+    p = tmp_path / name
+    p.write_bytes(b"FORM" + struct.pack(">I", len(body)) + body)
+    return str(p)
+
+
+def _run_aiff(path):
+    chunks, _warns = inspect_aiff(path, "AIFF")
+    with open(path, "rb") as f:
+        data = f.read()
+    return integrity.analyze("IFF/AIFF", chunks, data)
+
+
+def test_aiff_fake_24bit_flagged(tmp_path):
+    vals = [(i * 517 & 0xFFFF) << 8 for i in range(4000)]   # 16-bit left-shifted
+    findings = _run_aiff(_aiff(tmp_path, 24, vals))
+    assert findings and "effective 16-bit" in findings[0]["verdict"]
+
+
+def test_aiff_genuine_24bit_not_flagged(tmp_path):
+    vals = [(i * 2654435761) & 0xFFFFFF for i in range(4000)]
+    assert _run_aiff(_aiff(tmp_path, 24, vals)) == []
+
+
+def test_aiff_genuine_16bit_not_flagged(tmp_path):
+    vals = [(i * 40503) & 0xFFFF for i in range(4000)]
+    assert _run_aiff(_aiff(tmp_path, 16, vals)) == []
