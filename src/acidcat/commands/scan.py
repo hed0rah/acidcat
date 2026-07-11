@@ -7,12 +7,10 @@ import os
 import sys
 
 from acidcat.core.riff import (
-    parse_riff, get_duration, smpl_root_or_none, acid_root_or_none,
-    effective_acid_beats,
+    smpl_root_or_none, acid_root_or_none, effective_acid_beats,
 )
-from acidcat.core.aiff import is_aiff, parse_aiff
+from acidcat.core.aiff import is_aiff
 from acidcat.core.tagged import is_tagged_format
-from acidcat.core.formats import output
 from acidcat.util.midi import midi_note_to_name
 from acidcat.util.csv_helpers import safe_basename_for_csv
 
@@ -44,28 +42,36 @@ def register(subparsers):
 
 
 def _scan_wav(filepath):
-    """Extract metadata row from a WAV file."""
-    _, meta, seen = parse_riff(filepath, enumerate_all=False)
-    duration = get_duration(filepath)
+    """Extract metadata row from a WAV file, from the inspect walker (the
+    single WAV decoder since the 2026-07 unification)."""
+    from acidcat.core.walk.wav import inspect_wav
 
-    beats = effective_acid_beats(meta, duration)
+    ctx = {}
+    chunks, _warns = inspect_wav(filepath, ctx=ctx)
+    seen = list(dict.fromkeys(c["id"] for c in chunks))
+    duration = round(ctx["duration"], 4) if ctx.get("duration") else None
+    bpm = ctx.get("acid_bpm")
+
+    beats = effective_acid_beats(
+        {"acid_beats": ctx.get("acid_beats"),
+         "acid_one_shot": ctx.get("acid_one_shot"), "bpm": bpm}, duration)
     expected = diff = None
-    if meta["bpm"] and beats:
-        expected = round((beats / meta["bpm"]) * 60, 4)
+    if bpm and beats:
+        expected = round((beats / bpm) * 60, 4)
         diff = round(duration - expected, 4) if duration else None
 
     # SMPL/ACID root_key = 0 is the documented "unset" sentinel
     # (MIDI C-1). Coerce to None before formatting so the CSV key
     # column does not ship `C-1` for files whose SMPL chunk is
     # present but unset.
-    smpl_root = smpl_root_or_none(meta)
-    acid_root = acid_root_or_none(meta)
+    smpl_root = smpl_root_or_none(ctx.get("smpl_root"))
+    acid_root = acid_root_or_none(ctx.get("acid_root"))
     key = midi_note_to_name(smpl_root) or midi_note_to_name(acid_root)
 
     return {
         "filename": filepath,
         "format": "wav",
-        "bpm": meta["bpm"],
+        "bpm": bpm,
         "key": key,
         "duration_sec": duration,
         "title": None,
@@ -78,17 +84,23 @@ def _scan_wav(filepath):
 
 
 def _scan_aiff(filepath):
-    """Extract metadata row from an AIFF file."""
-    _, meta, seen = parse_aiff(filepath, enumerate_all=False)
+    """Extract metadata row from an AIFF file, from the inspect walker."""
+    from acidcat.core.walk.aiff import inspect_aiff
+
+    with open(filepath, "rb") as f:
+        form = "AIFC" if f.read(12)[8:12] == b"AIFC" else "AIFF"
+    ctx = {}
+    chunks, _warns = inspect_aiff(filepath, form, ctx=ctx)
+    seen = [c["id"] for c in chunks]
 
     return {
         "filename": filepath,
         "format": "aiff",
         "bpm": None,
         "key": None,
-        "duration_sec": meta.get("duration_sec"),
-        "title": meta.get("name"),
-        "artist": meta.get("author"),
+        "duration_sec": ctx.get("duration"),
+        "title": ctx.get("name"),
+        "artist": ctx.get("author"),
         "acid_beats": None,
         "expected_duration": None,
         "duration_diff": None,

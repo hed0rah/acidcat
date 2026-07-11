@@ -332,23 +332,6 @@ def get_riff_info(filepath):
         return {"size": riff_size, "type": riff_type}
 
 
-def get_fmt_info(filepath):
-    """Extract fmt chunk info: format_tag, channels, sample_rate, bits_per_sample."""
-    for cid, off, sz in iter_chunks(filepath):
-        if cid == "fmt " and sz >= 16:
-            with open(filepath, "rb") as f:
-                f.seek(off + 8)
-                fmt = f.read(16)
-            tag, ch, sr, _, _, bits = struct.unpack("<HHIIHH", fmt)
-            return {
-                "format_tag": tag,
-                "channels": ch,
-                "sample_rate": sr,
-                "bits_per_sample": bits,
-            }
-    return None
-
-
 def get_duration(filepath):
     """
     Get WAV duration in seconds.
