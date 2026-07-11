@@ -15,7 +15,6 @@ from acidcat.core import registry as reg
 from acidcat.core.riff import (
     smpl_root_or_none, acid_root_or_none, effective_acid_beats,
 )
-from acidcat.core.midi import parse_midi
 from acidcat.core.mp3 import decode_frame_header
 from acidcat.core.serum import is_serum_preset, parse_serum_preset
 from acidcat.core.tagged import is_tagged_format
@@ -354,15 +353,22 @@ def _from_aiff(filepath, row, do_deep=False):
 
 
 def _from_midi(filepath, row):
-    meta = parse_midi(filepath)
+    """MIDI row extraction, driven by the inspect walker (the single MIDI
+    decoder since the 2026-07-10 unification): one walk fills a semantic
+    ctx dict. Key names come from the shared key_signature_name resolver, so
+    scan and inspect can no longer disagree on the key."""
+    from acidcat.core.walk.midi import inspect_midi
+
+    ctx = {}
+    inspect_midi(filepath, ctx=ctx)
     row["format"] = "midi"
-    row["duration"] = meta.get("duration_sec")
-    row["bpm"] = meta.get("tempo_bpm")
-    row["key"] = meta.get("key_sig")
-    if meta.get("track_names"):
-        row["title"] = meta["track_names"][0]
-    if meta.get("copyright"):
-        row["comment"] = meta["copyright"]
+    row["duration"] = ctx.get("duration")
+    row["bpm"] = ctx.get("tempo_bpm")
+    row["key"] = ctx.get("key_sig")
+    if ctx.get("track_name"):
+        row["title"] = ctx["track_name"]
+    if ctx.get("copyright"):
+        row["comment"] = ctx["copyright"]
     return row
 
 
