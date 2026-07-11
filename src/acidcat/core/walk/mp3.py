@@ -562,7 +562,14 @@ def inspect_mp3(filepath, deep=False):
     bitrates = set()
     rows = []
     truncated = False
-    for off, f2 in mp3mod.iter_frames(filepath, frame_off, audio_end):
+    # a Xing/VBRI header already carries the authoritative frame count, so on the
+    # fast (non-deep) path skip the full frame walk entirely -- it was only kept
+    # for the min-max bitrate string and the divergence cross-check, both of
+    # which are diagnostics that belong behind --frames (deep). This turns a
+    # ~13k-iteration walk on a 5 MB VBR MP3 into a header read.
+    walk = deep or vbr_frames is None
+    for off, f2 in (mp3mod.iter_frames(filepath, frame_off, audio_end)
+                    if walk else ()):
         count += 1
         bitrates.add(f2["bitrate"])
         if deep and len(rows) < _FRAME_LISTING_CAP:
@@ -582,7 +589,9 @@ def inspect_mp3(filepath, deep=False):
     spf = fh["samples_per_frame"]
     duration = (max(0, count * spf - gap_delay - gap_pad) / fh["sample_rate"]
                 if fh["sample_rate"] else 0)
-    cbr = len(bitrates) == 1 and not is_vbr_header
+    # when the walk was skipped (bitrates empty), the tag type decides: an Info
+    # tag is CBR, a Xing/VBRI header is VBR
+    cbr = not is_vbr_header and (not walk or len(bitrates) == 1)
     summary = (f"{count:,} frames, {duration:.3f} s, "
                f"{'CBR' if cbr else 'VBR'}")
     if len(bitrates) > 1:
