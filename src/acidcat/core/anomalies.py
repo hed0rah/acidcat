@@ -42,6 +42,32 @@ _CAVITY = {"PADDING": "FLAC PADDING", "FREE": "MP4 free box", "SKIP": "MP4 skip 
 _CAVITY_PAYLOAD_SIZE = {"PADDING", "JUNK", "PAD"}
 
 
+def _entropy(blob):
+    """Shannon byte-entropy of blob, 0..8 bits/byte. ~8 means the bytes are
+    indistinguishable from random -- encrypted or compressed. Cheap to compute
+    over a region we already have in memory, and a strong tell on a cavity: a
+    payload that is ciphertext reads near 8, structured data well below."""
+    if not blob:
+        return 0.0
+    import math
+    counts = [0] * 256
+    for b in blob:
+        counts[b] += 1
+    n = len(blob)
+    return -sum((c / n) * math.log2(c / n) for c in counts if c)
+
+
+def _entropy_note(blob):
+    """A short characterization for a suspicious blob, or '' when unremarkable.
+    Only fires on a payload-sized region so a few random bytes don't cry wolf."""
+    if len(blob) < 64:
+        return ""
+    h = _entropy(blob)
+    if h >= 7.2:
+        return f"; entropy {h:.1f}/8 (encrypted or compressed payload)"
+    return ""
+
+
 def _declared_end(head):
     """The offset a conformant reader stops at, from the container's size field.
     None when the header does not give a usable total size, so the caller falls
@@ -178,15 +204,24 @@ def scan(filepath, fmt_label, chunks, warns):
         if any(blob):
             findings.append({"severity": "notice", "offset": base, "rule": "cavity_content",
                              "message": f"non-zero bytes in {label} ({clen:,} bytes); "
-                                        f"this region is spec'd to be ignorable"})
+                                        f"this region is spec'd to be ignorable"
+                                        f"{_entropy_note(blob)}"})
 
     # 6. FLAC APPLICATION block: 4-byte id + arbitrary freeform data
     for c in chunks:
         if str(c.get("id", "")).strip().upper() == "APPLICATION":
+            note = ""
+            base = c.get("payload_base")
+            if isinstance(base, int):
+                with open(filepath, "rb") as f:
+                    f.seek(base + 4)             # past the 4-byte application id
+                    note = _entropy_note(f.read(min((c.get("size", 0) or 0) - 4,
+                                                    1 << 20)))
             findings.append({"severity": "notice", "offset": c.get("offset", 0) or 0,
                              "rule": "application_block",
                              "message": f"FLAC APPLICATION block "
-                                        f"({c.get('size', 0):,} bytes of freeform data)"})
+                                        f"({c.get('size', 0):,} bytes of freeform data)"
+                                        f"{note}"})
 
     # 7. universal appended-ZIP scan: a ZIP end-of-central-directory near EOF
     # means an archive was appended, even to formats with no total-size header
@@ -336,7 +371,8 @@ def scan(filepath, fmt_label, chunks, warns):
                                  "rule": "id3_padding_nonzero",
                                  "message": f"non-zero bytes in ID3v2 padding "
                                             f"({len(pad):,} bytes after the last frame); "
-                                            f"the padding region is spec'd to be zero"})
+                                            f"the padding region is spec'd to be zero"
+                                            f"{_entropy_note(pad)}"})
         except Exception:
             pass
 
