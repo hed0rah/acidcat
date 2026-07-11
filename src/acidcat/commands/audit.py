@@ -54,8 +54,16 @@ def _gather(path):
     findings = []
     label = None
     prov = []
+    # an MP3's Xing/VBRI frame count vs the frames actually present is a
+    # truncation tell, but the walker only cross-checks it on the deep path;
+    # audit is thorough by nature, so deep-walk MP3 (only) to surface it.
+    from acidcat.core import sniff as sniffmod
     try:
-        label, chunks, warns = walk_file(path)
+        deep = sniffmod.sniff(path) == "mp3"
+    except OSError:
+        deep = False
+    try:
+        label, chunks, warns = walk_file(path, deep=deep)
         findings = anomalies.scan(path, label, chunks, warns)
         prov = provenance.identify(label, chunks, data)
         integ = integrity.analyze(label, chunks, data)

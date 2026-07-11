@@ -81,3 +81,29 @@ def test_audit_clean_file_no_hidden(tmp_path, capsys):
     audit.run(_args(str(p)))
     out = capsys.readouterr().out
     assert "no concealed or appended data" in out
+
+
+def test_audit_deep_walks_mp3_only(tmp_path, monkeypatch):
+    # audit should request a deep frame walk for MP3 (to surface the Xing-vs-actual
+    # frame-count truncation tell) but not for other formats
+    import acidcat.commands.audit as A
+    seen = {}
+
+    def fake_walk(path, deep=False):
+        seen["deep"] = deep
+        return "MP3/MPEG audio", [], []
+
+    monkeypatch.setattr(A, "walk_file", fake_walk)
+    monkeypatch.setattr(A.anomalies, "scan", lambda *a, **k: [])
+    monkeypatch.setattr(A.provenance, "identify", lambda *a, **k: [])
+    monkeypatch.setattr(A.integrity, "analyze", lambda *a, **k: [])
+
+    mp3 = tmp_path / "x.mp3"
+    mp3.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 64)  # sniffs as mp3
+    A._gather(str(mp3))
+    assert seen["deep"] is True
+
+    wav = tmp_path / "x.wav"
+    wav.write_bytes(_wav())
+    A._gather(str(wav))
+    assert seen["deep"] is False

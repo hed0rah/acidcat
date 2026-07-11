@@ -4,6 +4,16 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.42.0] - 2026-07-11
+
+### Added
+
+- `acidcat audit` now surfaces MP3 truncation: it deep-walks an MP3 (only) so the
+  Xing/VBRI declared frame count is cross-checked against the frames actually
+  present. A big divergence -- the tell of a truncated or clipped MP3 -- appears
+  in the FORENSICS section. The walker already had the check; audit now triggers
+  it, thoroughly, without deep-walking other formats.
+
 ## [0.41.0] - 2026-07-11
 
 ### Changed
