@@ -797,6 +797,7 @@ def test_hex_text_offsets_and_empty(tmp_path):
 # ── navigation: goto, search, jump-to-finding, yank, redo ──────────
 
 def test_fuzzy_matcher():
+    pytest.importorskip("textual")           # _fuzzy lives in tui_app (imports rich)
     from acidcat.tui_app import _fuzzy
     assert _fuzzy("sr", "sample_rate")          # subsequence
     assert _fuzzy("SMPL", "smpl")               # case-insensitive
