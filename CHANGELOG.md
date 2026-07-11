@@ -4,6 +4,19 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.44.0] - 2026-07-11
+
+### Added
+
+- `acidcat probe entropy` and `acidcat probe map`: byte-visualization dissection
+  views (`core/viz.py`, zero-dependency terminal primitives). `entropy` plots a
+  Shannon-entropy curve across the file plus a byte histogram, flagging spans that
+  read as encrypted or compressed (>= 7.2 bits/byte). `map` draws a binvis-style
+  Hilbert byte-class map -- adjacent cells are adjacent bytes, so headers, PCM,
+  and appended/cavity regions show up as distinct blocks -- in truecolor on a TTY
+  or byte-class glyphs otherwise. Both upstreamed from the playground's `viz.py`,
+  since seeing a file's shape is a dissection capability.
+
 ## [0.43.0] - 2026-07-11
 
 ### Added
