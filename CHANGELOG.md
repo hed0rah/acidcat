@@ -4,6 +4,38 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.26.0] - 2026-07-11
+
+### Added
+
+- SoundFont 2 (.sf2) support: `acidcat inspect font.sf2` shows the font
+  metadata and every named sample (rate, duration, loop) with its real byte
+  offset, and `acidcat convert font.sf2` extracts all samples to a folder of
+  WAVs. Open, uncompressed sampler format -- the first SoundFont support.
+- TUI byte map (`m`): where the file's bytes actually go, top-level regions
+  biggest first with a proportional bar, unaccounted bytes called out.
+- TUI pointer navigation (`x`): follow a pointer field to its target and flag
+  a dangling (out-of-bounds) one. FLAC SEEKTABLE points are wired up, with an
+  out-of-bounds seek offset also warned at inspect.
+- TUI pending-changes diff (`d`): review every changed byte region (offset,
+  old->new) between the working copy and the original before saving.
+- FLAC: a metadata-like block after the last-metadata-block flag is flagged as
+  data hidden past the block table; WAV: an implausible sample rate or channel
+  count (structurally valid, physically impossible) is flagged.
+
+### Changed
+
+- TUI edits scale to large files: undo/redo store a minimal byte-range delta
+  instead of a whole-file snapshot, and the dirty check no longer does a
+  whole-file compare on every edit. App-global shortcuts are disabled while a
+  modal is open.
+
+### Fixed
+
+- `inspect` on a VBR MP3 no longer walks every frame when the Xing/VBRI header
+  already carries the frame count; the walk (and its cross-check) is a
+  `--frames`/deep diagnostic now.
+
 ## [0.25.0] - 2026-07-10
 
 ### Added
