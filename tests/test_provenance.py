@@ -49,3 +49,30 @@ def test_ordering_high_before_likely():
     order = {"high": 0, "likely": 1, "guess": 2}
     ordered = sorted(sigs, key=lambda x: order[x["confidence"]])
     assert ordered[0]["confidence"] == "high"
+
+
+def _chunks_ids(ids):
+    return [{"id": i, "fields": []} for i in ids]
+
+
+def test_daw_chunk_signatures():
+    pt = provenance._structural("RIFF/WAVE", _chunks_ids(["fmt ", "data", "regn", "minf"]), b"")
+    assert any("Pro Tools" in s["tool"] and s["confidence"] == "likely" for s in pt)
+    st = provenance._structural("RIFF/WAVE", _chunks_ids(["fmt ", "data", "SMED"]), b"")
+    assert any("Steinberg" in s["tool"] for s in st)
+    # a bare WAV yields no structural tell
+    assert provenance._structural("RIFF/WAVE", _chunks_ids(["fmt ", "data"]), b"") == []
+
+
+def test_chunk_signatures_only_for_iff():
+    # a non-IFF label must not run the chunk-signature check
+    assert provenance._structural("MP3/MPEG audio", _chunks_ids(["regn"]), b"") == []
+
+
+def test_expanded_converter_canon():
+    c = provenance._canon
+    assert c("Exact Audio Copy V1.6") == "Exact Audio Copy"
+    assert c("dBpoweramp Release 17") == "dBpoweramp"
+    assert c("Lavf58.76.100 (via foobar2000)") in (
+        "FFmpeg (libav 58.76.100)", "foobar2000")   # first match wins (FFmpeg)
+    assert c("created with SoX") == "SoX"

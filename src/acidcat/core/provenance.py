@@ -42,7 +42,20 @@ _CANON = [
     (re.compile(r"\bNero\b", re.I), "Nero"),
     (re.compile(r"WavePad|\bNCH\b", re.I), "NCH WavePad"),
     (re.compile(r"Sound Forge|SoundForge", re.I), "Sony/Magix Sound Forge"),
-    (re.compile(r"reaper|izotope|RX \d", re.I), "iZotope RX"),
+    (re.compile(r"iZotope|RX \d", re.I), "iZotope RX"),
+    # rip / convert / library tools (explicit strings)
+    (re.compile(r"Exact Audio Copy|\bEAC\b", re.I), "Exact Audio Copy"),
+    (re.compile(r"dBpoweramp|dbpa", re.I), "dBpoweramp"),
+    (re.compile(r"\bXLD\b|X Lossless", re.I), "XLD (X Lossless Decoder)"),
+    (re.compile(r"foobar2000", re.I), "foobar2000"),
+    (re.compile(r"fre:ac|freac", re.I), "fre:ac"),
+    (re.compile(r"\bMax\b \d|MediaHuman", re.I), "MediaHuman / Max"),
+    (re.compile(r"\bsox\b", re.I), "SoX"),
+    (re.compile(r"GoldWave", re.I), "GoldWave"),
+    (re.compile(r"Ocenaudio", re.I), "Ocenaudio"),
+    (re.compile(r"Twisted Wave|TwistedWave", re.I), "TwistedWave"),
+    (re.compile(r"Serato", re.I), "Serato"),
+    (re.compile(r"Traktor", re.I), "Native Instruments Traktor"),
 ]
 
 
@@ -54,6 +67,27 @@ def _canon(raw):
             ver = (m.group(1) or "") if m.lastindex else ""
             return re.sub(r"\s+", " ", tmpl.replace(r"\1", ver)).strip()
     return raw
+
+
+# signature chunk ids -> the tool that writes them. these are documented,
+# tool-specific chunks, reported at "likely" (a structural tell, not a stamp).
+_CHUNK_SIGNATURES = [
+    ({"regn", "minf", "elm1"}, "Avid Pro Tools"),
+    ({"SMED"}, "Steinberg (Cubase/Nuendo/WaveLab)"),
+    ({"AFsp"}, "AFsp audio library (SoX / afconvert lineage)"),
+    ({"umid"}, "a broadcast/production tool (SMPTE UMID)"),
+]
+
+
+def _chunk_signatures(chunks):
+    ids = {str(c.get("id", "")).strip() for c in chunks}
+    out = []
+    for sig, tool in _CHUNK_SIGNATURES:
+        hit = sig & ids
+        if hit:
+            out.append({"tool": tool, "confidence": "likely",
+                        "basis": f"{'/'.join(sorted(hit))} chunk"})
+    return out
 
 
 def _structural(label, chunks, data):
@@ -68,6 +102,8 @@ def _structural(label, chunks, data):
                             "confidence": "likely"})
     except Exception:
         pass
+    if label in ("RIFF/WAVE", "RF64/WAVE", "IFF/AIFF", "IFF/AIFC"):
+        out += _chunk_signatures(chunks)
     return out
 
 
