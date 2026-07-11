@@ -1114,3 +1114,37 @@ def test_check_action_disables_bindings_under_modal(tmp_path):
             assert app.check_action("strip", ()) is False
 
     asyncio.run(scenario())
+
+
+def test_tui_validate_repair_flow(tmp_path):
+    """The v panel shows constraint violations; r repairs them on the working
+    copy (unsaved), leaving the original untouched until ctrl+s."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI, ValidateScreen
+    from acidcat.core import constraints
+
+    orig = tmp_path / "broken.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+    good = orig.read_bytes()
+    broken = bytearray(good)
+    struct.pack_into("<I", broken, 4, 7)          # stale master size
+    orig.write_bytes(bytes(broken))
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            # working copy is the broken bytes; analyze finds the violation
+            assert constraints.analyze(open(app.work, "rb").read()).violations
+            app.action_validate()
+            await pilot.pause()
+            assert isinstance(app.screen, ValidateScreen)
+            await pilot.press("r")                # apply the witnessed repair
+            await pilot.pause()
+            # working copy now consistent, original on disk still broken
+            assert not constraints.analyze(open(app.work, "rb").read()).violations
+            assert app.dirty and orig.read_bytes() == bytes(broken)
+
+    asyncio.run(scenario())

@@ -352,6 +352,7 @@ class HelpScreen(ModalScreen):
             ("f", "jump to the next forensics finding"),
             ("x", "follow a pointer field to where it points (flags dangling)"),
             ("m", "byte map: where the file's bytes go, biggest regions first"),
+            ("v", "validate structure: constraint violations, r to repair them"),
             ("y", "yank the selected bytes as hex to the clipboard"),
             ("d", "review all pending changes (offset old->new) before save"),
             ("e", "edit the selected field (value or hex)"),
@@ -463,6 +464,57 @@ class MapScreen(ModalScreen):
         self.dismiss(None)
 
 
+class ValidateScreen(ModalScreen):
+    """The constraint model's read-only face inside the TUI: the derived-field
+    violations of the working copy, each with the witness that makes it fixable.
+    `r` applies the witnessed repairs to the working copy (still unsaved); esc /
+    v close."""
+
+    CSS = """
+    ValidateScreen { align: center middle; }
+    #valbox { width: 86; height: auto; max-height: 90%; border: round #56e0f0;
+              background: #10161a; padding: 1 2; }
+    """
+    BINDINGS = [("escape", "close", "close"), ("v", "close", "close"),
+                ("r", "repair", "repair")]
+
+    def __init__(self, report):
+        super().__init__()
+        self.report = report
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append("validate  ", style=f"bold {ACCENT}")
+        t.append(f"[{self.report.label}]\n", style=SOFT)
+        vios = self.report.violations
+        fixable = self.report.repairable
+        self._can_repair = bool(fixable)
+        if not vios:
+            t.append("\nstructurally consistent -- every derived field matches "
+                     "its function.\n", style=f"bold {SEV['notice']}")
+        else:
+            t.append(f"\n{len(vios)} violation(s), {len(fixable)} witnessed\n",
+                     style=SOFT)
+            for v in vios:
+                t.append(f"\n  {v.kind:<7}", style=f"bold {ACCENT}")
+                t.append(f"{v.describe()}\n", style=SOFT)
+                wit = f"witness: {v.witness}" if v.witness else "no witness -- left as-is"
+                t.append(f"          {wit}\n", style=DIM)
+        if self._can_repair:
+            t.append(f"\nr to repair {len(fixable)} witnessed field(s) "
+                     f"(unsaved), esc / v to close.", style=DIM)
+        else:
+            t.append("\nesc / v to close.", style=DIM)
+        with Vertical(id="valbox"):
+            yield Static(t)
+
+    def action_repair(self):
+        self.dismiss("repair" if getattr(self, "_can_repair", False) else None)
+
+    def action_close(self):
+        self.dismiss(None)
+
+
 class AcidcatTUI(App):
     CSS = """
     Screen { background: #10161a; }
@@ -491,6 +543,7 @@ class AcidcatTUI(App):
         ("y", "yank", "yank hex"),
         ("d", "diff", "pending changes"),
         ("m", "map", "byte map"),
+        ("v", "validate", "validate"),
         ("ctrl+s", "save", "save"),
         ("ctrl+z", "undo", "undo"),
         ("ctrl+r", "redo", "redo"),
@@ -1158,6 +1211,43 @@ class AcidcatTUI(App):
             return
         segs, un = self._byte_map()
         self.push_screen(MapScreen(segs, self.fsize, un))
+
+    def action_validate(self):
+        """Show the constraint model's violations for the working copy; from the
+        panel, `r` applies the witnessed repairs (still unsaved)."""
+        if not self.work:
+            self.notify("open a file first (o)", severity="warning")
+            return
+        from acidcat.core import constraints
+        with open(self.work, "rb") as f:
+            data = f.read()
+        report = constraints.analyze(data)
+        if report is None:
+            self.notify("not a structurally-modeled container (WAV/AIFF/MP4/...)",
+                        severity="warning")
+            return
+
+        def after(result):
+            if result == "repair":
+                self._do_repair()
+        self.push_screen(ValidateScreen(report), after)
+
+    def _do_repair(self):
+        from acidcat.core import constraints
+        from acidcat.core.repairers import AudioGuardError
+        with open(self.work, "rb") as f:
+            data = f.read()
+        try:
+            new_data, report = constraints.repair(data)
+        except AudioGuardError as e:
+            self.notify(f"repair refused: {e}", severity="error")
+            return
+        if not report.repairable:
+            self.notify("nothing witnessed to repair")
+            return
+        self._apply_to_work(new_data)
+        self.notify(f"repaired {len(report.repairable)} field(s) "
+                    f"(unsaved -- ctrl+s to save)")
 
     def action_follow_xref(self):
         """Follow the selected field's pointer (its `xref` absolute offset) to
