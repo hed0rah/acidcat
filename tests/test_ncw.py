@@ -143,3 +143,58 @@ def test_unpack_signed_is_invertible():
     vals = [(-1) ** i * (i % 31) for i in range(512)]
     packed = _pack_signed(vals, 6)
     assert ncw._unpack_signed(packed, 512, 6) == vals
+
+
+# ── batch / directory conversion (commands.convert) ────────────────
+
+class _CArgs:
+    def __init__(self, **kw):
+        d = {"input": None, "output": None, "division": 480,
+             "skip_existing": False, "quiet": True}
+        d.update(kw)
+        for k, v in d.items():
+            setattr(self, k, v)
+
+
+def test_convert_single_ncw(tmp_path):
+    from acidcat.commands import convert
+    data = make_ncw(1, 16, 44100, [[100, -100, 200, -200, 0]], bits=0)
+    p = tmp_path / "s.ncw"
+    p.write_bytes(data)
+    out = str(tmp_path / "s.wav")
+    assert convert.run(_CArgs(input=str(p), output=out)) == 0
+    assert open(out, "rb").read()[:4] == b"RIFF"
+
+
+def test_convert_batch_directory_recursive(tmp_path):
+    from acidcat.commands import convert
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "deep").mkdir()
+    good = make_ncw(2, 16, 48000, [[i for i in range(20)], [-i for i in range(20)]], bits=8)
+    (tmp_path / "a" / "one.ncw").write_bytes(good)
+    (tmp_path / "a" / "deep" / "two.ncw").write_bytes(good)
+    (tmp_path / "a" / "not_ncw.wav").write_bytes(b"RIFF....WAVE")  # ignored
+    rc = convert.run(_CArgs(input=str(tmp_path)))
+    assert rc == 0
+    assert (tmp_path / "a" / "one.wav").exists()
+    assert (tmp_path / "a" / "deep" / "two.wav").exists()
+
+
+def test_convert_batch_skip_existing(tmp_path):
+    from acidcat.commands import convert
+    data = make_ncw(1, 16, 44100, [[1, 2, 3]], bits=0)
+    (tmp_path / "x.ncw").write_bytes(data)
+    convert.run(_CArgs(input=str(tmp_path)))            # first pass writes x.wav
+    mtime = (tmp_path / "x.wav").stat().st_mtime_ns
+    convert.run(_CArgs(input=str(tmp_path), skip_existing=True))
+    assert (tmp_path / "x.wav").stat().st_mtime_ns == mtime   # not rewritten
+
+
+def test_convert_batch_bad_ncw_counted_not_fatal(tmp_path):
+    from acidcat.commands import convert
+    (tmp_path / "ok.ncw").write_bytes(make_ncw(1, 16, 44100, [[5, 6, 7]], bits=0))
+    (tmp_path / "bad.ncw").write_bytes(b"NOTNCW" + b"\x00" * 200)   # unparseable
+    rc = convert.run(_CArgs(input=str(tmp_path)))
+    assert rc == 0                                       # one good file -> success
+    assert (tmp_path / "ok.wav").exists()
+    assert not (tmp_path / "bad.wav").exists()

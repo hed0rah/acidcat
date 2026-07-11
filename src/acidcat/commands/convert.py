@@ -21,12 +21,51 @@ def register(subparsers):
         "convert",
         help="Convert a Bitwig clip to MIDI, or an NCW sample to WAV.",
     )
-    p.add_argument("input", help="Input file (.bwclip or .ncw).")
+    p.add_argument("input", help="Input file, or a directory to batch-convert "
+                                 "every .ncw within to WAV.")
     p.add_argument("-o", "--output",
-                   help="Output path (default: input name with .mid / .wav).")
+                   help="Output path (single file); ignored for a directory, "
+                        "where each WAV is written beside its .ncw.")
     p.add_argument("--division", type=int, default=480,
                    help="MIDI ticks per beat for .bwclip output (default 480).")
+    p.add_argument("--skip-existing", action="store_true",
+                   help="Batch mode: skip an .ncw whose .wav already exists.")
+    p.add_argument("-q", "--quiet", action="store_true",
+                   help="Batch mode: suppress the per-file line, keep the summary.")
     p.set_defaults(func=run)
+
+
+def _batch_ncw(directory, args):
+    """Convert every .ncw under `directory` to a sibling .wav. Read-only on the
+    inputs; one bad file is counted and skipped, never fatal."""
+    done = skipped = failed = 0
+    for root, _dirs, files in os.walk(directory):
+        for name in files:
+            if not name.lower().endswith(".ncw"):
+                continue
+            src = os.path.join(root, name)
+            out = os.path.splitext(src)[0] + ".wav"
+            if args.skip_existing and os.path.exists(out):
+                skipped += 1
+                continue
+            try:
+                with open(src, "rb") as f:
+                    data = f.read()
+                hdr, chans = ncwmod.decode(data)
+                with open(out, "wb") as f:
+                    f.write(ncwmod.to_wav(hdr, chans))
+                done += 1
+                if not args.quiet:
+                    print(f"  {os.path.relpath(src, directory)} -> "
+                          f"{hdr['num_samples']:,} samples", file=sys.stderr)
+            except (ncwmod.NcwError, OSError) as e:
+                failed += 1
+                print(f"  [skip] {os.path.relpath(src, directory)}: {e}",
+                      file=sys.stderr)
+    print(f"converted {done:,} .ncw -> .wav"
+          + (f", skipped {skipped:,} existing" if skipped else "")
+          + (f", {failed:,} failed" if failed else ""))
+    return 0 if done or not failed else 1
 
 
 def _run_ncw(path, data, args):
@@ -46,6 +85,8 @@ def _run_ncw(path, data, args):
 
 def run(args):
     path = args.input
+    if os.path.isdir(path):
+        return _batch_ncw(path, args)
     try:
         with open(path, "rb") as f:
             data = f.read()
