@@ -4,6 +4,22 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.29.0] - 2026-07-11
+
+### Added
+
+- `acidcat repair` extended beyond IFF to its first non-RIFF format and its
+  first offset-kind fix: it rebuilds a broken MP4/M4A `stco`/`co64` chunk-offset
+  table (the classic result of a re-mux or metadata insertion that moved `mdat`
+  without patching the table, which a player hears as silence or a crash). The
+  correct offsets are derived from `mdat`'s real position plus the sample sizes
+  (`stsz`) and sample-to-chunk map (`stsc`) -- an independent witness, so it is a
+  rebuild and not a guess. Conservative by design: single media track only, fires
+  only when the stored table actually points outside `mdat`, and refuses unless
+  the rebuilt table provably fits. The patch is length-preserving and never
+  touches a byte of `mdat`. This is the second field kind (OFFSET) under the
+  constraint model, the step that takes `repair` off the IFF grammar.
+
 ## [0.28.0] - 2026-07-11
 
 ### Added
