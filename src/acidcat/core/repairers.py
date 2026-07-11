@@ -8,10 +8,11 @@ guards the audio, so every verb above it (repair today, validate/audit next) is
 format-agnostic.
 """
 
-from acidcat.core import flacrepair
+from acidcat.core import countrepair, flacrepair
 from acidcat.core import mp4 as mp4mod
 from acidcat.core import mp4repair, structure
-from acidcat.core.constraints import OFFSET, SIZE, ZERO, Report, Repairer, Violation
+from acidcat.core.constraints import (COUNT, OFFSET, SIZE, ZERO, Report, Repairer,
+                                      Violation)
 
 
 class AudioGuardError(Exception):
@@ -128,4 +129,25 @@ class FlacRepairer(Repairer):
         new_data, changes = flacrepair.repair_flac(data)
         if changes and self._audio(new_data) != before:
             raise AudioGuardError("audio frames would change")
+        return new_data, Report(self.label, self._violations(changes))
+
+
+class CountRepairer(Repairer):
+    """COUNT-kind: clamp a RIFF table-count (cue points, sample loops) that
+    exceeds what the payload can hold. Length-preserving; never touches audio."""
+
+    label = "WAVE"
+
+    def applies(self, data):
+        return countrepair.is_target(data)
+
+    def _violations(self, changes):
+        return [Violation(COUNT, c["path"], c["field"], c["old"], c["new"],
+                          witness=c["witness"]) for c in changes]
+
+    def analyze(self, data, opts=None):
+        return Report(self.label, self._violations(countrepair.analyze(data)))
+
+    def apply(self, data, opts=None):
+        new_data, changes = countrepair.repair(data)
         return new_data, Report(self.label, self._violations(changes))
