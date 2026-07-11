@@ -1031,3 +1031,86 @@ def test_pending_changes_lists_regions(tmp_path):
             assert isinstance(app.screen, DiffScreen)
 
     asyncio.run(scenario())
+
+
+# ── byte-map, pointer/xref, modal binding hygiene ──────────────────
+
+def test_byte_map_excludes_container_and_nested(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+
+    async def scenario():
+        app, _o = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            segs, un = app._byte_map()
+            ids = [s[0] for s in segs]
+            # the whole-file container is excluded; real chunks (fmt/data) appear
+            assert "data" in ids and "fmt" in ids
+            assert all(not (off == 0 and size >= app.fsize) for _c, off, size, _p, _a in segs)
+            # sorted biggest-first, percentages sane
+            sizes = [s[2] for s in segs]
+            assert sizes == sorted(sizes, reverse=True)
+            app.action_map()
+            await pilot.pause()
+            from acidcat.tui_app import MapScreen
+            assert isinstance(app.screen, MapScreen)
+
+    asyncio.run(scenario())
+
+
+def test_follow_xref_jumps_and_flags_dangling(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+    from textual.widgets import Tree
+    from acidcat.tui_app import AcidcatTUI
+
+    # a FLAC with a SEEKTABLE point -> a resolvable in-bounds xref
+    def blk(bt, payload, last=False):
+        return bytes([(0x80 if last else 0) | bt]) + struct.pack(">I", len(payload))[1:] + payload
+
+    def si(rate=44100, ch=2, bits=16, total=441):
+        packed = (rate << 44) | ((ch - 1) << 41) | ((bits - 1) << 36) | total
+        return (struct.pack(">HH", 4096, 4096) + b"\x00\x00\x0e" + b"\x00\x33\xa8"
+                + struct.pack(">Q", packed) + b"\xab" * 16)
+    seek = struct.pack(">QQH", 0, 20, 4096)
+    data = b"fLaC" + blk(0, si()) + blk(3, seek, last=True) + b"\xff\xf8" + b"\x00" * 200
+    p = tmp_path / "x.flac"
+    p.write_bytes(data)
+
+    async def scenario():
+        app = AcidcatTUI(str(p))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            # find the seektable point[0] node (it carries an xref)
+            node = None
+            for cn in app.query_one("#tree", Tree).root.children:
+                for f in cn.children:
+                    lbl = f.label.plain if hasattr(f.label, "plain") else str(f.label)
+                    if lbl.startswith("point[0]"):
+                        node = f
+            assert node is not None and id(node) in app._xref
+            app._cur_node = node
+            target = app._xref[id(node)]
+            assert 0 <= target < app.fsize          # in-bounds
+            app.action_follow_xref()                # jumps, no crash
+            await pilot.pause()
+
+    asyncio.run(scenario())
+
+
+def test_check_action_disables_bindings_under_modal(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+
+    async def scenario():
+        app, _o = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert app.check_action("edit", ()) is True      # no modal: enabled
+            app.action_help()                                # push a modal
+            await pilot.pause()
+            assert app.check_action("edit", ()) is False     # modal open: disabled
+            assert app.check_action("strip", ()) is False
+
+    asyncio.run(scenario())
