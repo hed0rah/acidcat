@@ -23,6 +23,21 @@ from acidcat.core import anomalies, constraints, integrity, provenance
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
 
+# anomaly rules that mean concealed or appended data (vs structural lint) -- these
+# get their own HIDDEN section with a carve hint to extract the region
+_HIDDEN_RULES = {"trailing_data", "polyglot", "cavity_content",
+                 "application_block", "mp4_mdat_coverage"}
+
+
+def _carve_hint(path, finding):
+    base = os.path.basename(path)
+    if finding["rule"] == "trailing_data":
+        return f"acidcat carve {base} --trailing -o out.bin"
+    off = finding.get("offset")
+    if off:
+        return f"acidcat carve {base} --offset 0x{off:x} -o out.bin"
+    return ""
+
 
 def register(subparsers):
     p = subparsers.add_parser(
@@ -67,7 +82,8 @@ def run(args):
                            "stored": v.stored, "computed": v.computed,
                            "witness": v.witness, "repairable": v.repairable}
                           for v in (report.violations if report else [])],
-            "forensics": findings,
+            "hidden": [f for f in findings if f["rule"] in _HIDDEN_RULES],
+            "forensics": [f for f in findings if f["rule"] not in _HIDDEN_RULES],
             "provenance": prov,
             "integrity": integ,
         }
@@ -89,11 +105,25 @@ def run(args):
             mark = f"  [{v.witness}]" if v.repairable else "  (no witness)"
             print(f"                {v.describe()}{mark}")
 
-    if not findings:
-        print("  FORENSICS   nothing flagged")
+    hidden = [f for f in findings if f["rule"] in _HIDDEN_RULES]
+    other = [f for f in findings if f["rule"] not in _HIDDEN_RULES]
+
+    if not hidden:
+        print("  HIDDEN      no concealed or appended data")
     else:
-        print(f"  FORENSICS   {len(findings)} finding(s)")
-        for f in sorted(findings, key=lambda x: -anomalies._SEVERITY.get(x["severity"], 0)):
+        print(f"  HIDDEN      {len(hidden)} region(s)")
+        for f in hidden:
+            at = f" @ 0x{f['offset']:08x}" if f.get("offset") else ""
+            print(f"                {f['message']}{at}")
+            hint = _carve_hint(path, f)
+            if hint:
+                print(f"                  extract: {hint}")
+
+    if not other:
+        print("  FORENSICS   nothing else flagged")
+    else:
+        print(f"  FORENSICS   {len(other)} finding(s)")
+        for f in sorted(other, key=lambda x: -anomalies._SEVERITY.get(x["severity"], 0)):
             at = f" @ 0x{f['offset']:08x}" if f.get("offset") else ""
             print(f"                {f['severity']:<6} {f['message']}{at}")
 
@@ -121,6 +151,8 @@ def run(args):
     bits = []
     if integ:
         bits.append(f"{len(integ)} integrity mismatch(es)")
+    if hidden:
+        bits.append(f"{len(hidden)} hidden region(s)")
     if n_fix:
         bits.append(f"{n_fix} structural fix(es) available")
     if alerts:
