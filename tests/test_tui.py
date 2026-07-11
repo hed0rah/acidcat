@@ -792,3 +792,155 @@ def test_hex_text_offsets_and_empty(tmp_path):
     assert "00000000" in t and "00000010" in t and "00000020" in t
     # a node with no byte range renders a placeholder, not a crash
     assert "no byte range" in hex_text(str(p), None, 0, "#56e0f0").plain
+
+
+# ── navigation: goto, search, jump-to-finding, yank, redo ──────────
+
+def test_fuzzy_matcher():
+    pytest.importorskip("textual")           # _fuzzy lives in tui_app (imports rich)
+    from acidcat.tui_app import _fuzzy
+    assert _fuzzy("sr", "sample_rate")          # subsequence
+    assert _fuzzy("SMPL", "smpl")               # case-insensitive
+    assert _fuzzy("", "anything")               # empty query matches all
+    assert not _fuzzy("xyz", "sample_rate")
+    assert not _fuzzy("rate_s", "sample_rate")  # order matters
+
+
+def test_search_needle_classification():
+    pytest.importorskip("textual")
+    from acidcat.tui_app import AcidcatTUI
+    n = AcidcatTUI._search_needle
+    assert n("0x52494646") == b"RIFF"           # 0x-prefixed hex
+    assert n("52 49 46 46") == b"RIFF"           # bare even-length hex
+    assert n('"RIFF"') == b"RIFF"                # quoted ascii
+    assert n("'fmt '") == b"fmt "
+    assert n("sample") is None                   # fuzzy text, not bytes
+    assert n("abc") is None                      # odd length -> not hex
+
+
+def _drum_tui(tmp_path):
+    import shutil
+    from acidcat.tui_app import AcidcatTUI
+    orig = tmp_path / "d.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+    return AcidcatTUI(str(orig)), orig
+
+
+def test_goto_offset_selects_containing_node(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+    from textual.widgets import Input
+
+    async def scenario():
+        app, _orig = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.action_goto()                    # arms the editbar prompt
+            await pilot.pause()
+            assert app._prompt and app._prompt["kind"] == "goto"
+            app.query_one("#editbar", Input).value = "0x0e"   # inside fmt chunk
+            await pilot.press("enter")
+            await pilot.pause()
+            off, length, _ = app._nodemeta[id(app._cur_node)]
+            assert off <= 0x0e < off + length     # landed on a covering node
+            assert app._prompt is None             # prompt dismissed
+
+    asyncio.run(scenario())
+
+
+def test_search_bytes_and_cycle(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+    from textual.widgets import Input
+
+    async def scenario():
+        app, _orig = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.action_search()
+            await pilot.pause()
+            app.query_one("#editbar", Input).value = "0x64617461"   # 'data'
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._search and app._search["hits"]
+            assert app._search["hits"][0][0] == "byte"
+            first = app._search["idx"]
+            app.action_search_next()               # n cycles
+            await pilot.pause()
+            assert app._search["idx"] != first or len(app._search["hits"]) == 1
+
+    asyncio.run(scenario())
+
+
+def test_search_fuzzy_selects_field(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+    from textual.widgets import Input
+
+    async def scenario():
+        app, _orig = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.action_search()
+            await pilot.pause()
+            app.query_one("#editbar", Input).value = "sample_rate"
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._search and app._search["hits"]
+            assert app._search["hits"][0][0] == "node"
+            name = app._node_name(app._cur_node)
+            assert "sample_rate" in name
+
+    asyncio.run(scenario())
+
+
+def test_redo_restores_edit(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+    from textual.widgets import Tree, Input
+
+    async def scenario():
+        app, _orig = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+
+            def find():
+                for cn in app.query_one("#tree", Tree).root.children:
+                    for fn in cn.children:
+                        lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                        if lbl.startswith("sample_rate"):
+                            return fn
+            node = find()
+            off, _l, _ = app._nodemeta[id(node)]
+            app._cur_node = node
+            app.action_edit_field()
+            await pilot.pause()
+            app.query_one("#editbar", Input).value = "22050"
+            await pilot.press("enter")
+            await pilot.pause()
+            edited = open(app.work, "rb").read()[off:off + 4]
+            app.action_undo()
+            await pilot.pause()
+            assert open(app.work, "rb").read()[off:off + 4] != edited
+            app.action_redo()
+            await pilot.pause()
+            assert open(app.work, "rb").read()[off:off + 4] == edited
+
+    asyncio.run(scenario())
+
+
+def test_yank_does_not_crash(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+    from textual.widgets import Tree
+
+    async def scenario():
+        app, _orig = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            # a chunk node has a byte range; yank should not raise
+            app._cur_node = list(app.query_one("#tree", Tree).root.children)[0]
+            app.action_yank()
+            await pilot.pause()
+
+    asyncio.run(scenario())
