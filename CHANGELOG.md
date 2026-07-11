@@ -4,6 +4,23 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.31.0] - 2026-07-11
+
+### Added
+
+- `acidcat audit`: a read-only forensic verdict on a file, composing three views
+  the constraint model and walkers already produce -- STRUCTURE (the derived-field
+  violations `repair` would fix), FORENSICS (the anomaly detector's findings:
+  polyglots, cavities, trailing data, high-entropy regions), and PROVENANCE (the
+  writer/tool tells the file carries: encoder, software, vendor). `--json` for a
+  machine-readable report.
+- TUI validate/repair surface (`v`): the constraint model's face inside the
+  interactive tool. `v` opens a panel listing every derived-field violation with
+  the witness that makes it fixable; `r` applies the witnessed repairs to the
+  working copy (unsaved until `ctrl+s`, original untouched). This completes the
+  "surface it" phase: the model is now visible and usable interactively, not just
+  from the CLI.
+
 ## [0.30.0] - 2026-07-11
 
 ### Added
