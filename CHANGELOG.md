@@ -4,6 +4,20 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.33.0] - 2026-07-11
+
+### Added
+
+- Provenance fingerprinting in `acidcat audit` (`core/provenance.py`): identify
+  the tool chain that wrote a file, with honest confidence levels that mirror the
+  repair-witness discipline. Explicit version strings (FLAC/Ogg vendor, MP3
+  LAME/encoder, WAV ISFT/software, bext originator, MP4 encoder) are canonicalized
+  to a tool + version at "high" confidence; structural fingerprints (e.g.
+  MuseScore's SF3 writer, revealed by Ogg-Vorbis samples and omitted RIFF padding)
+  are reported at "likely" and never asserted as fact. A file can carry both -- an
+  SF3 shows the original SoundFont editor from its string and MuseScore from its
+  structure. `audit --json` includes the full signal list.
+
 ## [0.32.0] - 2026-07-11
 
 ### Added
