@@ -8,7 +8,7 @@ import struct
 from acidcat.core import midi as midimod
 from acidcat.core.midi import _read_vlq
 from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f
-from acidcat.util.midi import midi_note_to_name
+from acidcat.util.midi import key_signature_name, midi_note_to_name
 
 _MIDI_FORMATS = {0: "single track", 1: "multi-track sync", 2: "independent patterns"}
 
@@ -40,6 +40,7 @@ def _scan_track(trk, ctx, collect=False):
     channels = set()
     tempos = []
     names = []
+    copyright = None
     time_sig = key_sig = None
     has_eot = False
     events = []
@@ -76,9 +77,11 @@ def _scan_track(trk, ctx, collect=False):
                 detail = time_sig
             elif etype == 0x59 and elen == 2:
                 sf = struct.unpack(">b", edata[0:1])[0]
-                key_sig = f"{sf:+d} {'sharps' if sf >= 0 else 'flats'}" \
-                          + (", minor" if edata[1] == 1 else "")
-                detail = key_sig
+                key_sig = key_signature_name(sf, edata[1])
+                # the field note keeps the raw signature; the value is the key
+                detail = (f"{key_sig} ({sf:+d} "
+                          f"{'sharps' if sf >= 0 else 'flats'}"
+                          f"{', minor' if edata[1] == 1 else ''})")
             elif etype == 0x54 and elen == 5:
                 # SMPTE offset: hr byte top bits carry the frame rate.
                 hr = edata[0]
@@ -89,6 +92,8 @@ def _scan_track(trk, ctx, collect=False):
                 text = _dtext(edata).strip()
                 if etype == 0x03 and text:
                     names.append(text)
+                elif etype == 0x02 and text:
+                    copyright = text        # last in track (legacy overwrites)
                 detail = text[:48]
             elif etype == 0x2F:
                 has_eot = True
@@ -150,8 +155,8 @@ def _scan_track(trk, ctx, collect=False):
 
     return {"ticks": ticks, "notes": notes, "nmin": nmin, "nmax": nmax,
             "channels": channels, "tempos": tempos, "names": names,
-            "time_sig": time_sig, "key_sig": key_sig, "has_eot": has_eot,
-            "events": events, "sysex": sysex}
+            "copyright": copyright, "time_sig": time_sig, "key_sig": key_sig,
+            "has_eot": has_eot, "events": events, "sysex": sysex}
 
 
 # a few common MIDI manufacturer ids (System Exclusive id table); enough to name
@@ -190,10 +195,13 @@ def _voice_detail(mtype, d1, d2, ch):
     return f"{d1} {d2} ch{ch + 1}"
 
 
-def inspect_midi(filepath, deep=False):
+def inspect_midi(filepath, deep=False, ctx=None):
     """Walk a Standard MIDI File and return (chunks, file_warnings).
-    With ``deep``, each MTrk carries a per-event listing."""
+    With ``deep``, each MTrk carries a per-event listing. A caller-supplied
+    ``ctx`` dict is filled with the semantic values the scan path reads
+    (duration, tempo_bpm, key_sig, first track name, copyright)."""
     file_size = os.path.getsize(filepath)
+    scan = ctx if ctx is not None else {}
     # clamped read: read(N) pre-allocates N bytes (see core/midi.py)
     with open(filepath, "rb") as f:
         data = f.read(min(midimod.MAX_SMF_BYTES, file_size))
@@ -289,8 +297,14 @@ def inspect_midi(filepath, deep=False):
                 first_tempo = st["tempos"][0]
         if st["time_sig"]:
             flds.append(_f(None, 0, "time_sig", st["time_sig"]))
+            scan.setdefault("time_sig", st["time_sig"])
         if st["key_sig"]:
             flds.append(_f(None, 0, "key_sig", st["key_sig"]))
+            scan["key_sig"] = st["key_sig"]          # last in file order wins
+        if st["names"] and "track_name" not in scan:
+            scan["track_name"] = st["names"][0]      # first in file order
+        if st["copyright"]:
+            scan["copyright"] = st["copyright"]      # last wins (legacy)
         if not st["has_eot"]:
             entry["warnings"].append("no end-of-track meta event")
         for mfr, slen, reserved in st["sysex"]:
@@ -341,5 +355,13 @@ def inspect_midi(filepath, deep=False):
         chunks[0]["fields"].append(
             _f(None, 0, "duration", f"{dur:.3f} s", note))
         chunks[0]["summary"] += f", ~{dur:.1f} s"
+        # the scan row stores a duration only when it is not resting on a
+        # guessed tempo: SMPTE is tempo-independent, PPQ needs a real tempo
+        # event. a PPQ file with no tempo shows the default-120 estimate in
+        # the inspect view (labeled) but must not persist that unlabeled to
+        # the index, where it would be a wrong number to filter on
+        if (division & 0x8000) or first_tempo is not None:
+            scan["duration"] = round(dur, 2)     # 2 dp matches legacy
+    scan["tempo_bpm"] = first_tempo
 
     return chunks, file_warns

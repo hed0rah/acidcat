@@ -156,6 +156,61 @@ def test_key_signature_minor_is_relative_minor(tmp_path):
         assert parse_midi(str(p))["key_sig"] == want, f"sf={sf}"
 
 
+def test_walker_key_sig_matches_parser(tmp_path):
+    """The inspect walker now resolves the same real key name as the legacy
+    parser (they used to disagree: the walker showed '+2 sharps'). Both call
+    the shared key_signature_name resolver."""
+    from acidcat.core.walk.midi import inspect_midi
+    for sf, mi, want in [(2, 0, "D"), (0, 1, "Am"), (-3, 0, "Eb"), (7, 1, "A#m")]:
+        p = tmp_path / f"k{sf}_{mi}.mid"
+        p.write_bytes(_build_smf([_keysig_track(sf, mi)]))
+        chunks, _ = inspect_midi(str(p))
+        trk = next(c for c in chunks if c["id"] == "MTrk")
+        ks = next(f for f in trk["fields"] if f["name"] == "key_sig")
+        assert ks["value"] == want == parse_midi(str(p))["key_sig"]
+        # the raw signature rides the deep event listing's detail
+        chunks_deep, _ = inspect_midi(str(p), deep=True)
+        trk_deep = next(c for c in chunks_deep if c["id"] == "MTrk")
+        ksig_row = next(r for r in trk_deep["rows"] if "key" in r["event"])
+        assert "sharps" in ksig_row["detail"] or "flats" in ksig_row["detail"]
+
+
+def test_midi_scan_row_from_walker(tmp_path):
+    """The scan row comes from the walker's ctx since the unification; a
+    tempo + key + track name + copyright track round-trips into the row."""
+    from acidcat.core.indexing import _from_midi
+    track = (b"\x00\xFF\x51\x03\x07\xA1\x20"      # tempo 120 bpm
+             b"\x00\xFF\x03\x04Bass"              # track name
+             b"\x00\xFF\x02\x03(c)"               # copyright
+             b"\x00\xFF\x59\x02\x00\x01"          # key sig: A minor
+             b"\x87\x40\x90\x3C\x64"              # note at tick 960 (2 beats)
+             b"\x00\xFF\x2F\x00")
+    p = tmp_path / "loop.mid"
+    p.write_bytes(_build_smf([track], division=480))
+    row = _from_midi(str(p), {})
+    assert row["format"] == "midi"
+    assert row["bpm"] == 120.0
+    assert row["duration"] == 1.0                 # 960 ticks / 480 at 120 bpm
+    assert row["key"] == "Am"
+    assert row["title"] == "Bass"
+    assert row["comment"] == "(c)"
+
+
+def test_midi_scan_duration_null_without_tempo(tmp_path):
+    """A PPQ file with no tempo event stores no scan duration (a default-120
+    estimate would be a wrong number to filter on); the inspect view still
+    shows the labeled estimate."""
+    from acidcat.core.indexing import _from_midi
+    from acidcat.core.walk.midi import inspect_midi
+    track = b"\x87\x40\x90\x3C\x64\x00\xFF\x2F\x00"   # note, no tempo
+    p = tmp_path / "notempo.mid"
+    p.write_bytes(_build_smf([track], division=480))
+    assert _from_midi(str(p), {})["duration"] is None
+    chunks, _ = inspect_midi(str(p))
+    dur = next(f for f in chunks[0]["fields"] if f["name"] == "duration")
+    assert "default" in dur["note"]                   # labeled in the view
+
+
 def test_whole_file_read_is_capped(tmp_path, monkeypatch):
     """a forged multi-GB .mid must not be slurped whole (DoS). the cap
     is shrunk for the test; header metadata still parses."""
