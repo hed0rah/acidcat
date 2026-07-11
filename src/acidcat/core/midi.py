@@ -8,6 +8,8 @@ key signature, track names, note statistics.
 import os
 import struct
 
+from acidcat.util.midi import key_signature_name
+
 # bound the whole-file read: real SMFs are kilobytes to a few MB, and
 # even pathological "black MIDI" renders stay well under this. a forged
 # multi-GB .mid must not OOM the indexer (threat model is DoS).
@@ -135,18 +137,7 @@ def parse_midi(filepath):
                     # minor of the major key with the same signature
                     # (major root + 9 semitones), not the major root.
                     sf = struct.unpack(">b", event_data[0:1])[0]
-                    mi = event_data[1]
-                    major_sharp = ["C", "G", "D", "A", "E", "B", "F#", "C#"]
-                    major_flat = ["C", "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb"]
-                    minor_sharp = ["A", "E", "B", "F#", "C#", "G#", "D#", "A#"]
-                    minor_flat = ["A", "D", "G", "C", "F", "Bb", "Eb", "Ab"]
-                    if mi == 1:
-                        names = minor_sharp if sf >= 0 else minor_flat
-                    else:
-                        names = major_sharp if sf >= 0 else major_flat
-                    root = names[min(abs(sf), 7)]
-                    quality = "m" if mi == 1 else ""
-                    meta["key_sig"] = f"{root}{quality}"
+                    meta["key_sig"] = key_signature_name(sf, event_data[1])
 
                 elif event_type == 0x03:
                     # track name
