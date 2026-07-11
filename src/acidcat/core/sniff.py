@@ -11,9 +11,13 @@ the RIFF/NIKS preset magic, and the MP4 ftyp probe before the ID3
 fallbacks, or edge-case files reroute. Do not reorder.
 
 Format ids returned (all lowercase strings):
-    wav, rf64, aiff, aifc, midi, serum, bitwig, ncw, vital, mp4, ni,
-    flac, ogg, mp3, id3-wrapped (an ID3 tag around a non-MP3 container)
+    wav, rf64, aiff, aifc, midi, serum, bitwig, ncw, sf2, vital, mp4, ni,
+    flac, ogg, mp3, mod, xm, it, id3-wrapped (an ID3 tag around a non-MP3
+    container)
 or None for anything unrecognized.
+
+MOD has no leading signature (its magic is at offset 1080), so ``sniff``
+confirms it from disk; ``sniff_bytes`` cannot classify a MOD from a head.
 """
 
 from acidcat.core import mp3 as mp3mod
@@ -65,6 +69,10 @@ def sniff_bytes(head):
         return "flac"
     if head[:4] == b"OggS":
         return "ogg"
+    if head[:17] == b"Extended Module: ":
+        return "xm"
+    if head[:4] == b"IMPM":
+        return "it"
     if head[:3] == b"ID3" or (len(head) >= 4
                               and mp3mod.decode_frame_header(head[:4]) is not None):
         return "mp3"
@@ -87,7 +95,7 @@ def sniff(filepath):
     """Sniff a file on disk. Same ids as ``sniff_bytes`` plus
     "id3-wrapped" for an ID3v2 tag around a non-MP3 container."""
     with open(filepath, "rb") as f:
-        head = f.read(16)
+        head = f.read(20)  # 20 covers the 17-byte "Extended Module: " XM signature
     fmt = sniff_bytes(head)
     if fmt == "mp3" and head[:3] == b"ID3" and _id3_wraps_other_container(filepath):
         return "id3-wrapped"
@@ -101,7 +109,20 @@ def sniff(filepath):
     # when the constant frame length is measurable (a matching second sync).
     if fmt is None and len(head) >= 4 and _free_format_mp3(filepath, head):
         return "mp3"
+    # ProTracker MOD has no leading signature; its only reliable magic sits at
+    # offset 1080, so it can only be confirmed with the file in hand.
+    if fmt is None and _is_mod(filepath):
+        return "mod"
     return fmt
+
+
+def _is_mod(filepath):
+    from acidcat.core import tracker as tkmod
+    try:
+        with open(filepath, "rb") as f:
+            return tkmod.is_mod(f.read(1084))
+    except OSError:
+        return False
 
 
 def _free_format_mp3(filepath, head):

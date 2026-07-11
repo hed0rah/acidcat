@@ -4,6 +4,30 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.27.0] - 2026-07-11
+
+### Added
+
+- SoundFont 3 (.sf3) support: MuseScore's Ogg-Vorbis-compressed soundfont.
+  `acidcat inspect` maps every sample as a carveable Ogg stream (byte range in
+  smpl), and `acidcat convert font.sf3` extracts each sample as a playable
+  `.ogg` (decoding Vorbis to PCM needs a codec acidcat does not bundle). Same
+  sfbk RIFF as SF2, with shdr start/end repurposed as byte offsets and
+  sample-type bit 0x10 marking compression; the chunk walker now tolerates the
+  MuseScore writer's omitted RIFF pad bytes.
+- Tracker-module support: `acidcat inspect` maps ProTracker MOD, FastTracker
+  II XM, and Impulse Tracker IT down to the byte offset of every embedded
+  sample, so each sample is a carveable region (`carve --offset`). Header
+  fields, pattern order, and per-sample descriptors are all decoded.
+- Pointer (xref) annotation extended to three more pointer-table structures,
+  all followable in the TUI with `x` and bounds-checked for dangling targets:
+  - IT on-disk offset tables (instrument/sample/pattern pointers) and each
+    IMPS sample header's SamplePointer, a two-level pointer chain.
+  - MP4/ISO-BMFF `stco` / `co64` chunk-offset boxes; entries pointing past
+    end-of-file (a re-muxed or truncated `mdat` tell) are counted and warned.
+  - WAV `cue ` markers resolved from sample-frame index to a byte offset in
+    the data chunk (`data_off + frame*block_align`) for uncompressed PCM.
+
 ## [0.26.0] - 2026-07-11
 
 ### Added

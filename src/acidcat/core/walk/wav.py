@@ -338,7 +338,19 @@ def _parse_cue(b, ctx):
         base = 4 + i * 24
         cid, pos, fcc, cstart, bstart, sample = struct.unpack_from("<II4sIII", b, base)
         note = f"id {cid}, play order {pos}, in '{fcc.decode('ascii', errors='replace')}'"
-        fields.append(_f(base, 24, f"cue[{i}]", sample, note))
+        # the marker's sample-frame position resolves to a byte offset inside the
+        # data chunk (data_off + frame*block_align), an xref the TUI can follow.
+        # only for uncompressed PCM, where dwSampleOffset counts frames not bytes.
+        data_off = ctx.get("data_off")
+        align = ctx.get("block_align")
+        xref = None
+        if data_off is not None and align:
+            target = data_off + sample * align
+            if sample * align <= ctx.get("data_bytes", 0):
+                note += f", @ 0x{target:08x}"
+                xref = target
+        fields.append(_f(base, 24, f"cue[{i}]", sample,
+                         note + " (sample frame)", xref=xref))
         if cstart or bstart:
             # nonzero only for block-compressed data: byte offset of the
             # enclosing chunk and of the block holding the sample
@@ -573,6 +585,10 @@ def inspect_wav(filepath, ctx=None):
                      "summary": "", "fields": [], "warnings": []}
             parser = _PARSERS.get(cid)
             if cid == "data":
+                # remember the data chunk's absolute payload offset so a later
+                # cue chunk can resolve its sample-frame markers to byte offsets
+                ctx["data_off"] = offset + 8
+                ctx["data_bytes"] = min(size, avail)
                 entry["summary"], entry["fields"], entry["warnings"] = \
                     _parse_data(payload, ctx, size, avail)
             elif parser:
