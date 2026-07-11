@@ -179,3 +179,34 @@ def test_walker_descends_stsd(tmp_path):
     tags = next(c for c in chunks if c["id"] == "tags")
     codec = next(f["value"] for f in tags["fields"] if f["name"] == "codec")
     assert codec.startswith("AAC LC")                 # profile from the esds
+
+
+def _full_box(btype, version_flags, payload):
+    return _box(btype, struct.pack(">I", version_flags) + payload)
+
+
+def test_stco_entries_annotated_as_xref():
+    from acidcat.core.walk.mp4 import inspect_mp4
+    import tempfile, os
+    # stco with two chunk offsets: one valid, one dangling past EOF
+    entries = struct.pack(">II", 0x40, 0xFFFFFFF0)
+    stco = _full_box(b"stco", 0, struct.pack(">I", 2) + entries)
+    stbl = _box(b"stbl", stco)
+    minf = _box(b"minf", stbl)
+    mdia = _box(b"mdia", minf)
+    trak = _box(b"trak", mdia)
+    moov = _box(b"moov", trak)
+    ftyp = _box(b"ftyp", b"M4A " + b"\x00" * 4)
+    blob = ftyp + moov + _box(b"mdat", b"\x00" * 64)
+    fd, path = tempfile.mkstemp(suffix=".m4a")
+    os.write(fd, blob)
+    os.close(fd)
+    try:
+        chunks, warns = inspect_mp4(path)
+    finally:
+        os.unlink(path)
+    stco_chunk = next(c for c in chunks if c["id"] == "stco")
+    xrefs = [f["xref"] for f in stco_chunk["fields"] if "xref" in f]
+    assert 0x40 in xrefs
+    assert "dangling" in stco_chunk["summary"]
+    assert any("past EOF" in w for w in stco_chunk["warnings"])

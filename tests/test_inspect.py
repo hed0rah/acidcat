@@ -2039,3 +2039,21 @@ class TestUnicodeMetadata:
         _, fields, _ = _parse_list(info, {})
         assert any(f["value"] == "아버지" for f in fields)
         assert not any("�" in str(f["value"]) for f in fields)
+
+
+def _cue(points):
+    # points: list of dwSampleOffset; other fields zeroed
+    payload = struct.pack("<I", len(points))
+    for i, sample in enumerate(points):
+        payload += struct.pack("<II4sIII", i, 0, b"data", 0, 0, sample)
+    return _chunk(b"cue ", payload)
+
+
+def test_cue_marker_xrefs_data_byte_offset(tmp_path):
+    # a cue at sample frame 100 in 16-bit mono PCM resolves to data_off + 100*2
+    path = _wav(tmp_path, _fmt(), _data(n_frames=441), _cue([100]))
+    chunks, _ = inspect_wav(path)
+    data_chunk = next(c for c in chunks if c["id"] == "data")
+    cue_chunk = next(c for c in chunks if c["id"] == "cue ")
+    field = next(f for f in cue_chunk["fields"] if f["name"] == "cue[0]")
+    assert field["xref"] == (data_chunk["offset"] + 8) + 100 * 2

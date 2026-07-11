@@ -168,6 +168,49 @@ def _config_chunk(data, btype, boff, bhdr, bsize, depth):
     return entry
 
 
+_STCO_CAP = 256          # chunk-offset entries to annotate individually
+
+
+def _stco_fields(data, b, file_size):
+    """Decode an stco/co64 chunk-offset box into xref fields. Each entry is an
+    absolute file offset to a run of sample data in mdat; annotate it so the
+    TUI can follow it, and flag one that points past EOF (a truncated or
+    re-muxed mdat leaves these dangling -- a forensic tell)."""
+    base = b["offset"] + b["hdr"]
+    wide = b["type"] == b"co64"
+    step = 8 if wide else 4
+    payload = data[base:b["offset"] + b["size"]]
+    if len(payload) < 8:
+        return "", [], []
+    count = struct.unpack_from(">I", payload, 4)[0]
+    avail = (len(payload) - 8) // step
+    fields = [_f(0x00, 1, "version", payload[0]),
+              _f(0x04, 4, "entry_count", f"{count:,}")]
+    warns = []
+    if count > avail:
+        warns.append(f"declares {count:,} chunk offsets but payload holds {avail:,}")
+    dangling = 0
+    shown = min(count, avail, _STCO_CAP)
+    for i in range(min(count, avail)):
+        o = 8 + i * step
+        val = struct.unpack_from(">Q" if wide else ">I", payload, o)[0]
+        if val >= file_size:
+            dangling += 1
+        if i < _STCO_CAP:
+            fields.append(_f(o, step, f"chunk[{i}]", f"0x{val:08x}",
+                             "past EOF" if val >= file_size else "-> sample data",
+                             xref=val))
+    note = f"{count:,} chunk offset(s)"
+    if wide:
+        note += ", 64-bit"
+    if dangling:
+        warns.append(f"{dangling:,} chunk offset(s) point past EOF")
+        note += f", {dangling:,} dangling"
+    if count > _STCO_CAP:
+        note += f" (first {_STCO_CAP} annotated)"
+    return note, fields, warns
+
+
 def inspect_mp4(filepath):
     """Structural view of an ISO-BMFF MP4/M4A file: the decoded metadata (from
     udta > meta > ilst and the movie duration) followed by the box tree."""
@@ -239,8 +282,15 @@ def inspect_mp4(filepath):
             summary += f"  major brand {brand.decode('latin-1', errors='replace')}"
             fields.append(_f(0x00, 4, "major_brand",
                              brand.decode("latin-1", errors="replace")))
+        box_warns = []
+        if b["type"] in (b"stco", b"co64") and not b["truncated"] \
+                and not b.get("beyond_cap"):
+            note, sfields, box_warns = _stco_fields(data, b, file_size)
+            if note:
+                summary += f"  {note}"
+            fields.extend(sfields)
         chunks.append({"id": t[:8], "offset": b["offset"], "size": b["size"],
-                       "summary": summary, "fields": fields, "warnings": [],
+                       "summary": summary, "fields": fields, "warnings": box_warns,
                        "payload_base": b["offset"] + b["hdr"]})
         if b["type"] == b"stsd" and not b["truncated"] \
                 and not b.get("beyond_cap"):
