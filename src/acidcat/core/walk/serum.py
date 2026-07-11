@@ -6,9 +6,11 @@ import os
 
 from acidcat.core.walk.base import _f
 
-def inspect_serum(filepath):
+def inspect_serum(filepath, ctx=None):
     """Structural view of an Xfer Serum preset: XferJson magic, the
-    JSON metadata block, then opaque wavetable/modulation data."""
+    JSON metadata block, then opaque wavetable/modulation data. A
+    caller-supplied ``ctx`` dict receives the parsed JSON metadata (raw
+    values, tags kept as a list) for the scan path."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
         raw = f.read(min(file_size, 4 * 1024 * 1024))
@@ -33,6 +35,13 @@ def inspect_serum(filepath):
     except (ValueError, RecursionError) as e:
         file_warns.append(f"JSON block does not parse: {e.__class__.__name__}: {e}")
         return chunks, file_warns
+
+    if ctx is not None and isinstance(parsed, dict):
+        for key in ("fileType", "presetName", "presetAuthor",
+                    "presetDescription", "product", "productVersion",
+                    "tags", "hash", "vendor", "url", "version"):
+            if key in parsed:
+                ctx[key] = parsed[key]      # raw values; tags stays a list
 
     fields = []
     for key in ("fileType", "presetName", "presetAuthor",
