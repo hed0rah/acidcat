@@ -20,7 +20,8 @@ import re
 # deliberately excludes free-text like "comment" -- that catches URLs and notes,
 # not tools.
 _TELL_FIELDS = {"isft", "software", "encoder", "vendor", "writing_library",
-                "originator", "tool", "coding_history"}
+                "originator", "tool", "coding_history",
+                "tsse", "tenc", "tss"}   # ID3v2 encoder-settings / encoded-by frames
 
 # raw-string canonicalization: (regex, template). \1 is the captured version.
 _CANON = [
@@ -90,8 +91,41 @@ def _chunk_signatures(chunks):
     return out
 
 
+def _mp3_lame(chunks):
+    """Enrich a LAME MP3 with its encode settings from the Xing/LAME tag: the
+    VBR method, lowpass, bitrate/quality. Turns 'LAME 3.100' into a detailed
+    encode signature. Returns a single high-confidence signal, or None."""
+    for c in chunks:
+        fields = {str(f.get("name", "")): f for f in (c.get("fields") or [])}
+        enc = fields.get("encoder")
+        if not enc:
+            continue
+        v = str(enc.get("value", ""))
+        if not v.upper().startswith(("LAME", "L3.9", "GOGO")):
+            continue
+        parts = []
+        vbr = fields.get("vbr_method")
+        if vbr and vbr.get("note"):
+            parts.append(str(vbr["note"]))
+        lp = fields.get("lowpass")
+        if lp and lp.get("value"):
+            parts.append(f"lowpass {lp['value']}")
+        br = fields.get("bitrate")
+        if br and br.get("value") and not str(br["value"]).startswith("0 "):
+            parts.append(str(br["value"]))
+        tool = _canon(v)
+        if parts:
+            tool += " (" + ", ".join(parts) + ")"
+        return {"tool": tool, "basis": "LAME tag", "confidence": "high"}
+    return None
+
+
 def _structural(label, chunks, data):
     out = []
+    if "MP3" in label or "MPEG" in label:
+        lame = _mp3_lame(chunks)
+        if lame:
+            out.append(lame)
     try:
         from acidcat.core import sf2 as sf2mod
         if sf2mod.is_sf2(data):
@@ -116,6 +150,11 @@ def identify(label, chunks, data):
             name = str(f.get("name", ""))
             val = f.get("value")
             if name.lower() in _TELL_FIELDS and val and str(val).strip():
+                # LAME is enriched with its tag detail in _structural; skip the
+                # bare version string here so it is not listed twice
+                if name.lower() == "encoder" and \
+                        str(val).upper().startswith(("LAME", "L3.9", "GOGO")):
+                    continue
                 tool = _canon(str(val))
                 if tool:
                     signals.append({"tool": tool, "basis": f"{name} string",
