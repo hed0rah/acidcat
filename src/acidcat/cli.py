@@ -15,6 +15,7 @@ Usage:
     acidcat similar CSV TARGET       # similarity search
     acidcat search CSV QUERY         # text search (legacy, CSV-based)
     acidcat dump file.wav acid       # hex dump a chunk
+    acidcat carve file.wav --trailing -o blob   # extract a byte range / appended blob
     acidcat index DIR                # upsert DIR into the global SQLite index
     acidcat query --bpm 120:130      # filter the global index
 """
@@ -26,14 +27,14 @@ import sys
 from acidcat import __version__
 from acidcat.commands import (
     info, scan, chunks, survey, detect, features, similar, search, dump,
-    index, query, inspect, convert, write, cover, explore, tui,
+    index, query, inspect, convert, write, cover, explore, tui, carve,
 )
 from acidcat.util.stdin import is_stdin_target
 
 SUBCOMMANDS = {
     "info", "scan", "chunks", "survey", "detect", "features", "similar",
     "search", "dump", "index", "query", "inspect", "convert", "write", "cover",
-    "explore", "tui",
+    "explore", "tui", "carve",
 }
 
 
@@ -63,6 +64,7 @@ def _build_parser():
     cover.register(subparsers)
     explore.register(subparsers)
     tui.register(subparsers)
+    carve.register(subparsers)
 
     # keep a handle to the subparser table so unrecognized arguments can be
     # reported against the chosen subcommand's usage, not the top-level one.
