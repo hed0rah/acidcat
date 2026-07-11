@@ -5,6 +5,7 @@ the textual extra present, and the byte-offset / hex helpers match inspect's
 addressing so the hex pane highlights the right bytes."""
 import argparse
 import os
+import struct
 
 import pytest
 
@@ -457,6 +458,80 @@ def test_mp3_channel_mode_enum_edit(tmp_path):
     assert after["channel_mode"] == "mono"                    # changed by name
     assert after["bitrate"] == before["bitrate"]              # neighbours intact
     assert after["sample_rate"] == before["sample_rate"]
+
+
+def test_mp3_bitrate_bitsdyn_edit(tmp_path):
+    """MP3 bitrate is a context-dependent enum bit-field (bitsdyn): the value
+    table is chosen from the version+layer bits. Arming its editor must not
+    crash -- _patch_from_input resolves via _resolve_in_map, which was missing
+    from the tui_app import and NameError'd the app the instant `e` was pressed
+    on this field or sample_rate."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat.tui_app import AcidcatTUI
+    from acidcat.core.walk import walk_file
+    from textual.widgets import Tree, Input
+
+    orig = tmp_path / "br.mp3"
+    shutil.copyfile("data/test_formats/generated/mp3_44100.mp3", orig)
+
+    def val(p, name):
+        _f, ch, _w = walk_file(str(p), deep=True)
+        return next(fl["value"] for c in ch for fl in c.get("fields", [])
+                    if fl["name"] == name)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            node = None
+            for cn in app.query_one("#tree", Tree).root.children:
+                for fn in cn.children:
+                    lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                    if lbl.startswith("bitrate"):
+                        node = fn
+            assert node is not None
+            app._cur_node = node
+            app.action_edit_field()               # this used to NameError
+            await pilot.pause()
+            assert app._edit_target["mode"] == "bitsdyn"
+            # pick a bitrate valid for this MPEG1 Layer III stream
+            app.query_one("#editbar", Input).value = "160"
+            await pilot.press("enter")
+            await pilot.pause()
+            app.action_save()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    assert val(orig, "bitrate") == 160
+
+
+def test_load_survives_a_walker_exception(tmp_path, monkeypatch):
+    """A walker raising something other than Unsupported must not crash the
+    session -- the TUI opens files on mount, so it degrades to a walk-failed
+    state (the DoS threat model is degrade-not-die)."""
+    pytest.importorskip("textual")
+    import asyncio
+    import shutil
+    from acidcat import tui_app
+    from acidcat.tui_app import AcidcatTUI
+
+    orig = tmp_path / "x.wav"
+    shutil.copyfile("data/samples/Drum_Loop.wav", orig)
+
+    def boom(*a, **k):
+        raise struct.error("crafted file")
+    monkeypatch.setattr(tui_app, "walk_file", boom)
+
+    async def scenario():
+        app = AcidcatTUI(str(orig))
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            assert app.fmt == "walk failed"
+            assert any("crafted file" in w for w in app.warns)
+
+    asyncio.run(scenario())
 
 
 def test_flac_bitfield_edit_preserves_neighbours(tmp_path):
