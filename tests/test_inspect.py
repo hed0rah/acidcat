@@ -1357,6 +1357,24 @@ class TestFlacCuesheet:
         assert vals["point[1]"]["value"] == "sample 44,100 @ +81,920"
         assert "point[2]" not in vals            # placeholder: counted, not listed
 
+    def test_seektable_xref_and_dangling(self, tmp_path):
+        from acidcat.core.walk.flac import inspect_flac
+        # point[0] byte offset +10 resolves to an in-bounds absolute xref;
+        # point[1] byte offset 1e9 is a dangling seek pointer (forensic tell)
+        pts = struct.pack(">QQH", 0, 10, 4096) + struct.pack(">QQH", 100, 10**9, 4096)
+        # real audio frames (0xFF sync) after the terminator so point[0] (+10)
+        # lands in bounds and a 'frames' chunk exists
+        p = tmp_path / "seek.flac"
+        p.write_bytes(b"fLaC" + _flac_block(0, _streaminfo())
+                      + _flac_block(3, pts, last=True) + b"\xff\xf8" + b"\x00" * 300)
+        path = str(p)
+        chunks, warns = inspect_flac(path)
+        st = next(c for c in chunks if c["id"] == "SEEKTABLE")
+        frame_off = next(c for c in chunks if c["id"] == "frames")["offset"]
+        p0 = next(f for f in st["fields"] if f["name"] == "point[0]")
+        assert p0["xref"] == frame_off + 10          # resolved to absolute
+        assert any("dangling seek pointer" in w for w in warns)   # the 1e9 offset
+
     def test_cuesheet_tracks_and_leadout(self):
         from acidcat.core.walk.flac import _flac_cuesheet
         b = b"1234567890123".ljust(128, b"\x00") + struct.pack(">Q", 88200)
