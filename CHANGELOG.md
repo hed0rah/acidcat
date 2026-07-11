@@ -4,6 +4,21 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.40.0] - 2026-07-11
+
+### Added
+
+- COUNT-kind repair, the fourth and final derived-field kind. `acidcat repair`
+  and `validate` now clamp a RIFF table-count that claims more records than the
+  payload can physically hold -- WAV `cue ` (`num_cue_points`) and `smpl`
+  (`num_sample_loops`) -- which a reader would otherwise trust and walk off the
+  end of the chunk. The witness is payload capacity; only the over-capacity
+  direction is repaired (a count smaller than capacity is left alone, since a
+  chunk may carry trailing padding). Length-preserving; never touches audio.
+- The constraint framework now runs **every** applicable repairer and aggregates,
+  so a file with more than one kind of violation (a stale size and an
+  over-capacity count) is fully repaired in one pass.
+
 ## [0.39.0] - 2026-07-11
 
 ### Added
