@@ -8,6 +8,7 @@ guards the audio, so every verb above it (repair today, validate/audit next) is
 format-agnostic.
 """
 
+from acidcat.core import flacrepair
 from acidcat.core import mp4 as mp4mod
 from acidcat.core import mp4repair, structure
 from acidcat.core.constraints import OFFSET, SIZE, ZERO, Report, Repairer, Violation
@@ -100,3 +101,31 @@ class Mp4OffsetRepairer(Repairer):
         if report.violations and self._mdat(new_data) != before:
             raise AudioGuardError("mdat payload would change")
         return new_data, report
+
+
+class FlacRepairer(Repairer):
+    label = "FLAC"
+
+    def applies(self, data):
+        return flacrepair.is_flac(data)
+
+    def _violations(self, changes):
+        out = []
+        for c in changes:
+            out.append(Violation(c["kind"], c["path"], c["field"], c["old"],
+                                 c["new"], witness=c["witness"]))
+        return out
+
+    def _audio(self, data):
+        _blocks, start, _ok = flacrepair.walk(data)
+        return data[start:]
+
+    def analyze(self, data, opts=None):
+        return Report(self.label, self._violations(flacrepair.analyze(data)))
+
+    def apply(self, data, opts=None):
+        before = self._audio(data)
+        new_data, changes = flacrepair.repair_flac(data)
+        if changes and self._audio(new_data) != before:
+            raise AudioGuardError("audio frames would change")
+        return new_data, Report(self.label, self._violations(changes))
