@@ -1,27 +1,47 @@
-"""Convert a DAW clip's notes to a Standard MIDI File.
+"""Format conversion.
 
-Currently supports Bitwig note clips (.bwclip). acidcat reads the clip's notes
-(pitch, position, duration, velocity) and writes a type-0 SMF.
+- Bitwig note clips (.bwclip) -> a Standard MIDI File: the clip's notes
+  (pitch, position, duration, velocity) become a type-0 SMF.
+- NI Compressed Wave (.ncw) -> a WAV: NCW is Kontakt's lossless codec (DPCM +
+  bit-truncation + mid/side); decode reconstructs the PCM. Compression, not
+  access control -- no key, nothing bypassed, the same class of work as
+  decoding FLAC.
 """
 
 import os
 import sys
 
 from acidcat.core import bitwig as bwmod
+from acidcat.core import ncw as ncwmod
 from acidcat.core.midi_write import notes_to_smf
 
 
 def register(subparsers):
     p = subparsers.add_parser(
         "convert",
-        help="Convert a DAW clip's notes to a Standard MIDI File (.mid).",
+        help="Convert a Bitwig clip to MIDI, or an NCW sample to WAV.",
     )
-    p.add_argument("input", help="Input clip (Bitwig .bwclip).")
+    p.add_argument("input", help="Input file (.bwclip or .ncw).")
     p.add_argument("-o", "--output",
-                   help="Output .mid path (default: input name with .mid).")
+                   help="Output path (default: input name with .mid / .wav).")
     p.add_argument("--division", type=int, default=480,
-                   help="MIDI ticks per beat (default 480).")
+                   help="MIDI ticks per beat for .bwclip output (default 480).")
     p.set_defaults(func=run)
+
+
+def _run_ncw(path, data, args):
+    try:
+        hdr, chans = ncwmod.decode(data)
+        wav = ncwmod.to_wav(hdr, chans)
+    except ncwmod.NcwError as e:
+        print(f"acidcat convert: {path}: {e}", file=sys.stderr)
+        return 1
+    out = args.output or (os.path.splitext(path)[0] + ".wav")
+    with open(out, "wb") as f:
+        f.write(wav)
+    print(f"wrote {out}: {hdr['channels']}ch {hdr['bits']}-bit "
+          f"{hdr['sample_rate']} Hz, {hdr['num_samples']:,} samples")
+    return 0
 
 
 def run(args):
@@ -32,9 +52,11 @@ def run(args):
     except OSError as e:
         print(f"acidcat convert: {path}: {e}", file=sys.stderr)
         return 1
+    if data[:4] == ncwmod.MAGIC:
+        return _run_ncw(path, data, args)
     if data[:4] != bwmod.MAGIC:
-        print(f"acidcat convert: {path}: not a Bitwig clip "
-              f"(only .bwclip is supported so far)", file=sys.stderr)
+        print(f"acidcat convert: {path}: unsupported input "
+              f"(expected a Bitwig .bwclip or an NCW .ncw)", file=sys.stderr)
         return 1
     try:
         notes = bwmod.parse_notes(data)
