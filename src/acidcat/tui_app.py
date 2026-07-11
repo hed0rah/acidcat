@@ -58,9 +58,9 @@ _UNDO_BYTES_CAP = 64 * 1024 * 1024   # total snapshot bytes kept (latest always 
 # it without a textual dependency; names are re-exported here for existing
 # importers.
 from acidcat.core.fieldcodec import (  # noqa: F401
-    _BE_FMTS, _BITMAPS, _CODECS, _DYNMAPS, _field_abs, bitfield_apply,
-    bitfield_extract, decode_value, enc_size, encode_value, infer_enc,
-    parse_bitfield, parse_bitsdyn, parse_bitsmap, resolve_bitsmap,
+    _BE_FMTS, _BITMAPS, _CODECS, _DYNMAPS, _field_abs, _resolve_in_map,
+    bitfield_apply, bitfield_extract, decode_value, enc_size, encode_value,
+    infer_enc, parse_bitfield, parse_bitsdyn, parse_bitsmap, resolve_bitsmap,
 )
 
 
@@ -522,8 +522,10 @@ class AcidcatTUI(App):
         if self._src_stat is not None and self._stat_src() != self._src_stat:
             if not self._force_stale:
                 self._force_stale = True
+                # this is action_save, bound to ctrl+s; plain s is strip, so
+                # naming the wrong key would silently strip instead of forcing
                 self.notify("file changed on disk since it was opened; "
-                            "press s again to overwrite it anyway",
+                            "press ctrl+s again to overwrite it anyway",
                             severity="error")
                 return
         self._force_stale = False
@@ -582,6 +584,12 @@ class AcidcatTUI(App):
             self.fmt, self.chunks, self.warns = walk_file(self.work, deep=True)
         except Unsupported as e:
             self.fmt, self.chunks, self.warns = "unsupported", [], [str(e)]
+        except Exception as e:
+            # a crafted/corrupt file may make a walker raise something other
+            # than Unsupported; the TUI opens files on mount, so this must not
+            # crash the session (the DoS threat model is degrade-not-die)
+            self.fmt, self.chunks, self.warns = (
+                "walk failed", [], [f"{e.__class__.__name__}: {e}"])
         self._prefer_be = self.fmt in _BE_FMTS
         try:
             self.findings = ac_anom.scan(self.work, self.fmt, self.chunks, self.warns)
@@ -897,8 +905,14 @@ class AcidcatTUI(App):
         if not tgt:
             return
         if tgt["fmt"] is None:
-            self.notify("this field is hex-only (no known value encoding)",
-                        severity="warning")
+            # enum/packed fields (bitsmap/bitsdyn/bitfield) are value-editable
+            # by label or index in place; they just have no fmt to flip to hex
+            if tgt.get("mode") in ("bitsmap", "bitsdyn", "bitfield"):
+                self.notify("enum/packed field: edit the value in place "
+                            "(no separate hex mode)", severity="warning")
+            else:
+                self.notify("this field is hex-only (no known value encoding)",
+                            severity="warning")
             return
         bar = self.query_one("#editbar", Input)
         if tgt["mode"] == "value":
