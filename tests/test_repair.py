@@ -68,4 +68,4 @@ def test_repair_rejects_non_iff(tmp_path, capsys):
     p.write_bytes(b"ID3\x04not a container")
     rc = repair.run(_args([str(p)]))
     assert rc == 1
-    assert "not a RIFF/AIFF container" in capsys.readouterr().err
+    assert "not a RIFF/AIFF/MP4 container" in capsys.readouterr().err
