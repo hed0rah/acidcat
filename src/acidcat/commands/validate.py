@@ -20,7 +20,7 @@ import sys
 from acidcat.core import constraints
 
 _EXTS = (".wav", ".rf64", ".bwf", ".aif", ".aiff", ".aifc", ".sf2", ".sf3",
-         ".m4a", ".mp4", ".mov", ".m4b")
+         ".m4a", ".mp4", ".mov", ".m4b", ".flac")
 
 
 def register(subparsers):
