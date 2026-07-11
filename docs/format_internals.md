@@ -63,8 +63,10 @@ files through mutagen.
 | Bitwig | `.bwpreset`, `.bwclip` | inspect + index | Device tree, parameters, clip notes |
 | [Bitwig multisample](formats/bitwig-multisample.md) | `.multisample` | inspect only | ZIP zone map: per-sample root note, key/velocity range, loop |
 | Vital | `.vital` | inspect + index | Patch name, author, tags, modulation matrix |
-| Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index | Preset metadata, NKS tags, FastLZ subtree (hsin) |
-| NCW | `.ncw` | inspect only | NI Compressed Wave header, channel/block info |
+| Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index + write | Preset metadata, NKS tags, FastLZ subtree (hsin); write is experimental |
+| NCW ([anatomy](formats/ncw-anatomy.html)) | `.ncw` | inspect + convert | NI Compressed Wave header, channel/block info; convert decodes to WAV |
+| SoundFont ([anatomy](formats/sf2-anatomy.html)) | `.sf2`, `.sf3` | inspect + convert | sfbk RIFF: INFO metadata, every named sample with its byte offset (rate/loop). SF2 = 16-bit PCM, SF3 = Ogg-Vorbis; convert extracts samples |
+| Tracker ([anatomy](formats/tracker-anatomy.html)) | `.mod`, `.xm`, `.it` | inspect | ProTracker/FastTracker II/Impulse Tracker: header, pattern order, every embedded sample at its byte offset; IT offset tables as followable pointers |
 | [Bitwig WT](formats/bitwig-wt.md) | `.wt` | inspect only | vawt header: frame count, samples/frame, 16-bit sample block |
 
 ### Not yet implemented
