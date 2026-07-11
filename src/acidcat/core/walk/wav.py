@@ -283,6 +283,9 @@ def _parse_smpl(b, ctx):
                          f"{start}..{end}", f"{type_name}, {plays}"))
         # split out the loop type (a little-endian u32) as its own editable field
         fields.append(_f(base + 4, 4, f"loop[{i}]_type", ltype, type_name))
+        if i == 0:                       # first loop, for the scan/info row
+            ctx["smpl_loop_start"] = start
+            ctx["smpl_loop_end"] = end
         if end < start:
             warns.append(f"loop[{i}] end {end} before start {start}")
         elif frames and end > frames:
@@ -536,6 +539,10 @@ def inspect_wav(filepath, ctx=None):
 
     with open(filepath, "rb") as f:
         hdr = f.read(12)
+        if len(hdr) < 12:
+            # a sub-header file (empty/truncated) reaches here via the info
+            # command's bare-path routing; degrade to a warning, not struct.error
+            return chunks, [f"file is {len(hdr)} bytes; a RIFF header needs 12"]
         riff_size = struct.unpack("<I", hdr[4:8])[0]
         if riff_size + 8 != file_size:
             file_warns.append(

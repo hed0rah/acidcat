@@ -252,6 +252,12 @@ def inspect_midi(filepath, deep=False, ctx=None):
                    "summary": summary, "fields": fields,
                    "warnings": hdr_warns})
 
+    # aggregate facts for the scan/info row (mirrors core/midi.py's meta)
+    scan.update({"format": fmt, "tracks": ntrks, "division": division,
+                 "track_names": [], "note_count": 0,
+                 "note_min": None, "note_max": None})
+    _channels = set()
+
     offset = 8 + hdr_len
     found = 0
     first_tempo = None
@@ -303,8 +309,16 @@ def inspect_midi(filepath, deep=False, ctx=None):
             scan["key_sig"] = st["key_sig"]          # last in file order wins
         if st["names"] and "track_name" not in scan:
             scan["track_name"] = st["names"][0]      # first in file order
+        scan["track_names"].extend(st["names"])      # all, in file order
         if st["copyright"]:
             scan["copyright"] = st["copyright"]      # last wins (legacy)
+        scan["note_count"] += st["notes"]
+        if st["nmin"] is not None:
+            scan["note_min"] = (st["nmin"] if scan["note_min"] is None
+                                else min(scan["note_min"], st["nmin"]))
+            scan["note_max"] = (st["nmax"] if scan["note_max"] is None
+                                else max(scan["note_max"], st["nmax"]))
+        _channels |= st["channels"]                  # 0-based, like legacy
         if not st["has_eot"]:
             entry["warnings"].append("no end-of-track meta event")
         for mfr, slen, reserved in st["sysex"]:
@@ -363,5 +377,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
         if (division & 0x8000) or first_tempo is not None:
             scan["duration"] = round(dur, 2)     # 2 dp matches legacy
     scan["tempo_bpm"] = first_tempo
+    scan["duration_ticks"] = max_ticks
+    scan["channels_used"] = sorted(_channels)
 
     return chunks, file_warns

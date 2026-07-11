@@ -9,12 +9,11 @@ import os
 import sys
 
 from acidcat.core.riff import (
-    parse_riff, get_duration, get_fmt_info,
     smpl_root_or_none, acid_root_or_none, effective_acid_beats,
 )
-from acidcat.core.aiff import is_aiff, parse_aiff
-from acidcat.core.midi import is_midi, parse_midi
-from acidcat.core.serum import is_serum_preset, parse_serum_preset
+from acidcat.core.aiff import is_aiff
+from acidcat.core.midi import is_midi
+from acidcat.core.serum import is_serum_preset
 from acidcat.core.tagged import is_tagged_format
 from acidcat.core.detect import estimate_librosa_metadata
 from acidcat.core.features import extract_audio_features
@@ -87,39 +86,48 @@ def _is_preset(filepath, ext):
 
 
 def _info_wav(filepath, args):
-    """Build info record for a WAV/RIFF file."""
-    _, meta, seen = parse_riff(filepath, enumerate_all=False)
-    duration = get_duration(filepath)
-    fmt = get_fmt_info(filepath)
+    """Build info record for a WAV/RIFF file, from the inspect walker's ctx
+    (the single WAV decoder since the 2026-07 unification)."""
+    from acidcat.core.walk.wav import inspect_wav
+
+    ctx = {}
+    chunks, _warns = inspect_wav(filepath, ctx=ctx)
+    seen = list(dict.fromkeys(c["id"] for c in chunks))
+    duration = round(ctx["duration"], 4) if ctx.get("duration") else None
+    bpm = ctx.get("acid_bpm")
 
     # SMPL/ACID root_note of 0 is the default-unset sentinel (MIDI C-1),
     # not a legitimate musical root. Treat as missing.
-    smpl_root = smpl_root_or_none(meta)
-    acid_root = acid_root_or_none(meta)
+    smpl_root = smpl_root_or_none(ctx.get("smpl_root"))
+    acid_root = acid_root_or_none(ctx.get("acid_root"))
 
     _vlog(args, "[detect] fmt=wav")
 
     rec = {}
     rec["File"] = os.path.basename(filepath)
 
-    if fmt:
-        codec = "PCM" if fmt["format_tag"] == 1 else f"tag={fmt['format_tag']}"
-        ch = fmt["channels"]
+    if ctx.get("format_tag") is not None:
+        tag = ctx["format_tag"]
+        codec = "PCM" if tag == 1 else f"tag={tag}"
+        ch = ctx.get("channels")
         ch_label = "mono" if ch == 1 else "stereo" if ch == 2 else f"{ch}ch"
-        rec["Format"] = f"WAV {codec} {fmt['sample_rate']}Hz {fmt['bits_per_sample']}-bit {ch_label}"
+        rec["Format"] = (f"WAV {codec} {ctx.get('sample_rate')}Hz "
+                         f"{ctx.get('bits')}-bit {ch_label}")
 
     if duration is not None:
         rec["Duration"] = f"{duration}s"
 
-    if meta["bpm"] is not None:
-        rec["BPM"] = meta["bpm"]
-        beats = effective_acid_beats(meta, duration)
+    if bpm is not None:
+        rec["BPM"] = bpm
+        beats = effective_acid_beats(
+            {"acid_beats": ctx.get("acid_beats"),
+             "acid_one_shot": ctx.get("acid_one_shot"), "bpm": bpm}, duration)
         if beats:
             rec["Beats"] = beats
         if acid_root is not None:
             rec["ACID Root"] = midi_note_to_name(acid_root)
-        if beats and meta["bpm"]:
-            expected = round((beats / meta["bpm"]) * 60, 4)
+        if beats and bpm:
+            expected = round((beats / bpm) * 60, 4)
             rec["Expected Duration"] = f"{expected}s"
             if duration:
                 diff = round(duration - expected, 4)
@@ -137,12 +145,12 @@ def _info_wav(filepath, args):
         rec["Key"] = "-"
         _vlog(args, "[key] no SMPL/ACID root, unset")
 
-    rec["ACID"] = "yes" if meta["bpm"] is not None else "no"
+    rec["ACID"] = "yes" if bpm is not None else "no"
 
     if smpl_root is not None:
         smpl_parts = [f"root={midi_note_to_name(smpl_root)}"]
-        if meta["smpl_loop_start"] is not None:
-            smpl_parts.append(f"loop={meta['smpl_loop_start']}-{meta['smpl_loop_end']}")
+        if ctx.get("smpl_loop_start") is not None:
+            smpl_parts.append(f"loop={ctx['smpl_loop_start']}-{ctx['smpl_loop_end']}")
         else:
             smpl_parts.append("loops=0")
         rec["SMPL"] = " ".join(smpl_parts)
@@ -159,40 +167,47 @@ def _info_wav(filepath, args):
 
 
 def _info_aiff(filepath, args):
-    """Build info record for an AIFF/AIFC file."""
+    """Build info record for an AIFF/AIFC file, from the inspect walker."""
+    from acidcat.core.walk.aiff import inspect_aiff
+
     _vlog(args, "[detect] fmt=aiff")
-    _, meta, seen = parse_aiff(filepath, enumerate_all=False)
+    with open(filepath, "rb") as f:
+        form = "AIFC" if f.read(12)[8:12] == b"AIFC" else "AIFF"
+    ctx = {}
+    chunks, _warns = inspect_aiff(filepath, form, ctx=ctx)
+    seen = [c["id"] for c in chunks]
+    # the legacy parser labeled AIFF's compression "none" and AIFC's "aifc";
+    # the walker records the real AIFC compression 4cc (e.g. "sowt") in ctx
+    compression = ctx.get("compression")
 
     rec = {}
     rec["File"] = os.path.basename(filepath)
 
-    # format line
     fmt_parts = ["AIFF"]
-    if meta.get("compression") and meta["compression"] not in ("none", "NONE"):
+    if form == "AIFC":
         fmt_parts[0] = "AIFC"
-        fmt_parts.append(meta["compression"])
-    if meta.get("sample_rate"):
-        fmt_parts.append(f"{meta['sample_rate']}Hz")
-    if meta.get("bits_per_sample"):
-        fmt_parts.append(f"{meta['bits_per_sample']}-bit")
-    if meta.get("channels"):
-        ch = meta["channels"]
+        if compression and compression not in ("none", "NONE"):
+            fmt_parts.append(compression)
+    if ctx.get("sample_rate"):
+        fmt_parts.append(f"{ctx['sample_rate']}Hz")
+    if ctx.get("bits"):
+        fmt_parts.append(f"{ctx['bits']}-bit")
+    if ctx.get("channels"):
+        ch = ctx["channels"]
         ch_label = "mono" if ch == 1 else "stereo" if ch == 2 else f"{ch}ch"
         fmt_parts.append(ch_label)
     rec["Format"] = " ".join(fmt_parts)
 
-    if meta.get("duration_sec") is not None:
-        rec["Duration"] = f"{meta['duration_sec']}s"
-
-    if meta.get("num_frames") is not None:
-        rec["Frames"] = meta["num_frames"]
-
-    if meta.get("name"):
-        rec["Name"] = meta["name"]
-    if meta.get("author"):
-        rec["Author"] = meta["author"]
-    if meta.get("copyright"):
-        rec["Copyright"] = meta["copyright"]
+    if ctx.get("duration") is not None:
+        rec["Duration"] = f"{ctx['duration']}s"
+    if ctx.get("frames") is not None:
+        rec["Frames"] = ctx["frames"]
+    if ctx.get("name"):
+        rec["Name"] = ctx["name"]
+    if ctx.get("author"):
+        rec["Author"] = ctx["author"]
+    if ctx.get("copyright"):
+        rec["Copyright"] = ctx["copyright"]
 
     rec["Chunks"] = ", ".join(seen) if seen else "(none)"
 
@@ -203,18 +218,21 @@ def _info_aiff(filepath, args):
 
 
 def _info_midi(filepath, args):
-    """Build info record for a MIDI file."""
+    """Build info record for a MIDI file, from the inspect walker."""
+    from acidcat.core.walk.midi import inspect_midi
+
     _vlog(args, "[detect] fmt=midi")
-    meta = parse_midi(filepath)
+    meta = {}
+    inspect_midi(filepath, ctx=meta)
 
     rec = {}
     rec["File"] = os.path.basename(filepath)
-    rec["Format"] = f"MIDI type {meta['format']}" if meta["format"] is not None else "MIDI"
+    rec["Format"] = f"MIDI type {meta['format']}" if meta.get("format") is not None else "MIDI"
 
-    if meta["tracks"] is not None:
+    if meta.get("tracks") is not None:
         rec["Tracks"] = meta["tracks"]
 
-    if meta["division"] is not None:
+    if meta.get("division") is not None:
         division = meta["division"]
         if division & 0x8000:
             # SMPTE division: high byte is a negative two's-complement
@@ -228,41 +246,44 @@ def _info_midi(filepath, args):
         else:
             rec["Division"] = f"{division} ticks/beat"
 
-    if meta["tempo_bpm"] is not None:
+    if meta.get("tempo_bpm") is not None:
         rec["BPM"] = meta["tempo_bpm"]
 
-    if meta["time_sig"]:
+    if meta.get("time_sig"):
         rec["Time Sig"] = meta["time_sig"]
 
-    if meta["key_sig"]:
+    if meta.get("key_sig"):
         rec["Key"] = meta["key_sig"]
 
-    if meta["track_names"]:
+    if meta.get("track_names"):
         rec["Track Names"] = ", ".join(meta["track_names"])
 
     if meta.get("copyright"):
         rec["Copyright"] = meta["copyright"]
 
-    if meta["note_count"] > 0:
+    if meta.get("note_count", 0) > 0:
         rec["Notes"] = meta["note_count"]
-        if meta["note_min"] is not None and meta["note_max"] is not None:
+        if meta.get("note_min") is not None and meta.get("note_max") is not None:
             rec["Note Range"] = f"{midi_note_to_name(meta['note_min'])}-{midi_note_to_name(meta['note_max'])}"
 
-    if meta["channels_used"]:
+    if meta.get("channels_used"):
         rec["Channels"] = ", ".join(str(c) for c in meta["channels_used"])
 
-    if meta.get("duration_sec") is not None:
-        rec["Duration"] = f"{meta['duration_sec']}s"
-    elif meta["duration_ticks"] > 0:
+    if meta.get("duration") is not None:
+        rec["Duration"] = f"{meta['duration']}s"
+    elif meta.get("duration_ticks", 0) > 0:
         rec["Duration"] = f"{meta['duration_ticks']} ticks"
 
     return rec
 
 
 def _info_serum(filepath, args):
-    """Build info record for a Serum preset."""
+    """Build info record for a Serum preset, from the inspect walker."""
+    from acidcat.core.walk.serum import inspect_serum
+
     _vlog(args, "[detect] fmt=serum")
-    meta = parse_serum_preset(filepath)
+    meta = {}
+    inspect_serum(filepath, ctx=meta)
 
     rec = {}
     rec["File"] = os.path.basename(filepath)

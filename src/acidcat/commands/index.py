@@ -25,22 +25,9 @@ import time
 from acidcat.core import index as idx
 from acidcat.core import paths as acidpaths
 from acidcat.core import registry as reg
-from acidcat.core.riff import (
-    parse_riff, get_duration, get_fmt_info,
-    smpl_root_or_none, acid_root_or_none, effective_acid_beats,
-)
-from acidcat.core.aiff import is_aiff, parse_aiff
-from acidcat.core.midi import is_midi, parse_midi
-from acidcat.core.mp3 import decode_frame_header
-from acidcat.core.serum import is_serum_preset, parse_serum_preset
-from acidcat.core.tagged import is_tagged_format
-
-
-
-from acidcat.core.indexing import (  # noqa: E402
-    INDEXABLE_EXTENSIONS, PRESET_EXTENSIONS, _is_junk, walk_and_upsert,
-    _refuses_as_root, _count_audio_in_subtree, _discover_candidates,
-    _resolve_unique_label,
+from acidcat.core.indexing import (
+    walk_and_upsert, _refuses_as_root, _count_audio_in_subtree,
+    _discover_candidates, _resolve_unique_label,
 )
 
 
