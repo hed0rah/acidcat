@@ -44,15 +44,17 @@ def _wav_fmt(data, fmt_chunk):
     return tag, ch, bits
 
 
-def _effective_bits(data, start, size, bytes_per_sample):
+def _effective_bits(data, start, size, bytes_per_sample, byteorder):
     """OR every sample in the (capped) PCM span and read the effective bit depth
-    from the lowest set bit. Returns (effective_bits, examined) or (None, 0)."""
+    from the lowest data-carrying bit. ``byteorder`` is "little" (WAV) or "big"
+    (AIFF), so the low byte is masked wherever it actually sits. Returns
+    (effective_bits, examined) or (None, examined)."""
     end = start + min(size, _SCAN_CAP)
     end -= (end - start) % bytes_per_sample
     acc = 0
     examined = 0
     for p in range(start, end, bytes_per_sample):
-        acc |= int.from_bytes(data[p:p + bytes_per_sample], "little", signed=False)
+        acc |= int.from_bytes(data[p:p + bytes_per_sample], byteorder, signed=False)
         examined += 1
     tz = _trailing_zero_bits(acc)
     if tz is None:
@@ -60,35 +62,67 @@ def _effective_bits(data, start, size, bytes_per_sample):
     return bytes_per_sample * 8 - tz, examined
 
 
-def analyze(label, chunks, data):
-    """Return a list of ``{check, verdict, detail}`` integrity findings. Read-only.
-    Currently WAV/RF64 integer PCM (the bulk of samples)."""
-    if label not in ("RIFF/WAVE", "RF64/WAVE"):
-        return []
+def _bit_depth_finding(bits, eff, examined):
+    if eff is None or examined < 1024 or eff > bits - 8:
+        return None
+    return {
+        "check": "bit_depth",
+        "verdict": f"declared {bits}-bit, effective {eff}-bit",
+        "detail": f"the low {bits - eff} bit(s) are always zero across "
+                  f"{examined:,} samples -- likely upsampled from {eff}-bit "
+                  f"(padded, not true {bits}-bit)",
+    }
+
+
+def _wav_pcm(data, chunks):
+    """(bits, byteorder, pcm_start, pcm_size) for a WAV/RF64 integer-PCM file, or
+    None if not applicable."""
     fmt = _find(chunks, "fmt")
     dat = _find(chunks, "data")
     if not fmt or not dat:
-        return []
+        return None
     try:
         tag, _ch, bits = _wav_fmt(data, fmt)
     except struct.error:
-        return []
-    # 1 = integer PCM; 0xFFFE (extensible) usually is too but its real tag is in
-    # the extension -- keep it simple and only trust plain PCM here.
+        return None
     if tag != 1 or bits not in (16, 24, 32):
+        return None
+    return bits, "little", dat["offset"] + 8, dat["size"]
+
+
+def _aiff_pcm(data, chunks):
+    """(bits, byteorder, pcm_start, pcm_size) for an AIFF integer-PCM file, or
+    None. AIFF is big-endian signed PCM; SSND payload leads with offset(4) +
+    blockSize(4) before the samples."""
+    comm = _find(chunks, "COMM")
+    ssnd = _find(chunks, "SSND")
+    if not comm or not ssnd:
+        return None
+    try:
+        bits = struct.unpack_from(">H", data, comm["offset"] + 8 + 6)[0]
+        soff = struct.unpack_from(">I", data, ssnd["offset"] + 8)[0]  # data offset
+    except struct.error:
+        return None
+    if bits not in (16, 24, 32):
+        return None
+    start = ssnd["offset"] + 8 + 8 + soff
+    size = max(0, ssnd["size"] - 8 - soff)
+    return bits, "big", start, size
+
+
+def analyze(label, chunks, data):
+    """Return a list of ``{check, verdict, detail}`` integrity findings. Read-only.
+    Covers WAV/RF64 (little-endian) and AIFF (big-endian) integer PCM -- the bulk
+    of sample files. (AIFC may be compressed, so it is left alone.)"""
+    if label in ("RIFF/WAVE", "RF64/WAVE"):
+        spec = _wav_pcm(data, chunks)
+    elif label == "IFF/AIFF":
+        spec = _aiff_pcm(data, chunks)
+    else:
         return []
-    bps = bits // 8
-    start = dat["offset"] + 8
-    eff, examined = _effective_bits(data, start, dat["size"], bps)
-    if eff is None or examined < 1024:         # too little / all-silent to judge
+    if spec is None:
         return []
-    out = []
-    if eff <= bits - 8:
-        out.append({
-            "check": "bit_depth",
-            "verdict": f"declared {bits}-bit, effective {eff}-bit",
-            "detail": f"the low {bits - eff} bit(s) are always zero across "
-                      f"{examined:,} samples -- likely upsampled from {eff}-bit "
-                      f"(padded, not true {bits}-bit)",
-        })
-    return out
+    bits, order, start, size = spec
+    eff, examined = _effective_bits(data, start, size, bits // 8, order)
+    finding = _bit_depth_finding(bits, eff, examined)
+    return [finding] if finding else []

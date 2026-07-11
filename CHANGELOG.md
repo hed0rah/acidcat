@@ -4,6 +4,16 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.36.0] - 2026-07-11
+
+### Added
+
+- Integrity (effective bit depth / fake hi-res) now covers AIFF as well as WAV.
+  AIFF is big-endian signed PCM read from the SSND chunk (past its offset and
+  blockSize fields) with the declared depth from COMM; the same lowest-set-bit
+  witness detects a 24-bit AIFF that is really upsampled 16-bit. AIFC is left
+  alone (it may be compressed).
+
 ## [0.35.0] - 2026-07-11
 
 ### Added
