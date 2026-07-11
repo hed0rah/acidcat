@@ -17,11 +17,11 @@ from acidcat.core import sf2 as sf2mod
 from acidcat.core.midi_write import notes_to_smf
 
 
-def _safe_name(name, idx):
-    """A filesystem-safe WAV filename for a sample (names can carry / and other
+def _safe_name(name, idx, ext="wav"):
+    """A filesystem-safe filename for a sample (names can carry / and other
     reserved chars, and can collide/repeat), prefixed with the index."""
     keep = "".join(c if c.isalnum() or c in " -_.()" else "_" for c in name)
-    return f"{idx:04d}_{keep.strip() or 'sample'}.wav"
+    return f"{idx:04d}_{keep.strip() or 'sample'}.{ext}"
 
 
 def register(subparsers):
@@ -104,10 +104,16 @@ def _run_sf2(path, data, args):
     outdir = args.output or (os.path.splitext(path)[0] + "_samples")
     os.makedirs(outdir, exist_ok=True)
     for i, s in enumerate(samples):
-        wav = sf2mod.sample_wav(data, info["smpl_offset"], s)
-        with open(os.path.join(outdir, _safe_name(s["name"], i)), "wb") as f:
-            f.write(wav)
-    print(f"extracted {len(samples):,} samples -> {outdir}")
+        if s.get("compressed"):
+            # SF3 stores each sample as an Ogg Vorbis stream; extract it verbatim
+            # (decoding Vorbis to PCM needs a codec acidcat does not bundle)
+            blob, ext = sf2mod.sample_bytes(data, s), "ogg"
+        else:
+            blob, ext = sf2mod.sample_wav(data, info["smpl_offset"], s), "wav"
+        with open(os.path.join(outdir, _safe_name(s["name"], i, ext)), "wb") as f:
+            f.write(blob)
+    kind = "Ogg Vorbis streams" if info.get("sf3") else "WAV samples"
+    print(f"extracted {len(samples):,} {kind} -> {outdir}")
     return 0
 
 

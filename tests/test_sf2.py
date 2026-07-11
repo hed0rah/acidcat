@@ -121,3 +121,35 @@ def test_convert_extracts_samples(tmp_path):
     assert wavs[0].startswith("0000_Kick") and wavs[0].endswith(".wav")
     assert "/" not in wavs[1]                  # reserved char sanitized
     assert open(os.path.join(outdir, wavs[0]), "rb").read()[:4] == b"RIFF"
+
+
+# ── SF3 (Ogg Vorbis samples) + unpadded-chunk robustness ───────────
+
+def test_sf3_samples_are_ogg_ranges():
+    # two compressed samples: type bit 0x10 set, start/end are byte offsets
+    smpl_frames = 12                       # smpl_size = 24 bytes
+    samples = [("kick", 0, 10, 0, 0, 44100, 60, 0x11),
+               ("snare", 10, 24, 0, 0, 44100, 60, 0x11)]
+    data = _make_sf2(samples, smpl_frames)
+    info = sf2.parse_sf2(data)
+    assert info["sf3"] is True
+    assert info["sample_count"] == 2
+    s0, s1 = info["samples"]
+    assert s0["compressed"] and s0["byte_len"] == 10
+    assert s1["byte_len"] == 14
+    # the raw Ogg stream comes out as the exact smpl slice
+    assert sf2.sample_bytes(data, s0) == data[s0["byte_off"]:s0["byte_off"] + 10]
+    # a compressed sample cannot be emitted as a PCM WAV
+    with pytest.raises(sf2.Sf2Error):
+        sf2.sample_wav(data, info["smpl_offset"], s0)
+
+
+def test_unpadded_odd_chunk_still_walks():
+    # a writer (MuseScore SF3) that omits the RIFF pad byte after an odd chunk
+    odd = b"aaa" + b"AAA"                   # 3-byte payload, odd
+    a = b"AAAA" + struct.pack("<I", 3) + b"aaa"   # no pad byte
+    b = b"BBBB" + struct.pack("<I", 4) + b"bbbb"
+    blob = a + b
+    got = list(sf2._iter_riff(blob, 0, len(blob)))
+    ids = [cid for cid, _, _ in got]
+    assert ids == [b"AAAA", b"BBBB"]

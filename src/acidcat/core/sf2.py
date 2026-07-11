@@ -6,8 +6,12 @@ SF2 is a RIFF file (form 'sfbk') with three LIST chunks: INFO (metadata), sdta
 headers giving each sample's name, start/end index into smpl, loop, and rate).
 Extracting a sample is a carve of smpl[start*2:end*2] wrapped in a WAV header.
 
-Open, uncompressed, no access control -- codec/container work. (SF3 keeps the
-same layout but stores each sample as Ogg Vorbis inside smpl; not handled yet.)
+Open, no access control -- codec/container work. SF3 (MuseScore) keeps the same
+sfbk layout but stores each sample as an Ogg Vorbis stream inside smpl, marked
+by sample-type bit 0x10, with the shdr start/end fields repurposed as byte
+offsets into smpl. acidcat maps SF3 structure and extracts the Ogg streams
+verbatim; decoding Vorbis to PCM needs a codec it does not bundle. The MuseScore
+writer also omits RIFF pad bytes, which the chunk walker tolerates.
 """
 
 import struct
@@ -26,9 +30,20 @@ def is_sf2(data):
     return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"sfbk"
 
 
+def _riff_id_ok(data, pos):
+    """A plausible RIFF chunk id starts here (4 printable-ASCII bytes)."""
+    return pos + 4 <= len(data) and all(0x20 <= b < 0x7f for b in data[pos:pos + 4])
+
+
 def _iter_riff(data, start, end):
     """Yield (id, data_offset, size) for chunks in [start, end). LIST chunks
-    yield their own id 'LIST' with the list type as the first 4 payload bytes."""
+    yield their own id 'LIST' with the list type as the first 4 payload bytes.
+
+    RIFF pads an odd-sized chunk to an even boundary, but MuseScore's SF3 writer
+    omits the pad byte, which desyncs a strict reader on the first odd chunk (the
+    smpl blob). Skip the pad only when it keeps us aligned to a real chunk id;
+    when the padded position is garbage but the unpadded one is a valid id, this
+    writer did not pad."""
     pos = start
     while pos + 8 <= end:
         cid = data[pos:pos + 4]
@@ -36,7 +51,13 @@ def _iter_riff(data, start, end):
         if pos + 8 + size > end:
             break
         yield cid, pos + 8, size
-        pos += 8 + size + (size & 1)
+        nxt = pos + 8 + size
+        if size & 1 and nxt < end:
+            if _riff_id_ok(data, nxt) and not _riff_id_ok(data, nxt + 1):
+                pass                       # unpadded writer (SF3)
+            else:
+                nxt += 1                   # spec even-alignment pad
+        pos = nxt
 
 
 def parse_sf2(data):
@@ -71,8 +92,12 @@ def parse_sf2(data):
     if smpl_off is None or shdr_off is None:
         raise Sf2Error("missing the smpl (sample data) or shdr (sample header) chunk")
 
-    samples = []
+    # SF3 (MuseScore) keeps the sfbk layout but stores each sample as an Ogg
+    # Vorbis stream inside smpl and marks it with sample-type bit 0x10; the
+    # shdr start/end fields then hold byte offsets into smpl, not sample indices.
     smpl_samples = smpl_size // 2
+    samples = []
+    any_compressed = False
     for i in range(shdr_size // _SHDR_LEN):
         o = shdr_off + i * _SHDR_LEN
         name = data[o:o + 20].split(b"\x00")[0].decode("latin-1", "replace").strip()
@@ -80,21 +105,41 @@ def parse_sf2(data):
         pitch, corr, link, stype = struct.unpack_from("<BbHH", data, o + 40)
         if name == "EOS" or not name:
             continue
+        compressed = bool(stype & 0x10)
+        if compressed:
+            # start/end are byte offsets; the region is an Ogg stream
+            byte_off, byte_len = smpl_off + start, end_i - start
+            in_range = 0 <= start < end_i <= smpl_size
+        else:
+            byte_off, byte_len = smpl_off + start * 2, (end_i - start) * 2
+            in_range = start < end_i <= smpl_samples
         # a sane, in-range header only (a lied-about index must not carve garbage)
-        if not (rate and start < end_i <= smpl_samples):
+        if not (rate and in_range):
             continue
+        any_compressed = any_compressed or compressed
         samples.append({"name": name, "start": start, "end": end_i,
                         "loop_start": ls, "loop_end": le, "rate": rate,
-                        "pitch": pitch, "correction": corr, "type": stype})
+                        "pitch": pitch, "correction": corr,
+                        "type": stype & 0x0f, "compressed": compressed,
+                        "byte_off": byte_off, "byte_len": byte_len})
     return {"version": version, "info": info, "sample_count": len(samples),
-            "smpl_offset": smpl_off, "smpl_size": smpl_size, "samples": samples}
+            "smpl_offset": smpl_off, "smpl_size": smpl_size,
+            "sf3": any_compressed, "samples": samples}
+
+
+def sample_bytes(data, sample):
+    """The raw sample region: 16-bit PCM for SF2, an Ogg Vorbis stream for SF3."""
+    return data[sample["byte_off"]:sample["byte_off"] + sample["byte_len"]]
 
 
 def sample_wav(data, smpl_offset, sample):
-    """A mono 16-bit WAV for one parsed sample header (its PCM range in smpl)."""
-    a = smpl_offset + sample["start"] * 2
-    b = smpl_offset + sample["end"] * 2
-    pcm = data[a:b]
+    """A mono 16-bit WAV for one uncompressed (SF2) sample header. Raises for a
+    compressed SF3 sample, whose Ogg stream must be extracted with
+    ``sample_bytes`` (decoding Vorbis to PCM needs a codec acidcat does not
+    bundle)."""
+    if sample.get("compressed"):
+        raise Sf2Error("SF3 sample is Ogg Vorbis; extract with sample_bytes")
+    pcm = sample_bytes(data, sample)
     rate = sample["rate"]
     fmt = struct.pack("<HHIIHH", 1, 1, rate, rate * 2, 2, 16)
     body = (b"WAVE" + b"fmt " + struct.pack("<I", 16) + fmt

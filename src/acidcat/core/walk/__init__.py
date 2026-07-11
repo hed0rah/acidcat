@@ -12,7 +12,7 @@ in this package, and add one registry entry below.
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
     aiff, bitwig, flac, fxp, midi, mp3, mp4, multisample, ncw, ni, ogg, rf64, rmid, rx2,
-    serum, sf2, vital, wav, wt,
+    serum, sf2, tracker, vital, wav, wt,
 )
 from acidcat.core.walk.base import Unsupported
 
@@ -46,6 +46,9 @@ _WALKERS = {
     "ogg": ("Ogg", lambda path, deep: ogg.inspect_ogg(path)),
     "mp3": ("MP3/MPEG audio",
             lambda path, deep: mp3.inspect_mp3(path, deep=deep)),
+    "mod": ("ProTracker MOD", lambda path, deep: tracker.inspect_mod(path)),
+    "xm": ("FastTracker II XM", lambda path, deep: tracker.inspect_xm(path)),
+    "it": ("Impulse Tracker", lambda path, deep: tracker.inspect_it(path)),
 }
 
 
@@ -60,7 +63,8 @@ def walk_file(filepath, deep=False):
     entry = _WALKERS.get(fmt)
     if entry is None:
         raise Unsupported("not a recognized audio/preset file (WAV, RF64, AIFF, "
-                          "MIDI, Serum, Bitwig, Vital, NCW, MP4/M4A, Ogg, "
-                          "Native Instruments, MP3, or FLAC)")
+                          "MIDI, Serum, Bitwig, Vital, NCW, SF2, MP4/M4A, Ogg, "
+                          "Native Instruments, MP3, FLAC, or a MOD/XM/IT tracker "
+                          "module)")
     label, walker = entry
     return (label, *walker(filepath, deep))
