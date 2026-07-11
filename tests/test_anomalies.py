@@ -183,6 +183,38 @@ def test_junk_all_zero_not_flagged(tmp_path):
     assert not any(f["rule"] == "cavity_content" for f in findings)
 
 
+def test_entropy_helper_discriminates():
+    import random
+    from acidcat.core.anomalies import _entropy, _entropy_note
+    rnd = random.Random(7)
+    cipher = bytes(rnd.getrandbits(8) for _ in range(600))
+    text = b"the quick brown fox " * 40
+    assert _entropy(cipher) > 7.2 and _entropy(text) < 5.0
+    assert "encrypted or compressed" in _entropy_note(cipher)
+    assert _entropy_note(text) == ""            # structured: silent
+    assert _entropy_note(cipher[:40]) == ""     # under 64 B: silent
+
+
+def test_high_entropy_cavity_characterized(tmp_path):
+    # a ciphertext-like JUNK cavity gets the encrypted/compressed note; a
+    # structured one does not (both still flag as cavity_content)
+    import random
+    from acidcat.core.walk import walk_file
+    rnd = random.Random(11)
+    cipher = bytes(rnd.getrandbits(8) for _ in range(2048))
+    path = _write(tmp_path, "cav.wav", _wav_with_junk(cipher))
+    label, chunks, warns = walk_file(path)
+    fs = [f for f in anomalies.scan(path, label, chunks, warns)
+          if f["rule"] == "cavity_content"]
+    assert fs and "encrypted or compressed" in fs[0]["message"]
+    # a repetitive (low-entropy) payload of the same size is flagged but not noted
+    path2 = _write(tmp_path, "cav2.wav", _wav_with_junk(b"AB" * 1024))
+    label2, chunks2, warns2 = walk_file(path2)
+    fs2 = [f for f in anomalies.scan(path2, label2, chunks2, warns2)
+           if f["rule"] == "cavity_content"]
+    assert fs2 and "encrypted or compressed" not in fs2[0]["message"]
+
+
 def test_junk_small_nonzero_not_flagged(tmp_path):
     # routine small non-zero JUNK (DAW cue/timestamp metadata) is below the floor
     from acidcat.core.walk import walk_file
