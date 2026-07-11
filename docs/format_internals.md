@@ -34,7 +34,7 @@ to the RIFF parser).
 | Format | File | Path | What acidcat extracts |
 |--------|------|------|-----------------------|
 | [RIFF / WAV](formats/riff_wav.md) ([anatomy](formats/wav-anatomy.html)) | `.wav` | inspect + index | BPM, key, loops, beats, duration, format, chunks, LIST/INFO, bext, cart, iXML |
-| [RF64 / BW64](formats/rf64.md) (EBU Tech 3306) | `.wav` | inspect only | Same chunk set as RIFF/WAV, plus ds64: 64-bit riff/data sizes, sample count, chunk-size override table |
+| [RF64 / BW64](formats/rf64.md) ([anatomy](formats/rf64-anatomy.html)) (EBU Tech 3306) | `.wav` | inspect + repair | Same chunk set as RIFF/WAV, plus ds64: 64-bit riff/data sizes, sample count, chunk-size override table |
 | [AIFF / AIFC](formats/aiff.md) ([anatomy](formats/aiff-anatomy.html)) | `.aif`, `.aiff` | inspect + index | Duration, format, name, author, copyright, markers, instrument tuning, Apple Loops |
 | [MIDI](formats/midi.md) ([anatomy](formats/midi-anatomy.html)) | `.mid`, `.midi` | inspect + index | BPM, key sig, time sig, tracks, note count/range, channels, duration |
 | [RMID](formats/rmid.md) | `.rmid` | inspect only | The RIFF wrapper, then the wrapped Standard MIDI File (delegated to the MIDI walker) |
