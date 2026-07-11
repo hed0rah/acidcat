@@ -50,8 +50,9 @@ SEV = {"alert": "#ff6e83", "warn": "#ffcc55", "notice": "#8fa4ff"}
 _HEX_CAP = 1024        # most bytes to render in the hex pane for one node
 _ROW_CAP = 400         # most per-element rows (events/frames) to list per chunk
 _HEXEDIT_CAP = 512     # refuse editing a byte region bigger than this (pick a field)
-_UNDO_CAP = 50         # most undo snapshots to keep
-_UNDO_BYTES_CAP = 64 * 1024 * 1024   # total snapshot bytes kept (latest always kept)
+_UNDO_CAP = 50         # most undo deltas to keep
+_UNDO_BYTES_CAP = 64 * 1024 * 1024   # total delta bytes kept (latest always kept)
+_DIFF_CAP = 200        # most changed regions to list in the pending-changes view
 
 # the field value<->bytes engine (struct inference, named codecs, the three
 # bit-field encodings) lives in core/fieldcodec.py so the CLI and tests share
@@ -350,6 +351,7 @@ class HelpScreen(ModalScreen):
             ("n / N", "next / previous search match"),
             ("f", "jump to the next forensics finding"),
             ("y", "yank the selected bytes as hex to the clipboard"),
+            ("d", "review all pending changes (offset old->new) before save"),
             ("e", "edit the selected field (value or hex)"),
             ("ctrl+t", "toggle the edit between value and raw hex"),
             ("tab", "hex-edit the field in the pane (arrows move, 0-9a-f type)"),
@@ -367,6 +369,52 @@ class HelpScreen(ModalScreen):
         t.append("\nEdits go to a temp working copy; nothing touches the original "
                  "until ctrl+s.", style=DIM)
         with Vertical(id="helpbox"):
+            yield Static(t)
+
+    def action_close(self):
+        self.dismiss(None)
+
+
+class DiffScreen(ModalScreen):
+    """Review all pending byte changes (working copy vs the original) before a
+    save. Any of esc / d closes it."""
+
+    CSS = """
+    DiffScreen { align: center middle; }
+    #diffbox { width: 82; height: auto; max-height: 90%; border: round #ffcc55;
+               background: #10161a; padding: 1 2; }
+    """
+    BINDINGS = [("escape", "close", "close"), ("d", "close", "close")]
+
+    def __init__(self, regions, src_len, work_len):
+        super().__init__()
+        self.regions = regions
+        self.src_len = src_len
+        self.work_len = work_len
+
+    def compose(self) -> ComposeResult:
+        t = Text()
+        t.append("pending changes  ", style=f"bold {ACCENT}")
+        if self.src_len != self.work_len:
+            t.append(f"(file size {self.src_len:,} -> {self.work_len:,} bytes)\n",
+                     style=SOFT)
+        elif not self.regions:
+            t.append("none -- working copy matches the original\n", style=SOFT)
+        else:
+            t.append(f"{len(self.regions)} region(s) vs the original\n", style=SOFT)
+        for off, old, new in self.regions[:_DIFF_CAP]:
+            t.append(f"\n0x{off:08x}  ", style=f"bold {PEND}")
+            t.append(f"{len(old)}B\n", style=DIM)
+            t.append("  old ", style=SOFT)
+            t.append(old[:24].hex(" ") + (" .." if len(old) > 24 else ""), style=DIM)
+            t.append("\n  new ", style=SOFT)
+            t.append(new[:24].hex(" ") + (" .." if len(new) > 24 else ""),
+                     style=PEND)
+            t.append("\n")
+        if len(self.regions) > _DIFF_CAP:
+            t.append(f"\n.. {len(self.regions) - _DIFF_CAP} more regions\n", style=DIM)
+        t.append("\nctrl+s to save, esc to keep editing.", style=DIM)
+        with Vertical(id="diffbox"):
             yield Static(t)
 
     def action_close(self):
@@ -398,6 +446,7 @@ class AcidcatTUI(App):
         ("N", "search_prev", "prev match"),
         ("f", "next_finding", "next finding"),
         ("y", "yank", "yank hex"),
+        ("d", "diff", "pending changes"),
         ("ctrl+s", "save", "save"),
         ("ctrl+z", "undo", "undo"),
         ("ctrl+r", "redo", "redo"),
@@ -506,26 +555,48 @@ class AcidcatTUI(App):
             except OSError:
                 pass
 
+    @staticmethod
+    def _minimal_delta(old, new):
+        """The minimal changed region between two byte strings as
+        (start, old_segment, new_segment) -- common prefix and suffix trimmed.
+        A same-length field/hex patch yields a few-byte delta even on a huge
+        file, so undo history holds byte ranges, not whole-file snapshots."""
+        n = min(len(old), len(new))
+        start = 0
+        while start < n and old[start] == new[start]:
+            start += 1
+        # suffix length, not crossing into the prefix on either side
+        suf = 0
+        while (suf < n - start
+               and old[len(old) - 1 - suf] == new[len(new) - 1 - suf]):
+            suf += 1
+        return start, old[start:len(old) - suf], new[start:len(new) - suf]
+
     def _apply_to_work(self, new_bytes):
         """Write edited bytes to the working copy (no disk write to the original
-        yet), snapshotting the prior state for undo, and refresh."""
+        yet), recording a minimal-diff undo delta, and refresh."""
         with open(self.work, "rb") as f:
-            self._undo.append(f.read())
+            old = f.read()
+        start, old_seg, new_seg = self._minimal_delta(old, new_bytes)
+        if old_seg == new_seg:                # nothing actually changed
+            return
+        self._undo.append((start, old_seg, new_seg))
         self._redo = []           # a fresh edit invalidates the redo history
         self._undo = self._undo[-_UNDO_CAP:]
-        # snapshots are whole files; also cap by bytes so a big file cannot pin
-        # gigabytes of history. The most recent snapshot always survives.
+        # cap by total delta bytes so history cannot pin gigabytes; the most
+        # recent delta always survives.
         while (len(self._undo) > 1
-               and sum(len(s) for s in self._undo) > _UNDO_BYTES_CAP):
+               and sum(len(o) + len(n) for _s, o, n in self._undo) > _UNDO_BYTES_CAP):
             self._undo.pop(0)
         with open(self.work, "wb") as f:
             f.write(new_bytes)
-        self._recompute_dirty()
+        self.dirty = True         # cheap: no whole-file compare on the hot path
         self._load()
 
     def _recompute_dirty(self):
-        """Dirty iff the working copy differs from the saved file, so undoing back
-        to the saved state (or saving) clears the flag."""
+        """Dirty iff the working copy differs from the saved file. Only called on
+        undo/redo (rare), so the whole-file compare stays off the edit hot path;
+        a plain edit sets dirty=True directly."""
         try:
             with open(self.work, "rb") as f:
                 w = f.read()
@@ -534,15 +605,22 @@ class AcidcatTUI(App):
         except OSError:
             self.dirty = True
 
+    def _apply_delta(self, start, seg_out, seg_in):
+        """Replace the bytes at `start` currently equal to `seg_out` with
+        `seg_in` in the working copy (the shared undo/redo primitive)."""
+        with open(self.work, "rb") as f:
+            data = f.read()
+        with open(self.work, "wb") as f:
+            f.write(data[:start] + seg_in + data[start + len(seg_out):])
+
     def action_undo(self):
         if not self._undo:
             self.notify("nothing to undo")
             return
-        with open(self.work, "rb") as f:
-            self._redo.append(f.read())     # current state becomes a redo point
+        start, old_seg, new_seg = self._undo.pop()
+        self._apply_delta(start, new_seg, old_seg)      # revert new -> old
+        self._redo.append((start, old_seg, new_seg))
         self._redo = self._redo[-_UNDO_CAP:]
-        with open(self.work, "wb") as f:
-            f.write(self._undo.pop())
         self._recompute_dirty()
         self._load()
         self.notify("undid last edit")
@@ -551,11 +629,10 @@ class AcidcatTUI(App):
         if not self._redo:
             self.notify("nothing to redo")
             return
-        with open(self.work, "rb") as f:
-            self._undo.append(f.read())
+        start, old_seg, new_seg = self._redo.pop()
+        self._apply_delta(start, old_seg, new_seg)      # re-apply old -> new
+        self._undo.append((start, old_seg, new_seg))
         self._undo = self._undo[-_UNDO_CAP:]
-        with open(self.work, "wb") as f:
-            f.write(self._redo.pop())
         self._recompute_dirty()
         self._load()
         self.notify("redid last edit")
@@ -962,6 +1039,41 @@ class AcidcatTUI(App):
             where = "(clipboard unavailable)"
         note = f", capped at {_HEX_CAP}" if length > _HEX_CAP else ""
         self.notify(f"yanked {len(blob)} bytes as hex -> {where}{note}")
+
+    def _pending_changes(self):
+        """(regions, src_len, work_len): the changed byte regions between the
+        working copy and the saved original, each (offset, old_bytes, new_bytes).
+        For a same-length file every differing run is listed; a length change is
+        reported as one region from the first difference (a text re-serialization
+        shifts the tail, so per-run diffing there is not meaningful)."""
+        try:
+            with open(self.work, "rb") as f:
+                work = f.read()
+            with open(self.src, "rb") as f:
+                src = f.read()
+        except OSError:
+            return [], 0, 0
+        if len(src) != len(work):
+            start, o, n = self._minimal_delta(src, work)
+            return ([(start, o, n)] if o != n else []), len(src), len(work)
+        regions = []
+        i = 0
+        while i < len(src) and len(regions) < _DIFF_CAP + 1:
+            if src[i] != work[i]:
+                j = i
+                while j < len(src) and src[j] != work[j]:
+                    j += 1
+                regions.append((i, src[i:j], work[i:j]))
+                i = j
+            else:
+                i += 1
+        return regions, len(src), len(work)
+
+    def action_diff(self):
+        if not self.work:
+            return
+        regions, sl, wl = self._pending_changes()
+        self.push_screen(DiffScreen(regions, sl, wl))
 
     def on_tree_node_highlighted(self, event):
         self._cur_node = event.node
