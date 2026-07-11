@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / soundfont anatomy</title>
+<script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* soundfont palette: amber value, violet flag, graphite anchor */
+  --enum:#9A6A1E;  --enum-soft:#EADFC8;
+  --flag:#5E4E8E;  --flag-soft:#DCD6EA;
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03);
+  --sync:#4A4E58;  --sync-soft:#D8D9DE;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+:root[data-theme="dark"]{--paper:#191a17;--panel:#212320;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#383a32;--hair:#2b2d26;--enum:#c9a86a;--enum-soft:#2a2416;--flag:#a99fce;--flag-soft:#232030;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#9ea0a2;--sync-soft:#202221;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.75rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500;letter-spacing:0.02em}
+.region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px;vertical-align:middle}
+.region .rbody{padding:0.6rem 1rem 1.2rem 3rem;border-top:1px solid var(--hair)}
+
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.32rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
+.detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title">
+        <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
+        <h1>SoundFont 2 / 3 Anatomy</h1>
+      </div>
+      <div class="stamp"><b>sfbk RIFF</b>.sf2 . .sf3<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>RIFF .. sfbk</b></div>
+      <div>endian <b>little</b></div>
+      <div>samples <b>SF2 16-bit PCM</b></div>
+      <div>samples <b>SF3 Ogg Vorbis</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="lede">A SoundFont is a RIFF file of form <b>sfbk</b>: three LIST chunks, in order. <b>INFO</b> holds the metadata (name, author, version). <b>sdta</b> holds one <b>smpl</b> chunk, every sample's audio back to back. <b>pdta</b> holds the preset/instrument/sample structure, ending in <b>shdr</b>, a table of 46-byte sample headers that name each sample and give its start and end index into smpl. Extracting a sample is a carve of that byte range. SF3 (MuseScore) keeps this exact layout but stores each sample as an Ogg-Vorbis stream inside smpl, marked by sample-type bit 0x10, with the shdr start/end fields repurposed as byte offsets. The record drawn below is a real shdr entry, sample <b>"tu 13"</b> from a library SF2. <b>Hover</b> any field to light its bytes and read the decode; <b>click</b> a field with a <span class="k-en">+</span> to open its table. Color marks kind (see the key).</p>
+  <aside class="sig" aria-label="color key">
+    <div class="legrows">
+    <div class="row"><span class="sw dark k-enum">amber</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">offset</span></div>
+    <div class="row"><span class="sw dark k-flag">violet</span><span class="swsep">&#8594;</span><span class="sw light k-flag">flag</span></div>
+    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
+    </div>
+    <div class="siglabel">color key</div>
+  </aside>
+  </div>
+
+  <div class="sec">file regions</div>
+  <p class="note">Top to bottom, what a reader walks. It is a plain RIFF tree; nothing is compressed at the container level (SF2), so the whole structure is reachable by chunk-hopping.</p>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">RIFF / sfbk</span><span class="rspan">0x00 . container</span></summary>
+      <div class="rbody">
+        <p class="note">The outer wrapper: 'RIFF', a u32 little-endian size (file length minus 8), then the form type 'sfbk'. Everything else is a child chunk of this container.</p>
+        <div class="kv">
+          <div><span class="k">magic</span><span class="v">"RIFF" at 0x00, "sfbk" at 0x08</span></div>
+          <div><span class="k">size</span><span class="v">u32 LE at 0x04 = file length - 8</span></div>
+          <div><span class="k">children</span><span class="v">LIST INFO, LIST sdta, LIST pdta -- in that order</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">LIST INFO</span><span class="rspan">metadata</span></summary>
+      <div class="rbody">
+        <p class="note">The catalog fields, one sub-chunk each. ifil is the SoundFont spec version (2.x for SF2, 3.x for SF3). The rest are free text.</p>
+        <div class="kv">
+          <div><span class="k">ifil</span><span class="v">u16 major . u16 minor (2.1 = SF2, 3.x = SF3)</span></div>
+          <div><span class="k">INAM</span><span class="v">soundfont name</span></div>
+          <div><span class="k">isng / ISFT</span><span class="v">target sound engine . the editor that wrote it (a provenance tell)</span></div>
+          <div><span class="k">IENG / ICOP / ICMT</span><span class="v">author . copyright . comment</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">LIST sdta / smpl</span><span class="rspan">the audio</span></summary>
+      <div class="rbody">
+        <p class="note">One smpl chunk holding every sample concatenated. In SF2 this is 16-bit signed PCM, little-endian; a sample is the slice smpl[start*2 : end*2]. In SF3 it is a run of Ogg-Vorbis streams; a sample is smpl[start : end], a self-contained .ogg.</p>
+        <div class="kv">
+          <div><span class="k">SF2</span><span class="v">16-bit PCM; sample bytes = smpl_offset + start*2 .. end*2</span></div>
+          <div><span class="k">SF3</span><span class="v">Ogg-Vorbis streams; sample bytes = smpl_offset + start .. end (a playable .ogg)</span></div>
+          <div><span class="k">acidcat</span><span class="v">each sample gets its real byte offset, so carve --offset extracts it and the hex pane shows it</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">LIST pdta / shdr</span><span class="rspan">46-byte records . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">The sample headers. Each record is exactly 46 bytes: a 20-byte name, five u32 indices into smpl (start, end, loop start, loop end, sample rate), then the original pitch, a correction, a stereo link, and a type. A terminal record named "EOS" marks the end of the table. The record below is the real first entry of a library SF2.</p>
+        <div id="block-shdr"></div>
+        <div class="kv">
+          <div><span class="k">layout</span><span class="v">name[20] . start/end/loop_start/loop_end/rate (5 x u32) . pitch(u8) . correction(s8) . link(u16) . type(u16)</span></div>
+          <div><span class="k">SF3 twist</span><span class="v">start/end become byte offsets, and type has bit 0x10 set to mark an Ogg sample</span></div>
+          <div><span class="k">anti-garbage</span><span class="v">acidcat keeps only in-range headers (end within smpl), so a lied index cannot carve past the blob</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="sec">what acidcat reads</div>
+  <p class="note">The INFO metadata, the smpl blob size, and every shdr record -- each turned into a chunk carrying its real byte offset, so samples are carveable and hex-viewable, and convert lifts them all out.</p>
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">inspect + convert</span><span class="rspan">soundfont</span></summary>
+      <div class="rbody">
+        <div class="kv">
+          <div><span class="k">read</span><span class="v">version, INFO metadata, sample count, and each sample's rate / duration / loop</span></div>
+          <div><span class="k">byte offset</span><span class="v">each sample chunk carries its real range in smpl (start*2 for SF2, start for SF3)</span></div>
+          <div><span class="k">convert</span><span class="v">acidcat convert font.sf2 -> a folder of WAVs; font.sf3 -> a folder of .ogg streams</span></div>
+          <div><span class="k">SF3 note</span><span class="v">Vorbis-to-PCM decode needs a codec acidcat does not bundle, so SF3 extracts the Ogg verbatim</span></div>
+          <div><span class="k">provenance</span><span class="v">an SF3 fingerprints as MuseScore sf3convert (Ogg samples + omitted RIFF padding) even when the ISFT string names the original editor</span></div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <footer>
+    <span>acidcat / soundfont anatomy</span>
+    <span>sfbk . SF2 16-bit PCM . SF3 Ogg Vorbis . shdr 46 bytes</span>
+  <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"offset",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // real shdr record: sample "tu 13" from a library SF2 (airfont)
+  build("block-shdr", 'byte',
+    [0x74,0x75,0x20,0x31,0x33,0x00,0x00,0x00,0x00,0x00,
+     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+     0x00,0x00,0x00,0x00, 0x96,0x58,0x00,0x00, 0x80,0x56,0x00,0x00,
+     0x95,0x58,0x00,0x00, 0x44,0xAC,0x00,0x00, 0x4C, 0x00, 0x00,0x00, 0x01,0x00],
+    [
+      {label:"sample name",k:"enum",r:[0,19],val:"\"tu 13\"",
+       body:"20-byte ASCII name, null-padded. This is what a player and acidcat list. Here bytes 74 75 20 31 33 spell 'tu 13'.",
+       note:"trailing bytes are 0x00 padding out to 20."},
+      {label:"start",k:"sync",r:[20,23],val:"0",
+       body:"u32 LE index into the smpl blob where this sample begins. In SF2 it is a sample index (multiply by 2 for the byte offset); in SF3 it is already a byte offset.",
+       note:"acidcat resolves it to an absolute byte range so the sample is carveable."},
+      {label:"end",k:"sync",r:[24,27],val:"22678",
+       body:"u32 LE index one past the last sample. 0x00005896 = 22678. The sample length is end - start = 22678 frames.",
+       note:"end must fall inside smpl or acidcat drops the record as garbage."},
+      {label:"loop_start",k:"sync",r:[28,31],val:"22144",
+       body:"u32 LE index where the sustain loop begins, for held notes. 0x00005680 = 22144.",
+       note:"loop_end > loop_start marks a looped sample; otherwise it is a one-shot."},
+      {label:"loop_end",k:"sync",r:[32,35],val:"22677",
+       body:"u32 LE index where the sustain loop ends. 0x00005895 = 22677, just inside the sample.",
+       note:""},
+      {label:"sample_rate",k:"enum",r:[36,39],val:"44100 Hz",
+       body:"u32 LE recording sample rate of this specific sample. 0x0000AC44 = 44100.",
+       note:"per-sample; a soundfont can mix rates across its samples."},
+      {label:"original_pitch",k:"enum",r:[40,40],val:"76  (E5)",
+       body:"u8 MIDI key the sample was recorded at (the root note). 0x4C = 76 = E5. A player pitch-shifts from here.",
+       note:"255 means 'use the instrument's key'."},
+      {label:"pitch_correction",k:"enum",r:[41,41],val:"0 cents",
+       body:"s8 fine tuning in cents, applied on top of the root. 0 here.",
+       note:"signed; -50..+50 in practice."},
+      {label:"sample_link",k:"rsv",r:[42,43],val:"0",
+       body:"u16 LE index of the paired sample for a stereo link. Meaningful only when type marks left or right; 0 here for a mono sample.",
+       note:"acidcat surfaces it; ignored for mono."},
+      {label:"sample_type",k:"flag",r:[44,45],val:"1  (mono)",sel:0,branch:[
+        ["0x0001","mono: this sample"],
+        ["0x0002","right channel"],
+        ["0x0004","left channel"],
+        ["0x0008","linked"],
+        ["| 0x10","SF3: sample is Ogg-Vorbis compressed"]],
+       body:"u16 LE sample type. 1 = mono here. SF3 sets bit 0x10 on top of the channel type to mark an Ogg-compressed sample, and repurposes start/end as byte offsets.",
+       note:"acidcat reads bit 0x10 to decide SF2 (PCM) vs SF3 (Ogg) extraction."}
+    ]);
+})();
+</script>
+<button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme"></button>
+<script>(function(){var t=document.getElementById("themeToggle");function cur(){return document.documentElement.getAttribute("data-theme")||"light";}function label(m){t.textContent=(m==="dark"?"light":"dark");}function set(m,p){document.documentElement.setAttribute("data-theme",m);if(p){try{localStorage.setItem("acidcat-theme",m);}catch(e){}}label(m);}t.addEventListener("click",function(){set(cur()==="dark"?"light":"dark",true);});label(cur());})();</script>
+</body>
+</html>
