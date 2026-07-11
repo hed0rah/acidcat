@@ -16,6 +16,7 @@ Usage:
     acidcat search CSV QUERY         # text search (legacy, CSV-based)
     acidcat dump file.wav acid       # hex dump a chunk
     acidcat carve file.wav --trailing -o blob   # extract a byte range / appended blob
+    acidcat convert font.sf2                     # extract SoundFont samples to WAV
     acidcat index DIR                # upsert DIR into the global SQLite index
     acidcat query --bpm 120:130      # filter the global index
 """

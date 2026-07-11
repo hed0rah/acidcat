@@ -13,16 +13,24 @@ import sys
 
 from acidcat.core import bitwig as bwmod
 from acidcat.core import ncw as ncwmod
+from acidcat.core import sf2 as sf2mod
 from acidcat.core.midi_write import notes_to_smf
+
+
+def _safe_name(name, idx):
+    """A filesystem-safe WAV filename for a sample (names can carry / and other
+    reserved chars, and can collide/repeat), prefixed with the index."""
+    keep = "".join(c if c.isalnum() or c in " -_.()" else "_" for c in name)
+    return f"{idx:04d}_{keep.strip() or 'sample'}.wav"
 
 
 def register(subparsers):
     p = subparsers.add_parser(
         "convert",
-        help="Convert a Bitwig clip to MIDI, or an NCW sample to WAV.",
+        help="Bitwig clip -> MIDI, NCW -> WAV, or SF2 -> a folder of WAV samples.",
     )
-    p.add_argument("input", help="Input file, or a directory to batch-convert "
-                                 "every .ncw within to WAV.")
+    p.add_argument("input", help="Input file (.bwclip / .ncw / .sf2), or a "
+                                 "directory to batch-convert every .ncw within.")
     p.add_argument("-o", "--output",
                    help="Output path (single file); ignored for a directory, "
                         "where each WAV is written beside its .ncw.")
@@ -83,6 +91,26 @@ def _run_ncw(path, data, args):
     return 0
 
 
+def _run_sf2(path, data, args):
+    try:
+        info = sf2mod.parse_sf2(data)
+    except sf2mod.Sf2Error as e:
+        print(f"acidcat convert: {path}: {e}", file=sys.stderr)
+        return 1
+    samples = info["samples"]
+    if not samples:
+        print(f"acidcat convert: {path}: no extractable samples", file=sys.stderr)
+        return 1
+    outdir = args.output or (os.path.splitext(path)[0] + "_samples")
+    os.makedirs(outdir, exist_ok=True)
+    for i, s in enumerate(samples):
+        wav = sf2mod.sample_wav(data, info["smpl_offset"], s)
+        with open(os.path.join(outdir, _safe_name(s["name"], i)), "wb") as f:
+            f.write(wav)
+    print(f"extracted {len(samples):,} samples -> {outdir}")
+    return 0
+
+
 def run(args):
     path = args.input
     if os.path.isdir(path):
@@ -95,6 +123,8 @@ def run(args):
         return 1
     if data[:4] == ncwmod.MAGIC:
         return _run_ncw(path, data, args)
+    if sf2mod.is_sf2(data):
+        return _run_sf2(path, data, args)
     if data[:4] != bwmod.MAGIC:
         print(f"acidcat convert: {path}: unsupported input "
               f"(expected a Bitwig .bwclip or an NCW .ncw)", file=sys.stderr)
