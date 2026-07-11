@@ -73,6 +73,17 @@ def _read(path, off, length):
         return b""
 
 
+def _fuzzy(query, text):
+    """fzf-style subsequence match: every char of `query` appears in `text`, in
+    order, case-insensitively. The default TUI search over field names/values."""
+    q, t = query.lower(), text.lower()
+    i = 0
+    for ch in t:
+        if i < len(q) and ch == q[i]:
+            i += 1
+    return i == len(q)
+
+
 def hex_text(path, off, length, accent):
     """A colored hex dump (offset gutter + hex columns + ascii) of up to
     _HEX_CAP bytes starting at off. Bytes render in `accent`, non-printable
@@ -334,15 +345,20 @@ class HelpScreen(ModalScreen):
         rows = [
             ("arrows / enter", "move + expand the tree"),
             ("a / c", "expand all / collapse all"),
+            ("g", "goto offset (0x.. or decimal)"),
+            ("/", "search: text=fuzzy name/value, 0x..=hex, \"..\"=ascii"),
+            ("n / N", "next / previous search match"),
+            ("f", "jump to the next forensics finding"),
+            ("y", "yank the selected bytes as hex to the clipboard"),
             ("e", "edit the selected field (value or hex)"),
             ("ctrl+t", "toggle the edit between value and raw hex"),
             ("tab", "hex-edit the field in the pane (arrows move, 0-9a-f type)"),
             ("w", "edit tags (metadata form)"),
             ("s", "strip identifying metadata"),
             ("ctrl+s", "save to the original (writes a _original backup)"),
-            ("ctrl+z", "undo the last edit"),
+            ("ctrl+z / ctrl+r", "undo / redo the last edit"),
             ("o", "open another file"),
-            ("esc", "cancel the current edit"),
+            ("esc", "cancel the current edit / prompt"),
             ("q", "quit"),
         ]
         for k, d in rows:
@@ -365,7 +381,8 @@ class AcidcatTUI(App):
     #detail { height: auto; border: round #66e88a; padding: 0 1; color: #e6e6e1; }
     #hexwrap { border: round #56e0f0; }
     #hex { padding: 0 1; }
-    #anom { height: auto; border: round #ff6e83; padding: 0 1; }
+    #anomwrap { height: 30%; border: round #ff6e83; }
+    #anom { height: auto; padding: 0 1; }
     #editbar { dock: bottom; height: 3; border: round #ffcc55; background: #10161a; }
     #editbar.hidden { display: none; }
     Tree { background: #10161a; }
@@ -375,8 +392,15 @@ class AcidcatTUI(App):
 
     BINDINGS = [
         ("q", "request_quit", "quit"),
+        ("g", "goto", "goto offset"),
+        ("slash", "search", "search"),
+        ("n", "search_next", "next match"),
+        ("N", "search_prev", "prev match"),
+        ("f", "next_finding", "next finding"),
+        ("y", "yank", "yank hex"),
         ("ctrl+s", "save", "save"),
         ("ctrl+z", "undo", "undo"),
+        ("ctrl+r", "redo", "redo"),
         ("o", "open", "open file"),
         ("e", "edit_field", "edit field"),
         ("tab", "hex_focus", "hex edit"),
@@ -411,6 +435,11 @@ class AcidcatTUI(App):
         self._edit_target = None  # active inline edit: dict(off,length,name,mode,fmt,accent)
         self._hexedit = None      # active in-pane hex edit: dict(off,length,buf,cur,nib)
         self._undo = []           # working-copy byte snapshots for undo
+        self._redo = []           # snapshots popped by undo, for redo
+        self._prompt = None       # active editbar prompt: dict(kind, ...)
+        self._allnodes = []       # (node, off, length) for offset/fuzzy navigation
+        self._search = None       # active search: dict(desc, hits, idx)
+        self._finding_idx = -1    # cursor into self.findings for jump-to-finding
 
     def compose(self) -> ComposeResult:
         yield Static(id="title")
@@ -420,7 +449,8 @@ class AcidcatTUI(App):
                 yield Static(id="detail")
                 with VerticalScroll(id="hexwrap"):
                     yield HexPane(id="hex")
-                yield Static(id="anom")
+                with VerticalScroll(id="anomwrap"):
+                    yield Static(id="anom")
         yield Input(id="editbar", classes="hidden")
         yield Footer()
 
@@ -481,6 +511,7 @@ class AcidcatTUI(App):
         yet), snapshotting the prior state for undo, and refresh."""
         with open(self.work, "rb") as f:
             self._undo.append(f.read())
+        self._redo = []           # a fresh edit invalidates the redo history
         self._undo = self._undo[-_UNDO_CAP:]
         # snapshots are whole files; also cap by bytes so a big file cannot pin
         # gigabytes of history. The most recent snapshot always survives.
@@ -507,11 +538,27 @@ class AcidcatTUI(App):
         if not self._undo:
             self.notify("nothing to undo")
             return
+        with open(self.work, "rb") as f:
+            self._redo.append(f.read())     # current state becomes a redo point
+        self._redo = self._redo[-_UNDO_CAP:]
         with open(self.work, "wb") as f:
             f.write(self._undo.pop())
         self._recompute_dirty()
         self._load()
         self.notify("undid last edit")
+
+    def action_redo(self):
+        if not self._redo:
+            self.notify("nothing to redo")
+            return
+        with open(self.work, "rb") as f:
+            self._undo.append(f.read())
+        self._undo = self._undo[-_UNDO_CAP:]
+        with open(self.work, "wb") as f:
+            f.write(self._redo.pop())
+        self._recompute_dirty()
+        self._load()
+        self.notify("redid last edit")
 
     def action_save(self):
         if not self.work:
@@ -620,6 +667,7 @@ class AcidcatTUI(App):
         self._editval = {}
         self._textfield = {}
         self._nodekey = {}
+        self._allnodes = []       # rebuilt each load, for goto/search/finding jumps
         keyed = {}
         tree.root.set_label(Text(os.path.basename(self.src), style=f"bold {FG}"))
         tree.root.data = (0, self.fsize, ACCENT)
@@ -636,6 +684,7 @@ class AcidcatTUI(App):
             self._nodemeta[id(node)] = node.data
             self._nodekey[id(node)] = ("chunk", i)
             keyed[("chunk", i)] = node
+            self._allnodes.append((node, c.get("offset", 0), c.get("size", 0)))
             for j, fl in enumerate(c.get("fields", [])):
                 abs_off = _field_abs(c, fl)
                 flbl = Text()
@@ -649,6 +698,8 @@ class AcidcatTUI(App):
                 self._nodemeta[id(fnode)] = fnode.data
                 self._nodekey[id(fnode)] = ("field", i, j)
                 keyed[("field", i, j)] = fnode
+                if abs_off is not None:
+                    self._allnodes.append((fnode, abs_off, fl.get("len") or 0))
                 if abs_off is not None:
                     self._editval[id(fnode)] = (fl.get("value"), fl.get("enc"),
                                                 fl.get("raw"))
@@ -702,14 +753,24 @@ class AcidcatTUI(App):
             t.append("clean: no findings", style=SOFT)
             panel.update(t)
             return
-        t.append(f"{len(self.findings)} finding(s)\n", style=SOFT)
-        for f in self.findings[:8]:
+        # severity legend so the colors are readable, then every finding
+        # numbered (press f to jump the tree/hex to the next one). The panel
+        # lives in a VerticalScroll, so findings past the fold stay reachable.
+        t.append(f"{len(self.findings)} finding(s)   ", style=SOFT)
+        t.append("alert", style=f"bold {SEV['alert']}")
+        t.append(" / ", style=DIM)
+        t.append("warn", style=f"bold {SEV['warn']}")
+        t.append(" / ", style=DIM)
+        t.append("notice", style=f"bold {SEV['notice']}")
+        t.append("   (f = jump)\n", style=DIM)
+        for i, f in enumerate(self.findings):
             sev = f.get("severity", "notice")
-            t.append(f"  {sev:<7}", style=f"bold {SEV.get(sev, SOFT)}")
+            marker = ">" if i == self._finding_idx else " "
+            t.append(f" {marker}{i + 1:>2} ", style=f"bold {ACCENT}" if
+                     i == self._finding_idx else DIM)
+            t.append(f"{sev:<7}", style=f"bold {SEV.get(sev, SOFT)}")
             t.append(f"0x{f.get('offset', 0):08x} ", style=DIM)
             t.append(f"{f.get('message', '')}\n", style=FG)
-        if len(self.findings) > 8:
-            t.append(f"  .. {len(self.findings) - 8} more\n", style=DIM)
         panel.update(t)
 
     @staticmethod
@@ -732,6 +793,175 @@ class AcidcatTUI(App):
 
     def action_help(self):
         self.push_screen(HelpScreen())
+
+    # ── navigation: goto-offset, search, jump-to-finding ──────────────
+
+    def _select_node(self, node):
+        """Move the tree cursor to `node`, expanding its parents, and refresh the
+        detail/hex panes -- the shared landing used by goto/search/finding."""
+        tree = self.query_one("#tree", Tree)
+        p = node.parent
+        while p is not None:
+            if not p.is_expanded:
+                p.expand()
+            p = p.parent
+        self._cur_node = node
+        self.call_after_refresh(tree.move_cursor, node)
+        data = self._nodemeta.get(id(node))
+        if data:
+            off, length, accent = data
+            self._show(off, length, accent, self._node_name(node),
+                       self._edit_hint(node, off, length))
+
+    def _node_containing(self, offset):
+        """The most specific tree node whose byte range covers `offset` (a field
+        beats its enclosing chunk), or None. Ties break to the smallest range."""
+        best = None
+        for node, off, length in self._allnodes:
+            if length and off <= offset < off + length:
+                if best is None or length < best[1]:
+                    best = (node, length)
+        return best[0] if best else None
+
+    def _jump_to_offset(self, offset, hlen=1, label=""):
+        """Land on `offset`: select the node that contains it if any, and show
+        the hex there. Used by goto and byte-search hits."""
+        node = self._node_containing(offset)
+        if node is not None:
+            self._select_node(node)
+        acc = PEND
+        name = label or (self._node_name(node) if node else f"offset 0x{offset:08x}")
+        self._show(offset, hlen, acc, name,
+                   "" if node else "no chunk covers this offset")
+
+    def _arm_prompt(self, kind, title, initial=""):
+        """Reuse #editbar as a one-line prompt (goto/search). Distinct from a
+        field edit: on_input_submitted routes on self._prompt first."""
+        if self._edit_target:
+            self.action_cancel_edit()
+        self._prompt = {"kind": kind}
+        bar = self.query_one("#editbar", Input)
+        bar.value = initial
+        bar.remove_class("hidden")
+        bar.border_title = title
+        bar.focus()
+
+    def action_goto(self):
+        self._arm_prompt("goto", "goto offset (0x.. or decimal)  enter  esc")
+
+    def action_search(self):
+        self._arm_prompt(
+            "search",
+            "search: text=fuzzy name/value, 0x..=hex bytes, \"..\"=ascii  n/N cycle")
+
+    def _run_goto(self, text):
+        text = text.strip()
+        if not text:
+            return
+        try:
+            offset = int(text, 0)
+        except ValueError:
+            self.notify(f"not an offset: {text!r}", severity="error")
+            return
+        if not (0 <= offset < self.fsize):
+            self.notify(f"offset 0x{offset:x} outside the file (0..{self.fsize:,})",
+                        severity="error")
+            return
+        self._jump_to_offset(offset, 1, f"goto 0x{offset:08x}")
+
+    def _run_search(self, text):
+        text = text.strip()
+        if not text:
+            return
+        needle = self._search_needle(text)
+        if needle is not None:                       # raw-byte search
+            with open(self.work, "rb") as f:
+                data = f.read()
+            hits, pos = [], data.find(needle)
+            while pos != -1 and len(hits) < 4096:
+                hits.append(("byte", pos, len(needle)))
+                pos = data.find(needle, pos + 1)
+            desc = f"{len(needle)} byte(s)"
+        else:                                        # fuzzy name/value search
+            hits = [("node", n) for n, _o, _l in self._allnodes
+                    if _fuzzy(text, self._node_name(n))]
+            desc = f"'{text}'"
+        if not hits:
+            self.notify(f"no match for {desc}", severity="warning")
+            self._search = None
+            return
+        self._search = {"desc": desc, "hits": hits, "idx": -1}
+        self.notify(f"{len(hits)} match(es) for {desc}; n/N to cycle")
+        self._search_step(1)
+
+    @staticmethod
+    def _search_needle(text):
+        """Bytes to search for, or None if `text` is a fuzzy (name/value) query.
+        0x.. / bare even-length hex -> those bytes; "..'/'.." -> ascii bytes."""
+        t = text.strip()
+        if len(t) >= 2 and t[0] == t[-1] and t[0] in ("'", '"'):
+            return t[1:-1].encode("utf-8", "replace")
+        h = t[2:] if t[:2].lower() == "0x" else t
+        h = h.replace(" ", "")
+        if t[:2].lower() == "0x" or (len(h) >= 2 and len(h) % 2 == 0
+                                     and all(c in "0123456789abcdefABCDEF" for c in h)):
+            try:
+                return bytes.fromhex(h)
+            except ValueError:
+                return None
+        return None
+
+    def _search_step(self, direction):
+        s = self._search
+        if not s or not s["hits"]:
+            self.notify("no active search (press / to search)")
+            return
+        s["idx"] = (s["idx"] + direction) % len(s["hits"])
+        hit = s["hits"][s["idx"]]
+        pos = f"{s['idx'] + 1}/{len(s['hits'])}"
+        if hit[0] == "byte":
+            self._jump_to_offset(hit[1], hit[2],
+                                 f"match {pos} @ 0x{hit[1]:08x}  ({s['desc']})")
+        else:
+            self._select_node(hit[1])
+            self.notify(f"match {pos}  {s['desc']}")
+
+    def action_search_next(self):
+        self._search_step(1)
+
+    def action_search_prev(self):
+        self._search_step(-1)
+
+    def action_next_finding(self):
+        if not self.findings:
+            self.notify("no forensics findings")
+            return
+        self._finding_idx = (self._finding_idx + 1) % len(self.findings)
+        f = self.findings[self._finding_idx]
+        off = f.get("offset", 0)
+        self._jump_to_offset(
+            off, 1, f"finding {self._finding_idx + 1}/{len(self.findings)}: "
+            f"{f.get('message', '')[:60]}")
+        self._render_anomalies()
+
+    def action_yank(self):
+        """Copy the selected node's bytes (as hex) to the clipboard -- a common
+        forensics move (paste an interesting region into another tool)."""
+        node = self._cur_node
+        data = self._nodemeta.get(id(node)) if node else None
+        if not data or data[0] is None or not data[1]:
+            self.notify("nothing to yank (highlight a field/chunk)", severity="warning")
+            return
+        off, length, _ = data
+        blob = _read(self.work, off, min(length, _HEX_CAP))
+        hexs = blob.hex(" ")
+        try:
+            self.copy_to_clipboard(hexs)
+            where = "clipboard"
+        except Exception:
+            where = "(clipboard unavailable)"
+        note = f", capped at {_HEX_CAP}" if length > _HEX_CAP else ""
+        self.notify(f"yanked {len(blob)} bytes as hex -> {where}{note}")
 
     def on_tree_node_highlighted(self, event):
         self._cur_node = event.node
@@ -1000,7 +1230,17 @@ class AcidcatTUI(App):
             self._render_preview()
 
     def on_input_submitted(self, event):
-        if event.input.id != "editbar" or not self._edit_target:
+        if event.input.id != "editbar":
+            return
+        if self._prompt:                     # goto / search prompt, not a field edit
+            kind, text = self._prompt["kind"], event.value
+            self._end_prompt()
+            if kind == "goto":
+                self._run_goto(text)
+            elif kind == "search":
+                self._run_search(text)
+            return
+        if not self._edit_target:
             return
         tgt = self._edit_target
         if tgt["mode"] == "text":
@@ -1030,7 +1270,17 @@ class AcidcatTUI(App):
         self._apply_to_work(new)
         self.notify(f"patched {len(patch)} bytes (unsaved -- ctrl+s to save)")
 
+    def _end_prompt(self):
+        self._prompt = None
+        bar = self.query_one("#editbar", Input)
+        bar.value = ""
+        bar.add_class("hidden")
+        self.query_one("#tree", Tree).focus()
+
     def action_cancel_edit(self):
+        if self._prompt:                     # esc cancels an armed goto/search prompt
+            self._end_prompt()
+            return
         if not self._edit_target:
             return
         self._end_edit()
