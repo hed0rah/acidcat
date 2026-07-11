@@ -4,6 +4,19 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.45.0] - 2026-07-11
+
+### Added
+
+- Public library API. `import acidcat` now exposes a stable, documented engine
+  surface -- `walk`, `probe` (byte dissection), `viz` (entropy/Hilbert), `analyze`
+  / `repair` (constraints), `anomalies_scan`, `Report`/`Violation`, `Unsupported`
+  -- so consumers (the acidcat-playground, any dissection tool) import from the
+  package root instead of reaching into `acidcat.core.*` internals. Importing the
+  package pulls only the zero-optional-dependency core; tagging (mutagen), the TUI
+  (textual), and librosa load only when their commands run. This is the engine
+  boundary that makes the acidcat-as-library architecture solid.
+
 ## [0.44.0] - 2026-07-11
 
 ### Added
