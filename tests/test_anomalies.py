@@ -331,3 +331,59 @@ def test_mp4_trkn_decodes_to_index_total(tmp_path):
     meta = _mp4_box(b"meta", bytes(4) + _mp4_box(b"ilst", trkn))
     doc = _mp4_box(b"ftyp", b"M4A \x00\x00\x00\x00") + _mp4_box(b"moov", _mp4_box(b"udta", meta))
     assert parse_ilst(doc).get("track") == "3/12"
+
+
+# ── RF64 sentinel fix + coverage/carrier tells ────────────────────
+
+def test_rf64_appended_magic_now_detected(tmp_path):
+    # RF64 stores 0xFFFFFFFF in the RIFF size field (sentinel); before the fix
+    # _declared_end computed ~4.29 GB and the trailing/polyglot scans silently
+    # skipped every RF64 file. A PDF appended past the real end must be caught.
+    fmt = b"fmt " + struct.pack("<I", 16) + struct.pack("<HHIIHH", 1, 2, 44100, 176400, 4, 16)
+    data = b"data" + struct.pack("<I", 0xFFFFFFFF) + b"\x00" * 100
+    # container = RF64(8)+WAVE(4)+ds64(36)+fmt(24)+data(108) = 180 bytes;
+    # ds64 riffSize = 180 - 8 = 172, dataSize = 100 (the true end lives here)
+    ds64 = b"ds64" + struct.pack("<I", 28) + struct.pack("<QQQI", 172, 100, 50, 0)
+    body = b"WAVE" + ds64 + fmt + data
+    rf64 = b"RF64" + struct.pack("<I", 0xFFFFFFFF) + body + b"%PDF-1.7 trailing"
+    path = _write(tmp_path, "big.wav", rf64)
+    findings = _scan(path)
+    rules = {f["rule"] for f in findings}
+    assert "trailing_data" in rules            # ran at all (was skipped before)
+    assert any(f["rule"] == "polyglot" and "PDF" in f["message"] for f in findings)
+
+
+def test_nonzero_odd_chunk_pad_flagged(tmp_path):
+    # an odd-sized chunk's alignment pad is spec'd to be $00; a non-zero pad is a
+    # covert channel invisible to conformant readers
+    odd = b"LIST" + struct.pack("<I", 5) + b"INFOx" + b"\x5a"   # 5-byte payload, pad=0x5a
+    wav = _wav(_FMT, _chunk(b"data", b"\x00" * 16) + odd)
+    path = _write(tmp_path, "pad.wav", wav)
+    findings = _scan(path)
+    assert any(f["rule"] == "nonzero_pad" for f in findings)
+
+
+def test_zero_odd_chunk_pad_not_flagged(tmp_path):
+    # the same odd chunk with a correct zero pad is silent (no false positive)
+    ok = b"LIST" + struct.pack("<I", 5) + b"INFOx" + b"\x00"
+    wav = _wav(_FMT, _chunk(b"data", b"\x00" * 16) + ok)
+    path = _write(tmp_path, "okpad.wav", wav)
+    assert not any(f["rule"] == "nonzero_pad" for f in _scan(path))
+
+
+def test_duplicate_fmt_chunk_flagged(tmp_path):
+    wav = _wav(_FMT, _FMT, _chunk(b"data", b"\x00" * 16))   # two fmt chunks
+    path = _write(tmp_path, "dupfmt.wav", wav)
+    findings = _scan(path)
+    assert any(f["rule"] == "duplicate_chunk" and "fmt" in f["message"]
+               for f in findings)
+
+
+def test_ape_tag_on_wav_flagged(tmp_path):
+    # an APEv2 tag (footer magic APETAGEX) on a non-MP3 file is an unusual
+    # metadata carrier; the last 32 bytes hold the footer
+    wav = _wav(_FMT, _chunk(b"data", b"\x00" * 16))
+    ape = b"APETAGEX" + b"\x00" * 24            # minimal 32-byte footer magic
+    path = _write(tmp_path, "ape.wav", wav + ape)
+    findings = _scan(path)
+    assert any(f["rule"] == "wrong_format_tag" for f in findings)

@@ -44,11 +44,30 @@ _CAVITY_PAYLOAD_SIZE = {"PADDING", "JUNK", "PAD"}
 
 def _declared_end(head):
     """The offset a conformant reader stops at, from the container's size field.
-    None for formats without a simple total-size header."""
+    None when the header does not give a usable total size, so the caller falls
+    back to the walker's parsed coverage. RF64/BW64 store 0xFFFFFFFF in the RIFF
+    size field as a sentinel (the real size lives in ds64, which the walker
+    already resolves into the chunk sizes); a plain RIFF can carry the same
+    sentinel for a streamed file -- either way, trust parsed coverage there or
+    the trailing-data and appended-magic scans silently never run."""
     if len(head) >= 8 and head[:4] in (b"RIFF", b"RF64"):
-        return 8 + struct.unpack_from("<I", head, 4)[0]
+        n = struct.unpack_from("<I", head, 4)[0]
+        return None if n == 0xFFFFFFFF else 8 + n
     if len(head) >= 8 and head[:4] == b"FORM":
         return 8 + struct.unpack_from(">I", head, 4)[0]
+    return None
+
+
+def _rf64_end(filepath):
+    """True container end for an RF64/BW64 file from the ds64 chunk's 64-bit
+    riffSize, or None if ds64 isn't at its spec position. 8 + riffSize."""
+    try:
+        with open(filepath, "rb") as f:
+            head = f.read(28)
+        if len(head) >= 28 and head[12:16] == b"ds64":
+            return 8 + struct.unpack_from("<Q", head, 20)[0]
+    except OSError:
+        pass
     return None
 
 
@@ -73,6 +92,13 @@ def scan(filepath, fmt_label, chunks, warns):
     # Use the container's own size field, not the walker's parsed coverage (the
     # walker mis-reads appended bytes as a bogus chunk, a noisy boundary).
     end = _declared_end(head)
+    if end is None and head[:4] in (b"RF64", b"BW64"):
+        # RF64/BW64 put 0xFFFFFFFF in the RIFF size and the true 64-bit size in
+        # the ds64 chunk (offset 12: 'ds64' + u32 size + riffSize u64 at 20).
+        # Without this the trailing/polyglot scan never runs on any RF64 file
+        # (and the parsed-coverage fallback is poisoned by the mis-parsed
+        # appended bytes, which the walker reads as a giant bogus chunk).
+        end = _rf64_end(filepath)
     if end is None:
         end = max((c["offset"] + c["size"] for c in chunks
                    if isinstance(c.get("offset"), int)
@@ -86,10 +112,12 @@ def scan(filepath, fmt_label, chunks, warns):
             # clamped: read(N) pre-allocates N bytes (see core/midi.py)
             tail = f.read(min(1 << 20, size - end))
         for magic, label in _MAGICS:
-            if magic in tail:
-                findings.append({"severity": "alert", "offset": end, "rule": "polyglot",
-                                 "message": f"possible polyglot: {label} appended "
-                                            f"after the container"})
+            at = tail.find(magic)
+            if at >= 0:
+                findings.append({"severity": "alert", "offset": end + at,
+                                 "rule": "polyglot",
+                                 "message": f"possible polyglot: {label} magic at "
+                                            f"0x{end + at:08x}, past the container end"})
 
     # 3. control bytes in decoded text fields (smuggling in "text")
     for c in chunks:
@@ -329,6 +357,63 @@ def scan(filepath, fmt_label, chunks, warns):
                                             f"audio+audio artifact"})
         except Exception:
             pass
+
+    # 12. RIFF/AIFF odd-chunk pad byte non-zero. The spec requires a single $00
+    # pad after any odd-sized chunk; the walker skips it without checking. A
+    # non-zero pad after chunks is a low-bandwidth covert channel invisible to
+    # every conformant reader (it lands in nobody's payload).
+    if fmt_label and (fmt_label.startswith("RIFF") or "AIFF" in fmt_label
+                      or "RF64" in fmt_label or fmt_label.startswith("RMID")):
+        stego = []
+        with open(filepath, "rb") as f:
+            for c in chunks:
+                csz = c.get("size")
+                coff = c.get("offset")
+                if not isinstance(csz, int) or not isinstance(coff, int) or csz % 2 == 0:
+                    continue
+                pad_off = coff + 8 + csz
+                if pad_off >= size:
+                    continue
+                f.seek(pad_off)
+                if f.read(1) not in (b"\x00", b""):
+                    stego.append(pad_off)
+        if stego:
+            findings.append({"severity": "warn", "offset": stego[0],
+                             "rule": "nonzero_pad",
+                             "message": f"non-zero pad byte after {len(stego)} "
+                                        f"odd-sized chunk(s); the alignment pad is "
+                                        f"spec'd to be zero (covert-channel tell)"})
+
+    # 13. duplicate structural chunks. A second fmt/data/smpl/ds64/COMM/SSND is a
+    # parser-ambiguity / smuggling tell (readers disagree on which one wins).
+    # LIST/JUNK/labl and the like legitimately repeat, so only the unique-by-spec
+    # ids are checked.
+    _UNIQUE_CHUNKS = {"fmt ", "data", "smpl", "fact", "acid", "ds64", "cue ",
+                      "COMM", "SSND", "FVER", "INST", "MARK"}
+    seen_ids = {}
+    for c in chunks:
+        cid = str(c.get("id", ""))
+        if cid in _UNIQUE_CHUNKS:
+            seen_ids[cid] = seen_ids.get(cid, 0) + 1
+    for cid, k in seen_ids.items():
+        if k > 1:
+            findings.append({"severity": "warn", "offset": 0,
+                             "rule": "duplicate_chunk",
+                             "message": f"chunk {cid.strip()!r} appears {k} times; "
+                                        f"spec allows one (reader-ambiguity tell)"})
+
+    # 14. an APEv2 tag on a non-MP3 file: an unusual metadata carrier. (A
+    # prepended ID3v2 wrapping a non-MP3 is handled by inspect's dispatch, which
+    # reports it before the walk; the walker refuses such files, so the scanner
+    # never sees them.)
+    if size >= 32 and not (fmt_label and fmt_label.startswith("MP3")):
+        with open(filepath, "rb") as f:
+            f.seek(size - 32)
+            if f.read(8) == b"APETAGEX":
+                findings.append({"severity": "notice", "offset": size - 32,
+                                 "rule": "wrong_format_tag",
+                                 "message": "an APEv2 tag sits on a non-MP3 file "
+                                            "(unusual metadata carrier)"})
 
     findings.sort(key=lambda x: (-_SEVERITY.get(x["severity"], 0), x["offset"]))
     return findings
