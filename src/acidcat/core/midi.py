@@ -171,7 +171,7 @@ def parse_midi(filepath):
                     # 2-byte data
                     if pos + 1 < len(trk_data):
                         d1 = trk_data[pos]
-                        d2 = trk_data[pos + 1] if pos + 1 < len(trk_data) else 0
+                        d2 = trk_data[pos + 1]      # guarded by the if above
                         pos += 2
 
                         if msg_type == 0x90 and d2 > 0:
