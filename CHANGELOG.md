@@ -4,6 +4,52 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.25.0] - 2026-07-10
+
+### Added
+
+- `acidcat carve` -- extract a structurally-identified byte range to a file or
+  stdout. `--offset X [--length N | --end Y]` for an explicit range (any
+  format), `--trailing` for the blob past the declared container end (the
+  appended data a polyglot finding flags; RF64-sentinel aware), `--chunk ID`
+  for a RIFF/AIFF chunk payload. Read-only on the source. The general
+  extraction primitive behind sample and blob carving.
+- `acidcat convert FILE.ncw` -- decode Native Instruments' NCW (Kontakt's
+  lossless codec: DPCM + bit-truncation + mid/side) to WAV, and
+  `acidcat convert DIR` to batch-convert a whole library (recursive,
+  `--skip-existing`). NCW is compression, not access control -- no key,
+  nothing bypassed. Verified against the public reference decoder and real
+  Kontakt samples, with the bit-unpacking proven invertible and ground-truth
+  round-trip tests for every mode.
+- TUI navigation: `g` goto-offset, `/` search (fzf-style over field
+  names/values, or `0x..`/`"ascii"` raw-byte search), `n`/`N` to cycle,
+  `f` jump-to-forensics-finding, `y` yank hex to clipboard, `ctrl+r` redo.
+  The forensics panel is now numbered, has a severity legend, and scrolls
+  (findings past the eighth were previously unreachable).
+
+### Fixed
+
+- Forensics: RF64/BW64 files silently skipped the trailing-data and
+  appended-magic scans -- the `0xFFFFFFFF` sentinel size made the container
+  end compute as ~4.29 GB. The true end is now resolved from the `ds64`
+  chunk, so a PDF/PNG/ELF appended to an RF64 is detected.
+- TUI: pressing edit on an MP3 bitrate/sample_rate field crashed the app
+  (a missing import); a malformed file crashed the session on open (only
+  one exception type was caught); the stale-source save prompt named the
+  wrong key (`s` strips, the force-save is `ctrl+s`).
+
+### Changed
+
+- New forensic tells, each calibrated to zero false positives across the
+  local corpus: non-zero odd-chunk pad bytes (a covert channel), duplicate
+  structural chunks, APEv2 tags on non-MP3 files, and byte-entropy
+  characterization of cavities ("entropy X.X/8, encrypted or compressed
+  payload") so a hidden ciphertext blob reads differently from benign
+  metadata.
+- `info` and `scan` now decode through the inspect walkers like `index`
+  already did, completing the one-decoder-per-format unification; the dead
+  legacy wrapper functions and imports were removed.
+
 ## [0.24.0] - 2026-07-10
 
 ### Changed
