@@ -338,3 +338,32 @@ def test_wav_edit_preserves_trailing_bytes_outside_riff():
     assert out.endswith(b"PAD!")                      # trailing preserved verbatim
     riff_size = struct.unpack_from("<I", out, 4)[0]
     assert riff_size == len(out) - 8 - 4              # excludes the 4 trailing bytes
+
+
+def test_bitwig_write_reenabled_cli(tmp_path):
+    # the CLI write path used to hard-refuse Bitwig/NI; it now routes to the editor
+    from acidcat.commands.write import _edit
+
+    def field(key, val):
+        return (struct.pack(">I", len(key)) + key + b"\x08"
+                + struct.pack(">I", len(val)) + val)
+    p = tmp_path / "x.bwpreset"
+    p.write_bytes(b"BtWg0003000200" + field(b"creator", b"old"))
+    fmt, new_data, applied = _edit(str(p), {"creator": "new"})
+    assert "Bitwig" in fmt and "experimental" in fmt
+    assert applied == [("creator", "old", "new")]
+    from acidcat.core.bitwig import parse_meta
+    assert parse_meta(new_data)["creator"] == "new"
+
+
+def test_ni_write_routes_not_refused(tmp_path):
+    # an NI hsin-magic file no longer hits the blanket refusal; it reaches edit_ni
+    # (which will raise its own specific error on a stub, not the "not enabled" one)
+    from acidcat.commands.write import _edit
+    from acidcat.core import edits
+    p = tmp_path / "x.nmsv"
+    p.write_bytes(b"\x00" * 12 + b"hsin" + b"\x00" * 64)
+    try:
+        _edit(str(p), {"name": "y"})
+    except edits.EditError as e:
+        assert "not enabled" not in str(e)      # the refusal is gone
