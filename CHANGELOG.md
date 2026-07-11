@@ -4,6 +4,19 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.41.0] - 2026-07-11
+
+### Changed
+
+- Re-enabled `acidcat write` for Bitwig and Native Instruments presets. The
+  editors (Bitwig meta splice, NI nksf/ksd/hsin, each with its own size cascade)
+  were built and round-trip-tested but gated behind a "not enabled" refusal
+  pending verification; that refusal is removed. The write routes through the
+  same `writer.commit` sink (a `_original` backup, atomic write, read-back
+  verify), and the format is labelled "(experimental)" with a caution to confirm
+  the preset reloads in its app. Editing proprietary preset metadata is now
+  possible from the CLI, not just readable.
+
 ## [0.40.0] - 2026-07-11
 
 ### Added
