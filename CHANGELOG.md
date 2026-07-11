@@ -4,6 +4,17 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.39.0] - 2026-07-11
+
+### Added
+
+- LAME tag detail in provenance: a LAME-encoded MP3 now reports its encode
+  settings, not just the version -- e.g. "LAME 3.100 (VBR (mtrh), lowpass 20500
+  Hz)" from the Xing/LAME tag the walker already decodes. The bare version string
+  is no longer listed separately.
+- ID3v2 encoder frames (`TSSE`, `TENC`) are now provenance tells, so an MP3 whose
+  encoder wrote its name there (e.g. ffmpeg's `Lavf`) is identified.
+
 ## [0.38.0] - 2026-07-11
 
 ### Added
