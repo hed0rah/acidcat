@@ -4,6 +4,18 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.38.0] - 2026-07-11
+
+### Added
+
+- Integrity widened to MP4/M4A: a duration-consistency check. The sample table
+  (`stts`) sums to a media duration that must match the media header (`mdhd`); a
+  mismatch means the header and the samples disagree -- a truncation or a re-mux
+  that updated one and not the other. Pure timescale math, no codec knowledge,
+  single-track. Surfaces in the `audit` INTEGRITY section. Verified: a healthy
+  m4a is consistent; halving the `mdhd` duration is flagged (declared vs
+  sample-table seconds).
+
 ## [0.37.0] - 2026-07-11
 
 ### Added
