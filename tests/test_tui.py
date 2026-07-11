@@ -944,3 +944,90 @@ def test_yank_does_not_crash(tmp_path):
             await pilot.pause()
 
     asyncio.run(scenario())
+
+
+# ── large-file scaling: delta undo + pending-changes diff ──────────
+
+def test_minimal_delta():
+    pytest.importorskip("textual")
+    from acidcat.tui_app import AcidcatTUI
+    md = AcidcatTUI._minimal_delta
+    # a same-length mid-file patch trims to the changed bytes only
+    assert md(b"AAAABBBBCCCC", b"AAAAXYBBCCCC") == (4, b"BB", b"XY")
+    # identical inputs -> empty delta
+    assert md(b"hello", b"hello") == (5, b"", b"")
+    # length change: prefix/suffix still trimmed
+    assert md(b"AAAABBBB", b"AAAAXBBBB") == (4, b"", b"X")
+
+
+def test_delta_undo_redo_stack_is_small(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+    from textual.widgets import Tree, Input
+
+    async def scenario():
+        app, _o = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+
+            def find():
+                for cn in app.query_one("#tree", Tree).root.children:
+                    for fn in cn.children:
+                        lbl = fn.label.plain if hasattr(fn.label, "plain") else str(fn.label)
+                        if lbl.startswith("sample_rate"):
+                            return fn
+            node = find()
+            off, _l, _ = app._nodemeta[id(node)]
+            app._cur_node = node
+            app.action_edit_field()
+            await pilot.pause()
+            app.query_one("#editbar", Input).value = "22050"
+            await pilot.press("enter")
+            await pilot.pause()
+            # one delta, and it holds only the changed bytes (not the whole file)
+            assert len(app._undo) == 1
+            start, old, new = app._undo[0]
+            assert len(old) <= 4 and len(new) <= 4      # a 4-byte field patch
+            edited = open(app.work, "rb").read()[off:off + 4]
+            app.action_undo()
+            await pilot.pause()
+            assert open(app.work, "rb").read()[off:off + 4] != edited
+            app.action_redo()
+            await pilot.pause()
+            assert open(app.work, "rb").read()[off:off + 4] == edited
+
+    asyncio.run(scenario())
+
+
+def test_pending_changes_lists_regions(tmp_path):
+    pytest.importorskip("textual")
+    import asyncio
+    from textual.widgets import Tree, Input
+    from acidcat.tui_app import DiffScreen
+
+    async def scenario():
+        app, _o = _drum_tui(tmp_path)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            # no edits yet -> empty pending set
+            regions, sl, wl = app._pending_changes()
+            assert regions == [] and sl == wl
+            for fn in app.query_one("#tree", Tree).root.children:
+                for f in fn.children:
+                    lbl = f.label.plain if hasattr(f.label, "plain") else str(f.label)
+                    if lbl.startswith("sample_rate"):
+                        app._cur_node = f
+            app.action_edit_field()
+            await pilot.pause()
+            app.query_one("#editbar", Input).value = "48000"
+            await pilot.press("enter")
+            await pilot.pause()
+            regions, sl, wl = app._pending_changes()
+            assert len(regions) == 1 and sl == wl        # one 4-byte region
+            off, old, new = regions[0]
+            assert old != new
+            app.action_diff()                            # opens the modal, no crash
+            await pilot.pause()
+            assert isinstance(app.screen, DiffScreen)
+
+    asyncio.run(scenario())
