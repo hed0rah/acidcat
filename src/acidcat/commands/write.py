@@ -55,12 +55,11 @@ def _edit(path, changes):
     head = data[:16]
     if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
         return ("Vital preset",) + edits.edit_vital(data, changes)
-    if head[:4] == b"BtWg" or head[12:16] == b"hsin" or head[:4] == b"-in-" \
+    if head[:4] == b"BtWg":
+        return ("Bitwig preset (experimental)",) + edits.edit_bitwig(data, changes)
+    if head[12:16] == b"hsin" or head[:4] == b"-in-" \
             or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"):
-        raise edits.EditError(
-            "writing Bitwig/NI preset metadata is experimental and not enabled "
-            "in this release: the container size-cascade needs app-reload "
-            "verification first. Reading (inspect) is fully supported.")
+        return ("NI preset (experimental)",) + edits.edit_ni(data, changes)
     if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
         try:
             from acidcat.core import edit_riff
@@ -172,6 +171,10 @@ def run(args):
         print(f"{os.path.basename(path)}  [{fmt}]")
         for field, old, new in applied:
             print(f"  {field}: {old!r} -> {new!r}")
+        if "experimental" in fmt:
+            print("  note: proprietary preset editing is experimental -- verify "
+                  "the preset reloads in its app; a _original backup is kept.",
+                  file=sys.stderr)
         if args.dry_run:
             continue
         rc = _commit_and_report(path, new_data, args) or rc
