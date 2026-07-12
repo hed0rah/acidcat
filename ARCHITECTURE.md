@@ -1,4 +1,4 @@
-# acidcat — architecture map
+# acidcat -- architecture map
 
 A byte-level inspection tool for audio and synth/preset file formats: it exposes
 every field of a file's headers, chunks, and frame-headers so a human or model can
@@ -15,7 +15,7 @@ pulls only the stdlib core.
 `walk_file(path) -> (label, chunks, file_warnings)`
 
 - **chunk**: `{id, offset, size, summary, fields[], warnings[], payload_base?, rows?}`
-- **field**: `{off, len, name, value, note, enc?, raw?, xref?}` — built by `walk/base._f`
+- **field**: `{off, len, name, value, note, enc?, raw?, xref?}` -- built by `walk/base._f`
 
 `value` is what a human reads; `enc` + `raw` is how to re-encode the field to the
 exact on-disk bytes (the editor/repair contract); `xref` marks a pointer field.
@@ -24,24 +24,24 @@ unchanged.
 
 ## Layer stack (bottom to top)
 
-1. **Format primitives** — `core/*.py`: per-format byte decoders (`riff`, `aiff`,
+1. **Format primitives** -- `core/*.py`: per-format byte decoders (`riff`, `aiff`,
    `mp3`, `mp4`, `flac`, `ni`, `tracker`, `sf2`, ...), the enc-language
    (`fieldcodec.py`), the strict IFF container engine (`structure.py`), sniffing
    (`sniff.py`, `detect.py`).
-2. **Walkers** — `core/walk/*.py`: 20 format walkers, one per format, each emitting
+2. **Walkers** -- `core/walk/*.py`: 20 format walkers, one per format, each emitting
    the field model. **The correctness oracle and the default.** Dispatch:
    `core/walk/__init__.py::walk_file`.
-3. **Declarative engine (new, v0.46)** — `core/grammar/`: format descriptors as
+3. **Declarative engine (new, v0.46)** -- `core/grammar/`: format descriptors as
    data + one interpreter emitting the same field model. Opt-in, test-only,
    validated byte-for-byte against the walkers, which remain the oracle.
-4. **Analysis surface** — `core/probe.py` (typed reads, value scan,
+4. **Analysis surface** -- `core/probe.py` (typed reads, value scan,
    `fmt.sample_rate` addressing), `core/viz.py` (entropy, Hilbert byte-map),
    `core/anomalies.py` (forensic checks), `core/constraints.py` +
    `core/repairers.py` (validate / repair).
-5. **Index / DB / MCP** — `core/{index,indexing,registry,search}.py` (per-library
+5. **Index / DB / MCP** -- `core/{index,indexing,registry,search}.py` (per-library
    SQLite + FTS) and `mcp_server.py` (19 tools). A **consumer** of the core; the
    core never imports it, so it is cleanly severable.
-6. **Interfaces** — `cli.py` (24 subcommands) + `commands/*.py` (one per verb);
+6. **Interfaces** -- `cli.py` (24 subcommands) + `commands/*.py` (one per verb);
    `tui_app.py` (Textual inspector/editor); the public API in `acidcat/__init__`;
    console scripts `acidcat` and `acidcat-mcp`.
 
