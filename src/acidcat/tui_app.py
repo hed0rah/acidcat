@@ -80,30 +80,46 @@ def _fuzzy(query, text):
     return i == len(q)
 
 
-def hex_text(path, off, length, accent):
+def hex_text(path, off, length, accent, spans=None):
     """A colored hex dump (offset gutter + hex columns + ascii) of up to
-    _HEX_CAP bytes starting at off. Bytes render in `accent`, non-printable
-    ascii dims out."""
+    _HEX_CAP bytes starting at off. Bytes render in `accent`; when `spans` (a
+    list of (abs_offset, len) field ranges) is given, each field's bytes take a
+    distinct palette color so a chunk's field structure shows in the hex.
+    Non-printable ascii dims out."""
     t = Text()
     if off is None or length in (None, 0):
         t.append("  (no byte range for this node)", style=DIM)
         return t
     shown = min(length, _HEX_CAP)
     raw = _read(path, off, shown)
-    _hex_rows(t, off, raw, accent)
+    _hex_rows(t, off, raw, accent, _spans_cmap(off, spans, shown) if spans else None)
     if length > shown:
         t.append(f"  .. {length - shown:,} more bytes\n", style=DIM)
     return t
 
 
-def _hex_rows(t, off, raw, byte_style):
-    """Append hex-dump rows (gutter + hex + ascii) for `raw` to Text `t`."""
+def _spans_cmap(base_off, spans, limit):
+    """Map each shown byte position (relative to base_off) to a per-field color,
+    cycling the palette across the fields."""
+    cmap = {}
+    for i, (ao, ln) in enumerate(spans):
+        color = PALETTE[i % len(PALETTE)]
+        start = ao - base_off
+        for p in range(max(0, start), min(limit, start + ln)):
+            cmap[p] = color
+    return cmap
+
+
+def _hex_rows(t, off, raw, byte_style, cmap=None):
+    """Append hex-dump rows (gutter + hex + ascii) for `raw` to Text `t`. With a
+    `cmap` (position -> color), each byte takes its field color."""
     for row in range(0, len(raw), 16):
         chunk = raw[row:row + 16]
         t.append(f"{off + row:08x}  ", style=GUTTER)
         for i in range(16):
             if i < len(chunk):
-                t.append(f"{chunk[i]:02x} ", style=byte_style)
+                style = cmap.get(row + i, byte_style) if cmap else byte_style
+                t.append(f"{chunk[i]:02x} ", style=style)
             else:
                 t.append("   ")
             if i == 7:
@@ -597,6 +613,7 @@ class AcidcatTUI(App):
         self._xref = {}           # id(field node) -> absolute target offset (pointer)
         self._view = "hex"        # byte-view mode: hex | entropy | hilbert | histogram
         self._cur_region = (None, None, ACCENT)  # last shown (off, length, accent)
+        self._cur_spans = None    # field spans for per-field hex tint (chunk view)
         self._play = None         # handle to a running audio-audition process
 
     def compose(self) -> ComposeResult:
@@ -968,7 +985,7 @@ class AcidcatTUI(App):
         lbl = node.label
         return (lbl.plain if isinstance(lbl, Text) else str(lbl)).strip()
 
-    def _show(self, off, length, accent, name, note):
+    def _show(self, off, length, accent, name, note, spans=None):
         detail = self.query_one("#detail", Static)
         d = Text()
         d.append(name, style=f"bold {accent}")
@@ -980,8 +997,10 @@ class AcidcatTUI(App):
             d.append(f"\n{note}", style=SOFT)
         detail.update(d)
         self._cur_region = (off, length, accent)
+        self._cur_spans = spans
         if self._view == "hex":
-            self.query_one("#hex", Static).update(hex_text(self.work, off, length, accent))
+            self.query_one("#hex", Static).update(
+                hex_text(self.work, off, length, accent, spans))
         # in a viz mode the pane shows a whole-file view; a node highlight leaves it
 
     def action_cycle_view(self):
@@ -995,7 +1014,7 @@ class AcidcatTUI(App):
         pane = self.query_one("#hex", Static)
         if self._view == "hex":
             off, length, accent = self._cur_region
-            pane.update(hex_text(self.work, off, length, accent))
+            pane.update(hex_text(self.work, off, length, accent, self._cur_spans))
         else:
             pane.update(self._viz_render(self._view))
         self.notify(f"byte view: {self._view}")
@@ -1407,7 +1426,14 @@ class AcidcatTUI(App):
             danger = "" if 0 <= xref < self.fsize else " (DANGLING, out of bounds)"
             ptr = f"pointer -> 0x{xref:08x}{danger} -- press x to follow"
             hint = f"{hint}\n{ptr}" if hint else ptr
-        self._show(off, length, accent, self._node_name(event.node), hint)
+        spans = None
+        key = self._nodekey.get(id(event.node))
+        if key and key[0] == "chunk":                # tint each field within the chunk
+            c = self.chunks[key[1]]
+            spans = [(_field_abs(c, fl), fl.get("len") or 0)
+                     for fl in c.get("fields", [])]
+            spans = [(a, ln) for a, ln in spans if a is not None and ln]
+        self._show(off, length, accent, self._node_name(event.node), hint, spans)
 
     def _edit_hint(self, node, off, length):
         """A short note in the detail pane telling the user how the highlighted
