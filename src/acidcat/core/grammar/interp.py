@@ -15,6 +15,7 @@ a place to grow without reshaping the API.
 
 from acidcat.core.walk.base import _f
 
+from acidcat.core.grammar.model import Switch
 from acidcat.core.grammar.strategies import STRATEGIES
 
 
@@ -52,11 +53,26 @@ def interpret(fmt, filepath, ctx=None):
 
 def _parse_struct(spec, payload, ctx):
     """Parse an ordered struct region -> (summary, fields, warns). ``local``
-    holds this region's raw values by name for guard evaluation; ``ctx`` is the
-    file-global semantic channel. summary/warns gain producers in Phase 1
+    holds this region's raw values by name for guard/switch evaluation; ``ctx``
+    is the file-global semantic channel. summary/warns gain producers in Phase 1
     (Valid, relation + summary helpers); for now they stay empty."""
-    fields, warns, local, pos = [], [], {}, 0
-    for fd in spec.fields:
+    local = {}
+    fields, warns, _pos = _parse_entries(spec.fields, payload, 0, local, ctx)
+    return "", fields, warns
+
+
+def _parse_entries(entries, payload, pos, local, ctx):
+    """Walk a sequence of entries (Field or Switch) from ``pos`` -> (fields,
+    warns, pos). Shared by the top level and each Switch case (recursion), so
+    dispatch nests the same way the walkers do."""
+    fields, warns = [], []
+    for entry in entries:
+        if isinstance(entry, Switch):
+            f, w, pos = _apply_switch(entry, payload, pos, local, ctx)
+            fields += f
+            warns += w
+            continue
+        fd = entry
         if fd.when and not all(g.holds(local, payload, pos) for g in fd.when):
             continue                  # guard fails: field absent, do not advance
         n = fd.type.length(payload, pos, ctx)
@@ -72,4 +88,25 @@ def _parse_struct(spec, payload, ctx):
         if fd.ctx:
             ctx[fd.ctx] = raw         # published under the walker's semantic key
         pos += n
-    return "", fields, warns
+    return fields, warns, pos
+
+
+def _apply_switch(sw, payload, pos, local, ctx):
+    """Dispatch a Switch: all-or-nothing per case, case parsing bounded by the
+    window (an earlier field clamped to the remaining payload) or the remaining
+    payload when unwindowed. Emits nothing (and does not advance) when no case
+    matches or the window is below the case minimum."""
+    case = sw.cases.get(local.get(sw.on))
+    if case is None:
+        return _parse_entries(sw.default, payload, pos, local, ctx)
+    if sw.window is not None:
+        win = local.get(sw.window)
+        if win is None:
+            return [], [], pos
+        avail = min(win, len(payload) - pos)
+    else:
+        avail = len(payload) - pos
+    if avail < case.min_window:
+        return [], [], pos            # all-or-nothing: minimum window not met
+    # bound the case to its window; absolute offsets survive the slice
+    return _parse_entries(case.fields, payload[:pos + avail], pos, local, ctx)

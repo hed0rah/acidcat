@@ -34,6 +34,10 @@ class Cmp:
     op: str
     const: object
 
+    def __post_init__(self):
+        if self.op not in _OPS:  # fail loud in trusted code, not KeyError mid-parse
+            raise ValueError(f"unknown guard op {self.op!r}")
+
     def holds(self, local, payload, pos):
         return self.field in local and _OPS[self.op](local[self.field], self.const)
 
@@ -44,6 +48,10 @@ class Remaining:
 
     op: str
     const: int
+
+    def __post_init__(self):
+        if self.op not in _OPS:
+            raise ValueError(f"unknown guard op {self.op!r}")
 
     def holds(self, local, payload, pos):
         return _OPS[self.op](len(payload) - pos, self.const)
@@ -82,6 +90,30 @@ class Region:
     min_len: int = 0      # below this payload length the region degrades to a
     min_len_msg: str = "" # "truncated" summary + this warning, 0 fields (the
                           # walkers' all-or-nothing convention, e.g. fmt < 16)
+
+
+@dataclass
+class Case:
+    """One arm of a Switch, emitted ALL-OR-NOTHING: only when the available
+    window is at least ``min_window`` bytes (the walker's ``len(ext) >= N``
+    guard), so a short region never yields a partial group."""
+
+    min_window: int
+    fields: tuple
+
+
+@dataclass
+class Switch:
+    """A tagged-union entry in a region's ordered fields tuple: dispatch on a
+    parsed field's value to one Case's fields. Case parsing is bounded by
+    ``window`` (an earlier field, e.g. cb_size) clamped to the remaining
+    payload, or by the remaining payload alone when window is None (the
+    EXTENSIBLE branch, which the walker reads at fixed offsets)."""
+
+    on: str               # earlier field whose raw value selects the case
+    cases: dict           # const -> Case
+    window: str = None    # earlier field bounding case parsing; None = unwindowed
+    default: tuple = ()   # entries when no case matches (usually empty)
 
 
 @dataclass
