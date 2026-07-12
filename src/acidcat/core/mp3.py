@@ -110,7 +110,7 @@ _ID3_ENCODINGS = {0: "latin-1", 1: "utf-16", 2: "utf-16-be", 3: "utf-8"}
 
 
 def _id3_frame_text(fid, body):
-    """Decoded text of a T*/W* ID3v2 frame body, or None for a binary frame."""
+    """Decoded text of a T*/W*/COMM/USLT ID3v2 frame body, or None for binary."""
     if not body:
         return None
     if fid.startswith("T"):
@@ -121,6 +121,14 @@ def _id3_frame_text(fid, body):
             return body[1:].decode("latin-1", "replace").strip("\x00")
     if fid.startswith("W"):
         return body.decode("latin-1", "replace").strip("\x00")
+    if fid in ("COMM", "USLT", "COM", "ULT") and len(body) >= 4:
+        # encoding byte, 3-byte language, then description\0text
+        codec = _ID3_ENCODINGS.get(body[0], "latin-1")
+        try:
+            text = body[4:].decode(codec, "replace")
+        except Exception:
+            text = body[4:].decode("latin-1", "replace")
+        return text.replace("\x00", " ").strip()
     return None
 
 
