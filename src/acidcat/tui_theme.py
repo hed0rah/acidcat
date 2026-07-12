@@ -1,14 +1,17 @@
-"""Shared TUI brand theme -- the single source of truth for both acidcat's TUI
-and the acidcat-playground TUI, so their colors cannot drift.
+"""Shared TUI brand palette -- the single source of truth for the colors both
+acidcat's TUI and the acidcat-playground TUI set in code, so those cannot drift.
 
 Brand: an ink canvas with a gunmetal-silver grayscale carrying the interface,
 and two accents used sparingly -- kill-engn teal for structure/focus, rally
-orange for attention (unsaved, danger, mutation). Import the constants and the
-CSS helpers; do not hardcode hex in the apps.
+orange for attention (unsaved, danger, mutation). Import the palette constants
+and the Rich helpers instead of hardcoding hex:
 
     from acidcat import tui_theme as th
-    class MyApp(App):
-        CSS = th.BASE_CSS + '''#mine { ... }'''
+    label = th.mark("data", th.TEAL, bold=True)
+    color = th.byte_color(b)
+
+The apps' Textual CSS blocks still spell the same hex literally (kept in sync by
+hand for now; a shared Textual theme could source the CSS too, later).
 
 Pure data + string helpers -- no Textual/Rich import, so importing this is free
 and it stays usable from either repo.
@@ -82,41 +85,3 @@ def byte_color(b):
     return BYTE_CLASS[viz.byte_class(b)[1]]
 
 
-# ── shared CSS skeleton ───────────────────────────────────────────────
-# element-level rules apply to both apps automatically; class-level rules let a
-# pane opt into a role: class="panel" (idle gutter border, teal on focus),
-# "readout" (neutral detail pane), "danger" (forensics), "mutate" (edit surfaces).
-BASE_CSS = f"""
-Screen {{ background: {BG}; }}
-Header {{ background: {BG}; color: {TEAL}; text-style: bold; }}
-Footer {{ background: {BG}; }}
-
-Tree {{ background: {BG}; color: {FG}; }}
-Tree > .tree--guides {{ color: {GUTTER}; }}
-Tree > .tree--guides-selected {{ color: {TEAL}; }}
-Tree > .tree--cursor {{ background: {INSET}; color: {FG}; }}
-Tree > .tree--label {{ color: {FG}; }}
-
-DataTable {{ background: {INSET}; }}
-DataTable > .datatable--header {{ background: {BG}; color: {TEAL}; text-style: bold; }}
-DataTable > .datatable--cursor {{ background: {GUTTER}; color: {FG}; }}
-
-.panel {{ border: round {GUTTER}; }}
-.panel:focus, .panel:focus-within {{ border: round {TEAL}; }}
-.readout {{ border: round {GUTTER}; color: {FG}; }}
-.danger {{ border: round {ORANGE}; }}
-.mutate {{ border: round {ORANGE}; background: {BG}; }}
-.hint {{ color: {SOFT}; }}
-.dim {{ color: {DIM}; }}
-"""
-
-
-def modal_css(accent=TEAL, width=64):
-    """Standard centered modal box CSS with a chosen accent border.
-    accent: TEAL for neutral (help/pick), ORANGE for edit/confirm/diff."""
-    return f"""
-    ModalScreen {{ align: center middle; }}
-    #box {{ width: {width}; max-height: 90%; padding: 1 2;
-            background: {BG}; border: round {accent}; }}
-    #box .title {{ color: {accent}; text-style: bold; padding-bottom: 1; }}
-    """
