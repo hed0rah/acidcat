@@ -92,6 +92,27 @@ class NoteFlags:
 
 
 @dataclass
+class Valid:
+    """A declarative plausibility range on a field -> WARNING, never a raise.
+    Structured (min/max) so the differential/fuzz payoff can reason about it;
+    ``msg`` is a template with {v} = the value. ``skip_zero`` matches the walker
+    lints that ignore a zero value (e.g. sample_rate 0)."""
+
+    msg: str
+    min: int = None
+    max: int = None
+    skip_zero: bool = False
+
+    def check(self, raw):
+        if self.skip_zero and raw == 0:
+            return None
+        if ((self.min is not None and raw < self.min)
+                or (self.max is not None and raw > self.max)):
+            return self.msg.format(v=raw)
+        return None
+
+
+@dataclass
 class Field:
     """One named field inside a struct region."""
 
@@ -104,6 +125,7 @@ class Field:
                           # not "bits_per_sample"); None = unpublished
     when: tuple = ()      # guards (Cmp/Remaining); ALL must hold or the field is
                           # skipped (e.g. cb_size only when format_tag != 0xFFFE)
+    valid: object = None  # optional Valid plausibility range -> a warning
 
     def __post_init__(self):
         # validate the ctx key against the sanctioned semantic vocabulary at
@@ -124,6 +146,9 @@ class Region:
     min_len: int = 0      # below this payload length the region degrades to a
     min_len_msg: str = "" # "truncated" summary + this warning, 0 fields (the
                           # walkers' all-or-nothing convention, e.g. fmt < 16)
+    relations: tuple = () # relation-helper names run after the field loop over
+                          # the region-local dict -> arithmetic-relation warnings
+    summary: str = None   # summary-helper name -> the chunk summary line
 
 
 @dataclass
@@ -183,12 +208,39 @@ def _validate_entries(region_id, entries, declared):
 
 
 @dataclass
+class Requires:
+    """Format-level rule: a required region -> file warning when it is absent."""
+
+    region_id: str
+    msg: str
+
+    def check(self, seen):
+        return self.msg if self.region_id not in seen else None
+
+
+@dataclass
+class Order:
+    """Format-level rule: region ``a`` must precede ``b`` -> file warning if not."""
+
+    a: str
+    b: str
+    msg: str
+
+    def check(self, seen):
+        if (self.a in seen and self.b in seen
+                and seen.index(self.a) > seen.index(self.b)):
+            return self.msg
+        return None
+
+
+@dataclass
 class Format:
     """A file format as data: a container strategy + per-region specs."""
 
     name: str             # display label when the strategy offers none
     container: str        # strategy id in grammar.strategies.STRATEGIES
     regions: dict         # exact region id -> Region
+    rules: tuple = ()     # format-level Requires/Order rules -> file warnings
 
     def __post_init__(self):
         for rid, region in self.regions.items():

@@ -28,8 +28,12 @@ from acidcat.core.grammar.formats.wav import WAVE
 from acidcat.core.walk import walk_file
 
 
+def _fmt_chunk(chunks):
+    return next((c for c in chunks if str(c["id"]).strip() == "fmt"), None)
+
+
 def _fmt_fields(chunks):
-    c = next((c for c in chunks if str(c["id"]).strip() == "fmt"), None)
+    c = _fmt_chunk(chunks)
     return c["fields"] if c else None
 
 
@@ -94,26 +98,29 @@ def _corpus_wavs():
 
 @pytest.mark.parametrize("path", _corpus_wavs())
 def test_wav_fmt_corpus_equivalence(path):
-    """Interpreter fmt fields byte-exact vs the walker on every corpus WAV --
-    now FULL field equality (all variants covered: PCM, cb_size, ADPCM, IMA,
-    MPEGLAYER3, EXTENSIBLE), no longer a prefix. Warnings + summary are compared
-    once PR-C produces them."""
+    """Full deep-equal of the fmt chunk vs the walker on every corpus WAV: all
+    fields byte-exact, the summary, and per-chunk warnings as SETS (the walker's
+    mid-region lint order differs from the interpreter's field-loop order), plus
+    file warnings as sets. The fmt-corpus-proven milestone."""
     from acidcat.core.walk.base import Unsupported
     try:
-        wlabel, wchunks, _ = walk_file(path)
+        wlabel, wchunks, wfile = walk_file(path)
     except Unsupported:
         pytest.skip("walker does not decode this file")
     if wlabel != "RIFF/WAVE":
         pytest.skip(f"sniffed as {wlabel}, not plain RIFF/WAVE")
-    wf = _fmt_fields(wchunks)
-    if wf is None:
+    wc = _fmt_chunk(wchunks)
+    if wc is None:
         pytest.skip("no fmt chunk")
-    _, gchunks, _ = interpret(WAVE, path)
-    gf = _fmt_fields(gchunks)
-    assert gf is not None, "interpreter found no fmt chunk"
+    _, gchunks, gfile = interpret(WAVE, path)
+    gc = _fmt_chunk(gchunks)
+    assert gc is not None, "interpreter found no fmt chunk"
     keys = ("off", "len", "name", "value", "note", "enc", "raw")
-    assert [{k: f.get(k) for k in keys} for f in gf] == \
-           [{k: f.get(k) for k in keys} for f in wf]
+    assert [{k: f.get(k) for k in keys} for f in gc["fields"]] == \
+           [{k: f.get(k) for k in keys} for f in wc["fields"]]
+    assert gc["summary"] == wc["summary"]
+    assert set(gc["warnings"]) == set(wc["warnings"])
+    assert set(gfile) == set(wfile)
 
 
 @pytest.mark.parametrize("path", _corpus_wavs())
