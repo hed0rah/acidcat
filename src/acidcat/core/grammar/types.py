@@ -43,12 +43,26 @@ class Int(Type):
     signed: bool = False
     be: bool = False
 
+    def __post_init__(self):
+        # a plain Int emits no enc and relies on downstream inference, which
+        # only round-trips 1/2/4/8-byte struct widths; an odd width (e.g. 3)
+        # would silently lose editability, so force it through an explicit
+        # Codec (u24be) instead of decoding into a dead end.
+        if self.nbytes not in _STRUCT_CODES:
+            raise ValueError(f"Int width {self.nbytes} has no struct code; "
+                             "use a Codec for odd widths (e.g. u24be)")
+
     def length(self, payload=None, pos=None, ctx=None):
         return self.nbytes
 
     def decode(self, payload, pos, ctx):
-        raw = int.from_bytes(payload[pos:pos + self.nbytes],
-                             "big" if self.be else "little",
+        b = payload[pos:pos + self.nbytes]
+        # the interpreter bounds-checks before calling, but assert the contract
+        # here too so future call sites (Switch cases, repeat elements) cannot
+        # emit an enc for bytes that are not on disk
+        if len(b) != self.nbytes:
+            raise ValueError("short read: decode called past the payload end")
+        raw = int.from_bytes(b, "big" if self.be else "little",
                              signed=self.signed)
         return raw, raw, None
 
@@ -64,6 +78,11 @@ class Enum(Type):
     def __post_init__(self):
         if self.base.signed or self.base.nbytes not in _STRUCT_CODES:
             raise ValueError("Enum base must be an unsigned 1/2/4/8-byte Int")
+        # validate the table name at construction so a descriptor typo fails
+        # loudly here (trusted code) instead of raising KeyError mid-interpret,
+        # where the file-parse contract is degrade-never-raise
+        if self.table not in TABLES:
+            raise ValueError(f"unknown enum table {self.table!r}")
 
     def length(self, payload=None, pos=None, ctx=None):
         return self.base.nbytes
