@@ -116,6 +116,21 @@ def test_wav_fmt_corpus_equivalence(path):
            [{k: f.get(k) for k in keys} for f in gf[:6]]
 
 
+@pytest.mark.parametrize("path", _corpus_wavs())
+def test_ctx_keys_covers_walker(path):
+    """CTX_KEYS must stay a superset of every semantic ctx key the walker
+    publishes, so the descriptor vocabulary cannot silently fall behind the
+    walker (a published-but-unsanctioned key would reject a valid future
+    descriptor field at construction). Self-maintaining across the corpus,
+    which exercises smpl/acid/cue/fact chunks a hermetic file does not."""
+    from acidcat.core.walk.wav import inspect_wav
+    from acidcat.core.vocab import CTX_KEYS
+    ctx = {}
+    inspect_wav(path, ctx=ctx)  # non-WAV degrades to an empty ctx (passes)
+    missing = set(ctx) - set(CTX_KEYS)
+    assert not missing, f"walker publishes ctx keys not in CTX_KEYS: {missing}"
+
+
 def _skeleton(chunks):
     """(id, offset, size, normalized payload_base) per chunk -- the traversal
     skeleton, independent of any field-level parsing. payload_base is

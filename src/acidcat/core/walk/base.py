@@ -12,11 +12,14 @@ underscore names from commands/inspect.py so the move stays mechanical.
 
 import struct
 
+# single source for the per-chunk payload read cap: the walkers and the grammar
+# strategy share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
+from acidcat.core.riff import PAYLOAD_CAP as _PAYLOAD_CAP
+
 
 class Unsupported(Exception):
     """A file the walkers cannot structurally decode; message is user-facing."""
 
-_PAYLOAD_CAP = 65536
 _FRAME_LISTING_CAP = 100000  # per-element rows kept for the --frames deep dump
 # ID3v2 tags routinely carry embedded cover art far larger than the generic
 # payload cap, so enumerating their frames needs a bigger read. bounded so a
