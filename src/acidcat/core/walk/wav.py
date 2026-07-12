@@ -4,7 +4,9 @@ import os
 import struct
 
 from acidcat.core.riff import iter_chunks
-from acidcat.core.vocab import WAVE_FORMAT_TAGS as _FORMAT_TAGS
+from acidcat.core.vocab import (WAVE_FORMAT_TAGS as _FORMAT_TAGS,
+                                WAV_SPEAKER_POSITIONS as _SPEAKER_POSITIONS,
+                                KSDATAFORMAT_TAIL as _KSDATAFORMAT_TAIL)
 from acidcat.core.walk.base import (
     _PAYLOAD_CAP, _f, _u16, _u32, _cstr, _flag_names,
 )
@@ -20,16 +22,6 @@ _ACID_FLAGS = (
 _LOOP_TYPES = {0: "forward", 1: "ping-pong", 2: "reverse"}
 
 # WAVEFORMATEXTENSIBLE dwChannelMask bit positions, low bit first.
-_SPEAKER_POSITIONS = [
-    "FL", "FR", "FC", "LFE", "BL", "BR", "FLC", "FRC", "BC", "SL", "SR",
-    "TC", "TFL", "TFC", "TFR", "TBL", "TBC", "TBR",
-]
-
-# the fixed 14-byte tail of every KSDATAFORMAT_SUBTYPE GUID (the first 2 bytes
-# are the format tag, little-endian).
-_KSDATAFORMAT_TAIL = bytes.fromhex("000000001000800000aa00389b71")
-
-
 def _channel_mask_names(mask):
     names = [n for i, n in enumerate(_SPEAKER_POSITIONS) if mask & (1 << i)]
     return ", ".join(names) if names else "none"
@@ -568,12 +560,17 @@ def inspect_wav(filepath, ctx=None):
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
                     f"but only {avail:,} remain"
                 )
-            f.seek(offset + 8)
-            payload = f.read(min(size, _PAYLOAD_CAP))
+            parser = _PARSERS.get(cid)
+            # _parse_data derives frames/duration from size + ctx and never reads
+            # the payload, so skip the (up to 64 KB) read + transient alloc there
+            if cid == "data":
+                payload = b""
+            else:
+                f.seek(offset + 8)
+                payload = f.read(min(size, _PAYLOAD_CAP))
 
             entry = {"id": cid, "offset": offset, "size": size,
                      "summary": "", "fields": [], "warnings": []}
-            parser = _PARSERS.get(cid)
             if cid == "data":
                 # remember the data chunk's absolute payload offset so a later
                 # cue chunk can resolve its sample-frame markers to byte offsets
