@@ -3,7 +3,7 @@
 How acidcat is wired together: the data flow from a file on disk to a query
 result on stdout or over MCP.
 
-Last updated: 2026-07-12 (v0.46.0). This is the deep per-module companion to the
+Last updated: 2026-07-12 (v0.47.0). This is the deep per-module companion to the
 top-level ARCHITECTURE.md, which is the current high-level map. The per-library
 layout is unchanged since
 v0.5.0. The readelf-style `inspect` verb (v0.5.7) now covers 17 formats via
