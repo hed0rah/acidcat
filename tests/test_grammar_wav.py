@@ -116,6 +116,45 @@ def test_wav_fmt_corpus_equivalence(path):
            [{k: f.get(k) for k in keys} for f in gf[:6]]
 
 
+def _skeleton(chunks):
+    """(id, offset, size, normalized payload_base) per chunk -- the traversal
+    skeleton, independent of any field-level parsing. payload_base is
+    normalized to the offset+8 default the walkers omit (design section 7)."""
+    return [(str(c["id"]), c["offset"], c["size"],
+             c.get("payload_base", c["offset"] + 8)) for c in chunks]
+
+
+def test_wav_chunk_skeleton_hermetic(tmp_path):
+    """The interpreter enumerates the walker's exact chunk skeleton (fmt +
+    data here), covering the whole file, not just fmt's fields."""
+    p = tmp_path / "skeleton.wav"
+    p.write_bytes(_make_riff_wav(channels=2))
+    _, wchunks, _ = walk_file(str(p))
+    _, gchunks, _ = interpret(WAVE, str(p))
+    assert _skeleton(gchunks) == _skeleton(wchunks)
+
+
+@pytest.mark.parametrize("path", _corpus_wavs())
+def test_wav_chunk_skeleton_parity(path):
+    """Every corpus WAV: the interpreter enumerates exactly the walker's
+    chunks -- same ids, offsets, sizes, payload bases -- which locks in the
+    single shared traversal (core/riff.iter_spans over iter_chunks) at corpus
+    scale, including the EXTENSIBLE/ADPCM files the fmt-field test skips. Also
+    asserts the interpreter invents no traversal warning the walker lacks (the
+    interpreter emits the traversal subset; format-rule warnings -- no fmt, fmt
+    after data -- are walker-only until Phase 1)."""
+    from acidcat.core.walk.base import Unsupported
+    try:
+        wlabel, wchunks, wwarns = walk_file(path)
+    except Unsupported:
+        pytest.skip("walker does not decode this file")
+    if wlabel != "RIFF/WAVE":
+        pytest.skip(f"sniffed as {wlabel}, not plain RIFF/WAVE")
+    _, gchunks, gwarns = interpret(WAVE, path)
+    assert _skeleton(gchunks) == _skeleton(wchunks)
+    assert set(gwarns) <= set(wwarns)
+
+
 def _assert_encs_verify(path):
     """Every enc-annotated field re-encodes raw to the exact on-disk bytes
     (the descriptor variant of test_all_walker_enc_annotations_verify)."""
