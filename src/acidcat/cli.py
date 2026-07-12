@@ -27,13 +27,13 @@ import sys
 
 from acidcat import __version__
 from acidcat.commands import (
-    info, scan, chunks, survey, detect, features, similar, search, dump,
+    info, scan, shape, chunks, survey, detect, features, similar, search, dump,
     index, query, inspect, convert, write, cover, explore, tui, carve, repair, validate, audit, probe,
 )
 from acidcat.util.stdin import is_stdin_target
 
 SUBCOMMANDS = {
-    "info", "scan", "chunks", "survey", "detect", "features", "similar",
+    "info", "scan", "shape", "chunks", "survey", "detect", "features", "similar",
     "search", "dump", "index", "query", "inspect", "convert", "write", "cover",
     "explore", "tui", "carve", "repair", "validate", "audit", "probe",
 }
@@ -50,6 +50,7 @@ def _build_parser():
 
     info.register(subparsers)
     scan.register(subparsers)
+    shape.register(subparsers)
     chunks.register(subparsers)
     survey.register(subparsers)
     detect.register(subparsers)
