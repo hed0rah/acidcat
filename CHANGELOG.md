@@ -4,6 +4,21 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [0.46.0] - 2026-07-11
+
+### Added
+
+- Declarative grammar engine, v1 walking skeleton (`core/grammar`): format
+  descriptors as pure data plus one interpreter that emits the hand-written
+  walkers' exact chunk/field model. Ships the Int/Enum type layer, a lenient
+  `iff` container strategy with walker-equivalent traversal semantics (yields
+  EOF-overrunning chunks with their declared size plus a warning, degrades
+  instead of raising), and a WAV descriptor covering the `fmt ` chunk --
+  proven byte-exact against `walk/wav` field-for-field across the 2,327-WAV
+  corpus. Experimental and opt-in: nothing imports it on the `import acidcat`
+  path, `walk_file` dispatch is unchanged, and the walkers remain the oracle
+  and the default.
+
 ## [0.45.0] - 2026-07-11
 
 ### Added
