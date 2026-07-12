@@ -16,11 +16,9 @@ the not-yet-built types raise on construction rather than mis-encode.
 
 from dataclasses import dataclass
 
-from acidcat.core.walk.wav import _FORMAT_TAGS
-
-# value-to-label tables a descriptor references by name, seeded from the
-# walkers' own decode dicts -- reuse, never re-type.
-TABLES = {"wave_format_tags": _FORMAT_TAGS}
+# value->label tables live in the core-owned vocab module, not in a walker,
+# so the grammar layer no longer depends on a walker's internals.
+from acidcat.core.vocab import TABLES
 
 _STRUCT_CODES = {1: "B", 2: "H", 4: "I", 8: "Q"}
 

@@ -58,15 +58,22 @@ def test_wav_fmt_hermetic_exact(tmp_path):
     ]
 
 
-def test_wav_ctx_semantic_keys(tmp_path):
-    """ctx publishes under the walker's semantic names ("bits"), and only
-    for fields that declare a key (avg_bytes_per_sec publishes none)."""
+def test_wav_ctx_matches_walker(tmp_path):
+    """Comparative parity: every ctx key the descriptor publishes carries the
+    same value the walker publishes for that key on the same file. Enforced
+    against the walker, not a hard-coded literal, so the two cannot drift."""
+    from acidcat.core.walk.wav import inspect_wav
     p = tmp_path / "ctx.wav"
     p.write_bytes(_make_riff_wav(channels=2))
-    ctx = {}
-    interpret(WAVE, str(p), ctx=ctx)
-    assert ctx == {"format_tag": 1, "channels": 2, "sample_rate": 44100,
-                   "block_align": 4, "bits": 16}
+    wctx = {}
+    inspect_wav(str(p), ctx=wctx)
+    gctx = {}
+    interpret(WAVE, str(p), ctx=gctx)
+    published = {f.ctx for r in WAVE.regions.values()
+                 for f in getattr(r, "fields", ()) if f.ctx}
+    assert published, "descriptor publishes no ctx keys"
+    for k in published:
+        assert gctx.get(k) == wctx.get(k), k
 
 
 # the local corpus sweep (~/sample_packs on the dev box); absent on CI, where

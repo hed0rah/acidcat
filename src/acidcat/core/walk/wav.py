@@ -4,21 +4,11 @@ import os
 import struct
 
 from acidcat.core.riff import iter_chunks
+from acidcat.core.vocab import WAVE_FORMAT_TAGS as _FORMAT_TAGS
 from acidcat.core.walk.base import (
     _PAYLOAD_CAP, _f, _u16, _u32, _cstr, _flag_names,
 )
 from acidcat.util.midi import midi_note_to_name
-
-_FORMAT_TAGS = {
-    0x0001: "PCM",
-    0x0002: "MS ADPCM",
-    0x0003: "IEEE float",
-    0x0006: "A-law",
-    0x0007: "mu-law",
-    0x0011: "IMA ADPCM",
-    0x0055: "MPEG Layer III",
-    0xFFFE: "extensible",
-}
 
 _ACID_FLAGS = (
     (0x01, "one-shot"),
