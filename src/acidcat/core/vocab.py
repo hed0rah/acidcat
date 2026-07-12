@@ -40,9 +40,12 @@ TABLES = {
 # instead of silently missing an index column. Extend this set (citing the
 # source) when a descriptor publishes a genuinely new semantic key.
 CTX_KEYS = frozenset({
-    # WAV fmt fields the descriptor publishes today (walk/wav.py:73)
+    # WAV fmt fields the descriptor publishes today (walk/wav.py)
     "format_tag", "channels", "sample_rate", "block_align", "bits",
     # WAV cross-chunk + scan/index-read keys (walk/wav.py, core/indexing.py)
     "data_off", "data_bytes", "fact_samples", "frames", "duration",
-    "acid_bpm", "acid_beats", "acid_one_shot", "acid_root", "smpl_root",
+    "acid_bpm", "acid_beats", "acid_one_shot", "acid_root",
+    "smpl_root", "smpl_loop_start", "smpl_loop_end",
 })
+# invariant (test_ctx_keys_covers_walker): CTX_KEYS must stay a superset of every
+# ctx key the walkers publish, so a real key can never fail Field.ctx validation.

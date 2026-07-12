@@ -50,9 +50,11 @@ unchanged.
 - **Walkers are the oracle.** Any new parsing path (the grammar engine) is proven
   by diffing its output against the walkers across a large corpus, field for field.
 - **Two container engines, on purpose.** `structure.py` is strict (clamps sizes,
-  rejects malformed input) and drives write / repair; the walkers' `riff.iter_chunks`
-  traversal is lenient (reports a chunk's declared-but-wrong size, degrades, never
-  raises) and drives dissection. Malformed files are the subject, not an error.
+  rejects malformed input) and drives write / repair; the lenient traversal
+  (`riff.iter_chunks`, and `riff.iter_spans` built on it, which the walker and the
+  grammar strategy both consume) reports a chunk's declared-but-wrong size,
+  degrades, and never raises, and drives dissection. Malformed files are the
+  subject, not an error.
 
 ## Invariants (the layering rules, all currently holding)
 
@@ -65,7 +67,9 @@ unchanged.
 
 ```
 src/acidcat/
-  core/            primitives, walkers, grammar, analysis, index (47 modules)
+  core/            primitives, walkers, grammar, analysis, index (48 modules)
+    riff.py        RIFF chunk primitives incl. the shared lenient iter_spans
+    vocab.py       core-owned value->label tables + the semantic ctx-key set
     walk/          20 format walkers + the field-model base
     grammar/       declarative descriptor engine (v0.46, opt-in)
   commands/        22 CLI verbs
