@@ -36,16 +36,9 @@ from acidcat.core.edits import EditError
 from acidcat.commands.write import _edit as _write_edit, _strip as _write_strip
 
 
-# palette carried over from the playground TUI (btop-ish); cyan accent.
-PALETTE = ["#56e0f0", "#ffcc55", "#66e88a", "#ff6e83", "#c07ee0",
-           "#4ee0c0", "#e0964e", "#e07eb0", "#8fa4ff", "#c0e04e"]
-ACCENT = "#56e0f0"
-FG = "#e6e6e1"
-SOFT = "#9aa5ad"
-DIM = "#5a6a78"
-GUTTER = "#5a6a78"
-PEND = "#ffcc55"       # pending / unsaved-preview color
-SEV = {"alert": "#ff6e83", "warn": "#ffcc55", "notice": "#8fa4ff"}
+# brand theme (ink / gunmetal + teal/orange accents); source of truth is
+# acidcat/tui_theme.py, imported by the playground TUI too so they cannot drift.
+from acidcat.tui_theme import PALETTE, ACCENT, FG, SOFT, DIM, GUTTER, PEND, SEV
 
 _HEX_CAP = 1024        # most bytes to render in the hex pane for one node
 _ROW_CAP = 400         # most per-element rows (events/frames) to list per chunk
@@ -208,10 +201,10 @@ class BrowseScreen(ModalScreen):
 
     CSS = """
     BrowseScreen { align: center middle; }
-    #browsebox { width: 80%; height: 80%; border: round #56e0f0;
-                 background: #10161a; padding: 1 2; }
-    #browsehint { color: #9aa5ad; padding-bottom: 1; }
-    DirectoryTree { background: #10161a; }
+    #browsebox { width: 80%; height: 80%; border: round #08F9DF;
+                 background: #16181C; padding: 1 2; }
+    #browsehint { color: #8A9099; padding-bottom: 1; }
+    DirectoryTree { background: #16181C; }
     """
     BINDINGS = [("escape", "cancel", "cancel")]
 
@@ -240,12 +233,12 @@ class EditScreen(ModalScreen):
 
     CSS = """
     EditScreen { align: center middle; }
-    #editbox { width: 72; height: auto; max-height: 90%; border: round #ffcc55;
-               background: #10161a; padding: 1 2; }
-    #edittitle { color: #ffcc55; text-style: bold; padding-bottom: 1; }
-    #edithint { color: #5a6a78; padding-bottom: 1; }
-    #editstatus { color: #ff6e83; padding-top: 1; }
-    EditScreen Label { color: #9aa5ad; }
+    #editbox { width: 72; height: auto; max-height: 90%; border: round #FF4D00;
+               background: #16181C; padding: 1 2; }
+    #edittitle { color: #FF4D00; text-style: bold; padding-bottom: 1; }
+    #edithint { color: #565B63; padding-bottom: 1; }
+    #editstatus { color: #FF4D00; padding-top: 1; }
+    EditScreen Label { color: #8A9099; }
     EditScreen Input { margin-bottom: 1; }
     #editbtns { height: auto; padding-top: 1; }
     """
@@ -304,9 +297,9 @@ class ConfirmScreen(ModalScreen):
 
     CSS = """
     ConfirmScreen { align: center middle; }
-    #confbox { width: 60; height: auto; border: round #ffcc55;
-               background: #10161a; padding: 1 2; }
-    #confmsg { color: #e6e6e1; padding-bottom: 1; }
+    #confbox { width: 60; height: auto; border: round #FF4D00;
+               background: #16181C; padding: 1 2; }
+    #confmsg { color: #C9CDD3; padding-bottom: 1; }
     #confbtns { height: auto; }
     """
     BINDINGS = [("escape", "cancel", "cancel")]
@@ -335,8 +328,8 @@ class HelpScreen(ModalScreen):
 
     CSS = """
     HelpScreen { align: center middle; }
-    #helpbox { width: 74; height: auto; max-height: 90%; border: round #56e0f0;
-               background: #10161a; padding: 1 2; }
+    #helpbox { width: 74; height: auto; max-height: 90%; border: round #08F9DF;
+               background: #16181C; padding: 1 2; }
     """
     BINDINGS = [("escape", "close", "close"), ("question_mark", "close", "close")]
 
@@ -384,8 +377,8 @@ class DiffScreen(ModalScreen):
 
     CSS = """
     DiffScreen { align: center middle; }
-    #diffbox { width: 82; height: auto; max-height: 90%; border: round #ffcc55;
-               background: #10161a; padding: 1 2; }
+    #diffbox { width: 82; height: auto; max-height: 90%; border: round #FF4D00;
+               background: #16181C; padding: 1 2; }
     """
     BINDINGS = [("escape", "close", "close"), ("d", "close", "close")]
 
@@ -430,8 +423,8 @@ class MapScreen(ModalScreen):
 
     CSS = """
     MapScreen { align: center middle; }
-    #mapbox { width: 86; height: auto; max-height: 90%; border: round #56e0f0;
-              background: #10161a; padding: 1 2; }
+    #mapbox { width: 86; height: auto; max-height: 90%; border: round #08F9DF;
+              background: #16181C; padding: 1 2; }
     """
     BINDINGS = [("escape", "close", "close"), ("m", "close", "close")]
 
@@ -472,8 +465,8 @@ class ValidateScreen(ModalScreen):
 
     CSS = """
     ValidateScreen { align: center middle; }
-    #valbox { width: 86; height: auto; max-height: 90%; border: round #56e0f0;
-              background: #10161a; padding: 1 2; }
+    #valbox { width: 86; height: auto; max-height: 90%; border: round #08F9DF;
+              background: #16181C; padding: 1 2; }
     """
     BINDINGS = [("escape", "close", "close"), ("v", "close", "close"),
                 ("r", "repair", "repair")]
@@ -517,19 +510,19 @@ class ValidateScreen(ModalScreen):
 
 class AcidcatTUI(App):
     CSS = """
-    Screen { background: #10161a; }
-    #tree { width: 48%; border: round #56e0f0; padding: 0 1; }
+    Screen { background: #16181C; }
+    #tree { width: 48%; border: round #08F9DF; padding: 0 1; }
     #right { width: 52%; }
-    #detail { height: auto; border: round #66e88a; padding: 0 1; color: #e6e6e1; }
-    #hexwrap { border: round #56e0f0; }
+    #detail { height: auto; border: round #3A3E45; padding: 0 1; color: #C9CDD3; }
+    #hexwrap { border: round #08F9DF; }
     #hex { padding: 0 1; }
-    #anomwrap { height: 30%; border: round #ff6e83; }
+    #anomwrap { height: 30%; border: round #FF4D00; }
     #anom { height: auto; padding: 0 1; }
-    #editbar { dock: bottom; height: 3; border: round #ffcc55; background: #10161a; }
+    #editbar { dock: bottom; height: 3; border: round #FF4D00; background: #16181C; }
     #editbar.hidden { display: none; }
-    Tree { background: #10161a; }
-    Tree > .tree--guides { color: #2a3540; }
-    Tree > .tree--guides-selected { color: #56e0f0; }
+    Tree { background: #16181C; }
+    Tree > .tree--guides { color: #3A3E45; }
+    Tree > .tree--guides-selected { color: #08F9DF; }
     """
 
     BINDINGS = [
@@ -1690,7 +1683,7 @@ class AcidcatTUI(App):
         t.append(f"byte {cur + 1}/{len(buf)} @ 0x{off + cur:08x}"
                  f"{' low-nibble' if nib else ''}   arrows move  0-9a-f overwrite"
                  f"  enter=apply  esc=cancel\n", style=DIM)
-        cur_st = "bold #10161a on #ffcc55"
+        cur_st = "bold #16181C on #FF4D00"
         for row in range(0, len(buf), 16):
             chunk = buf[row:row + 16]
             t.append(f"{off + row:08x}  ", style=GUTTER)
