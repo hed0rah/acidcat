@@ -4,10 +4,19 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
-## [Unreleased]
+## [0.47.0] - 2026-07-12
 
 ### Added
 
+- Grammar engine, Phase 1: the declarative engine now reproduces the full WAV
+  walker vocabulary byte-for-byte -- the complete `fmt ` chunk (every format-tag
+  variant: PCM, MS/IMA ADPCM, MPEGLAYER3, and WAVE_FORMAT_EXTENSIBLE, dispatched
+  by a `Switch` construct) plus the `inst` and `acid` regions. Adds the guard
+  vocabulary (`Cmp` / `Remaining`), `Valid` plausibility warnings, note-sources,
+  `Hex` / `Float` types, decode/summary helpers, format-level rules, and the
+  per-region partition with a walk-scope dataflow rule. Verified byte-for-byte
+  against the hand-written walker across the full WAV corpus (6,998 checks).
+  Still opt-in and test-only; the walkers remain the oracle and the default.
 - `acidcat shape DIR` -- a fast one-line structural fingerprint per file
   (format, key summary, chunk-id set) for specimen-hunting across a large
   library: pipe to `sort | uniq -c` to surface the rare or malformed shapes.
