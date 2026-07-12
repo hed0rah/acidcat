@@ -4,6 +4,27 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Added
+
+- Public library API for tools built on acidcat: `edit_metadata(path, changes)`
+  (plus `EditError` / `EditResult`), `read_tags(path)`, `read_id3v2(path)`,
+  `list_id3v2_frames(path)`, and the `tui_theme` brand-palette module -- so
+  downstream tools use public names instead of reaching into `commands` / `core`
+  internals. The metadata-edit dispatcher moved from `commands/write` to
+  `core/edits.edit_metadata`.
+- TUI (`acidcat tui`): byte-view modes (`b` cycles hex / entropy / hilbert /
+  histogram of the file), region audition (`p` plays the selected chunk as raw
+  PCM via ffplay, `.` stops), and per-field hex tinting in the chunk view.
+
+### Changed
+
+- `core.viz.byte_class(b)` now returns `(glyph, class_name)` instead of
+  `(glyph, hex_color)`; the byte-class -> color map lives in
+  `tui_theme.BYTE_CLASS` so the CLI `probe map` and the TUI byte-map views share
+  one palette (they had drifted). Breaking for any direct `byte_class` caller.
+
 ## [0.47.0] - 2026-07-12
 
 ### Added

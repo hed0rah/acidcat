@@ -35,6 +35,13 @@ def is_tagged_format(filepath):
     return ext in TAGGED_EXTENSIONS
 
 
+def read_tags(filepath):
+    """Friendly tags for a tagged audio file (mp3/flac/ogg/opus/m4a), or None if
+    the file is not a tagged format or cannot be parsed. Gate + parse in one call;
+    errors are swallowed to None (a courtesy read, never raises)."""
+    return parse_tagged(filepath) if is_tagged_format(filepath) else None
+
+
 def parse_tagged(filepath):
     """Extract metadata from a tagged audio file.
 

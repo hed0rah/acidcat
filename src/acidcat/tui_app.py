@@ -32,20 +32,15 @@ from textual.widgets import (
 from acidcat.core.walk import walk_file, Unsupported
 from acidcat.core import anomalies as ac_anom
 from acidcat.core import writer
+from acidcat.core import viz
+from acidcat.util import play
 from acidcat.core.edits import EditError
 from acidcat.commands.write import _edit as _write_edit, _strip as _write_strip
 
 
-# palette carried over from the playground TUI (btop-ish); cyan accent.
-PALETTE = ["#56e0f0", "#ffcc55", "#66e88a", "#ff6e83", "#c07ee0",
-           "#4ee0c0", "#e0964e", "#e07eb0", "#8fa4ff", "#c0e04e"]
-ACCENT = "#56e0f0"
-FG = "#e6e6e1"
-SOFT = "#9aa5ad"
-DIM = "#5a6a78"
-GUTTER = "#5a6a78"
-PEND = "#ffcc55"       # pending / unsaved-preview color
-SEV = {"alert": "#ff6e83", "warn": "#ffcc55", "notice": "#8fa4ff"}
+# brand theme (ink / gunmetal + teal/orange accents); source of truth is
+# acidcat/tui_theme.py, imported by the playground TUI too so they cannot drift.
+from acidcat.tui_theme import PALETTE, ACCENT, FG, SOFT, DIM, GUTTER, PEND, SEV, byte_color
 
 _HEX_CAP = 1024        # most bytes to render in the hex pane for one node
 _ROW_CAP = 400         # most per-element rows (events/frames) to list per chunk
@@ -85,30 +80,46 @@ def _fuzzy(query, text):
     return i == len(q)
 
 
-def hex_text(path, off, length, accent):
+def hex_text(path, off, length, accent, spans=None):
     """A colored hex dump (offset gutter + hex columns + ascii) of up to
-    _HEX_CAP bytes starting at off. Bytes render in `accent`, non-printable
-    ascii dims out."""
+    _HEX_CAP bytes starting at off. Bytes render in `accent`; when `spans` (a
+    list of (abs_offset, len) field ranges) is given, each field's bytes take a
+    distinct palette color so a chunk's field structure shows in the hex.
+    Non-printable ascii dims out."""
     t = Text()
     if off is None or length in (None, 0):
         t.append("  (no byte range for this node)", style=DIM)
         return t
     shown = min(length, _HEX_CAP)
     raw = _read(path, off, shown)
-    _hex_rows(t, off, raw, accent)
+    _hex_rows(t, off, raw, accent, _spans_cmap(off, spans, shown) if spans else None)
     if length > shown:
         t.append(f"  .. {length - shown:,} more bytes\n", style=DIM)
     return t
 
 
-def _hex_rows(t, off, raw, byte_style):
-    """Append hex-dump rows (gutter + hex + ascii) for `raw` to Text `t`."""
+def _spans_cmap(base_off, spans, limit):
+    """Map each shown byte position (relative to base_off) to a per-field color,
+    cycling the palette across the fields."""
+    cmap = {}
+    for i, (ao, ln) in enumerate(spans):
+        color = PALETTE[i % len(PALETTE)]
+        start = ao - base_off
+        for p in range(max(0, start), min(limit, start + ln)):
+            cmap[p] = color
+    return cmap
+
+
+def _hex_rows(t, off, raw, byte_style, cmap=None):
+    """Append hex-dump rows (gutter + hex + ascii) for `raw` to Text `t`. With a
+    `cmap` (position -> color), each byte takes its field color."""
     for row in range(0, len(raw), 16):
         chunk = raw[row:row + 16]
         t.append(f"{off + row:08x}  ", style=GUTTER)
         for i in range(16):
             if i < len(chunk):
-                t.append(f"{chunk[i]:02x} ", style=byte_style)
+                style = cmap.get(row + i, byte_style) if cmap else byte_style
+                t.append(f"{chunk[i]:02x} ", style=style)
             else:
                 t.append("   ")
             if i == 7:
@@ -208,10 +219,10 @@ class BrowseScreen(ModalScreen):
 
     CSS = """
     BrowseScreen { align: center middle; }
-    #browsebox { width: 80%; height: 80%; border: round #56e0f0;
-                 background: #10161a; padding: 1 2; }
-    #browsehint { color: #9aa5ad; padding-bottom: 1; }
-    DirectoryTree { background: #10161a; }
+    #browsebox { width: 80%; height: 80%; border: round #08F9DF;
+                 background: #16181C; padding: 1 2; }
+    #browsehint { color: #8A9099; padding-bottom: 1; }
+    DirectoryTree { background: #16181C; }
     """
     BINDINGS = [("escape", "cancel", "cancel")]
 
@@ -240,12 +251,12 @@ class EditScreen(ModalScreen):
 
     CSS = """
     EditScreen { align: center middle; }
-    #editbox { width: 72; height: auto; max-height: 90%; border: round #ffcc55;
-               background: #10161a; padding: 1 2; }
-    #edittitle { color: #ffcc55; text-style: bold; padding-bottom: 1; }
-    #edithint { color: #5a6a78; padding-bottom: 1; }
-    #editstatus { color: #ff6e83; padding-top: 1; }
-    EditScreen Label { color: #9aa5ad; }
+    #editbox { width: 72; height: auto; max-height: 90%; border: round #FF4D00;
+               background: #16181C; padding: 1 2; }
+    #edittitle { color: #FF4D00; text-style: bold; padding-bottom: 1; }
+    #edithint { color: #565B63; padding-bottom: 1; }
+    #editstatus { color: #FF4D00; padding-top: 1; }
+    EditScreen Label { color: #8A9099; }
     EditScreen Input { margin-bottom: 1; }
     #editbtns { height: auto; padding-top: 1; }
     """
@@ -304,9 +315,9 @@ class ConfirmScreen(ModalScreen):
 
     CSS = """
     ConfirmScreen { align: center middle; }
-    #confbox { width: 60; height: auto; border: round #ffcc55;
-               background: #10161a; padding: 1 2; }
-    #confmsg { color: #e6e6e1; padding-bottom: 1; }
+    #confbox { width: 60; height: auto; border: round #FF4D00;
+               background: #16181C; padding: 1 2; }
+    #confmsg { color: #C9CDD3; padding-bottom: 1; }
     #confbtns { height: auto; }
     """
     BINDINGS = [("escape", "cancel", "cancel")]
@@ -335,8 +346,8 @@ class HelpScreen(ModalScreen):
 
     CSS = """
     HelpScreen { align: center middle; }
-    #helpbox { width: 74; height: auto; max-height: 90%; border: round #56e0f0;
-               background: #10161a; padding: 1 2; }
+    #helpbox { width: 74; height: auto; max-height: 90%; border: round #08F9DF;
+               background: #16181C; padding: 1 2; }
     """
     BINDINGS = [("escape", "close", "close"), ("question_mark", "close", "close")]
 
@@ -352,6 +363,8 @@ class HelpScreen(ModalScreen):
             ("f", "jump to the next forensics finding"),
             ("x", "follow a pointer field to where it points (flags dangling)"),
             ("m", "byte map: where the file's bytes go, biggest regions first"),
+            ("b", "byte view: cycle hex / entropy / hilbert / histogram of the file"),
+            ("p", "play the selected region as raw PCM (. stops); needs ffplay"),
             ("v", "validate structure: constraint violations, r to repair them"),
             ("y", "yank the selected bytes as hex to the clipboard"),
             ("d", "review all pending changes (offset old->new) before save"),
@@ -384,8 +397,8 @@ class DiffScreen(ModalScreen):
 
     CSS = """
     DiffScreen { align: center middle; }
-    #diffbox { width: 82; height: auto; max-height: 90%; border: round #ffcc55;
-               background: #10161a; padding: 1 2; }
+    #diffbox { width: 82; height: auto; max-height: 90%; border: round #FF4D00;
+               background: #16181C; padding: 1 2; }
     """
     BINDINGS = [("escape", "close", "close"), ("d", "close", "close")]
 
@@ -430,8 +443,8 @@ class MapScreen(ModalScreen):
 
     CSS = """
     MapScreen { align: center middle; }
-    #mapbox { width: 86; height: auto; max-height: 90%; border: round #56e0f0;
-              background: #10161a; padding: 1 2; }
+    #mapbox { width: 86; height: auto; max-height: 90%; border: round #08F9DF;
+              background: #16181C; padding: 1 2; }
     """
     BINDINGS = [("escape", "close", "close"), ("m", "close", "close")]
 
@@ -472,8 +485,8 @@ class ValidateScreen(ModalScreen):
 
     CSS = """
     ValidateScreen { align: center middle; }
-    #valbox { width: 86; height: auto; max-height: 90%; border: round #56e0f0;
-              background: #10161a; padding: 1 2; }
+    #valbox { width: 86; height: auto; max-height: 90%; border: round #08F9DF;
+              background: #16181C; padding: 1 2; }
     """
     BINDINGS = [("escape", "close", "close"), ("v", "close", "close"),
                 ("r", "repair", "repair")]
@@ -517,19 +530,19 @@ class ValidateScreen(ModalScreen):
 
 class AcidcatTUI(App):
     CSS = """
-    Screen { background: #10161a; }
-    #tree { width: 48%; border: round #56e0f0; padding: 0 1; }
+    Screen { background: #16181C; }
+    #tree { width: 48%; border: round #08F9DF; padding: 0 1; }
     #right { width: 52%; }
-    #detail { height: auto; border: round #66e88a; padding: 0 1; color: #e6e6e1; }
-    #hexwrap { border: round #56e0f0; }
+    #detail { height: auto; border: round #3A3E45; padding: 0 1; color: #C9CDD3; }
+    #hexwrap { border: round #08F9DF; }
     #hex { padding: 0 1; }
-    #anomwrap { height: 30%; border: round #ff6e83; }
+    #anomwrap { height: 30%; border: round #FF4D00; }
     #anom { height: auto; padding: 0 1; }
-    #editbar { dock: bottom; height: 3; border: round #ffcc55; background: #10161a; }
+    #editbar { dock: bottom; height: 3; border: round #FF4D00; background: #16181C; }
     #editbar.hidden { display: none; }
-    Tree { background: #10161a; }
-    Tree > .tree--guides { color: #2a3540; }
-    Tree > .tree--guides-selected { color: #56e0f0; }
+    Tree { background: #16181C; }
+    Tree > .tree--guides { color: #3A3E45; }
+    Tree > .tree--guides-selected { color: #08F9DF; }
     """
 
     BINDINGS = [
@@ -543,6 +556,9 @@ class AcidcatTUI(App):
         ("y", "yank", "yank hex"),
         ("d", "diff", "pending changes"),
         ("m", "map", "byte map"),
+        ("b", "cycle_view", "byte view"),
+        ("p", "play", "play region"),
+        ("full_stop", "stop_play", "stop"),
         ("v", "validate", "validate"),
         ("ctrl+s", "save", "save"),
         ("ctrl+z", "undo", "undo"),
@@ -595,6 +611,10 @@ class AcidcatTUI(App):
         self._search = None       # active search: dict(desc, hits, idx)
         self._finding_idx = -1    # cursor into self.findings for jump-to-finding
         self._xref = {}           # id(field node) -> absolute target offset (pointer)
+        self._view = "hex"        # byte-view mode: hex | entropy | hilbert | histogram
+        self._cur_region = (None, None, ACCENT)  # last shown (off, length, accent)
+        self._cur_spans = None    # field spans for per-field hex tint (chunk view)
+        self._play = None         # handle to a running audio-audition process
 
     def compose(self) -> ComposeResult:
         yield Static(id="title")
@@ -619,6 +639,7 @@ class AcidcatTUI(App):
             self.action_open()
 
     def on_unmount(self):
+        self.action_stop_play()
         self._discard_work()
 
     # ── working copy: all edits apply to a temp file until an explicit save ──
@@ -964,7 +985,7 @@ class AcidcatTUI(App):
         lbl = node.label
         return (lbl.plain if isinstance(lbl, Text) else str(lbl)).strip()
 
-    def _show(self, off, length, accent, name, note):
+    def _show(self, off, length, accent, name, note, spans=None):
         detail = self.query_one("#detail", Static)
         d = Text()
         d.append(name, style=f"bold {accent}")
@@ -975,7 +996,133 @@ class AcidcatTUI(App):
         if note:
             d.append(f"\n{note}", style=SOFT)
         detail.update(d)
-        self.query_one("#hex", Static).update(hex_text(self.work, off, length, accent))
+        self._cur_region = (off, length, accent)
+        self._cur_spans = spans
+        if self._view == "hex":
+            self.query_one("#hex", Static).update(
+                hex_text(self.work, off, length, accent, spans))
+        # in a viz mode the pane shows a whole-file view; a node highlight leaves it
+
+    def action_cycle_view(self):
+        """Cycle the hex pane: hex -> entropy -> hilbert -> histogram (whole file)."""
+        order = ["hex", "entropy", "hilbert", "histogram"]
+        if self._hexedit:
+            self._exit_hexedit()
+        if self._edit_target:
+            self.action_cancel_edit()
+        self._view = order[(order.index(self._view) + 1) % len(order)]
+        pane = self.query_one("#hex", Static)
+        if self._view == "hex":
+            off, length, accent = self._cur_region
+            pane.update(hex_text(self.work, off, length, accent, self._cur_spans))
+        else:
+            pane.update(self._viz_render(self._view))
+        self.notify(f"byte view: {self._view}")
+
+    def _viz_width(self):
+        try:
+            return max(24, self.query_one("#hexwrap").size.width - 4)
+        except Exception:
+            return 72
+
+    def _viz_render(self, mode):
+        data = _read(self.work, 0, min(self.fsize, 8 * 1024 * 1024))
+        if not data:
+            t = Text()
+            t.append("  (no bytes to visualize)", style=DIM)
+            return t
+        if mode == "entropy":
+            return self._viz_entropy(data)
+        if mode == "hilbert":
+            return self._viz_hilbert(data)
+        return self._viz_histogram(data)
+
+    def _viz_entropy(self, data):
+        ent = viz.windowed_entropy(data, self._viz_width())
+        t = Text()
+        t.append("entropy  ", style=f"bold {ACCENT}")
+        t.append(f"min {min(ent):.1f}  mean {sum(ent) / len(ent):.1f}  "
+                 f"max {max(ent):.1f} bits/byte  (whole file)\n\n", style=SOFT)
+        blocks = " ▁▂▃▄▅▆▇█"
+        for e in ent:
+            frac = max(0.0, min(1.0, e / 8))
+            t.append(blocks[int(frac * (len(blocks) - 1))],
+                     style=PALETTE[min(len(PALETTE) - 1, int(frac * len(PALETTE)))])
+        t.append("\n")
+        return t
+
+    def _viz_hilbert(self, data):
+        grid, side = viz.hilbert_grid(data, order=5)
+        t = Text()
+        t.append("hilbert  ", style=f"bold {ACCENT}")
+        t.append(f"{side}x{side} byte-class map; adjacent cells are adjacent bytes\n\n",
+                 style=SOFT)
+        for y in range(0, side, 2):
+            for x in range(side):
+                top = grid[y][x]
+                bot = grid[y + 1][x] if y + 1 < side else None
+                t.append("▀", style=f"{byte_color(top)} on {byte_color(bot)}")
+            t.append("\n")
+        t.append("\n")
+        for b, label in ((0x41, " ascii  "), (0x80, " high  "), (0x00, " null/ctrl")):
+            t.append("▀", style=byte_color(b))
+            t.append(label, style=SOFT)
+        t.append("\n")
+        return t
+
+    def _viz_histogram(self, data):
+        t = Text()
+        t.append("byte histogram  ", style=f"bold {ACCENT}")
+        t.append("(0x00 .. 0xff frequency, whole file)\n\n", style=SOFT)
+        for row in viz.byte_histogram(data, width=self._viz_width(), height=8):
+            t.append(row + "\n", style=ACCENT)
+        return t
+
+    def action_play(self):
+        """Audition the selected region's bytes as raw PCM (p); '.' stops."""
+        if not play.have_audio():
+            self.notify("no audio player found (install ffmpeg for ffplay)",
+                        severity="warning")
+            return
+        off, length, _ = self._cur_region
+        if off is None or not length:
+            self.notify("highlight a region with bytes to play", severity="warning")
+            return
+        data = _read(self.work, off, min(length, 4 * 1024 * 1024))
+        rate, ch, bits, floating = self._audio_params()
+        self.action_stop_play()
+        self._play = play.play_bytes(data, rate=rate, ch=ch, bits=bits, floating=floating)
+        secs = len(data) / max(1, rate * ch * (bits // 8))
+        self.notify(f"playing {len(data):,} bytes as {rate} Hz {ch}ch {bits}-bit "
+                    f"(~{secs:.1f}s) -- . to stop")
+
+    def action_stop_play(self):
+        if getattr(self, "_play", None):
+            play.stop(self._play)
+            self._play = None
+
+    def _audio_params(self):
+        """(rate, channels, bits, floating) from the file's fmt/COMM chunk, or
+        sensible defaults for reinterpreting arbitrary bytes as PCM."""
+        rate, ch, bits, floating = 44100, 1, 16, False
+        for c in self.chunks:
+            if str(c.get("id", "")).strip() not in ("fmt", "COMM"):
+                continue
+            for f in c.get("fields", []):
+                n, v = f.get("name", ""), f.get("value")
+                try:
+                    if n == "sample_rate":
+                        rate = int(v) or rate
+                    elif n in ("channels", "num_channels"):
+                        ch = int(v) or ch
+                    elif n == "bits_per_sample":
+                        bits = int(v) or bits
+                    elif n == "format_tag" and "float" in str(f.get("note", "")).lower():
+                        floating = True
+                except (ValueError, TypeError):
+                    pass
+            break
+        return rate, ch, max(8, bits), floating
 
     def action_help(self):
         self.push_screen(HelpScreen())
@@ -1279,7 +1426,14 @@ class AcidcatTUI(App):
             danger = "" if 0 <= xref < self.fsize else " (DANGLING, out of bounds)"
             ptr = f"pointer -> 0x{xref:08x}{danger} -- press x to follow"
             hint = f"{hint}\n{ptr}" if hint else ptr
-        self._show(off, length, accent, self._node_name(event.node), hint)
+        spans = None
+        key = self._nodekey.get(id(event.node))
+        if key and key[0] == "chunk":                # tint each field within the chunk
+            c = self.chunks[key[1]]
+            spans = [(_field_abs(c, fl), fl.get("len") or 0)
+                     for fl in c.get("fields", [])]
+            spans = [(a, ln) for a, ln in spans if a is not None and ln]
+        self._show(off, length, accent, self._node_name(event.node), hint, spans)
 
     def _edit_hint(self, node, off, length):
         """A short note in the detail pane telling the user how the highlighted
@@ -1352,6 +1506,7 @@ class AcidcatTUI(App):
         self._render_preview()
 
     def action_edit_field(self):
+        self._view = "hex"
         node = self._cur_node
         data = self._nodemeta.get(id(node)) if node else None
         if not data:
@@ -1624,6 +1779,7 @@ class AcidcatTUI(App):
             self.notify(f"region too large ({length:,} bytes); pick a field",
                         severity="warning")
             return
+        self._view = "hex"
         self._hexedit = {"off": off, "length": length, "cur": 0, "nib": 0,
                          "buf": bytearray(_read(self.work, off, length))}
         self.query_one("#hex", HexPane).focus()
@@ -1690,7 +1846,7 @@ class AcidcatTUI(App):
         t.append(f"byte {cur + 1}/{len(buf)} @ 0x{off + cur:08x}"
                  f"{' low-nibble' if nib else ''}   arrows move  0-9a-f overwrite"
                  f"  enter=apply  esc=cancel\n", style=DIM)
-        cur_st = "bold #10161a on #ffcc55"
+        cur_st = "bold #16181C on #FF4D00"
         for row in range(0, len(buf), 16):
             chunk = buf[row:row + 16]
             t.append(f"{off + row:08x}  ", style=GUTTER)
