@@ -92,6 +92,16 @@ class NoteFlags:
 
 
 @dataclass
+class NoteFunc:
+    """Field note = a named pure (raw)->str function (grammar.helpers._NOTEFUNCS).
+    A COMPUTED note for what a table cannot express (midi-note names over
+    unbounded values, with per-field guards). Decorates (no payload, no
+    field-determination), so it stays on the descriptor side of the partition."""
+
+    fn: str
+
+
+@dataclass
 class Valid:
     """A declarative plausibility range on a field -> WARNING, never a raise.
     Structured (min/max) so the differential/fuzz payoff can reason about it;

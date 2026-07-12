@@ -15,8 +15,9 @@ a place to grow without reshaping the API.
 
 from acidcat.core.walk.base import _f
 
-from acidcat.core.grammar.helpers import _HELPERS, _RELATIONS, _SUMMARIES
-from acidcat.core.grammar.model import Helper, Switch
+from acidcat.core.grammar.helpers import (_HELPERS, _NOTEFUNCS, _RELATIONS,
+                                          _SUMMARIES)
+from acidcat.core.grammar.model import Helper, NoteFunc, Switch
 from acidcat.core.grammar.strategies import STRATEGIES
 
 
@@ -115,9 +116,12 @@ def _parse_entries(entries, payload, pos, local, ctx):
 
 
 def _note_for(fd, raw):
-    """A field's note: a note-source (NoteLookup/NoteFlags) resolved against raw,
-    else a static string, else the type's own label note (Enum), else empty."""
+    """A field's note: a NoteFunc computed note, else a note-source
+    (NoteLookup/NoteFlags) resolved against raw, else a static string, else the
+    type's own label note (Enum), else empty."""
     n = fd.note
+    if isinstance(n, NoteFunc):
+        return _NOTEFUNCS[n.fn](raw)
     if hasattr(n, "resolve"):
         return n.resolve(raw)
     if n:

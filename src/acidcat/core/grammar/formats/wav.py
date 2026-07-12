@@ -7,9 +7,17 @@ name here would silently break indexing parity later.
 """
 
 from acidcat.core.grammar.model import (Case, Cmp, Field, Format, Helper,
-                                        NoteFlags, NoteLookup, Order, Region,
-                                        Requires, Switch, Valid)
+                                        NoteFlags, NoteFunc, NoteLookup, Order,
+                                        Region, Requires, Switch, Valid)
 from acidcat.core.grammar.types import Enum, Hex, Int
+
+# Per-region partition (design doc section 6.0). IN (described here): fmt, inst,
+# acid -- fixed fields that the vocabulary DECORATES (notes/summaries/lints)
+# without DETERMINING field existence or value. OUT (walker-only, shown as opaque
+# payload by the interpreter): data (synthesizes a frames field + ctx summary),
+# fact (its one field is ctx-rewritten via the ds64 sentinel), smpl/cue
+# (per-record composite displays + computed xrefs), LIST (nested walk), iXML
+# (regex), cart; bext deferred. The interpreter treats every OUT chunk as payload.
 
 WAVE = Format(name="RIFF/WAVE", container="iff", regions={
     "fmt ": Region(
@@ -61,6 +69,19 @@ WAVE = Format(name="RIFF/WAVE", container="iff", regions={
                     Helper("wav_ext_subformat"),
                 )),
             }),
+        )),
+    "inst": Region(
+        kind="struct", min_len=7,
+        min_len_msg="inst payload is {n} bytes, expected {min}",
+        summary="inst_summary",
+        fields=(
+            Field("base_note",     Int(1), note=NoteFunc("inst_base_note")),
+            Field("detune",        Int(1, signed=True), note="cents"),
+            Field("gain",          Int(1, signed=True), note="dB"),
+            Field("low_note",      Int(1), note=NoteFunc("midi_note")),
+            Field("high_note",     Int(1), note=NoteFunc("midi_note")),
+            Field("low_velocity",  Int(1)),
+            Field("high_velocity", Int(1)),
         )),
     "data": Region(kind="payload"),
 }, rules=(

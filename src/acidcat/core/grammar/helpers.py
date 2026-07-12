@@ -13,6 +13,7 @@ import struct
 
 from acidcat.core.vocab import KSDATAFORMAT_TAIL, WAVE_FORMAT_TAGS
 from acidcat.core.walk.base import _f
+from acidcat.util.midi import midi_note_to_name
 
 _ADPCM_STD = ["(256,0)", "(512,-256)", "(0,0)", "(192,64)", "(240,0)",
               "(460,-208)", "(392,-232)"]
@@ -97,5 +98,21 @@ def _wav_fmt_summary(local):
             f"{local.get('channels')}ch {local.get('sample_rate')} Hz")
 
 
+def _inst_summary(local):
+    return (f"base {midi_note_to_name(local['base_note'])}, "
+            f"keys {midi_note_to_name(local['low_note'])}-"
+            f"{midi_note_to_name(local['high_note'])}")
+
+
 _RELATIONS = {"wav_fmt_relations": _wav_fmt_relations}
-_SUMMARIES = {"wav_fmt_summary": _wav_fmt_summary}
+_SUMMARIES = {"wav_fmt_summary": _wav_fmt_summary,
+              "inst_summary": _inst_summary}
+
+
+# ── note-functions ─────────────────────────────────────────────────────────
+# pure (raw) -> str, no payload: computed notes a table cannot express.
+
+_NOTEFUNCS = {
+    "inst_base_note": lambda raw: midi_note_to_name(raw) if raw <= 127 else "",
+    "midi_note": midi_note_to_name,
+}

@@ -96,12 +96,19 @@ def _corpus_wavs():
     return paths[:int(limit)] if limit else paths
 
 
+def _described_ids():
+    return {rid.strip() for rid, r in WAVE.regions.items()
+            if getattr(r, "kind", None) == "struct"}
+
+
 @pytest.mark.parametrize("path", _corpus_wavs())
-def test_wav_fmt_corpus_equivalence(path):
-    """Full deep-equal of the fmt chunk vs the walker on every corpus WAV: all
-    fields byte-exact, the summary, and per-chunk warnings as SETS (the walker's
-    mid-region lint order differs from the interpreter's field-loop order), plus
-    file warnings as sets. The fmt-corpus-proven milestone."""
+def test_wav_described_regions_deep_equal(path):
+    """Full deep-equal on every DESCRIBED region (fmt, inst, acid) vs the walker:
+    fields byte-exact, summary, per-chunk warnings as SETS (the walker's
+    mid-region lint order differs from the interpreter's), plus file warnings as
+    sets. Undescribed chunks (data/fact/smpl/cue/...) are walker-only by the
+    per-region partition and out of field-level comparison; chunk-skeleton parity
+    (separate test) covers them globally."""
     from acidcat.core.walk.base import Unsupported
     try:
         wlabel, wchunks, wfile = walk_file(path)
@@ -109,17 +116,18 @@ def test_wav_fmt_corpus_equivalence(path):
         pytest.skip("walker does not decode this file")
     if wlabel != "RIFF/WAVE":
         pytest.skip(f"sniffed as {wlabel}, not plain RIFF/WAVE")
-    wc = _fmt_chunk(wchunks)
-    if wc is None:
-        pytest.skip("no fmt chunk")
     _, gchunks, gfile = interpret(WAVE, path)
-    gc = _fmt_chunk(gchunks)
-    assert gc is not None, "interpreter found no fmt chunk"
+    assert len(gchunks) == len(wchunks)      # skeleton parity guarantees order
+    described = _described_ids()
     keys = ("off", "len", "name", "value", "note", "enc", "raw")
-    assert [{k: f.get(k) for k in keys} for f in gc["fields"]] == \
-           [{k: f.get(k) for k in keys} for f in wc["fields"]]
-    assert gc["summary"] == wc["summary"]
-    assert set(gc["warnings"]) == set(wc["warnings"])
+    for wc, gc in zip(wchunks, gchunks):
+        if str(wc["id"]).strip() not in described:
+            continue
+        tag = wc["id"]
+        assert [{k: f.get(k) for k in keys} for f in gc["fields"]] == \
+               [{k: f.get(k) for k in keys} for f in wc["fields"]], tag
+        assert gc["summary"] == wc["summary"], tag
+        assert set(gc["warnings"]) == set(wc["warnings"]), tag
     assert set(gfile) == set(wfile)
 
 
@@ -311,6 +319,27 @@ def test_short_extensible_emits_no_variant(tmp_path):
     assert [f["name"] for f in fields] == [
         "format_tag", "channels", "sample_rate", "avg_bytes_per_sec",
         "block_align", "bits_per_sample"]
+
+
+def test_inst_chunk_matches_walker(tmp_path):
+    """inst: fixed byte fields (signed detune/gain), computed midi-note notes
+    (with the base_note <=127 guard), and a summary -- byte-exact vs the walker."""
+    fmt_payload = struct.pack("<HHIIHH", 1, 2, 44100, 176400, 4, 16)
+    inst_payload = struct.pack("<Bbb", 60, -5, 3) + bytes([48, 72, 20, 100])
+    fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt_payload
+    inst_chunk = b"inst" + struct.pack("<I", 7) + inst_payload + b"\x00"  # odd pad
+    data_chunk = b"data" + struct.pack("<I", 4) + b"\x00\x00\x00\x00"
+    body = b"WAVE" + fmt_chunk + inst_chunk + data_chunk
+    p = tmp_path / "inst.wav"
+    p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    _, gchunks, _ = interpret(WAVE, str(p))
+    _, wchunks, _ = walk_file(str(p))
+    gi = next(c for c in gchunks if c["id"] == "inst")
+    wi = next(c for c in wchunks if c["id"] == "inst")
+    keys = ("off", "len", "name", "value", "note", "enc", "raw")
+    assert [{k: f.get(k) for k in keys} for f in gi["fields"]] == \
+           [{k: f.get(k) for k in keys} for f in wi["fields"]]
+    assert gi["summary"] == wi["summary"]
 
 
 def test_truncated_fmt_matches_walker(tmp_path):
