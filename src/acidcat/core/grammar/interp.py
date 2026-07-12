@@ -15,7 +15,8 @@ a place to grow without reshaping the API.
 
 from acidcat.core.walk.base import _f
 
-from acidcat.core.grammar.model import Switch
+from acidcat.core.grammar.helpers import _HELPERS
+from acidcat.core.grammar.model import Helper, Switch
 from acidcat.core.grammar.strategies import STRATEGIES
 
 
@@ -71,6 +72,12 @@ def _parse_entries(entries, payload, pos, local, ctx):
             f, w, pos = _apply_switch(entry, payload, pos, local, ctx)
             fields += f
             warns += w
+            continue
+        if isinstance(entry, Helper):
+            f, w = _HELPERS[entry.name](payload, pos, local, ctx)
+            fields += f
+            warns += w
+            pos += sum(fl["len"] for fl in f)   # advance past what it consumed
             continue
         fd = entry
         if fd.when and not all(g.holds(local, payload, pos) for g in fd.when):

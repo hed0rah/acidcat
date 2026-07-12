@@ -94,12 +94,10 @@ def _corpus_wavs():
 
 @pytest.mark.parametrize("path", _corpus_wavs())
 def test_wav_fmt_corpus_equivalence(path):
-    """Interpreter fmt fields byte-exact vs the walker on every corpus WAV.
-    The descriptor produces a PREFIX of the walker's fmt fields -- core 6 plus
-    cb_size for a non-EXTENSIBLE >=18-byte fmt (the ext sub-fields land in
-    PR-B), and 0 fields for a truncated fmt -- so compare gf against the
-    walker's prefix of the same length. Tightens to full equality as coverage
-    grows."""
+    """Interpreter fmt fields byte-exact vs the walker on every corpus WAV --
+    now FULL field equality (all variants covered: PCM, cb_size, ADPCM, IMA,
+    MPEGLAYER3, EXTENSIBLE), no longer a prefix. Warnings + summary are compared
+    once PR-C produces them."""
     from acidcat.core.walk.base import Unsupported
     try:
         wlabel, wchunks, _ = walk_file(path)
@@ -115,7 +113,7 @@ def test_wav_fmt_corpus_equivalence(path):
     assert gf is not None, "interpreter found no fmt chunk"
     keys = ("off", "len", "name", "value", "note", "enc", "raw")
     assert [{k: f.get(k) for k in keys} for f in gf] == \
-           [{k: f.get(k) for k in keys} for f in wf[:len(gf)]]
+           [{k: f.get(k) for k in keys} for f in wf]
 
 
 @pytest.mark.parametrize("path", _corpus_wavs())
@@ -252,6 +250,60 @@ def test_mpeglayer3_variant_matches_walker(tmp_path):
     fields = _assert_fmt_matches_walker(tmp_path, "mp3", fmt_payload)
     assert [f["name"] for f in fields][-5:] == [
         "mp3_id", "mp3_flags", "block_size", "frames_per_block", "codec_delay"]
+
+
+def test_adpcm_variant_matches_walker(tmp_path):
+    """MS ADPCM (tag 0x0002): decode helper #1 -- composite coefficient field,
+    standard-predictor-set detection, byte-exact vs the walker."""
+    std = [(256, 0), (512, -256), (0, 0), (192, 64), (240, 0),
+           (460, -208), (392, -232)]
+    coefs = b"".join(struct.pack("<hh", a, b) for a, b in std)
+    ext = struct.pack("<HH", 512, len(std)) + coefs          # spb, ncoef=7, coefs
+    fmt_payload = (struct.pack("<HHIIHH", 0x0002, 2, 44100, 44100, 4, 4)
+                   + struct.pack("<H", len(ext)) + ext)
+    fields = _assert_fmt_matches_walker(tmp_path, "adpcm", fmt_payload)
+    coef = next(f for f in fields if f["name"] == "adpcm_coefficients")
+    assert coef["note"] == "the standard predictor set"
+
+
+def test_extensible_variant_matches_walker(tmp_path):
+    """WAVEFORMATEXTENSIBLE (tag 0xFFFE): decode helper #2 -- GUID sub_format,
+    channel_mask NoteFlags, and the later-field-wins ctx override, byte-exact."""
+    from acidcat.core.vocab import KSDATAFORMAT_TAIL
+    sub = struct.pack("<H", 1) + KSDATAFORMAT_TAIL           # PCM subtype, std tail
+    ext = struct.pack("<HI", 16, 0x3) + sub                 # valid_bits, mask=FL|FR
+    fmt_payload = (struct.pack("<HHIIHH", 0xFFFE, 2, 44100, 176400, 4, 16)
+                   + struct.pack("<H", 22) + ext)
+    p = tmp_path / "ext.wav"
+    p.write_bytes(_wav_with_fmt(fmt_payload))
+    fields = _assert_fmt_matches_walker(tmp_path, "ext", fmt_payload)
+    assert [f["name"] for f in fields][-4:] == [
+        "cb_size", "valid_bits_per_sample", "channel_mask", "sub_format"]
+    assert next(f for f in fields if f["name"] == "sub_format")["note"] \
+        == "KSDATAFORMAT_SUBTYPE"
+    ctx = {}
+    interpret(WAVE, str(p), ctx=ctx)          # override: GUID's tag, not 0xFFFE
+    assert ctx["format_tag"] == 1
+
+
+def test_cb_window_zero_emits_no_variant(tmp_path):
+    """cb_size=0 with trailing payload bytes parses NO variant -- the window
+    bounds the case, not the remaining payload (byte-exact with the walker)."""
+    fmt_payload = (struct.pack("<HHIIHH", 0x0011, 2, 44100, 44100, 4, 4)
+                   + struct.pack("<H", 0) + b"\xAA\xBB\xCC\xDD")
+    fields = _assert_fmt_matches_walker(tmp_path, "cb0", fmt_payload)
+    assert "samples_per_block" not in [f["name"] for f in fields]
+
+
+def test_short_extensible_emits_no_variant(tmp_path):
+    """A 36-byte EXTENSIBLE (len < 40) emits 0 ext fields all-or-nothing, never
+    a partial group, exactly like the walker."""
+    fmt_payload = (struct.pack("<HHIIHH", 0xFFFE, 2, 44100, 176400, 4, 16)
+                   + struct.pack("<H", 18) + b"\x00" * 18)
+    fields = _assert_fmt_matches_walker(tmp_path, "shortext", fmt_payload)
+    assert [f["name"] for f in fields] == [
+        "format_tag", "channels", "sample_rate", "avg_bytes_per_sec",
+        "block_align", "bits_per_sample"]
 
 
 def test_truncated_fmt_matches_walker(tmp_path):
