@@ -568,12 +568,17 @@ def inspect_wav(filepath, ctx=None):
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
                     f"but only {avail:,} remain"
                 )
-            f.seek(offset + 8)
-            payload = f.read(min(size, _PAYLOAD_CAP))
+            parser = _PARSERS.get(cid)
+            # _parse_data derives frames/duration from size + ctx and never reads
+            # the payload, so skip the (up to 64 KB) read + transient alloc there
+            if cid == "data":
+                payload = b""
+            else:
+                f.seek(offset + 8)
+                payload = f.read(min(size, _PAYLOAD_CAP))
 
             entry = {"id": cid, "offset": offset, "size": size,
                      "summary": "", "fields": [], "warnings": []}
-            parser = _PARSERS.get(cid)
             if cid == "data":
                 # remember the data chunk's absolute payload offset so a later
                 # cue chunk can resolve its sample-frame markers to byte offsets
