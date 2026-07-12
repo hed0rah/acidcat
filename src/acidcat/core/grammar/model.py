@@ -151,9 +151,45 @@ class Switch:
 
 
 @dataclass
+class Helper:
+    """A named decode helper (grammar.helpers._HELPERS): the budgeted escape
+    hatch for irregular decode. Counts against the measurable helper budget."""
+
+    name: str
+
+
+def _validate_entries(region_id, entries, declared):
+    """Every guard/switch reference must point at an earlier-declared field in
+    the same scope, so a typo'd field name fails at Format construction instead
+    of silently omitting a guarded field forever. Cases validate against a copy
+    (a name declared in one arm does not leak to a sibling)."""
+    for e in entries:
+        if isinstance(e, Switch):
+            for ref in (e.on, e.window):
+                if ref is not None and ref not in declared:
+                    raise ValueError(f"region {region_id!r}: Switch references "
+                                     f"undeclared field {ref!r}")
+            for case in e.cases.values():
+                _validate_entries(region_id, case.fields, set(declared))
+        elif isinstance(e, Helper):
+            continue
+        else:  # Field
+            for g in e.when:
+                ref = getattr(g, "field", None)
+                if ref is not None and ref not in declared:
+                    raise ValueError(f"region {region_id!r}: guard on {e.name!r} "
+                                     f"references undeclared field {ref!r}")
+            declared.add(e.name)
+
+
+@dataclass
 class Format:
     """A file format as data: a container strategy + per-region specs."""
 
     name: str             # display label when the strategy offers none
     container: str        # strategy id in grammar.strategies.STRATEGIES
     regions: dict         # exact region id -> Region
+
+    def __post_init__(self):
+        for rid, region in self.regions.items():
+            _validate_entries(rid, getattr(region, "fields", ()), set())

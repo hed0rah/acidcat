@@ -6,8 +6,8 @@ avg_bytes_per_sec. The scan/index path reads these keys downstream; a wrong
 name here would silently break indexing parity later.
 """
 
-from acidcat.core.grammar.model import (Case, Cmp, Field, Format, NoteLookup,
-                                        Region, Switch)
+from acidcat.core.grammar.model import (Case, Cmp, Field, Format, Helper,
+                                        NoteFlags, NoteLookup, Region, Switch)
 from acidcat.core.grammar.types import Enum, Hex, Int
 
 WAVE = Format(name="RIFF/WAVE", container="iff", regions={
@@ -27,6 +27,11 @@ WAVE = Format(name="RIFF/WAVE", container="iff", regions={
                   when=(Cmp("format_tag", "!=", 0xFFFE),)),
             # tag-dependent extension, parsed within the cb_size window
             Switch(on="format_tag", window="cb_size", cases={
+                0x0002: Case(min_window=4, fields=(       # MS ADPCM
+                    Field("samples_per_block", Int(2)),
+                    Field("num_coef_pairs",    Int(2)),
+                    Helper("wav_adpcm_coefs"),
+                )),
                 0x0011: Case(min_window=2, fields=(       # IMA/DVI ADPCM
                     Field("samples_per_block", Int(2)),
                 )),
@@ -36,6 +41,19 @@ WAVE = Format(name="RIFF/WAVE", container="iff", regions={
                     Field("block_size",       Int(2), note="bytes/frame"),
                     Field("frames_per_block", Int(2)),
                     Field("codec_delay",      Int(2), note="samples"),
+                )),
+            }),
+            # EXTENSIBLE is windowless: the walker reads valid_bits/mask/sub at
+            # fixed offsets, guarded by len(b) >= 40 (Remaining >= 24 at pos 0x10),
+            # ignoring cb_size. The sub_format helper does the later-field-wins
+            # ctx["format_tag"] = sub_tag override.
+            Switch(on="format_tag", cases={
+                0xFFFE: Case(min_window=24, fields=(
+                    Field("cb_size",               Int(2)),
+                    Field("valid_bits_per_sample", Int(2)),
+                    Field("channel_mask",          Hex(4),
+                          note=NoteFlags("wav_speaker_positions")),
+                    Helper("wav_ext_subformat"),
                 )),
             }),
         )),
