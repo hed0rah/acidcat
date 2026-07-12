@@ -101,6 +101,13 @@ def _described_ids():
             if getattr(r, "kind", None) == "struct"}
 
 
+def _is_walk_scope(chunk_id, warning):
+    """A walk-scope output (design doc section 6.0): produced by walk state, not
+    the region's own bytes, so it stays walker-only. acid's duration-drift lint
+    (acid.drift <- data.duration, order-dependent) is the one such edge in WAV."""
+    return chunk_id.strip() == "acid" and warning.startswith("acid says")
+
+
 @pytest.mark.parametrize("path", _corpus_wavs())
 def test_wav_described_regions_deep_equal(path):
     """Full deep-equal on every DESCRIBED region (fmt, inst, acid) vs the walker:
@@ -127,7 +134,13 @@ def test_wav_described_regions_deep_equal(path):
         assert [{k: f.get(k) for k in keys} for f in gc["fields"]] == \
                [{k: f.get(k) for k in keys} for f in wc["fields"]], tag
         assert gc["summary"] == wc["summary"], tag
-        assert set(gc["warnings"]) == set(wc["warnings"]), tag
+        gwarns, wwarns = set(gc["warnings"]), set(wc["warnings"])
+        # directional walk-scope handling: the interpreter must be provably
+        # SILENT on walk-scope outputs, and the walker's are filtered out before
+        # the in-scope comparison (not filtered from both sides -- see design doc)
+        assert not any(_is_walk_scope(tag, w) for w in gwarns), \
+            (tag, "interpreter emitted a walk-scope output")
+        assert {w for w in wwarns if not _is_walk_scope(tag, w)} == gwarns, tag
     assert set(gfile) == set(wfile)
 
 
@@ -340,6 +353,35 @@ def test_inst_chunk_matches_walker(tmp_path):
     assert [{k: f.get(k) for k in keys} for f in gi["fields"]] == \
            [{k: f.get(k) for k in keys} for f in wi["fields"]]
     assert gi["summary"] == wi["summary"]
+
+
+def test_acid_chunk_matches_walker_with_drift(tmp_path):
+    """acid: fixed struct exercising Float, padded Hex, NoteFlags, NoteFunc,
+    Valid, and the publish category -- byte-exact vs the walker. Includes the
+    drift-lint case: data precedes acid, so the walker fires the WALK-SCOPE drift
+    warning; the interpreter is provably silent on it and the harness reconciles
+    directionally."""
+    fmt_payload = struct.pack("<HHIIHH", 1, 2, 44100, 176400, 4, 16)
+    # flags=root-set, root=60, q1, q2=1.5, 4 beats, 4/4, tempo=120 -> expected 2 s
+    acid_payload = struct.pack("<IHHfIHHf", 0x02, 60, 0x1234, 1.5, 4, 4, 4, 120.0)
+    fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt_payload
+    data_chunk = b"data" + struct.pack("<I", 8) + b"\x00" * 8       # ~0 s of audio
+    acid_chunk = b"acid" + struct.pack("<I", 24) + acid_payload
+    body = b"WAVE" + fmt_chunk + data_chunk + acid_chunk            # data BEFORE acid
+    p = tmp_path / "acid.wav"
+    p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    _, gchunks, _ = interpret(WAVE, str(p))
+    _, wchunks, _ = walk_file(str(p))
+    ga = next(c for c in gchunks if c["id"] == "acid")
+    wa = next(c for c in wchunks if c["id"] == "acid")
+    keys = ("off", "len", "name", "value", "note", "enc", "raw")
+    assert [{k: f.get(k) for k in keys} for f in ga["fields"]] == \
+           [{k: f.get(k) for k in keys} for f in wa["fields"]]
+    assert ga["summary"] == wa["summary"]
+    assert any(w.startswith("acid says") for w in wa["warnings"])       # walker fired
+    assert not any(w.startswith("acid says") for w in ga["warnings"])   # interp silent
+    assert {w for w in wa["warnings"] if not w.startswith("acid says")} \
+        == set(ga["warnings"])
 
 
 def test_truncated_fmt_matches_walker(tmp_path):

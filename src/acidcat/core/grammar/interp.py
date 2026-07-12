@@ -15,8 +15,8 @@ a place to grow without reshaping the API.
 
 from acidcat.core.walk.base import _f
 
-from acidcat.core.grammar.helpers import (_HELPERS, _NOTEFUNCS, _RELATIONS,
-                                          _SUMMARIES)
+from acidcat.core.grammar.helpers import (_HELPERS, _NOTEFUNCS, _PUBLISH,
+                                          _RELATIONS, _SUMMARIES)
 from acidcat.core.grammar.model import Helper, NoteFunc, Switch
 from acidcat.core.grammar.strategies import STRATEGIES
 
@@ -70,7 +70,9 @@ def _parse_struct(spec, payload, ctx):
     local = {}
     fields, warns, _pos = _parse_entries(spec.fields, payload, 0, local, ctx)
     for rel in spec.relations:
-        warns += _RELATIONS[rel](local)
+        warns += _RELATIONS[rel](local, ctx)
+    if spec.publish:
+        ctx.update(_PUBLISH[spec.publish](local))
     summary = _SUMMARIES[spec.summary](local) if spec.summary else ""
     return summary, fields, warns
 
