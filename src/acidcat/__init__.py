@@ -47,13 +47,21 @@ from acidcat.core.constraints import (  # noqa: E402,F401
 )
 from acidcat.core.anomalies import scan as anomalies_scan  # noqa: E402,F401
 
+# metadata read/write + the brand theme: public entry points so tools built on
+# acidcat use these instead of reaching into core/commands internals.
+from acidcat.core.edits import edit_metadata, EditError  # noqa: E402,F401
+from acidcat.core.tagged import read_tags  # noqa: E402,F401
+from acidcat.core.mp3 import read_id3v2, list_id3v2_frames  # noqa: E402,F401
+from acidcat import tui_theme  # noqa: E402,F401
+
 # ``walk`` is the public name; ``walk_file`` stays as an alias.
 walk = walk_file
 
 __all__ = [
     "__version__",
     "walk", "walk_file", "Unsupported",
-    "probe", "viz",
+    "probe", "viz", "tui_theme",
     "analyze", "repair", "Report", "Violation",
     "anomalies_scan",
+    "edit_metadata", "EditError", "read_tags", "read_id3v2", "list_id3v2_frames",
 ]

@@ -10,7 +10,9 @@ the caller adds color. No third-party imports.
   windowed_entropy(data, n)    -> n Shannon-entropy samples (bits/byte, 0..8)
   hilbert_grid(data, order)    -> (side x side) grid of mean bytes along a
                                   Hilbert curve, so adjacent offsets stay adjacent
-  byte_class(b)                -> a (glyph, hex_color) for a byte's binvis class
+  byte_class(b)                -> a (glyph, class_name) for a byte's binvis class
+                                  (class_name is a tui_theme.BYTE_CLASS key; color
+                                  lives in the theme, not here)
 """
 
 import math
@@ -146,14 +148,16 @@ def hilbert_grid(data, order=5):
 
 # byte class -> (glyph for no-color terminals, hex color for color terminals)
 def byte_class(b):
+    """(glyph, class) for a byte's binvis class. class is a tui_theme.BYTE_CLASS
+    key; color lives in the theme so core stays presentation-free."""
     if b is None:
-        return " ", "#0c0f11"                  # empty
+        return " ", "empty"
     if b == 0x00:
-        return ".", "#20242a"                  # null
+        return ".", "null"
     if b == 0xFF:
-        return "#", "#e07e7e"                  # 0xFF
+        return "#", "ff"
     if 0x20 <= b <= 0x7E:
-        return "o", "#4ec9e0"                  # printable ascii
+        return "o", "ascii"
     if b < 0x20:
-        return "-", "#7ee08f"                  # control / whitespace
-    return "+", "#e0c04e"                       # high bytes
+        return "-", "ctrl"
+    return "+", "high"

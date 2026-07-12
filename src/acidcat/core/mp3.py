@@ -106,6 +106,58 @@ def read_id3v2(filepath):
             "size": size, "total": total, "has_footer": has_footer}
 
 
+_ID3_ENCODINGS = {0: "latin-1", 1: "utf-16", 2: "utf-16-be", 3: "utf-8"}
+
+
+def _id3_frame_text(fid, body):
+    """Decoded text of a T*/W* ID3v2 frame body, or None for a binary frame."""
+    if not body:
+        return None
+    if fid.startswith("T"):
+        codec = _ID3_ENCODINGS.get(body[0], "latin-1")
+        try:
+            return body[1:].decode(codec, "replace").strip("\x00")
+        except Exception:
+            return body[1:].decode("latin-1", "replace").strip("\x00")
+    if fid.startswith("W"):
+        return body.decode("latin-1", "replace").strip("\x00")
+    return None
+
+
+def list_id3v2_frames(path, max_bytes=8 * 1024 * 1024):
+    """List ID3v2 frame records at the head of the file, or [] if no tag. Each is
+    a dict {id, version, offset, size, flags, encoding, text}: text is the decoded
+    value for T*/W* frames else None; encoding is the text-encoding byte for T*
+    frames else None; flags is b"" on v2.2. max_bytes caps the read (a hostile
+    synchsafe size can claim 256 MB)."""
+    tag = read_id3v2(path)
+    if not tag:
+        return []
+    major = tag["major"]
+    with open(path, "rb") as fh:
+        data = fh.read(min(10 + tag["size"], max_bytes))
+    pos, end = 10, min(len(data), 10 + tag["size"])
+    idlen, hdrlen = (3, 6) if major == 2 else (4, 10)
+    out = []
+    while pos + hdrlen <= end and len(out) < 512:
+        fid = data[pos:pos + idlen]
+        if not fid.strip(b"\x00") or fid[0] < 0x30:       # padding / end of frames
+            break
+        szraw = data[pos + idlen:pos + idlen + (3 if major == 2 else 4)]
+        size = synchsafe(szraw) if major == 4 else int.from_bytes(szraw, "big")
+        flags = data[pos + idlen + (3 if major == 2 else 4):pos + hdrlen] if major != 2 else b""
+        if size <= 0 or pos + hdrlen + size > end + 1:
+            break
+        body = data[pos + hdrlen:pos + hdrlen + size]
+        fs = fid.decode("latin-1", "replace")
+        out.append({"id": fs, "version": major, "offset": pos, "size": size,
+                    "flags": flags,
+                    "encoding": (body[0] if fs.startswith("T") and body else None),
+                    "text": _id3_frame_text(fs, body)})
+        pos += hdrlen + size
+    return out
+
+
 def decode_frame_header(b4, allow_free=False):
     """Decode a 4-byte MPEG audio frame header.
 
