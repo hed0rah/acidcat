@@ -15,7 +15,7 @@ a place to grow without reshaping the API.
 
 from acidcat.core.walk.base import _f
 
-from acidcat.core.grammar.helpers import _HELPERS
+from acidcat.core.grammar.helpers import _HELPERS, _RELATIONS, _SUMMARIES
 from acidcat.core.grammar.model import Helper, Switch
 from acidcat.core.grammar.strategies import STRATEGIES
 
@@ -27,7 +27,8 @@ def interpret(fmt, filepath, ctx=None):
     if ctx is None:
         ctx = {}
     strat = STRATEGIES[fmt.container]
-    label = strat.label(filepath) or fmt.name
+    raw_label = strat.label(filepath)     # None when the header is not this format
+    label = raw_label or fmt.name
     regions, warns = strat.regions(filepath)
     chunks = []
     for r in regions:
@@ -49,17 +50,28 @@ def interpret(fmt, filepath, ctx=None):
             entry["summary"], entry["fields"], entry["warnings"] = \
                 _parse_struct(spec, r.payload, ctx)
         chunks.append(entry)
+    # format-level rules only when the header was recognized as this format --
+    # the walker returns early (no format rules) on an unrecognizable container
+    if raw_label is not None:
+        seen = [c["id"] for c in chunks]
+        for rule in fmt.rules:
+            w = rule.check(seen)
+            if w:
+                warns.append(w)
     return label, chunks, warns
 
 
 def _parse_struct(spec, payload, ctx):
     """Parse an ordered struct region -> (summary, fields, warns). ``local``
-    holds this region's raw values by name for guard/switch evaluation; ``ctx``
-    is the file-global semantic channel. summary/warns gain producers in Phase 1
-    (Valid, relation + summary helpers); for now they stay empty."""
+    holds this region's raw values by name for guards/switches, Valid, and the
+    relation + summary helpers (which read local, not ctx, so the EXTENSIBLE
+    override does not perturb them); ``ctx`` is the file-global channel."""
     local = {}
     fields, warns, _pos = _parse_entries(spec.fields, payload, 0, local, ctx)
-    return "", fields, warns
+    for rel in spec.relations:
+        warns += _RELATIONS[rel](local)
+    summary = _SUMMARIES[spec.summary](local) if spec.summary else ""
+    return summary, fields, warns
 
 
 def _parse_entries(entries, payload, pos, local, ctx):
@@ -91,6 +103,10 @@ def _parse_entries(entries, payload, pos, local, ctx):
         # carries neither key, exactly like the walkers' _f calls
         fields.append(_f(pos, n, fd.name, disp, note, enc=enc,
                          raw=raw if enc is not None else None))
+        if fd.valid is not None:      # plausibility range -> warning, never raise
+            w = fd.valid.check(raw)
+            if w:
+                warns.append(w)
         local[fd.name] = raw
         if fd.ctx:
             ctx[fd.ctx] = raw         # published under the walker's semantic key

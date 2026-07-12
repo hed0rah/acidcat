@@ -7,17 +7,22 @@ name here would silently break indexing parity later.
 """
 
 from acidcat.core.grammar.model import (Case, Cmp, Field, Format, Helper,
-                                        NoteFlags, NoteLookup, Region, Switch)
+                                        NoteFlags, NoteLookup, Order, Region,
+                                        Requires, Switch, Valid)
 from acidcat.core.grammar.types import Enum, Hex, Int
 
 WAVE = Format(name="RIFF/WAVE", container="iff", regions={
     "fmt ": Region(
         kind="struct", min_len=16,
         min_len_msg="fmt payload is {n} bytes, spec minimum is {min}",
+        relations=("wav_fmt_relations",), summary="wav_fmt_summary",
         fields=(
             Field("format_tag",        Enum(Int(2), "wave_format_tags"), ctx="format_tag"),
-            Field("channels",          Int(2),                           ctx="channels"),
-            Field("sample_rate",       Int(4), note="Hz",                ctx="sample_rate"),
+            Field("channels",          Int(2),                           ctx="channels",
+                  valid=Valid("{v} channels is implausibly high", max=64)),
+            Field("sample_rate",       Int(4), note="Hz",                ctx="sample_rate",
+                  valid=Valid("sample_rate {v} Hz is outside any plausible range",
+                              min=1000, max=768000, skip_zero=True)),
             Field("avg_bytes_per_sec", Int(4)),
             Field("block_align",       Int(2),                           ctx="block_align"),
             Field("bits_per_sample",   Int(2),                           ctx="bits"),
@@ -58,4 +63,9 @@ WAVE = Format(name="RIFF/WAVE", container="iff", regions={
             }),
         )),
     "data": Region(kind="payload"),
-})
+}, rules=(
+    Requires("fmt ", "no fmt chunk: not decodable as audio"),
+    Requires("data", "no data chunk: no audio payload"),
+    Order("fmt ", "data",
+          "fmt appears after data, violating the one RIFF ordering rule"),
+))

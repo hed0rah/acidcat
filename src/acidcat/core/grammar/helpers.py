@@ -65,3 +65,37 @@ _HELPERS = {
     "wav_adpcm_coefs": _wav_adpcm_coefs,
     "wav_ext_subformat": _wav_ext_subformat,
 }
+
+
+# ── relation + summary helpers ─────────────────────────────────────────────
+# signature (local) -> warns / str: NO payload, so they cannot decode bytes --
+# the signature is the category boundary. They read the region-LOCAL dict, which
+# keeps the ORIGINAL format_tag (the EXTENSIBLE ctx override touches only ctx),
+# so an EXTENSIBLE-with-PCM-GUID file does not fire the tag==1 lints or a "PCM"
+# summary the walker never emits.
+
+def _wav_fmt_relations(local):
+    """The two arithmetic-relation lints, gated on the original tag == 1."""
+    tag = local.get("format_tag")
+    ch = local.get("channels")
+    bits = local.get("bits_per_sample")
+    align = local.get("block_align")
+    rate = local.get("sample_rate")
+    avg = local.get("avg_bytes_per_sec")
+    warns = []
+    if tag == 1 and ch and bits and align != ch * bits // 8:
+        warns.append(f"block_align {align} != channels*bits/8 = {ch * bits // 8}")
+    if tag == 1 and rate and align and avg != rate * align:
+        warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
+    return warns
+
+
+def _wav_fmt_summary(local):
+    tag = local.get("format_tag")
+    tag_name = WAVE_FORMAT_TAGS.get(tag, f"unknown 0x{tag:04x}")
+    return (f"{tag_name} {local.get('bits_per_sample')}-bit "
+            f"{local.get('channels')}ch {local.get('sample_rate')} Hz")
+
+
+_RELATIONS = {"wav_fmt_relations": _wav_fmt_relations}
+_SUMMARIES = {"wav_fmt_summary": _wav_fmt_summary}
