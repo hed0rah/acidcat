@@ -33,6 +33,7 @@ from acidcat.core.walk import walk_file, Unsupported
 from acidcat.core import anomalies as ac_anom
 from acidcat.core import writer
 from acidcat.core import viz
+from acidcat.util import play
 from acidcat.core.edits import EditError
 from acidcat.commands.write import _edit as _write_edit, _strip as _write_strip
 
@@ -347,6 +348,7 @@ class HelpScreen(ModalScreen):
             ("x", "follow a pointer field to where it points (flags dangling)"),
             ("m", "byte map: where the file's bytes go, biggest regions first"),
             ("b", "byte view: cycle hex / entropy / hilbert / histogram of the file"),
+            ("p", "play the selected region as raw PCM (. stops); needs ffplay"),
             ("v", "validate structure: constraint violations, r to repair them"),
             ("y", "yank the selected bytes as hex to the clipboard"),
             ("d", "review all pending changes (offset old->new) before save"),
@@ -539,6 +541,8 @@ class AcidcatTUI(App):
         ("d", "diff", "pending changes"),
         ("m", "map", "byte map"),
         ("b", "cycle_view", "byte view"),
+        ("p", "play", "play region"),
+        ("full_stop", "stop_play", "stop"),
         ("v", "validate", "validate"),
         ("ctrl+s", "save", "save"),
         ("ctrl+z", "undo", "undo"),
@@ -593,6 +597,7 @@ class AcidcatTUI(App):
         self._xref = {}           # id(field node) -> absolute target offset (pointer)
         self._view = "hex"        # byte-view mode: hex | entropy | hilbert | histogram
         self._cur_region = (None, None, ACCENT)  # last shown (off, length, accent)
+        self._play = None         # handle to a running audio-audition process
 
     def compose(self) -> ComposeResult:
         yield Static(id="title")
@@ -617,6 +622,7 @@ class AcidcatTUI(App):
             self.action_open()
 
     def on_unmount(self):
+        self.action_stop_play()
         self._discard_work()
 
     # ── working copy: all edits apply to a temp file until an explicit save ──
@@ -1052,6 +1058,52 @@ class AcidcatTUI(App):
         for row in viz.byte_histogram(data, width=self._viz_width(), height=8):
             t.append(row + "\n", style=ACCENT)
         return t
+
+    def action_play(self):
+        """Audition the selected region's bytes as raw PCM (p); '.' stops."""
+        if not play.have_audio():
+            self.notify("no audio player found (install ffmpeg for ffplay)",
+                        severity="warning")
+            return
+        off, length, _ = self._cur_region
+        if off is None or not length:
+            self.notify("highlight a region with bytes to play", severity="warning")
+            return
+        data = _read(self.work, off, min(length, 4 * 1024 * 1024))
+        rate, ch, bits, floating = self._audio_params()
+        self.action_stop_play()
+        self._play = play.play_bytes(data, rate=rate, ch=ch, bits=bits, floating=floating)
+        secs = len(data) / max(1, rate * ch * (bits // 8))
+        self.notify(f"playing {len(data):,} bytes as {rate} Hz {ch}ch {bits}-bit "
+                    f"(~{secs:.1f}s) -- . to stop")
+
+    def action_stop_play(self):
+        if getattr(self, "_play", None):
+            play.stop(self._play)
+            self._play = None
+
+    def _audio_params(self):
+        """(rate, channels, bits, floating) from the file's fmt/COMM chunk, or
+        sensible defaults for reinterpreting arbitrary bytes as PCM."""
+        rate, ch, bits, floating = 44100, 1, 16, False
+        for c in self.chunks:
+            if str(c.get("id", "")).strip() not in ("fmt", "COMM"):
+                continue
+            for f in c.get("fields", []):
+                n, v = f.get("name", ""), f.get("value")
+                try:
+                    if n == "sample_rate":
+                        rate = int(v) or rate
+                    elif n in ("channels", "num_channels"):
+                        ch = int(v) or ch
+                    elif n == "bits_per_sample":
+                        bits = int(v) or bits
+                    elif n == "format_tag" and "float" in str(f.get("note", "")).lower():
+                        floating = True
+                except (ValueError, TypeError):
+                    pass
+            break
+        return rate, ch, max(8, bits), floating
 
     def action_help(self):
         self.push_screen(HelpScreen())
