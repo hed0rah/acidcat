@@ -14,6 +14,9 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   downstream tools use public names instead of reaching into `commands` / `core`
   internals. The metadata-edit dispatcher moved from `commands/write` to
   `core/edits.edit_metadata`.
+- TUI (`acidcat tui`): byte-view modes (`b` cycles hex / entropy / hilbert /
+  histogram of the file), region audition (`p` plays the selected chunk as raw
+  PCM via ffplay, `.` stops), and per-field hex tinting in the chunk view.
 
 ### Changed
 
