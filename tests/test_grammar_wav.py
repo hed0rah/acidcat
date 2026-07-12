@@ -6,6 +6,8 @@ scope, closed in Phase 1):
 
 - the walker gives `data` a computed summary (duration/frames); the
   interpreter yields the unparsed hex preview,
+- the walker gives a struct chunk a summary (fmt -> "PCM 16-bit 2ch 44100 Hz");
+  the interpreter leaves summary "" until summary helpers land in Phase 1,
 - the walker's truncated-fmt path is all-or-nothing (<16 bytes -> 0 fields
   plus a "truncated" summary); the interpreter emits the fields that fit
   (Region.min_len closes this).
@@ -56,15 +58,22 @@ def test_wav_fmt_hermetic_exact(tmp_path):
     ]
 
 
-def test_wav_ctx_semantic_keys(tmp_path):
-    """ctx publishes under the walker's semantic names ("bits"), and only
-    for fields that declare a key (avg_bytes_per_sec publishes none)."""
+def test_wav_ctx_matches_walker(tmp_path):
+    """Comparative parity: every ctx key the descriptor publishes carries the
+    same value the walker publishes for that key on the same file. Enforced
+    against the walker, not a hard-coded literal, so the two cannot drift."""
+    from acidcat.core.walk.wav import inspect_wav
     p = tmp_path / "ctx.wav"
     p.write_bytes(_make_riff_wav(channels=2))
-    ctx = {}
-    interpret(WAVE, str(p), ctx=ctx)
-    assert ctx == {"format_tag": 1, "channels": 2, "sample_rate": 44100,
-                   "block_align": 4, "bits": 16}
+    wctx = {}
+    inspect_wav(str(p), ctx=wctx)
+    gctx = {}
+    interpret(WAVE, str(p), ctx=gctx)
+    published = {f.ctx for r in WAVE.regions.values()
+                 for f in getattr(r, "fields", ()) if f.ctx}
+    assert published, "descriptor publishes no ctx keys"
+    for k in published:
+        assert gctx.get(k) == wctx.get(k), k
 
 
 # the local corpus sweep (~/sample_packs on the dev box); absent on CI, where
@@ -105,6 +114,60 @@ def test_wav_fmt_corpus_equivalence(path):
     keys = ("off", "len", "name", "value", "note", "enc", "raw")
     assert [{k: f.get(k) for k in keys} for f in wf[:6]] == \
            [{k: f.get(k) for k in keys} for f in gf[:6]]
+
+
+@pytest.mark.parametrize("path", _corpus_wavs())
+def test_ctx_keys_covers_walker(path):
+    """CTX_KEYS must stay a superset of every semantic ctx key the walker
+    publishes, so the descriptor vocabulary cannot silently fall behind the
+    walker (a published-but-unsanctioned key would reject a valid future
+    descriptor field at construction). Self-maintaining across the corpus,
+    which exercises smpl/acid/cue/fact chunks a hermetic file does not."""
+    from acidcat.core.walk.wav import inspect_wav
+    from acidcat.core.vocab import CTX_KEYS
+    ctx = {}
+    inspect_wav(path, ctx=ctx)  # non-WAV degrades to an empty ctx (passes)
+    missing = set(ctx) - set(CTX_KEYS)
+    assert not missing, f"walker publishes ctx keys not in CTX_KEYS: {missing}"
+
+
+def _skeleton(chunks):
+    """(id, offset, size, normalized payload_base) per chunk -- the traversal
+    skeleton, independent of any field-level parsing. payload_base is
+    normalized to the offset+8 default the walkers omit (design section 7)."""
+    return [(str(c["id"]), c["offset"], c["size"],
+             c.get("payload_base", c["offset"] + 8)) for c in chunks]
+
+
+def test_wav_chunk_skeleton_hermetic(tmp_path):
+    """The interpreter enumerates the walker's exact chunk skeleton (fmt +
+    data here), covering the whole file, not just fmt's fields."""
+    p = tmp_path / "skeleton.wav"
+    p.write_bytes(_make_riff_wav(channels=2))
+    _, wchunks, _ = walk_file(str(p))
+    _, gchunks, _ = interpret(WAVE, str(p))
+    assert _skeleton(gchunks) == _skeleton(wchunks)
+
+
+@pytest.mark.parametrize("path", _corpus_wavs())
+def test_wav_chunk_skeleton_parity(path):
+    """Every corpus WAV: the interpreter enumerates exactly the walker's
+    chunks -- same ids, offsets, sizes, payload bases -- which locks in the
+    single shared traversal (core/riff.iter_spans over iter_chunks) at corpus
+    scale, including the EXTENSIBLE/ADPCM files the fmt-field test skips. Also
+    asserts the interpreter invents no traversal warning the walker lacks (the
+    interpreter emits the traversal subset; format-rule warnings -- no fmt, fmt
+    after data -- are walker-only until Phase 1)."""
+    from acidcat.core.walk.base import Unsupported
+    try:
+        wlabel, wchunks, wwarns = walk_file(path)
+    except Unsupported:
+        pytest.skip("walker does not decode this file")
+    if wlabel != "RIFF/WAVE":
+        pytest.skip(f"sniffed as {wlabel}, not plain RIFF/WAVE")
+    _, gchunks, gwarns = interpret(WAVE, path)
+    assert _skeleton(gchunks) == _skeleton(wchunks)
+    assert set(gwarns) <= set(wwarns)
 
 
 def _assert_encs_verify(path):
