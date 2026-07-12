@@ -13,10 +13,55 @@ JSON and tag-library formats where correctness is straightforward.
 import json
 import os
 import tempfile
+from typing import NamedTuple
 
 
 class EditError(ValueError):
     """A requested edit cannot be applied (unsupported field, wrong format, ...)."""
+
+
+class EditResult(NamedTuple):
+    """Result of edit_metadata. fmt is a display label (not an identifier -- do
+    not branch on it); data is the complete new file image; applied is a list of
+    (field, old, new) tuples."""
+    fmt: str
+    data: bytes
+    applied: list
+
+
+def edit_metadata(path, changes):
+    """Apply metadata field changes to the file at path and return EditResult.
+
+    changes maps {field: new_value}; a value of None clears/deletes that field.
+    Raises EditError for an unsupported file type. The format dispatch lives here
+    (not in the CLI) so any caller gets a stable public entry point; bytes are
+    returned in memory (backup/commit policy is the caller's)."""
+    with open(path, "rb") as f:
+        data = f.read()
+    ext = os.path.splitext(path)[1].lower()
+    head = data[:16]
+    if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
+        return EditResult("Vital preset", *edit_vital(data, changes))
+    if head[:4] == b"BtWg":
+        return EditResult("Bitwig preset (experimental)", *edit_bitwig(data, changes))
+    if head[12:16] == b"hsin" or head[:4] == b"-in-" \
+            or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"):
+        return EditResult("NI preset (experimental)", *edit_ni(data, changes))
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        try:
+            from acidcat.core import edit_riff
+        except ImportError:
+            raise EditError("WAV editing is not available in this build")
+        return EditResult("WAV", *edit_riff.edit_wav(data, changes))
+    if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
+        from acidcat.core import edit_aiff
+        return EditResult("AIFF", *edit_aiff.edit_aiff(data, changes))
+    tagged = (head[:4] == b"fLaC" or head[:3] == b"ID3" or head[:4] == b"OggS"
+              or head[4:8] == b"ftyp"
+              or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
+    if tagged:
+        return EditResult("tagged audio", *edit_tagged(data, ext or ".mp3", changes))
+    raise EditError("no metadata editor for this file type")
 
 
 # ── Vital (bare JSON) ──────────────────────────────────────────────

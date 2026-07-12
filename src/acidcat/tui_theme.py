@@ -32,7 +32,7 @@ THEMES = {
                     "#D6B49E", "#E88F63", "#F56A31", "#FF4D00"],
         # byte-class colors (Hilbert / entropy byte-map, per-byte tint)
         "BYTE_CLASS": {"ascii": "#08F9DF", "high": "#FF4D00", "ctrl": "#8A9099",
-                       "null": "#3A3E45", "ff": "#FF8A5C"},
+                       "null": "#3A3E45", "ff": "#FF8A5C", "empty": "#16181C"},
     },
 }
 
@@ -73,6 +73,13 @@ def mark(text, color, bold=False):
     """Rich-markup a string: mark('data', TEAL, bold=True) -> '[b #08F9DF]data[/]'."""
     tag = ("b " if bold else "") + color
     return f"[{tag}]{text}[/]"
+
+
+def byte_color(b):
+    """Brand hex for a byte's binvis class -- composes core.viz.byte_class with
+    BYTE_CLASS. Lazy-imports viz so importing the theme stays cheap."""
+    from acidcat.core import viz
+    return BYTE_CLASS[viz.byte_class(b)[1]]
 
 
 # ── shared CSS skeleton ───────────────────────────────────────────────
