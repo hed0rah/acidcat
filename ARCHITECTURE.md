@@ -41,7 +41,7 @@ unchanged.
 5. **Index / DB / MCP** — `core/{index,indexing,registry,search}.py` (per-library
    SQLite + FTS) and `mcp_server.py` (19 tools). A **consumer** of the core; the
    core never imports it, so it is cleanly severable.
-6. **Interfaces** — `cli.py` (22 subcommands) + `commands/*.py` (one per verb);
+6. **Interfaces** — `cli.py` (24 subcommands) + `commands/*.py` (one per verb);
    `tui_app.py` (Textual inspector/editor); the public API in `acidcat/__init__`;
    console scripts `acidcat` and `acidcat-mcp`.
 
@@ -72,7 +72,7 @@ src/acidcat/
     vocab.py       core-owned value->label tables + the semantic ctx-key set
     walk/          20 format walkers + the field-model base
     grammar/       declarative descriptor engine (v0.46, opt-in)
-  commands/        22 CLI verbs
+  commands/        24 CLI verbs
   cli.py  tui_app.py  mcp_server.py  explorer.py  __init__.py
 tests/             ~0.49 test:source LOC
 docs/              architecture.md (detailed), format anatomy pages
