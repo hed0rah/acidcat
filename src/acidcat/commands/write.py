@@ -48,33 +48,9 @@ def _parse_sets(set_args):
 
 
 def _edit(path, changes):
-    """Return (format_label, new_bytes, applied) for the file, or raise EditError."""
-    with open(path, "rb") as f:
-        data = f.read()
-    ext = os.path.splitext(path)[1].lower()
-    head = data[:16]
-    if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
-        return ("Vital preset",) + edits.edit_vital(data, changes)
-    if head[:4] == b"BtWg":
-        return ("Bitwig preset (experimental)",) + edits.edit_bitwig(data, changes)
-    if head[12:16] == b"hsin" or head[:4] == b"-in-" \
-            or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"):
-        return ("NI preset (experimental)",) + edits.edit_ni(data, changes)
-    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
-        try:
-            from acidcat.core import edit_riff
-        except ImportError:
-            raise edits.EditError("WAV editing is not available in this build")
-        return ("WAV",) + edit_riff.edit_wav(data, changes)
-    if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
-        from acidcat.core import edit_aiff
-        return ("AIFF",) + edit_aiff.edit_aiff(data, changes)
-    tagged = (head[:4] == b"fLaC" or head[:3] == b"ID3" or head[:4] == b"OggS"
-              or head[4:8] == b"ftyp"
-              or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
-    if tagged:
-        return ("tagged audio",) + edits.edit_tagged(data, ext or ".mp3", changes)
-    raise edits.EditError("no metadata editor for this file type")
+    """Return (format_label, new_bytes, applied) for the file, or raise EditError.
+    Thin wrapper over the public edits.edit_metadata (EditResult unpacks the same)."""
+    return edits.edit_metadata(path, changes)
 
 
 def _strip(path):

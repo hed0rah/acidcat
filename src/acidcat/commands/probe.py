@@ -22,6 +22,7 @@ import sys
 
 from acidcat.core import probe as pr
 from acidcat.core import viz
+from acidcat.tui_theme import BYTE_CLASS
 
 
 def register(subparsers):
@@ -209,7 +210,8 @@ def run(args):
         for row in grid:
             cells = []
             for b in row:
-                glyph, hexc = viz.byte_class(b)
+                glyph, cls = viz.byte_class(b)
+                hexc = BYTE_CLASS[cls]
                 if color:
                     r, g, bl = _rgb(hexc)
                     cells.append(f"\x1b[38;2;{r};{g};{bl}m█\x1b[0m")
