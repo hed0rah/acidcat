@@ -6,23 +6,19 @@ same grammar. Where structure refuses an EOF-overrunning chunk (parks it in
 tail), clamps payloads, probes for unpadded writers, and raises on a
 sub-12-byte file, a strategy does what the walkers do: yields the lying
 chunk with its DECLARED size plus a warning, skips the pad unconditionally,
-streams payloads capped at _PAYLOAD_CAP, and degrades to warnings, never
-raises. The walkers are the equivalence oracle; the strict/lenient pair is
-the raw material for differential parsing later.
+and degrades to warnings, never raises. The walkers are the equivalence
+oracle; the strict/lenient pair is the raw material for differential parsing
+later.
+
+The iff strategy owns no traversal loop of its own: it delegates to
+core/riff.iter_spans, the single lenient RIFF/WAVE traversal that the walker
+(via iter_chunks) also enumerates through, so the chunk-walk arithmetic can
+never drift between the two. Span lives in core/riff for the same reason.
 """
 
-import os
-import struct
-from collections import namedtuple
+from acidcat.core import riff
 
-from acidcat.core.walk.base import _PAYLOAD_CAP
-
-# one traversed region of the file (named Span, not Region, to stay distinct
-# from model.Region -- the descriptor spec for a region -- which it meets in
-# the interpreter). size is the DECLARED chunk size (never clamped); payload
-# is capped at _PAYLOAD_CAP and may come up short at EOF; payload_base is the
-# absolute offset field offsets are measured from (iff: offset + 8).
-Span = namedtuple("Span", "id offset payload_base payload size")
+Span = riff.Span  # re-exported for callers that name the type
 
 
 class IffStrategy:
@@ -41,40 +37,7 @@ class IffStrategy:
         return None
 
     def regions(self, filepath):
-        file_size = os.path.getsize(filepath)
-        regions, warns = [], []
-        with open(filepath, "rb") as f:
-            hdr = f.read(12)
-            if len(hdr) < 12:
-                return [], [f"file is {len(hdr)} bytes; a RIFF header needs 12"]
-            if hdr[0:4] != b"RIFF" or hdr[8:12] != b"WAVE":
-                return [], ["not a RIFF/WAVE container"]
-            riff_size = struct.unpack("<I", hdr[4:8])[0]
-            if riff_size + 8 != file_size:
-                warns.append(
-                    f"riff_size says {riff_size + 8:,} bytes, file is "
-                    f"{file_size:,} ({file_size - riff_size - 8:+,})"
-                )
-            pos = 12
-            while pos + 8 <= file_size:
-                f.seek(pos)
-                ch = f.read(8)
-                if len(ch) < 8:
-                    break
-                cid = ch[0:4].decode("ascii", errors="ignore")
-                size = struct.unpack("<I", ch[4:8])[0]
-                avail = max(0, file_size - pos - 8)
-                if size > avail:
-                    warns.append(
-                        f"chunk {cid!r} at 0x{pos:08x} claims {size:,} bytes "
-                        f"but only {avail:,} remain"
-                    )
-                payload = f.read(min(size, _PAYLOAD_CAP))
-                regions.append(Span(cid, pos, pos + 8, payload, size))
-                pos += 8 + size
-                if size % 2 == 1:
-                    pos += 1  # word alignment, unconditional like the walker
-        return regions, warns
+        return riff.iter_spans(filepath)
 
 
 STRATEGIES = {"iff": IffStrategy()}
