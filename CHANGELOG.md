@@ -4,6 +4,29 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Added
+
+- `acidcat shape DIR` -- a fast one-line structural fingerprint per file
+  (format, key summary, chunk-id set) for specimen-hunting across a large
+  library: pipe to `sort | uniq -c` to surface the rare or malformed shapes.
+  Flags: `--fast` (header-only, no field parse), `--anomalies` (append the
+  forensic anomaly type), `--format FMT` (filter), plus
+  `--coarse` / `--no-path` / `--warn-only`.
+- `acidcat od FILE` -- an objdump-x-style colored hex view: header bytes plus
+  per-field offset / hex / decoded-value lines, opaque payloads dimmed.
+  `--color` auto/always/never, `--width N`.
+
+### Changed
+
+- Faster scanning: the WAV and AIFF walkers no longer read the audio payload
+  they never parse -- `inspect_wav` read up to 64 KB of the `data` chunk that
+  `_parse_data` ignores, and `inspect_aiff` read 64 KB of `SSND` for an 8-byte
+  header. Output is byte-for-byte identical; this drops an unnecessary read
+  plus a transient allocation per file, which matters most on cold-cache scans
+  of large libraries.
+
 ## [0.46.0] - 2026-07-11
 
 ### Added

@@ -3,7 +3,9 @@
 How acidcat is wired together: the data flow from a file on disk to a query
 result on stdout or over MCP.
 
-Last updated: 2026-07-06 for v0.17.0. The per-library layout is unchanged since
+Last updated: 2026-07-12 (v0.46.0). This is the deep per-module companion to the
+top-level ARCHITECTURE.md, which is the current high-level map. The per-library
+layout is unchanged since
 v0.5.0. The readelf-style `inspect` verb (v0.5.7) now covers 17 formats via
 from-scratch walkers in `core/walk/*` behind a registry; the v0.15.0 refactor
 moved the walkers out of `commands/inspect.py` and split the sniffer into
