@@ -70,7 +70,7 @@ def test_wav_ctx_matches_walker(tmp_path):
     gctx = {}
     interpret(WAVE, str(p), ctx=gctx)
     published = {f.ctx for r in WAVE.regions.values()
-                 for f in getattr(r, "fields", ()) if f.ctx}
+                 for f in getattr(r, "fields", ()) if getattr(f, "ctx", None)}
     assert published, "descriptor publishes no ctx keys"
     for k in published:
         assert gctx.get(k) == wctx.get(k), k
@@ -203,6 +203,40 @@ def test_truncated_riff_degrades(truncated_riff):
     label, chunks, warns = interpret(WAVE, truncated_riff)
     assert chunks == []
     assert warns  # the riff_size lie is warned, never raised
+
+
+def _wav_with_fmt(fmt_payload):
+    """A minimal RIFF/WAVE carrying the given fmt payload + a tiny data chunk,
+    for building the per-variant fmt fixtures the corpus does not guarantee."""
+    fmt_chunk = b"fmt " + struct.pack("<I", len(fmt_payload)) + fmt_payload
+    if len(fmt_payload) % 2:
+        fmt_chunk += b"\x00"                      # word-align
+    data_chunk = b"data" + struct.pack("<I", 4) + b"\x00\x00\x00\x00"
+    body = b"WAVE" + fmt_chunk + data_chunk
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def _assert_fmt_matches_walker(tmp_path, name, fmt_payload):
+    """Interpreter fmt fields byte-exact vs the walker for a hand-built fmt."""
+    p = tmp_path / f"{name}.wav"
+    p.write_bytes(_wav_with_fmt(fmt_payload))
+    _, gchunks, _ = interpret(WAVE, str(p))
+    _, wchunks, _ = walk_file(str(p))
+    keys = ("off", "len", "name", "value", "note", "enc", "raw")
+    gf = [{k: f.get(k) for k in keys} for f in _fmt_fields(gchunks)]
+    wf = [{k: f.get(k) for k in keys} for f in _fmt_fields(wchunks)]
+    assert gf == wf
+    return _fmt_fields(gchunks)
+
+
+def test_ima_variant_matches_walker(tmp_path):
+    """Switch dispatch, simplest case: an IMA/DVI ADPCM fmt (tag 0x0011) emits
+    cb_size + samples_per_block within the cb window, exactly like the walker."""
+    ext = struct.pack("<H", 512)                  # samples_per_block
+    fmt_payload = (struct.pack("<HHIIHH", 0x0011, 2, 44100, 44100, 4, 4)
+                   + struct.pack("<H", len(ext)) + ext)
+    fields = _assert_fmt_matches_walker(tmp_path, "ima", fmt_payload)
+    assert [f["name"] for f in fields][-2:] == ["cb_size", "samples_per_block"]
 
 
 def test_truncated_fmt_matches_walker(tmp_path):

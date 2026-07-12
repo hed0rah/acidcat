@@ -6,7 +6,7 @@ avg_bytes_per_sec. The scan/index path reads these keys downstream; a wrong
 name here would silently break indexing parity later.
 """
 
-from acidcat.core.grammar.model import Cmp, Field, Format, Region
+from acidcat.core.grammar.model import Case, Cmp, Field, Format, Region, Switch
 from acidcat.core.grammar.types import Enum, Int
 
 WAVE = Format(name="RIFF/WAVE", container="iff", regions={
@@ -24,6 +24,12 @@ WAVE = Format(name="RIFF/WAVE", container="iff", regions={
             # runs to >= 18 bytes, which the interpreter's bounds check enforces.
             Field("cb_size",           Int(2), note="extension bytes",
                   when=(Cmp("format_tag", "!=", 0xFFFE),)),
+            # tag-dependent extension, parsed within the cb_size window
+            Switch(on="format_tag", window="cb_size", cases={
+                0x0011: Case(min_window=2, fields=(       # IMA/DVI ADPCM
+                    Field("samples_per_block", Int(2)),
+                )),
+            }),
         )),
     "data": Region(kind="payload"),
 })
