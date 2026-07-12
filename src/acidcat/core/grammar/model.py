@@ -17,7 +17,7 @@ existing descriptors never break as the vocabulary grows.
 import operator
 from dataclasses import dataclass
 
-from acidcat.core.vocab import CTX_KEYS
+from acidcat.core.vocab import CTX_KEYS, FLAGS, TABLES
 
 # guards are structured atoms, not an expression language: a field-vs-constant
 # comparison and a remaining-bytes check over a FIXED operator set. Anything
@@ -55,6 +55,40 @@ class Remaining:
 
     def holds(self, local, payload, pos):
         return _OPS[self.op](len(payload) - pos, self.const)
+
+
+@dataclass
+class NoteLookup:
+    """Field note = a value->label table lookup on the raw (optionally masked),
+    e.g. mp3_id, mp3_flags. The table is shared with the walker via core/vocab."""
+
+    table: str
+    mask: int = None
+    default: str = ""
+
+    def __post_init__(self):
+        if self.table not in TABLES:
+            raise ValueError(f"unknown note table {self.table!r}")
+
+    def resolve(self, raw):
+        return TABLES[self.table].get(
+            raw & self.mask if self.mask is not None else raw, self.default)
+
+
+@dataclass
+class NoteFlags:
+    """Field note = flag decomposition of the raw over a bit->name list (the
+    walk/base._flag_names pattern), e.g. channel_mask -> speaker positions."""
+
+    table: str
+
+    def __post_init__(self):
+        if self.table not in FLAGS:
+            raise ValueError(f"unknown flags table {self.table!r}")
+
+    def resolve(self, raw):
+        names = [n for i, n in enumerate(FLAGS[self.table]) if raw & (1 << i)]
+        return ", ".join(names) if names else "none"
 
 
 @dataclass

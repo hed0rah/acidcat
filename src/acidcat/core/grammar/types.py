@@ -94,6 +94,31 @@ class Enum(Type):
         return TABLES[self.table].get(raw, f"unknown 0x{raw:0{self.hexwidth}x}")
 
 
+@dataclass
+class Hex(Type):
+    """Unpadded hex display with enc (channel_mask, mp3_flags). Unlike Enum this
+    does NOT pad and carries no built-in note -- the note comes from the Field's
+    note-source (NoteLookup / NoteFlags)."""
+
+    nbytes: int
+    be: bool = False
+
+    def __post_init__(self):
+        if self.nbytes not in _STRUCT_CODES:
+            raise ValueError(f"Hex width {self.nbytes} has no struct code")
+
+    def length(self, payload=None, pos=None, ctx=None):
+        return self.nbytes
+
+    def decode(self, payload, pos, ctx):
+        b = payload[pos:pos + self.nbytes]
+        if len(b) != self.nbytes:
+            raise ValueError("short read: decode called past the payload end")
+        raw = int.from_bytes(b, "big" if self.be else "little")
+        enc = (">" if self.be else "<") + _STRUCT_CODES[self.nbytes]
+        return f"0x{raw:x}", raw, enc
+
+
 class _NotBuilt(Type):
     """A type the engine does not implement yet: raises on construction so a
     descriptor can never carry an enc annotation that would not verify."""

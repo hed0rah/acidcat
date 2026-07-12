@@ -6,8 +6,9 @@ avg_bytes_per_sec. The scan/index path reads these keys downstream; a wrong
 name here would silently break indexing parity later.
 """
 
-from acidcat.core.grammar.model import Case, Cmp, Field, Format, Region, Switch
-from acidcat.core.grammar.types import Enum, Int
+from acidcat.core.grammar.model import (Case, Cmp, Field, Format, NoteLookup,
+                                        Region, Switch)
+from acidcat.core.grammar.types import Enum, Hex, Int
 
 WAVE = Format(name="RIFF/WAVE", container="iff", regions={
     "fmt ": Region(
@@ -28,6 +29,13 @@ WAVE = Format(name="RIFF/WAVE", container="iff", regions={
             Switch(on="format_tag", window="cb_size", cases={
                 0x0011: Case(min_window=2, fields=(       # IMA/DVI ADPCM
                     Field("samples_per_block", Int(2)),
+                )),
+                0x0055: Case(min_window=12, fields=(      # MPEGLAYER3WAVEFORMAT
+                    Field("mp3_id",           Int(2), note=NoteLookup("mpeglayer3_id")),
+                    Field("mp3_flags",        Hex(4), note=NoteLookup("mp3_padding", mask=0x3)),
+                    Field("block_size",       Int(2), note="bytes/frame"),
+                    Field("frames_per_block", Int(2)),
+                    Field("codec_delay",      Int(2), note="samples"),
                 )),
             }),
         )),

@@ -24,11 +24,31 @@ WAVE_FORMAT_TAGS = {
     0xFFFE: "extensible",
 }
 
-# a grammar Enum names a table by its id; the walker and the descriptor share
-# this one canonical dict, so there is a single source of truth (no divergence
-# for a parity test to miss).
+MP3_PADDING = {0: "ISO padding", 1: "padding always", 2: "padding never"}
+MPEGLAYER3_ID = {1: "MPEGLAYER3_ID_MPEG"}
+
+# WAVEFORMATEXTENSIBLE channel-mask bit positions (bit i -> speaker), and the
+# fixed 14-byte tail of every KSDATAFORMAT_SUBTYPE GUID (its first 2 bytes are
+# the format tag, little-endian).
+WAV_SPEAKER_POSITIONS = [
+    "FL", "FR", "FC", "LFE", "BL", "BR", "FLC", "FRC", "BC", "SL", "SR",
+    "TC", "TFL", "TFC", "TFR", "TBL", "TBC", "TBR",
+]
+KSDATAFORMAT_TAIL = bytes.fromhex("000000001000800000aa00389b71")
+
+# a grammar Enum/NoteLookup names a value->label table by its id; the walker and
+# the descriptor share these canonical dicts, so there is a single source of
+# truth (no divergence for a parity test to miss).
 TABLES = {
     "wave_format_tags": WAVE_FORMAT_TAGS,
+    "mp3_padding": MP3_PADDING,
+    "mpeglayer3_id": MPEGLAYER3_ID,
+}
+
+# flag tables for NoteFlags: a bit-position -> name list decomposed against the
+# raw value (the walk/base._flag_names / _channel_mask_names pattern).
+FLAGS = {
+    "wav_speaker_positions": WAV_SPEAKER_POSITIONS,
 }
 
 
