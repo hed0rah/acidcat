@@ -14,9 +14,39 @@ repeat-over-records, format-level rules -- are additive keyword fields, so
 existing descriptors never break as the vocabulary grows.
 """
 
+import operator
 from dataclasses import dataclass
 
 from acidcat.core.vocab import CTX_KEYS
+
+# guards are structured atoms, not an expression language: a field-vs-constant
+# comparison and a remaining-bytes check over a FIXED operator set. Anything
+# richer routes to a named helper (grammar/helpers.py), never grows here.
+_OPS = {"==": operator.eq, "!=": operator.ne, "<": operator.lt,
+        "<=": operator.le, ">": operator.gt, ">=": operator.ge}
+
+
+@dataclass
+class Cmp:
+    """Guard: an already-parsed same-region field compared to a constant."""
+
+    field: str
+    op: str
+    const: object
+
+    def holds(self, local, payload, pos):
+        return self.field in local and _OPS[self.op](local[self.field], self.const)
+
+
+@dataclass
+class Remaining:
+    """Guard: the bytes remaining from the current parse position vs a constant."""
+
+    op: str
+    const: int
+
+    def holds(self, local, payload, pos):
+        return _OPS[self.op](len(payload) - pos, self.const)
 
 
 @dataclass
@@ -30,6 +60,8 @@ class Field:
     ctx: str = None       # file-global ctx key to publish the raw value
                           # under, using the walker's SEMANTIC names ("bits",
                           # not "bits_per_sample"); None = unpublished
+    when: tuple = ()      # guards (Cmp/Remaining); ALL must hold or the field is
+                          # skipped (e.g. cb_size only when format_tag != 0xFFFE)
 
     def __post_init__(self):
         # validate the ctx key against the sanctioned semantic vocabulary at
@@ -47,6 +79,9 @@ class Region:
 
     kind: str = "struct"  # "struct" (ordered fields) | "payload" (opaque)
     fields: tuple = ()
+    min_len: int = 0      # below this payload length the region degrades to a
+    min_len_msg: str = "" # "truncated" summary + this warning, 0 fields (the
+                          # walkers' all-or-nothing convention, e.g. fmt < 16)
 
 
 @dataclass

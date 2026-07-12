@@ -94,9 +94,12 @@ def _corpus_wavs():
 
 @pytest.mark.parametrize("path", _corpus_wavs())
 def test_wav_fmt_corpus_equivalence(path):
-    """The milestone: interpreter fmt fields byte-exact vs the walker on
-    every corpus WAV with a full fmt. No PCM filter is needed: an EXTENSIBLE
-    fmt parses the same first 6 fields and the comparison is [:6]."""
+    """Interpreter fmt fields byte-exact vs the walker on every corpus WAV.
+    The descriptor produces a PREFIX of the walker's fmt fields -- core 6 plus
+    cb_size for a non-EXTENSIBLE >=18-byte fmt (the ext sub-fields land in
+    PR-B), and 0 fields for a truncated fmt -- so compare gf against the
+    walker's prefix of the same length. Tightens to full equality as coverage
+    grows."""
     from acidcat.core.walk.base import Unsupported
     try:
         wlabel, wchunks, _ = walk_file(path)
@@ -105,15 +108,14 @@ def test_wav_fmt_corpus_equivalence(path):
     if wlabel != "RIFF/WAVE":
         pytest.skip(f"sniffed as {wlabel}, not plain RIFF/WAVE")
     wf = _fmt_fields(wchunks)
-    if wf is None or len(wf) < 6:
-        # no fmt at all, or the walker's all-or-nothing truncated-fmt path
-        pytest.skip("no full fmt")
+    if wf is None:
+        pytest.skip("no fmt chunk")
     _, gchunks, _ = interpret(WAVE, path)
     gf = _fmt_fields(gchunks)
     assert gf is not None, "interpreter found no fmt chunk"
     keys = ("off", "len", "name", "value", "note", "enc", "raw")
-    assert [{k: f.get(k) for k in keys} for f in wf[:6]] == \
-           [{k: f.get(k) for k in keys} for f in gf[:6]]
+    assert [{k: f.get(k) for k in keys} for f in gf] == \
+           [{k: f.get(k) for k in keys} for f in wf[:len(gf)]]
 
 
 @pytest.mark.parametrize("path", _corpus_wavs())
@@ -203,18 +205,23 @@ def test_truncated_riff_degrades(truncated_riff):
     assert warns  # the riff_size lie is warned, never raised
 
 
-def test_truncated_fmt_partial(tmp_path):
-    """Deliberate v1 walker divergence: the walker's truncated-fmt path is
-    all-or-nothing (0 fields + "truncated"); the interpreter emits the
-    fields that fit. The corpus test skips <6-field fmts; Region.min_len
-    closes the gap in Phase 1."""
+def test_truncated_fmt_matches_walker(tmp_path):
+    """fmt < 16 bytes: Region.min_len now degrades all-or-nothing exactly like
+    the walker -- 0 fields, "truncated" summary, the walker's exact warning
+    (closes the v1 partial-fields divergence)."""
     fmt_payload = struct.pack("<HHI", 1, 2, 44100)  # 8 of the 16 bytes
     body = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt_payload)) + fmt_payload
     p = tmp_path / "short_fmt.wav"
     p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
-    _, chunks, _ = interpret(WAVE, str(p))
-    names = [f["name"] for f in chunks[0]["fields"]]
-    assert names == ["format_tag", "channels", "sample_rate"]
+    _, gchunks, _ = interpret(WAVE, str(p))
+    gfmt = next(c for c in gchunks if c["id"] == "fmt ")
+    assert gfmt["fields"] == []
+    assert gfmt["summary"] == "truncated"
+    assert gfmt["warnings"] == ["fmt payload is 8 bytes, spec minimum is 16"]
+    _, wchunks, _ = walk_file(str(p))
+    wfmt = next(c for c in wchunks if c["id"] == "fmt ")
+    assert (wfmt["fields"], wfmt["summary"], wfmt["warnings"]) == \
+           (gfmt["fields"], gfmt["summary"], gfmt["warnings"])
 
 
 def test_sub_12_byte_file_warns(tmp_path):
