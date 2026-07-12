@@ -79,7 +79,7 @@ def _parse_entries(entries, payload, pos, local, ctx):
         if pos + n > len(payload):
             break                     # truncated: degrade, never raise
         disp, raw, enc = fd.type.decode(payload, pos, ctx)
-        note = fd.note or (fd.type.note(raw) if hasattr(fd.type, "note") else "")
+        note = _note_for(fd, raw)
         # enc and raw travel together: a plain int (value == raw, enc None)
         # carries neither key, exactly like the walkers' _f calls
         fields.append(_f(pos, n, fd.name, disp, note, enc=enc,
@@ -89,6 +89,17 @@ def _parse_entries(entries, payload, pos, local, ctx):
             ctx[fd.ctx] = raw         # published under the walker's semantic key
         pos += n
     return fields, warns, pos
+
+
+def _note_for(fd, raw):
+    """A field's note: a note-source (NoteLookup/NoteFlags) resolved against raw,
+    else a static string, else the type's own label note (Enum), else empty."""
+    n = fd.note
+    if hasattr(n, "resolve"):
+        return n.resolve(raw)
+    if n:
+        return n
+    return fd.type.note(raw) if hasattr(fd.type, "note") else ""
 
 
 def _apply_switch(sw, payload, pos, local, ctx):

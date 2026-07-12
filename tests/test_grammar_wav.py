@@ -239,6 +239,21 @@ def test_ima_variant_matches_walker(tmp_path):
     assert [f["name"] for f in fields][-2:] == ["cb_size", "samples_per_block"]
 
 
+def test_mpeglayer3_variant_matches_walker(tmp_path):
+    """MPEGLAYER3WAVEFORMAT (tag 0x0055): note-sources (mp3_id + masked mp3_flags
+    tables) and unpadded-hex display, byte-exact vs the walker."""
+    ext = (struct.pack("<H", 1)            # mp3_id = 1 -> "MPEGLAYER3_ID_MPEG"
+           + struct.pack("<I", 0x0002)     # mp3_flags & 0x3 == 2 -> "padding never"
+           + struct.pack("<H", 417)        # block_size
+           + struct.pack("<H", 1)          # frames_per_block
+           + struct.pack("<H", 1105))      # codec_delay
+    fmt_payload = (struct.pack("<HHIIHH", 0x0055, 2, 44100, 16000, 1, 0)
+                   + struct.pack("<H", len(ext)) + ext)
+    fields = _assert_fmt_matches_walker(tmp_path, "mp3", fmt_payload)
+    assert [f["name"] for f in fields][-5:] == [
+        "mp3_id", "mp3_flags", "block_size", "frames_per_block", "codec_delay"]
+
+
 def test_truncated_fmt_matches_walker(tmp_path):
     """fmt < 16 bytes: Region.min_len now degrades all-or-nothing exactly like
     the walker -- 0 fields, "truncated" summary, the walker's exact warning
