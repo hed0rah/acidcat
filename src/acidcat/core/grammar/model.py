@@ -16,6 +16,8 @@ existing descriptors never break as the vocabulary grows.
 
 from dataclasses import dataclass
 
+from acidcat.core.vocab import CTX_KEYS
+
 
 @dataclass
 class Field:
@@ -28,6 +30,15 @@ class Field:
     ctx: str = None       # file-global ctx key to publish the raw value
                           # under, using the walker's SEMANTIC names ("bits",
                           # not "bits_per_sample"); None = unpublished
+
+    def __post_init__(self):
+        # validate the ctx key against the sanctioned semantic vocabulary at
+        # construction, so a descriptor typo fails loudly in trusted code
+        # instead of silently missing an index column at parse time
+        if self.ctx is not None and self.ctx not in CTX_KEYS:
+            raise ValueError(
+                f"unknown ctx key {self.ctx!r} on field {self.name!r}; "
+                "add it to core.vocab.CTX_KEYS if it is a real semantic key")
 
 
 @dataclass

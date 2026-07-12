@@ -9,8 +9,18 @@ import os
 import struct
 import wave
 import binascii
+from collections import namedtuple
 
 from acidcat.util.midi import midi_note_to_name
+
+# cap on payload bytes read per chunk (a forged size cannot force an unbounded
+# allocation); the declared size is still reported in full.
+PAYLOAD_CAP = 65536
+
+# one traversed RIFF/WAVE region. size is the DECLARED chunk size (never
+# clamped); payload is capped at PAYLOAD_CAP and may be short at EOF;
+# payload_base is the absolute offset field offsets are measured from (offset+8).
+Span = namedtuple("Span", "id offset payload_base payload size")
 
 
 def parse_riff(filepath, enumerate_all=False):
@@ -271,6 +281,40 @@ def iter_chunks(filepath):
             pos += 8 + csz
             if csz % 2 == 1:
                 pos += 1
+
+
+def iter_spans(filepath):
+    """Lenient RIFF/WAVE traversal, the single source both the walker and the
+    grammar strategy consume. Returns ``(spans, warnings)``. Enumerates via
+    ``iter_chunks`` so the chunk-walk arithmetic has exactly one home, and adds
+    the payload read plus the traversal warnings (riff_size mismatch, chunk
+    overrun) in the walker's exact wording. Degrades, never raises.
+    """
+    file_size = os.path.getsize(filepath)
+    spans, warns = [], []
+    with open(filepath, "rb") as f:
+        hdr = f.read(12)
+        if len(hdr) < 12:
+            return [], [f"file is {len(hdr)} bytes; a RIFF header needs 12"]
+        if hdr[0:4] != b"RIFF" or hdr[8:12] != b"WAVE":
+            return [], ["not a RIFF/WAVE container"]
+        riff_size = struct.unpack("<I", hdr[4:8])[0]
+        if riff_size + 8 != file_size:
+            warns.append(
+                f"riff_size says {riff_size + 8:,} bytes, file is "
+                f"{file_size:,} ({file_size - riff_size - 8:+,})"
+            )
+        for cid, offset, size in iter_chunks(filepath):
+            avail = max(0, file_size - offset - 8)
+            if size > avail:
+                warns.append(
+                    f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
+                    f"but only {avail:,} remain"
+                )
+            f.seek(offset + 8)
+            payload = f.read(min(size, PAYLOAD_CAP))
+            spans.append(Span(cid, offset, offset + 8, payload, size))
+    return spans, warns
 
 
 def smpl_root_or_none(meta):
