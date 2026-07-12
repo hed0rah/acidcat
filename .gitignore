@@ -68,6 +68,7 @@ logo/
 
 # internal whitepapers/session reports (local-only)
 internal_docs/
+internal_references/
 
 # downloaded specimen libraries / scratch (local-only, not repo content)
 test_samples/
