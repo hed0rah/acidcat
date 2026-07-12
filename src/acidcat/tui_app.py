@@ -32,13 +32,14 @@ from textual.widgets import (
 from acidcat.core.walk import walk_file, Unsupported
 from acidcat.core import anomalies as ac_anom
 from acidcat.core import writer
+from acidcat.core import viz
 from acidcat.core.edits import EditError
 from acidcat.commands.write import _edit as _write_edit, _strip as _write_strip
 
 
 # brand theme (ink / gunmetal + teal/orange accents); source of truth is
 # acidcat/tui_theme.py, imported by the playground TUI too so they cannot drift.
-from acidcat.tui_theme import PALETTE, ACCENT, FG, SOFT, DIM, GUTTER, PEND, SEV
+from acidcat.tui_theme import PALETTE, ACCENT, FG, SOFT, DIM, GUTTER, PEND, SEV, byte_color
 
 _HEX_CAP = 1024        # most bytes to render in the hex pane for one node
 _ROW_CAP = 400         # most per-element rows (events/frames) to list per chunk
@@ -345,6 +346,7 @@ class HelpScreen(ModalScreen):
             ("f", "jump to the next forensics finding"),
             ("x", "follow a pointer field to where it points (flags dangling)"),
             ("m", "byte map: where the file's bytes go, biggest regions first"),
+            ("b", "byte view: cycle hex / entropy / hilbert / histogram of the file"),
             ("v", "validate structure: constraint violations, r to repair them"),
             ("y", "yank the selected bytes as hex to the clipboard"),
             ("d", "review all pending changes (offset old->new) before save"),
@@ -536,6 +538,7 @@ class AcidcatTUI(App):
         ("y", "yank", "yank hex"),
         ("d", "diff", "pending changes"),
         ("m", "map", "byte map"),
+        ("b", "cycle_view", "byte view"),
         ("v", "validate", "validate"),
         ("ctrl+s", "save", "save"),
         ("ctrl+z", "undo", "undo"),
@@ -588,6 +591,8 @@ class AcidcatTUI(App):
         self._search = None       # active search: dict(desc, hits, idx)
         self._finding_idx = -1    # cursor into self.findings for jump-to-finding
         self._xref = {}           # id(field node) -> absolute target offset (pointer)
+        self._view = "hex"        # byte-view mode: hex | entropy | hilbert | histogram
+        self._cur_region = (None, None, ACCENT)  # last shown (off, length, accent)
 
     def compose(self) -> ComposeResult:
         yield Static(id="title")
@@ -968,7 +973,85 @@ class AcidcatTUI(App):
         if note:
             d.append(f"\n{note}", style=SOFT)
         detail.update(d)
-        self.query_one("#hex", Static).update(hex_text(self.work, off, length, accent))
+        self._cur_region = (off, length, accent)
+        if self._view == "hex":
+            self.query_one("#hex", Static).update(hex_text(self.work, off, length, accent))
+        # in a viz mode the pane shows a whole-file view; a node highlight leaves it
+
+    def action_cycle_view(self):
+        """Cycle the hex pane: hex -> entropy -> hilbert -> histogram (whole file)."""
+        order = ["hex", "entropy", "hilbert", "histogram"]
+        if self._hexedit:
+            self._exit_hexedit()
+        if self._edit_target:
+            self.action_cancel_edit()
+        self._view = order[(order.index(self._view) + 1) % len(order)]
+        pane = self.query_one("#hex", Static)
+        if self._view == "hex":
+            off, length, accent = self._cur_region
+            pane.update(hex_text(self.work, off, length, accent))
+        else:
+            pane.update(self._viz_render(self._view))
+        self.notify(f"byte view: {self._view}")
+
+    def _viz_width(self):
+        try:
+            return max(24, self.query_one("#hexwrap").size.width - 4)
+        except Exception:
+            return 72
+
+    def _viz_render(self, mode):
+        data = _read(self.work, 0, min(self.fsize, 8 * 1024 * 1024))
+        if not data:
+            t = Text()
+            t.append("  (no bytes to visualize)", style=DIM)
+            return t
+        if mode == "entropy":
+            return self._viz_entropy(data)
+        if mode == "hilbert":
+            return self._viz_hilbert(data)
+        return self._viz_histogram(data)
+
+    def _viz_entropy(self, data):
+        ent = viz.windowed_entropy(data, self._viz_width())
+        t = Text()
+        t.append("entropy  ", style=f"bold {ACCENT}")
+        t.append(f"min {min(ent):.1f}  mean {sum(ent) / len(ent):.1f}  "
+                 f"max {max(ent):.1f} bits/byte  (whole file)\n\n", style=SOFT)
+        blocks = " ▁▂▃▄▅▆▇█"
+        for e in ent:
+            frac = max(0.0, min(1.0, e / 8))
+            t.append(blocks[int(frac * (len(blocks) - 1))],
+                     style=PALETTE[min(len(PALETTE) - 1, int(frac * len(PALETTE)))])
+        t.append("\n")
+        return t
+
+    def _viz_hilbert(self, data):
+        grid, side = viz.hilbert_grid(data, order=5)
+        t = Text()
+        t.append("hilbert  ", style=f"bold {ACCENT}")
+        t.append(f"{side}x{side} byte-class map; adjacent cells are adjacent bytes\n\n",
+                 style=SOFT)
+        for y in range(0, side, 2):
+            for x in range(side):
+                top = grid[y][x]
+                bot = grid[y + 1][x] if y + 1 < side else None
+                t.append("▀", style=f"{byte_color(top)} on {byte_color(bot)}")
+            t.append("\n")
+        t.append("\n")
+        for b, label in ((0x41, " ascii  "), (0x80, " high  "), (0x00, " null/ctrl")):
+            t.append("▀", style=byte_color(b))
+            t.append(label, style=SOFT)
+        t.append("\n")
+        return t
+
+    def _viz_histogram(self, data):
+        t = Text()
+        t.append("byte histogram  ", style=f"bold {ACCENT}")
+        t.append("(0x00 .. 0xff frequency, whole file)\n\n", style=SOFT)
+        for row in viz.byte_histogram(data, width=self._viz_width(), height=8):
+            t.append(row + "\n", style=ACCENT)
+        return t
 
     def action_help(self):
         self.push_screen(HelpScreen())
@@ -1345,6 +1428,7 @@ class AcidcatTUI(App):
         self._render_preview()
 
     def action_edit_field(self):
+        self._view = "hex"
         node = self._cur_node
         data = self._nodemeta.get(id(node)) if node else None
         if not data:
@@ -1617,6 +1701,7 @@ class AcidcatTUI(App):
             self.notify(f"region too large ({length:,} bytes); pick a field",
                         severity="warning")
             return
+        self._view = "hex"
         self._hexedit = {"off": off, "length": length, "cur": 0, "nib": 0,
                          "buf": bytearray(_read(self.work, off, length))}
         self.query_one("#hex", HexPane).focus()
