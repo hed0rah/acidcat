@@ -17,10 +17,12 @@ from collections import namedtuple
 
 from acidcat.core.walk.base import _PAYLOAD_CAP
 
-# size is the DECLARED chunk size (never clamped); payload is capped at
-# _PAYLOAD_CAP and may come up short at EOF; payload_base is the absolute
-# offset field offsets are measured from (iff: offset + 8).
-Region = namedtuple("Region", "id offset payload_base payload size")
+# one traversed region of the file (named Span, not Region, to stay distinct
+# from model.Region -- the descriptor spec for a region -- which it meets in
+# the interpreter). size is the DECLARED chunk size (never clamped); payload
+# is capped at _PAYLOAD_CAP and may come up short at EOF; payload_base is the
+# absolute offset field offsets are measured from (iff: offset + 8).
+Span = namedtuple("Span", "id offset payload_base payload size")
 
 
 class IffStrategy:
@@ -68,7 +70,7 @@ class IffStrategy:
                         f"but only {avail:,} remain"
                     )
                 payload = f.read(min(size, _PAYLOAD_CAP))
-                regions.append(Region(cid, pos, pos + 8, payload, size))
+                regions.append(Span(cid, pos, pos + 8, payload, size))
                 pos += 8 + size
                 if size % 2 == 1:
                     pos += 1  # word alignment, unconditional like the walker

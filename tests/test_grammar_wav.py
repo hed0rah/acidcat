@@ -6,6 +6,8 @@ scope, closed in Phase 1):
 
 - the walker gives `data` a computed summary (duration/frames); the
   interpreter yields the unparsed hex preview,
+- the walker gives a struct chunk a summary (fmt -> "PCM 16-bit 2ch 44100 Hz");
+  the interpreter leaves summary "" until summary helpers land in Phase 1,
 - the walker's truncated-fmt path is all-or-nothing (<16 bytes -> 0 fields
   plus a "truncated" summary); the interpreter emits the fields that fit
   (Region.min_len closes this).
