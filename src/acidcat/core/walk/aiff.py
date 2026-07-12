@@ -335,8 +335,12 @@ def inspect_aiff(filepath, form_type, ctx=None):
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
                     f"but only {avail:,} remain"
                 )
+            # SSND's parser reads only its 8-byte header (offset + block_size);
+            # the audio-byte count comes from size/avail, so cap that read small
+            # instead of pulling up to 64 KB of audio for nothing.
+            read_cap = 16 if cid == "SSND" else _PAYLOAD_CAP
             f.seek(offset + 8)
-            payload = f.read(min(size, _PAYLOAD_CAP))
+            payload = f.read(min(size, read_cap))
 
             entry = {"id": cid, "offset": offset, "size": size,
                      "summary": "", "fields": [], "warnings": []}

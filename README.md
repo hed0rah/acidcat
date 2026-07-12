@@ -92,12 +92,14 @@ full-text.
 | `acidcat scan DIR` | Batch-scan with CSV output |
 | `acidcat chunks FILE` | Walk RIFF chunks -- offsets, sizes, parsed fields |
 | `acidcat survey DIR` | Count chunk types across a directory tree |
+| `acidcat shape DIR` | One-line structural fingerprint per file for specimen-hunting -- pipe to `sort \| uniq -c` to surface rare shapes; `--fast` (header-only), `--anomalies`, `--format FMT`, `--coarse` |
 | `acidcat detect FILE\|DIR` | Estimate BPM/key using librosa |
 | `acidcat features DIR` | Extract 50+ audio features for ML |
 | `acidcat similar CSV find TARGET` | Find similar samples by features |
 | `acidcat similar CSV cluster` | Cluster samples by audio characteristics |
 | `acidcat search CSV query TEXT` | Text-based sample search (legacy CSV) |
 | `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
+| `acidcat od FILE` | Colored objdump-x-style hex view: header bytes plus per-field offset / hex / decoded value, opaque payloads dimmed; `--color`, `--width` |
 | `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--anomalies] [--pretty] [--color]` | Byte-level structural dump (WAV, RF64, AIFF, MIDI, RMID, Serum, VST FXP, ReCycle RX2, Bitwig WT, MP3, FLAC, OGG, MP4/M4A, Bitwig, Vital, NCW, Native Instruments (Massive/Absynth/Kontakt/NKS/KORE)) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump feeding `acidcat explore`, `--anomalies` a forensic scan (trailing data, polyglots, cavities, size mismatches, LSB-stego notice), `--pretty` a human-friendly metadata view, `--verbose` a deep deconstruction (Bitwig device tree/parameters/notes, Vital modulation matrix, ...), `--color` to syntax-highlight |
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
@@ -152,6 +154,12 @@ Most commands accept `table`, `json`, and `csv` (default `table`, but
 
     # hex-dump the ACID and SMPL chunks
     acidcat dump ~/Samples/Loops/breakbeat.wav acid smpl
+
+    # fingerprint a whole tree, then rank the rarest structural shapes
+    acidcat shape ~/Samples --no-path | sort | uniq -c | sort -n
+
+    # colored objdump-x-style hex view of a file's headers and fields
+    acidcat od ~/Samples/Loops/breakbeat.wav
 
     # scan only files with ACID metadata
     acidcat scan ~/Samples/Loops --has acid -n 200
