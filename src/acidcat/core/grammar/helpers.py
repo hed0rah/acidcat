@@ -75,8 +75,10 @@ _HELPERS = {
 # so an EXTENSIBLE-with-PCM-GUID file does not fire the tag==1 lints or a "PCM"
 # summary the walker never emits.
 
-def _wav_fmt_relations(local):
-    """The two arithmetic-relation lints, gated on the original tag == 1."""
+def _wav_fmt_relations(local, ctx):
+    """The two arithmetic-relation lints, gated on the original tag == 1. Reads
+    only ``local`` (both operands are fmt's own fields); ``ctx`` is unused here
+    but is available for cross-chunk relation helpers on IN regions."""
     tag = local.get("format_tag")
     ch = local.get("channels")
     bits = local.get("bits_per_sample")
@@ -104,9 +106,38 @@ def _inst_summary(local):
             f"{midi_note_to_name(local['high_note'])}")
 
 
+def _acid_summary(local):
+    flags, beats, tempo = local["type_flags"], local["num_beats"], local["tempo"]
+    kind = "one-shot" if flags & 0x01 else "loop"
+    s = (f"{kind}, {beats} beats, {local['meter_numerator']}/"
+         f"{local['meter_denominator']}, {tempo:.2f} bpm")
+    if local["root_note"]:
+        s += f", root {midi_note_to_name(local['root_note'])}"
+    return s
+
+
 _RELATIONS = {"wav_fmt_relations": _wav_fmt_relations}
 _SUMMARIES = {"wav_fmt_summary": _wav_fmt_summary,
-              "inst_summary": _inst_summary}
+              "inst_summary": _inst_summary,
+              "acid_summary": _acid_summary}
+
+
+# ── publish helpers ────────────────────────────────────────────────────────
+# (local) -> dict of ctx updates: for TRANSFORMED ctx values that a plain
+# Field.ctx=raw cannot express (round, bool, or-None). No payload -- the
+# signature is the category boundary, same as relation/summary.
+
+def _acid_publish(local):
+    tempo = local["tempo"]
+    return {
+        "acid_bpm": round(tempo, 2) if tempo else None,
+        "acid_root": local["root_note"],
+        "acid_beats": local["num_beats"],
+        "acid_one_shot": bool(local["type_flags"] & 0x01),
+    }
+
+
+_PUBLISH = {"acid_publish": _acid_publish}
 
 
 # ── note-functions ─────────────────────────────────────────────────────────
@@ -115,4 +146,5 @@ _SUMMARIES = {"wav_fmt_summary": _wav_fmt_summary,
 _NOTEFUNCS = {
     "inst_base_note": lambda raw: midi_note_to_name(raw) if raw <= 127 else "",
     "midi_note": midi_note_to_name,
+    "acid_root_note": lambda raw: midi_note_to_name(raw) if raw else "unset",
 }

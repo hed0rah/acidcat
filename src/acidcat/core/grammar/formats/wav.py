@@ -9,7 +9,7 @@ name here would silently break indexing parity later.
 from acidcat.core.grammar.model import (Case, Cmp, Field, Format, Helper,
                                         NoteFlags, NoteFunc, NoteLookup, Order,
                                         Region, Requires, Switch, Valid)
-from acidcat.core.grammar.types import Enum, Hex, Int
+from acidcat.core.grammar.types import Enum, Float, Hex, Int
 
 # Per-region partition (design doc section 6.0). IN (described here): fmt, inst,
 # acid -- fixed fields that the vocabulary DECORATES (notes/summaries/lints)
@@ -69,6 +69,26 @@ WAVE = Format(name="RIFF/WAVE", container="iff", regions={
                     Helper("wav_ext_subformat"),
                 )),
             }),
+        )),
+    # acid: fixed struct, all outputs self-contained EXCEPT the duration-drift
+    # lint, a WALK-SCOPE output (acid.drift <- data.duration; data is OUT, and the
+    # walker only fires it when data precedes acid in the file). It stays
+    # walker-only; the harness excludes exactly that one warning, directionally.
+    "acid": Region(
+        kind="struct", min_len=24,
+        min_len_msg="acid payload is {n} bytes, expected {min}",
+        summary="acid_summary", publish="acid_publish",
+        fields=(
+            Field("type_flags",        Hex(4, pad=8), note=NoteFlags("acid_flags")),
+            Field("root_note",         Int(2), note=NoteFunc("acid_root_note")),
+            Field("unknown1",          Hex(2, pad=4)),
+            Field("unknown2",          Float(4, round=4)),
+            Field("num_beats",         Int(4)),
+            Field("meter_denominator", Int(2)),
+            Field("meter_numerator",   Int(2)),
+            Field("tempo",             Float(4, round=2), note="BPM",
+                  valid=Valid("acid tempo {v:.2f} outside sane range 40-300",
+                              min=40, max=300, skip_zero=True)),
         )),
     "inst": Region(
         kind="struct", min_len=7,

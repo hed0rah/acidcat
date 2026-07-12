@@ -159,6 +159,8 @@ class Region:
     relations: tuple = () # relation-helper names run after the field loop over
                           # the region-local dict -> arithmetic-relation warnings
     summary: str = None   # summary-helper name -> the chunk summary line
+    publish: str = None   # publish-helper name -> a dict of ctx updates (for
+                          # transformed ctx values Field.ctx=raw cannot express)
 
 
 @dataclass

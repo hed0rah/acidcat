@@ -49,6 +49,8 @@ TABLES = {
 # raw value (the walk/base._flag_names / _channel_mask_names pattern).
 FLAGS = {
     "wav_speaker_positions": WAV_SPEAKER_POSITIONS,
+    # ACID type_flags bits 0..3 (walk/wav.py _ACID_FLAGS: 0x1/0x2/0x4/0x8)
+    "acid_flags": ["one-shot", "root set", "stretch", "disk-based"],
 }
 
 
