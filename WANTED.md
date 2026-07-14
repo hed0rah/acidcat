@@ -4,7 +4,7 @@
 |   rare, vintage, and weird file-format specimens            |
 |   dead or alive, compressed or raw                          |
 |                                                             |
-|   REWARD: rare and uncompressed PCM treasures               |
+|   REWARD: ¤1,000,000,000                                    |
 +--------------------------------------------------------------+
 ```
 
