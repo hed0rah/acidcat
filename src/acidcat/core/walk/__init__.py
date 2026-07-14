@@ -12,7 +12,7 @@ in this package, and add one registry entry below.
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
     aiff, bitwig, flac, fxp, labx, midi, mp3, mp4, multisample, ncw, ni, ogg, rf64,
-    rmid, rx2, serum, sf2, tracker, vital, wav, wt,
+    rmid, rx2, serum, sf2, sigmf, tracker, vital, wav, wt,
 )
 from acidcat.core.walk.base import Unsupported
 
@@ -34,6 +34,9 @@ _WALKERS = {
     "multisample": ("Bitwig multisample",
                     lambda path, deep: multisample.inspect_multisample(path)),
     "labx": ("Arturia Analog Lab bank", lambda path, deep: labx.inspect_labx(path)),
+    "sigmf": ("SigMF recording",
+              lambda path, deep: sigmf.inspect_sigmf(path, deep=deep)),
+    "iq": ("Raw IQ capture", lambda path, deep: sigmf.inspect_iq(path, deep=deep)),
     "bitwig": ("Bitwig preset",
                lambda path, deep: bitwig.inspect_bitwig(path, deep=deep)),
     "ncw": ("NI Compressed Wave", lambda path, deep: ncw.inspect_ncw(path)),
@@ -66,7 +69,7 @@ def walk_file(filepath, deep=False):
     if entry is None:
         raise Unsupported("not a recognized audio/preset file (WAV, RF64, AIFF, "
                           "MIDI, Serum, Bitwig, Vital, NCW, SF2, MP4/M4A, Ogg, "
-                          "Native Instruments, MP3, FLAC, or a MOD/S3M/XM/IT "
-                          "tracker module)")
+                          "Native Instruments, MP3, FLAC, a MOD/S3M/XM/IT "
+                          "tracker module, or a SigMF/IQ capture)")
     label, walker = entry
     return (label, *walker(filepath, deep))
