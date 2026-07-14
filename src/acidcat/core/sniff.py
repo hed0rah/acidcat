@@ -99,6 +99,10 @@ def sniff(filepath):
     fmt = sniff_bytes(head)
     if fmt == "mp3" and head[:3] == b"ID3" and _id3_wraps_other_container(filepath):
         return "id3-wrapped"
+    # a .sigmf-meta is JSON starting with '{', which sniff_bytes reads as vital;
+    # the mandated extension reroutes it, exactly like the id3-wrapped demotion.
+    if fmt == "vital" and filepath.lower().endswith(".sigmf-meta"):
+        return "sigmf"
     # a ZIP whose archive holds multisample.xml is a Bitwig .multisample. This is
     # the one content-sniff that must peek inside the container (the local-file
     # header magic alone cannot tell it from any other zip).
@@ -120,6 +124,14 @@ def sniff(filepath):
     # offset-1080 heuristic can false-positive inside S3M pattern data.
     if fmt is None and _is_s3m(filepath):
         return "s3m"
+    # SigMF pair members and bare IQ captures are headerless: accept them only
+    # when no magic matched, keyed on the mandated / conventional extensions.
+    if fmt is None:
+        low = filepath.lower()
+        if low.endswith(".sigmf-data") or low.endswith(".sigmf-meta"):
+            return "sigmf"
+        if low.endswith(_IQ_EXTS) or (low.endswith(".raw") and _gqrx_sniff(filepath)):
+            return "iq"
     # ProTracker MOD has no leading signature; its only reliable magic sits at
     # offset 1080, so it can only be confirmed with the file in hand.
     if fmt is None and _is_mod(filepath):
@@ -143,6 +155,15 @@ def _is_s3m(filepath):
             return tkmod.is_s3m(f.read(48))
     except OSError:
         return False
+
+
+# bare raw-IQ extensions (headerless): geometry comes from the extension itself.
+_IQ_EXTS = (".cu8", ".c16", ".c8", ".cs8", ".cs16", ".cf32", ".cfile")
+
+
+def _gqrx_sniff(filepath):
+    from acidcat.core.walk import sigmf
+    return sigmf._gqrx_name(filepath) is not None
 
 
 def _free_format_mp3(filepath, head):
