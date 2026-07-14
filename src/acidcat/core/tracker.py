@@ -170,6 +170,138 @@ def parse_xm(data):
     }
 
 
+# S3M header flags (offset 0x26) and per-sample flags (offset 0x1F).
+_S3M_FLAGS = [
+    (0x08, "amiga_slides"), (0x10, "vol0_optimizations"),
+    (0x20, "amiga_limits"), (0x40, "st3.0_volslides"),
+    (0x80, "special_custom_data"),
+]
+_S3M_SAMPLE_FLAGS = [(0x01, "loop"), (0x02, "stereo"), (0x04, "16-bit")]
+# cwt high nibble identifies the writer (feeds provenance later).
+_S3M_WRITERS = {1: "ScreamTracker 3", 2: "Imago Orpheus", 3: "Impulse Tracker",
+                4: "Schism Tracker", 5: "OpenMPT", 6: "BeRoTracker"}
+
+
+def is_s3m(data):
+    """True when offset 0x2C carries 'SCRM' and the type byte says module. Needs
+    48 bytes; the 0x1A DOS-EOF byte at 0x1C is canonical but some writers zero
+    it, so that is a warning in the parser, not a gate here."""
+    return len(data) >= 48 and data[0x2C:0x30] == b"SCRM" and data[0x1D] == 16
+
+
+def _s3m_channel_label(c):
+    """Label for one channel-settings byte, or None if disabled/unused."""
+    if c >= 128:
+        return None                              # +128 disabled, 255 unused
+    if c <= 7:
+        return f"L{c + 1}"
+    if c <= 15:
+        return f"R{c - 7}"
+    if c <= 24:
+        return f"A{c - 15}"                       # adlib melody
+    return f"D{c - 24}"                           # adlib drums
+
+
+def _s3m_channel_map(channels):
+    """(space-joined label string, active count) from the 32 channel bytes."""
+    labels = [lab for c in channels if (lab := _s3m_channel_label(c))]
+    return " ".join(labels), len(labels)
+
+
+def parse_s3m(data):
+    """Parse a ScreamTracker 3 S3M. Reads the header, the order table, the
+    instrument and pattern parapointer tables (byte offset = value << 4, the
+    format's segment-style quirk), and each 0x50-byte instrument header whose
+    memseg field points at the PCM. Defensive like parse_it: every parapointer
+    is bounds-checked, truncated tables warn and break, and an instrument header
+    without an 'SCRS'/'SCRI' tag is marked invalid rather than trusted."""
+    warns = []
+    song_name = _c(data[0:28])
+    if len(data) <= 0x1C or data[0x1C] != 0x1A:
+        warns.append("missing 0x1A DOS-EOF marker at offset 0x1C")
+    ordnum = struct.unpack_from("<H", data, 0x20)[0]
+    insnum = struct.unpack_from("<H", data, 0x22)[0]
+    patnum = struct.unpack_from("<H", data, 0x24)[0]
+    flags = struct.unpack_from("<H", data, 0x26)[0]
+    cwt = struct.unpack_from("<H", data, 0x28)[0]
+    ffi = struct.unpack_from("<H", data, 0x2A)[0]
+    gvol, speed, tempo, mvol = data[0x30], data[0x31], data[0x32], data[0x33]
+    default_pan = data[0x35]
+    channels = list(data[0x40:0x60])
+    if ordnum % 2:
+        warns.append(f"order count {ordnum} is odd (canonically even)")
+    if ffi not in (1, 2):
+        warns.append(f"sample format ffi={ffi} is not 1 (signed) or 2 (unsigned)")
+
+    op = 0x60
+    order = list(data[op:op + ordnum])
+    op += ordnum
+
+    def _paratable(base, count):
+        out = []
+        for i in range(count):
+            o = base + i * 2
+            if o + 2 > len(data):
+                warns.append("parapointer table truncated")
+                break
+            out.append(struct.unpack_from("<H", data, o)[0])
+        return out, base
+
+    ins_para, ins_base = _paratable(op, insnum)
+    pat_para, pat_base = _paratable(op + insnum * 2, patnum)
+
+    samples = []
+    for para in ins_para:
+        hdr = para << 4
+        if para == 0 or hdr + 0x50 > len(data):
+            samples.append({"offset": hdr, "valid": False, "is_pcm": False})
+            continue
+        tag = data[hdr + 0x4C:hdr + 0x50]
+        stype = data[hdr]
+        memseg = (data[hdr + 0x0D] << 16) | struct.unpack_from("<H", data, hdr + 0x0E)[0]
+        length = struct.unpack_from("<I", data, hdr + 0x10)[0]
+        sflags = data[hdr + 0x1F]
+        bits16, stereo = bool(sflags & 0x04), bool(sflags & 0x02)
+        low_len = length & 0xFFFF                # ST3 honors only the low 16 bits
+        samples.append({
+            "offset": hdr, "valid": tag in (b"SCRS", b"SCRI"), "type": stype,
+            "is_pcm": stype == 1, "tag": tag.decode("latin-1", "replace"),
+            "dos_name": _c(data[hdr + 1:hdr + 0x0D]),
+            "name": _c(data[hdr + 0x30:hdr + 0x4C]),
+            "memseg": memseg, "pcm_off": memseg << 4,
+            "length": length, "low_len": low_len,
+            "byte_len": low_len * (2 if bits16 else 1) * (2 if stereo else 1),
+            "loop_beg": struct.unpack_from("<I", data, hdr + 0x14)[0],
+            "loop_end": struct.unpack_from("<I", data, hdr + 0x18)[0],
+            "vol": data[hdr + 0x1C], "packing": data[hdr + 0x1E], "flags": sflags,
+            "c2spd": struct.unpack_from("<I", data, hdr + 0x20)[0] & 0xFFFF,
+            "bits16": bits16, "stereo": stereo,
+        })
+
+    for i, s in enumerate(samples, 1):
+        if not s.get("valid"):
+            warns.append(f"instrument {i} header lacks an SCRS/SCRI tag")
+        elif s["is_pcm"]:
+            if s["packing"] == 1:
+                warns.append(f"smp[{i}] packing=1 (ADPCM): not raw PCM, carve "
+                             "will not yield playable data")
+            if s["length"] >> 16:
+                warns.append(f"smp[{i}] length high word 0x{s['length'] >> 16:04x} "
+                             "set; ST3 reads only the low 16 bits")
+            if s["pcm_off"] and s["pcm_off"] + s["byte_len"] > len(data):
+                warns.append(f"smp[{i}] sample data @ 0x{s['pcm_off']:08x} runs past EOF")
+
+    return {
+        "kind": "s3m", "song_name": song_name, "ordnum": ordnum, "insnum": insnum,
+        "patnum": patnum, "flags": flags, "cwt": cwt, "ffi": ffi, "gvol": gvol,
+        "speed": speed, "tempo": tempo, "mvol": mvol, "default_pan": default_pan,
+        "channels": channels, "order": order,
+        "ins_para": ins_para, "ins_base": ins_base,
+        "pat_para": pat_para, "pat_base": pat_base,
+        "samples": samples, "warnings": warns,
+    }
+
+
 # IT header flags (offset 44) and per-sample flags (IMPS offset 18).
 _IT_FLAGS = [
     (0x01, "stereo"), (0x04, "use_instruments"), (0x08, "linear_slides"),

@@ -14,21 +14,35 @@ META_KEYS = [
 ]
 
 
+# top-level members Vital itself writes; anything else is an unvalidated
+# side-channel a schema-reading loader leaves in place.
+KNOWN_TOP_LEVEL = set(META_KEYS) | {"settings"}
+
+
+def parse_vital_span(data):
+    """Parse the leading JSON value of a Vital preset (bytes) and return
+    (obj, end_byte) -- end_byte is just past the top-level value -- or (None, 0).
+    Tolerant of trailing bytes: a preset with junk after the closing brace still
+    parses (the walker flags the trailing span), matching tolerant loaders.
+    RecursionError (a forged deeply nested object) is caught."""
+    text = data.decode("utf-8", "replace")   # trailing binary junk -> replacement chars
+    start = 0
+    while start < len(text) and text[start] in " \t\r\n":
+        start += 1
+    try:
+        obj, end = json.JSONDecoder().raw_decode(text, start)
+    except (ValueError, RecursionError, MemoryError):
+        return None, 0
+    # require the Vital-specific synth_version key ('settings' alone is too generic)
+    if not isinstance(obj, dict) or "synth_version" not in obj:
+        return None, 0
+    return obj, len(text[:end].encode("utf-8"))
+
+
 def parse_vital(data):
     """Parse the JSON and confirm it is a Vital preset. Returns the dict, or
-    None if it does not parse or lacks Vital markers. RecursionError (a forged
-    deeply nested object) is caught, matching the Serum walker."""
-    try:
-        obj = json.loads(data)
-    except (ValueError, RecursionError, UnicodeDecodeError, MemoryError):
-        return None
-    if not isinstance(obj, dict):
-        return None
-    # distinguish a Vital preset from arbitrary JSON: require the Vital-specific
-    # synth_version key ('settings' alone is too generic).
-    if "synth_version" not in obj:
-        return None
-    return obj
+    None if it does not parse or lacks Vital markers. Tolerant of trailing bytes."""
+    return parse_vital_span(data)[0]
 
 
 _VITAL_EFFECTS = ("chorus", "compressor", "delay", "distortion", "eq",
