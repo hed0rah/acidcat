@@ -11,8 +11,8 @@ in this package, and add one registry entry below.
 
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
-    aiff, bitwig, flac, fxp, midi, mp3, mp4, multisample, ncw, ni, ogg, rf64, rmid, rx2,
-    serum, sf2, tracker, vital, wav, wt,
+    aiff, akai, bitwig, flac, fxp, labx, midi, mp3, mp4, mpc, multisample, ncw, ni,
+    ogg, rf64, rmid, rx2, serum, sf2, sigmf, tracker, vital, wav, wt,
 )
 from acidcat.core.walk.base import Unsupported
 
@@ -30,9 +30,21 @@ _WALKERS = {
     "serum": ("Xfer Serum preset", lambda path, deep: serum.inspect_serum(path)),
     "fxp": ("VST FXP preset", lambda path, deep: fxp.inspect_fxp(path)),
     "rx2": ("ReCycle RX2", lambda path, deep: rx2.inspect_rx2(path)),
+    "akp": ("Akai S5000/S6000 program", lambda path, deep: akai.inspect_akp(path)),
     "wt": ("Bitwig wavetable", lambda path, deep: wt.inspect_wt(path)),
     "multisample": ("Bitwig multisample",
                     lambda path, deep: multisample.inspect_multisample(path)),
+    "labx": ("Arturia Analog Lab bank", lambda path, deep: labx.inspect_labx(path)),
+    "sigmf": ("SigMF recording",
+              lambda path, deep: sigmf.inspect_sigmf(path, deep=deep)),
+    "iq": ("Raw IQ capture", lambda path, deep: sigmf.inspect_iq(path, deep=deep)),
+    "mpcpattern": ("Akai MPC pattern",
+                   lambda path, deep: mpc.inspect_mpcpattern(path)),
+    "xpm": ("Akai MPC program", lambda path, deep: mpc.inspect_xpm(path)),
+    "xpn": ("Akai MPC expansion", lambda path, deep: mpc.inspect_xpn(path)),
+    "xtd": ("Akai MPC track/kit", lambda path, deep: mpc.inspect_xtd(path)),
+    "pgm": ("Akai MPC program", lambda path, deep: mpc.inspect_pgm(path)),
+    "snd": ("Akai MPC2000 sound", lambda path, deep: mpc.inspect_snd(path)),
     "bitwig": ("Bitwig preset",
                lambda path, deep: bitwig.inspect_bitwig(path, deep=deep)),
     "ncw": ("NI Compressed Wave", lambda path, deep: ncw.inspect_ncw(path)),
@@ -47,6 +59,7 @@ _WALKERS = {
     "mp3": ("MP3/MPEG audio",
             lambda path, deep: mp3.inspect_mp3(path, deep=deep)),
     "mod": ("ProTracker MOD", lambda path, deep: tracker.inspect_mod(path)),
+    "s3m": ("ScreamTracker 3 S3M", lambda path, deep: tracker.inspect_s3m(path)),
     "xm": ("FastTracker II XM", lambda path, deep: tracker.inspect_xm(path)),
     "it": ("Impulse Tracker", lambda path, deep: tracker.inspect_it(path)),
 }
@@ -64,7 +77,7 @@ def walk_file(filepath, deep=False):
     if entry is None:
         raise Unsupported("not a recognized audio/preset file (WAV, RF64, AIFF, "
                           "MIDI, Serum, Bitwig, Vital, NCW, SF2, MP4/M4A, Ogg, "
-                          "Native Instruments, MP3, FLAC, or a MOD/XM/IT tracker "
-                          "module)")
+                          "Native Instruments, MP3, FLAC, a MOD/S3M/XM/IT "
+                          "tracker module, or a SigMF/IQ capture)")
     label, walker = entry
     return (label, *walker(filepath, deep))
