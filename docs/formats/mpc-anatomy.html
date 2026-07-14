@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / mpc + akai anatomy</title>
+<script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Akai / MPC design language: Akai red accent over neutral MPC housing greys */
+  --paper:#E7E7E3; --panel:#ECECE8; --ink:#212120; --soft:#565651;
+  --faint:#9A9A92; --line:#C9C9C4; --hair:#D8D8D3;
+  --enum:#BC012E;  --enum-soft:#F0D8DC;   /* Akai red -- primary accent / verified */
+  --flag:#A8761E;  --flag-soft:#F1E5C9;   /* Casablanca amber -- needs / caution */
+  --rsv:#9C9C93;   --rsv-soft:rgba(30,30,28,0.03);
+  --sync:#1C355E;  --sync-soft:#D8DDE7;   /* classic MPC blue -- structural */
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+:root[data-theme="dark"]{--paper:#18191a;--panel:#212220;--ink:#e7e7e3;--soft:#a9a9a2;--faint:#7b7b73;--line:#383834;--hair:#2b2b28;--enum:#e08a99;--enum-soft:#2a1a1e;--flag:#e0bd83;--flag-soft:#2c261b;--rsv:#bbbbb2;--rsv-soft:rgba(230,230,225,0.04);--sync:#93a6c6;--sync-soft:#1b1f26;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+
+.head{border:1px solid var(--ink);margin-bottom:1.4rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+
+/* tab bar */
+.tabs{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-bottom:none;margin-bottom:0}
+.tab{padding:0.55rem 0.9rem;font-size:0.64rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--soft);cursor:pointer;border-right:1px solid var(--hair);background:none;font-family:var(--ff);border-top:none;border-left:none;border-bottom:2px solid transparent;text-align:left}
+.tab:last-child{border-right:none}
+.tab:hover{color:var(--enum)}
+.tab.on{color:var(--ink);border-bottom-color:var(--enum);background:var(--panel)}
+.tab small{display:block;font-size:0.5rem;color:var(--faint);letter-spacing:0.08em;margin-top:1px;text-transform:none}
+.panelwrap{border:1px solid var(--line);border-top:none;padding:1.6rem clamp(1rem,3vw,1.8rem) 2rem;margin-bottom:2rem}
+.panel{display:none}
+.panel.on{display:block}
+
+/* per-format facts strip */
+.facts{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);font-size:0.58rem;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:1.4rem}
+.facts div{padding:0.5rem 0.9rem;border-right:1px solid var(--hair);color:var(--soft)}
+.facts div:last-child{border-right:none}
+.facts b{color:var(--ink);font-weight:500;display:block;margin-top:2px;letter-spacing:0.02em}
+.facts b.veri{color:var(--enum)} .facts b.need{color:var(--flag)}
+@media(max-width:640px){.facts{grid-template-columns:repeat(2,1fr)}}
+
+.lede{color:var(--soft);max-width:78ch;margin-bottom:1.6rem;font-size:0.84rem;line-height:1.72}
+.lede b{color:var(--ink);font-weight:500}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:76ch}
+.callout{border:1px solid var(--flag);background:var(--flag-soft);padding:0.7rem 0.9rem;margin:0.9rem 0 1.4rem;font-size:0.76rem;color:var(--ink);line-height:1.6}
+.callout b{color:var(--flag);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;font-size:0.6rem;display:block;margin-bottom:0.3rem}
+
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.7rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500;letter-spacing:0.02em}
+.region .rspan{font-size:0.62rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px;vertical-align:middle}
+.region .rbody{padding:0.6rem 1rem 1.2rem 3rem;border-top:1px solid var(--hair)}
+
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:11rem 1fr;gap:1rem;padding:0.3rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+/* matrix table */
+.matrix{width:100%;border-collapse:collapse;font-size:0.72rem;margin:0.4rem 0 1.6rem}
+.matrix th,.matrix td{text-align:left;padding:0.45rem 0.7rem;border-bottom:1px solid var(--hair);vertical-align:top}
+.matrix th{font-size:0.56rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--line)}
+.matrix td.f{color:var(--ink);font-weight:500;white-space:nowrap}
+.matrix .st{font-size:0.6rem;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap}
+.matrix .veri{color:var(--enum)} .matrix .need{color:var(--flag)} .matrix .part{color:var(--soft)}
+.matrix tr:hover td{background:var(--panel)}
+
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5.5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.44rem 0;border-bottom:1px solid var(--hair);cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 6.3rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
+.detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.62}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+
+footer{margin-top:3rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title">
+        <div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div>
+        <h1>Akai MPC Anatomy</h1>
+      </div>
+      <div class="stamp"><b>MPC + S-series family</b>vintage &rarr; modern<br>rev 2026.07</div>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-p="overview">Overview<small>the whole family</small></button>
+    <button class="tab" data-p="snd">SND<small>MPC2000 sound</small></button>
+    <button class="tab" data-p="pgm1000">PGM<small>MPC1000 / 2500</small></button>
+    <button class="tab" data-p="pgm2000">PGM<small>MPC2000 / XL</small></button>
+    <button class="tab" data-p="pattern">.mpcpattern<small>MPC2 / MPC3</small></button>
+    <button class="tab" data-p="xpm">.xpm<small>keygroup</small></button>
+    <button class="tab" data-p="xpn">.xpn<small>expansion</small></button>
+    <button class="tab" data-p="xtd">.xtd<small>MPC3 kit</small></button>
+  </div>
+
+  <div class="panelwrap">
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <div class="panel on" data-panel="overview">
+    <p class="lede">The Akai MPC line spans thirty-five years of sampler formats, from 12-bit floppy sounds to gzipped JSON kits. Every binary format is <b>little-endian</b>. This sheet collects them; the tabs open each one's byte layout. <span class="k-en">Akai red</span> = verified against real files, <span class="k-fl">amber</span> = documented but needs a hardware specimen to confirm. The single most useful test artifact is a kit that ships the <b>same sounds across generations</b> (a Rosetta stone): identical sample names in an unknown binary reveal its record structure.</p>
+
+    <div class="sec">format &times; generation matrix</div>
+    <table class="matrix">
+      <thead><tr><th>format</th><th>hardware / software</th><th>container</th><th>samples / PCM</th><th>acidcat</th></tr></thead>
+      <tbody>
+        <tr><td class="f">.snd</td><td>MPC2000, 2000XL <span class="part">(3000?)</span></td><td>binary, 38 or 42-byte header + PCM</td><td>16-bit signed LE, stereo <b>non-interleaved</b>, 44.1k native</td><td class="st veri">verified (16 files)</td></tr>
+        <tr><td class="f">.pgm</td><td>MPC2000, 2000XL, 3000</td><td>binary, 17-byte name-table</td><td>references .snd by name</td><td class="st part">sw-export verified</td></tr>
+        <tr><td class="f">.PGM</td><td>MPC1000, 2500</td><td>binary, "MPC1000 PGM 1.00" magic, 64&times;164B pads</td><td>references .WAV by name</td><td class="st veri">verified (factory default)</td></tr>
+        <tr><td class="f">.WAV</td><td>MPC1000/2500/5000</td><td>standard RIFF/WAVE</td><td>16-bit LE, interleaved (normal WAV)</td><td class="st veri">covered (WAV walker)</td></tr>
+        <tr><td class="f">.50s</td><td>MPC500 / JJOS</td><td>binary, "S80p" magic</td><td>unknown</td><td class="st need">needs RE</td></tr>
+        <tr><td class="f">program</td><td>MPC4000</td><td>likely AKAI APRG (S5000/6000 kin)</td><td>references .WAV</td><td class="st need">needs specimen</td></tr>
+        <tr><td class="f">.mpcpattern</td><td>MPC 2.x / 3.x software</td><td>bare JSON</td><td>sequence events, no audio</td><td class="st veri">both schemas</td></tr>
+        <tr><td class="f">.xpm</td><td>MPC 2.x / 3.x software</td><td>XML (&lt;MPCVObject&gt;)</td><td>references .WAV</td><td class="st veri">verified</td></tr>
+        <tr><td class="f">.xpn</td><td>MPC 2.x / 3.x software</td><td>ZIP package</td><td>bundles programs + .WAV + art</td><td class="st veri">verified</td></tr>
+        <tr><td class="f">.xtd</td><td>MPC 3.x / Force</td><td>gzip + ACVS + JSON</td><td>references .WAV by name+path</td><td class="st veri">verified</td></tr>
+        <tr><td class="f">.s3p</td><td>Akai S3000 (adjacent)</td><td>binary, "PSYSSS30" (a tool export)</td><td>proprietary charset, no ASCII</td><td class="st need">needs tool-ID / charset</td></tr>
+        <tr><td class="f">.akp</td><td>Akai S5000/S6000 (adjacent)</td><td>RIFF/APRG (IFF)</td><td>references .WAV</td><td class="st veri">verified (101 files)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="sec">what we need from hardware-written files</div>
+    <div class="callout"><b>the software-export vs hardware-native question</b>
+    Our vintage <b>.pgm</b> / <b>.snd</b> specimens are <b>software exports</b> (a converter writing files <i>for</i> the hardware). A file written <i>by</i> the actual machine may differ. To confirm, we want files saved on-device by:
+    <br>&bull; an <b>MPC2000 / 2000XL</b> (SCSI/floppy save) -- confirms the hardware .pgm layout (documented as name-table at 0x05 with note + mixer records) and whether the .snd header is 42 bytes there
+    <br>&bull; an <b>MPC3000</b> -- is its .SND/.PGM the same family as the 2000 or its own?
+    <br>&bull; an <b>MPC4000</b> program -- confirm it is the AKAI/APRG format (the .akp walker would then cover it)
+    <br>&bull; an <b>MPC5000</b> .PGM -- the extended MPC1000 variant
+    <br>&bull; more <b>MPC500 .50s</b> and, if we chase it, <b>MPC60</b> 12-bit sounds</div>
+
+    <div class="sec">the three format eras</div>
+    <div class="kv">
+      <div><span class="k">vintage binary</span><span class="v">MPC60/3000/2000/2000XL -- .snd sounds + .pgm programs, on-device disk formats</span></div>
+      <div><span class="k">MPC1000 line</span><span class="v">MPC1000/2500/500/5000 -- .PGM programs + external .WAV; JJOS extends the OS, not the format</span></div>
+      <div><span class="k">modern software</span><span class="v">MPC 2.x/3.x + Force -- JSON/XML/ZIP: .xpm, .xpn, .mpcpattern, .xtd</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== SND ===================== -->
+  <div class="panel" data-panel="snd">
+    <div class="facts">
+      <div>magic<b>0x01 &lt;5 &lt;name&gt;</b></div>
+      <div>endian<b>little</b></div>
+      <div>header<b>38 or 42 bytes</b></div>
+      <div>status<b class="veri">verified &times;16</b></div>
+    </div>
+    <p class="lede">The MPC2000 sound: a fixed header then raw <b>16-bit signed little-endian PCM</b>. Stereo is stored <b>non-interleaved</b> (the full left block, then the full right). The header size is variant-dependent -- classic hardware is 42 bytes, the exports we have use a compact 38-byte header -- so acidcat resolves it by size-fit: header + frames &times; channels &times; 2 must land exactly on EOF. The register map below is a real kick from the CPM7 kit (38-byte). <b>Hover</b> any byte to read the field.</p>
+
+    <div class="sec">header + PCM</div>
+    <p class="note">Fields verified across all 16 kit sounds. The channel byte at 0x15 discriminates perfectly (0 mono / 1 stereo), and the frame count times the channel stride hits the file size to the byte.</p>
+    <div id="snd-hdr" data-build></div>
+
+    <div class="callout"><b>the 42-byte classic variant</b>
+    A hardware-written .snd is documented as a 42-byte header: it keeps the same name/level/channel fields but the <b>total frame count moves to 0x1e</b>, and it adds an explicit loop length (0x22), loop mode (0x26), and sample rate (0x28, u16). acidcat handles both by size-fit; a real on-device .snd would let us confirm the classic field set directly.</div>
+  </div>
+
+  <!-- ===================== PGM 1000 ===================== -->
+  <div class="panel" data-panel="pgm1000">
+    <div class="facts">
+      <div>magic<b>"MPC1000 PGM 1.00" @ 4</b></div>
+      <div>endian<b>little</b></div>
+      <div>pads<b>64 &times; 164 bytes</b></div>
+      <div>status<b class="veri">verified</b></div>
+    </div>
+    <p class="lede">The MPC1000/2500 program. A 24-byte header (file size, then the magic), then <b>64 pads of 164 bytes each</b>. There is <b>no program-name field</b> -- the name is the filename. Each pad holds four 24-byte <b>layers</b>, and each layer opens with a NUL-terminated sample name referencing an external .WAV. Samples are not stored in the program.</p>
+
+    <div class="sec">header</div>
+    <div id="pgm1000-hdr" data-build></div>
+
+    <div class="sec">pad layer</div>
+    <p class="note">Real layer 0 of pad 0 (a velocity-switched kick: this layer plays velocities 70-127, layer 1 the softer 0-69). Offsets verified against a factory-default program.</p>
+    <div id="pgm1000-lay" data-build></div>
+
+    <div class="sec">pad parameters (documented, not yet surfaced)</div>
+    <p class="note">After the four layers (+0x60 in the pad), the pad carries voice overlap + mute group, amp attack/decay, two filters, mixer level/pan, output routing, and FX send. The footer at 0x2918 holds the per-pad MIDI-note table, the note-to-pad map (64 = unassigned), the MIDI program number, and two Q-Link slider records. acidcat surfaces the layers today; these are a mechanical enrichment.</p>
+  </div>
+
+  <!-- ===================== PGM 2000 ===================== -->
+  <div class="panel" data-panel="pgm2000">
+    <div class="facts">
+      <div>magic<b>none (17-byte records)</b></div>
+      <div>endian<b>little</b></div>
+      <div>records<b>16-char name + 1</b></div>
+      <div>status<b class="need">sw-export only</b></div>
+    </div>
+    <p class="lede">The older MPC2000/2000XL/3000 program -- a different format that shares the <b>.pgm</b> extension with the MPC1000 form (acidcat tells them apart on the MPC1000 magic). The specimens we have are <b>software exports</b>: a table of 17-byte records (a 16-character space-padded sample name + one trailing byte) starting at offset 2, terminated by an empty name. The program references its sounds (the sibling .snd files) by these names.</p>
+
+    <div class="sec">name-table record</div>
+    <div id="pgm2000-rec" data-build></div>
+
+    <div class="callout"><b>hardware-native layout -- needs a specimen</b>
+    Paul Kellett's hardware documentation describes a different arrangement for a file written <b>by the machine</b>: lead bytes (0x07, 0x04), a sample count at 0x02, the name table at <b>0x05</b>, a (0x1E,0x00) section marker, then a 16-char program name, 25-byte per-note records (notes 35-98: sample index, play mode, velocity/decay switch, tune, filter, envelopes) and 6-byte mixer records. We have no on-device file, so acidcat parses the verified 0x02 software-export table only. <b>A hardware-written MPC2000 .pgm is the single most useful specimen to get.</b></div>
+  </div>
+
+  <!-- ===================== PATTERN ===================== -->
+  <div class="panel" data-panel="pattern">
+    <div class="facts">
+      <div>magic<b>{ "pattern": { ... } }</b></div>
+      <div>endian<b>n/a (JSON)</b></div>
+      <div>era<b>MPC 2.x + 3.x</b></div>
+      <div>status<b class="veri">both schemas</b></div>
+    </div>
+    <p class="lede">The MPC "MIDI": bare JSON, <code>{"pattern": {"length", "events": [...]}}</code>. <code>length</code> is often <b>9223372036854775807</b> (INT64_MAX) as an "unbounded" sentinel. Two event schemas ship, both handled -- the flat MPC2 event and the nested MPC3 note object.</p>
+
+    <div class="sec">MPC2 event (flat)</div>
+    <details class="region" open><summary><span class="chev">&#9656;</span><span class="rname">type 2050 = note</span><span class="rspan">numbered keys</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">type</span><span class="v">2050 note . 1 / 257 markers</span></div>
+        <div><span class="k">time / len</span><span class="v">tick position, length</span></div>
+        <div><span class="k">"1"</span><span class="v">pitch (MIDI note)</span></div>
+        <div><span class="k">"2"</span><span class="v">velocity (0.0-1.0 float)</span></div>
+        <div><span class="k">mod / modVal</span><span class="v">modifier + value</span></div>
+        <div><span class="k">prob / ratchet</span><span class="v">probability %, ratchet count</span></div>
+      </div></div>
+    </details>
+
+    <div class="sec">MPC3 event (nested)</div>
+    <details class="region" open><summary><span class="chev">&#9656;</span><span class="rname">type 3 = note</span><span class="rspan">"note" object</span></summary>
+      <div class="rbody"><div class="kv">
+        <div><span class="k">version / type</span><span class="v">2 . 3 = note, 1 = automation</span></div>
+        <div><span class="k">channel</span><span class="v">track channel</span></div>
+        <div><span class="k">note.note</span><span class="v">pitch</span></div>
+        <div><span class="k">note.velocity</span><span class="v">0.0-1.0</span></div>
+        <div><span class="k">note.length</span><span class="v">ticks</span></div>
+        <div><span class="k">note.probability / ratchet</span><span class="v">% . count</span></div>
+        <div><span class="k">note.articulation</span><span class="v">articulation id</span></div>
+        <div><span class="k">modifierValue0..15</span><span class="v">per-modifier state</span></div>
+        <div><span class="k">EnumCerealisationWrapper(...)</span><span class="v">a C++ enum serializer leaking its wrapper name -- a provenance tell</span></div>
+      </div></div>
+    </details>
+  </div>
+
+  <!-- ===================== XPM ===================== -->
+  <div class="panel" data-panel="xpm">
+    <div class="facts">
+      <div>magic<b>&lt;MPCVObject&gt;</b></div>
+      <div>endian<b>n/a (XML)</b></div>
+      <div>era<b>MPC 2.x + 3.x</b></div>
+      <div>status<b class="veri">verified</b></div>
+    </div>
+    <p class="lede">The modern keygroup / drum program: XML with an <code>&lt;MPCVObject&gt;</code> root. Content-sniffed (an X11 pixmap shares the .xpm extension). Samples are external .WAV files referenced by name.</p>
+    <div class="sec">structure</div>
+    <div class="kv">
+      <div><span class="k">&lt;MPCVObject&gt;</span><span class="v">root element</span></div>
+      <div><span class="k">&lt;Version&gt;&lt;File_Version&gt;</span><span class="v">e.g. 2.1</span></div>
+      <div><span class="k">&lt;Program type="..."&gt;</span><span class="v">Keygroup | Drum</span></div>
+      <div><span class="k">&lt;ProgramName&gt;</span><span class="v">program name</span></div>
+      <div><span class="k">&lt;KeygroupNumKeygroups&gt;</span><span class="v">keygroup count</span></div>
+      <div><span class="k">&lt;Instrument&gt; &times; N</span><span class="v">each with a &lt;SampleName&gt; (external .WAV, no extension)</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== XPN ===================== -->
+  <div class="panel" data-panel="xpn">
+    <div class="facts">
+      <div>magic<b>PK\x03\x04 + Expansion.xml</b></div>
+      <div>endian<b>little (ZIP)</b></div>
+      <div>era<b>MPC 2.x + 3.x</b></div>
+      <div>status<b class="veri">verified</b></div>
+    </div>
+    <p class="lede">An expansion package: a ZIP bundling an <code>Expansion.xml</code> manifest with the .xpm programs, .WAV samples, and cover art. Note the programs inside a distributed .xpn are usually <b>deflated</b>, so a carve of a program region yields a raw deflate stream, not the literal .xpm (flagged per-entry).</p>
+    <div class="sec">structure</div>
+    <div class="kv">
+      <div><span class="k">Expansion.xml</span><span class="v">manifest: title, manufacturer, type, version, identifier, description, cover img</span></div>
+      <div><span class="k">*.xpm</span><span class="v">the keygroup/drum programs</span></div>
+      <div><span class="k">*.wav</span><span class="v">the samples</span></div>
+      <div><span class="k">*.jpg</span><span class="v">cover art</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== XTD ===================== -->
+  <div class="panel" data-panel="xtd">
+    <div class="facts">
+      <div>magic<b>gzip &rarr; "ACVS"</b></div>
+      <div>endian<b>n/a (JSON)</b></div>
+      <div>era<b>MPC 3.x / Force</b></div>
+      <div>status<b class="veri">verified</b></div>
+    </div>
+    <p class="lede">The MPC3 track/kit: <b>gzip</b> wrapping an <b>ACVS</b> container -- newline-delimited header lines (magic, app version, data type, format, platform) then a JSON body. MPC3 kits are <code>SerialisableTrackData</code>. The decompressed read is capped (64&nbsp;MB) as a gzip-bomb guard.</p>
+    <div class="sec">ACVS header + JSON</div>
+    <div class="kv">
+      <div><span class="k">line 0</span><span class="v">"ACVS" (magic)</span></div>
+      <div><span class="k">line 1</span><span class="v">app version, e.g. 3.6.0.134</span></div>
+      <div><span class="k">line 2</span><span class="v">data type, e.g. SerialisableTrackData</span></div>
+      <div><span class="k">line 3 / 4</span><span class="v">format (json) . platform (Linux)</span></div>
+      <div><span class="k">data.name</span><span class="v">kit name</span></div>
+      <div><span class="k">data.program</span><span class="v">embedded program (name + type)</span></div>
+      <div><span class="k">data.samples[]</span><span class="v">references: name + relative path (../Samples/*.wav)</span></div>
+    </div>
+  </div>
+
+  </div>
+
+  <footer>
+    <span>acidcat / mpc + akai anatomy</span>
+    <span>vintage .snd / .pgm &middot; modern .xpm / .xpn / .xtd</span>
+  <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div"); diagram.className="dbytes";
+    bytes.forEach(function(b,i){
+      var f=fields[owner[i]];
+      var col=document.createElement("div"); col.className="bcol";
+      var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+      var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+      if(i===f.r[0]) cell.classList.add("fstart");
+      cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+    });
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+bytes.length+" bytes</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = "0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):"");
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var blk=document.createElement("div"); blk.className="block";
+    blk.appendChild(left); blk.appendChild(dcol);
+    blk.addEventListener("mouseleave",restore);
+    mount.appendChild(blk);
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte"; det.c.textContent=bytes.length+" bytes";
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // register-map specs, built lazily when a tab is first shown (so the detail
+  // pane sizes correctly -- a hidden panel reports zero height).
+  var SPECS={
+    "snd-hdr":["byte",
+      [0x01,0x02,0x43,0x50,0x4d,0x37,0x5f,0x6b,0x31,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x00,0x64,0x00,0x01,0x00,0x00,0x00,0x00,0x68,0x1a,0x00,0x00,0x68,0x1a,0x00,0x00,0x00,0x00,0x00,0x00],
+      [
+        {label:"validity",k:"sync",r:[0,0],val:"1",body:"A leading 1 marks a valid MPC2000 sound."},
+        {label:"type",k:"enum",r:[1,1],val:"2 (compact)",sel:0,branch:[["2","compact export header (38 bytes)"],["4","classic hardware header (42 bytes)"]],body:"The type byte differs between exports and on-device files; acidcat accepts any value under 5 and resolves the header size by fit.",note:"classic hardware writes 4 here."},
+        {label:"name",k:"enum",r:[2,17],val:"\"CPM7_k1\"",body:"16-byte sample name, space-padded, no extension."},
+        {label:"pad",k:"rsv",r:[18,18],val:"0",body:"Unused."},
+        {label:"level",k:"flag",r:[19,19],val:"100",body:"Playback level, 0-200 (100 = unity)."},
+        {label:"tune",k:"flag",r:[20,20],val:"0",body:"Tune, signed, 10-cent steps."},
+        {label:"channels",k:"enum",r:[21,21],val:"stereo",sel:1,branch:[["0","mono"],["1","stereo"]],body:"Discriminates perfectly across the kit. Stereo PCM is stored non-interleaved: the whole left block then the whole right.",note:"stereo stride = frames x 2 x 2 bytes."},
+        {label:"start",k:"sync",r:[22,25],val:"0",body:"Sample start point, in frames (u32 LE)."},
+        {label:"frame count",k:"enum",r:[26,29],val:"6760",body:"Total sample frames per channel (u32 LE). In the compact header this sits at 0x1a; the classic 42-byte header moves it to 0x1e.",note:"38 + 6760 x 2 x 2 = 27078 = the file size, exactly."},
+        {label:"end / loop",k:"sync",r:[30,33],val:"6760",body:"End / loop-end point (u32 LE); equals the length when there is no loop."},
+        {label:"pad",k:"rsv",r:[34,37],val:"0",body:"Trailing header bytes; PCM begins at byte 38 (or 42 in the classic header)."}
+      ]],
+    "pgm1000-hdr":["byte",
+      [0x04,0x2a,0x00,0x00,0x4d,0x50,0x43,0x31,0x30,0x30,0x30,0x20,0x50,0x47,0x4d,0x20,0x31,0x2e,0x30,0x30,0x00,0x00,0x00,0x00],
+      [
+        {label:"file size",k:"sync",r:[0,1],val:"0x2A04",body:"Total file size (u16 LE) = 10756. A fixed-size format, so this doubles as a validity check.",note:"0x2A04 = 10756 bytes."},
+        {label:"pad",k:"rsv",r:[2,3],val:"0",body:"Padding."},
+        {label:"magic",k:"sync",r:[4,19],val:"\"MPC1000 PGM 1.00\"",body:"The 16-byte format signature. acidcat sniffs on this at offset 4; the MPC500/2500 share it."},
+        {label:"pad",k:"rsv",r:[20,23],val:"0",body:"Header padding; the 64-pad array begins at byte 24."}
+      ]],
+    "pgm1000-lay":["byte",
+      [0x43,0x50,0x4d,0x37,0x5f,0x6b,0x31,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x82,0x40,0x00,0x64,0x46,0x7f,0x00,0x00,0x00,0x00],
+      [
+        {label:"sample name",k:"enum",r:[0,15],val:"\"CPM7_k1\"",body:"16-byte name, NUL-terminated, referencing an external .WAV. An empty name means the layer is unused. Bytes after the terminator are uninitialized.",note:"acidcat reads to the first NUL."},
+        {label:"pad",k:"rsv",r:[16,16],val:"0",body:"Padding."},
+        {label:"level",k:"flag",r:[17,17],val:"100",body:"Layer level, 0-100."},
+        {label:"vel lower",k:"enum",r:[18,18],val:"70",body:"Velocity range, lower bound (0-127). This layer covers loud hits, 70-127."},
+        {label:"vel upper",k:"enum",r:[19,19],val:"127",body:"Velocity range, upper bound. Pad 0's second layer covers the softer 0-69 -- a velocity switch."},
+        {label:"tune",k:"enum",r:[20,21],val:"0",body:"Tune, s16 LE, -3600..+3600 = -36..+36 semitones."},
+        {label:"play mode",k:"flag",r:[22,22],val:"one-shot",sel:0,branch:[["0","one-shot"],["1","note-on"]],body:"One-shot plays to the end; note-on gates on the held note."},
+        {label:"pad",k:"rsv",r:[23,23],val:"0",body:"Layer padding; the next layer follows at +0x18."}
+      ]],
+    "pgm2000-rec":["byte",
+      [0x43,0x50,0x4d,0x37,0x5f,0x6b,0x31,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x20,0x00],
+      [
+        {label:"sample name",k:"enum",r:[0,15],val:"\"CPM7_k1\"",body:"16-byte, space-padded sample name -- a reference to a sibling .snd. The table starts at offset 2 and repeats until an empty name.",note:"this is the software-export form; hardware differs (see callout)."},
+        {label:"terminator",k:"rsv",r:[16,16],val:"0",body:"One trailing byte after each name; the next record follows immediately."}
+      ]]
+  };
+
+  var built={};
+  function buildPanel(name){
+    var panel=document.querySelector('[data-panel="'+name+'"]'); if(!panel) return;
+    panel.querySelectorAll("[data-build]").forEach(function(m){
+      if(built[m.id]) return;
+      var s=SPECS[m.id]; if(!s) return;
+      build(m.id,s[0],s[1],s[2]); built[m.id]=1;
+    });
+  }
+  // tab switching
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  var panels=[].slice.call(document.querySelectorAll(".panel"));
+  function activate(name){
+    tabs.forEach(function(t){t.classList.toggle("on",t.dataset.p===name);});
+    panels.forEach(function(p){p.classList.toggle("on",p.dataset.panel===name);});
+    buildPanel(name);
+    try{history.replaceState(null,"","#"+name);}catch(e){}
+  }
+  tabs.forEach(function(t){t.addEventListener("click",function(){activate(t.dataset.p);});});
+  var start=(location.hash||"").replace("#","");
+  activate(tabs.some(function(t){return t.dataset.p===start;})?start:"overview");
+})();
+</script>
+<button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme"></button>
+<script>(function(){var t=document.getElementById("themeToggle");function cur(){return document.documentElement.getAttribute("data-theme")||"light";}function label(m){t.textContent=(m==="dark"?"light":"dark");}function set(m,p){document.documentElement.setAttribute("data-theme",m);if(p){try{localStorage.setItem("acidcat-theme",m);}catch(e){}}label(m);}t.addEventListener("click",function(){set(cur()==="dark"?"light":"dark",true);});label(cur());})();</script>
+</body>
+</html>
