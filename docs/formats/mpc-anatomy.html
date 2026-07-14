@@ -166,8 +166,8 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
         <tr><td class="f">.pgm</td><td>MPC2000, 2000XL, 3000</td><td>binary, 17-byte name-table</td><td>references .snd by name</td><td class="st part">sw-export verified</td></tr>
         <tr><td class="f">.PGM</td><td>MPC1000, 2500</td><td>binary, "MPC1000 PGM 1.00" magic, 64&times;164B pads</td><td>references .WAV by name</td><td class="st veri">verified (factory default)</td></tr>
         <tr><td class="f">.WAV</td><td>MPC1000/2500/5000</td><td>standard RIFF/WAVE</td><td>16-bit LE, interleaved (normal WAV)</td><td class="st veri">covered (WAV walker)</td></tr>
-        <tr><td class="f">.50s</td><td>MPC500 / JJOS</td><td>binary, "S80p" magic</td><td>unknown</td><td class="st need">needs RE</td></tr>
-        <tr><td class="f">program</td><td>MPC4000</td><td>likely AKAI APRG (S5000/6000 kin)</td><td>references .WAV</td><td class="st need">needs specimen</td></tr>
+        <tr><td class="f">.50s</td><td>MPC500 / JJOS</td><td>binary, "S80p" magic</td><td>program + embedded PCM (135 KB)</td><td class="st need">needs RE</td></tr>
+        <tr><td class="f">program</td><td>MPC4000</td><td>Akai Z-series engine (APRG)</td><td>references .WAV</td><td class="st need">needs specimen</td></tr>
         <tr><td class="f">.mpcpattern</td><td>MPC 2.x / 3.x software</td><td>bare JSON</td><td>sequence events, no audio</td><td class="st veri">both schemas</td></tr>
         <tr><td class="f">.xpm</td><td>MPC 2.x / 3.x software</td><td>XML (&lt;MPCVObject&gt;)</td><td>references .WAV</td><td class="st veri">verified</td></tr>
         <tr><td class="f">.xpn</td><td>MPC 2.x / 3.x software</td><td>ZIP package</td><td>bundles programs + .WAV + art</td><td class="st veri">verified</td></tr>
@@ -186,11 +186,14 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
     <br>&bull; an <b>MPC5000</b> .PGM -- the extended MPC1000 variant
     <br>&bull; more <b>MPC500 .50s</b> and, if we chase it, <b>MPC60</b> 12-bit sounds</div>
 
-    <div class="sec">the three format eras</div>
+    <div class="sec">the 5 format eras (~20 models collapse to these)</div>
+    <p class="note">acidcat needs ~5 format families, not 20 walkers. The time sinks are the intra-era forks (software-vs-hardware .pgm, JJOS variants), not new models.</p>
     <div class="kv">
-      <div><span class="k">vintage binary</span><span class="v">MPC60/3000/2000/2000XL -- .snd sounds + .pgm programs, on-device disk formats</span></div>
-      <div><span class="k">MPC1000 line</span><span class="v">MPC1000/2500/500/5000 -- .PGM programs + external .WAV; JJOS extends the OS, not the format</span></div>
-      <div><span class="k">modern software</span><span class="v">MPC 2.x/3.x + Force -- JSON/XML/ZIP: .xpm, .xpn, .mpcpattern, .xtd</span></div>
+      <div><span class="k">1 . Linn floppy</span><span class="v">MPC60 (1988, 12-bit), 60mkII, MPC3000 (1994, 16-bit) -- old .snd + .pgm, floppy/SCSI</span></div>
+      <div><span class="k">2 . 2000 / 2000XL</span><span class="v">1997-2000, floppy + SCSI/SmartMedia -- 38/42-byte .snd, 07 00 name-table .pgm; the sw-vs-hw fork lives here</span></div>
+      <div><span class="k">3 . MPC4000</span><span class="v">2002, the odd branch -- Akai Z-series sampler engine (APRG), not the 1000 lineage</span></div>
+      <div><span class="k">4 . CF / JJOS</span><span class="v">MPC1000/2500/500/5000 (2003-2008) -- MPC1000 PGM .PGM, external .WAV, MPC500 S80p .50s; JJOS is a 3rd-party OS with its own variants</span></div>
+      <div><span class="k">5 . software OS</span><span class="v">Renaissance (2012) then Live/X/One/Key/Force -- the XML/JSON/ZIP/gzip family (.xpm, .xpn, .xtd, .mpcpattern)</span></div>
     </div>
   </div>
 
