@@ -179,6 +179,60 @@ def _frame_extra_skip(major, fflags):
     return skip, opaque
 
 
+# self-delimited media that can ride inside an ID3 picture frame: (magic prefix,
+# end-of-file terminator, name). a payload that both starts with the magic and
+# ends at the terminator is a byte-exact standalone file a carver recovers whole.
+_EMBEDDED_MAGIC = (
+    (b"\xff\xd8\xff", b"\xff\xd9", "JPEG"),
+    (b"\x89PNG\r\n\x1a\n", b"IEND\xaeB`\x82", "PNG"),
+    (b"GIF89a", b"\x3b", "GIF"),
+    (b"GIF87a", b"\x3b", "GIF"),
+)
+
+
+def _embedded_file(payload):
+    """If `payload` begins with a known image magic, return (name, extent) where
+    extent is the byte length up to and including the format's terminator, or
+    (name, None) when the magic is present but its terminator is not. Returns
+    (None, None) for an unrecognised payload."""
+    for magic, term, name in _EMBEDDED_MAGIC:
+        if payload.startswith(magic):
+            end = payload.rfind(term)
+            return name, (end + len(term) if end >= 0 else None)
+    return None, None
+
+
+def _apic_image_span(raw, is_v22):
+    """Byte offset of the raw image data inside an ID3 picture-frame body (APIC
+    in v2.3/2.4, PIC in v2.2) and the declared MIME/format string. The header is
+    encoding byte, MIME/format, picture-type byte, NUL-terminated description,
+    then the image to end of frame. Returns (offset, mime) or (None, "")."""
+    if not raw:
+        return None, ""
+    enc = raw[0]
+    if is_v22:                                   # PIC: fixed 3-char image format
+        fmt = raw[1:4].decode("ascii", "replace")
+        p = 4
+    else:                                        # APIC: NUL-terminated MIME string
+        nul = raw.find(b"\x00", 1)
+        if nul < 0:
+            return None, ""
+        fmt = raw[1:nul].decode("ascii", "replace")
+        p = nul + 1
+    p += 1                                       # picture-type byte
+    if enc in (1, 2):                            # UTF-16 description: 2-byte NUL
+        term = raw.find(b"\x00\x00", p)
+        while 0 <= term and (term - p) % 2:
+            term = raw.find(b"\x00\x00", term + 1)
+        p = term + 2 if term >= 0 else -1
+    else:                                        # ISO-8859-1 / UTF-8: 1-byte NUL
+        term = raw.find(b"\x00", p)
+        p = term + 1 if term >= 0 else -1
+    if p < 0 or p > len(raw):
+        return None, fmt
+    return p, fmt
+
+
 def _id3v2_frames(filepath, hdr):
     """Enumerate ID3v2 frames into display fields. Decodes common text
     frames to their values; lists every frame id and size otherwise."""
@@ -218,6 +272,9 @@ def _id3v2_frames(filepath, hdr):
         body = body.replace(b"\xff\x00", b"\xff")
         warns.append("tag is unsynchronised; byte offsets shown are logical "
                      "(post-desync), not raw file positions")
+    # after a whole-tag de-escape the field offsets are logical, not on-disk, so
+    # a carve range computed from them would not line up with the real file.
+    tag_desynced = bool(flags & 0x80 and major != 4)
 
     pos = 0
     # skip the extended header (flag bit 6) so it is not misread as a frame.
@@ -262,6 +319,10 @@ def _id3v2_frames(filepath, hdr):
         raw = body[data_start:data_start + fsize]
         note = (_ID3V22_TEXT_FRAMES if is_v22 else _ID3_TEXT_FRAMES).get(fid_s, "")
         opaque = ""
+        skip = 0
+        unsynced = False
+        img_field = None
+        img_ref = None
         if not is_v22 and pos + 10 <= len(body):
             # v2.3/v2.4 frame headers carry two flag bytes; the format byte can
             # prepend extras (group id, decompressed size / data-length
@@ -273,6 +334,7 @@ def _id3v2_frames(filepath, hdr):
                 # per-frame unsynchronisation (v2.4): undo before decoding.
                 # the extras are synchsafe/single bytes and never unsync-escaped
                 raw = raw[:skip] + raw[skip:].replace(b"\xff\x00", b"\xff")
+                unsynced = True
             raw = raw[skip:]
         if opaque:
             # compressed/encrypted payloads cannot be shown as text; say why
@@ -295,9 +357,46 @@ def _id3v2_frames(filepath, hdr):
         elif fid_s == "APIC" or fid_s == "PIC":
             value = f"{fsize:,} bytes"
             note = "attached picture"
+            # locate the raw image inside the frame and, when the on-disk bytes
+            # match it (no unsync remap), expose it as a carveable region with an
+            # xref. an APIC can carry a byte-exact standalone file: cover art
+            # normally is one, and a cavity hides extra bytes past its terminator.
+            span, mime = _apic_image_span(raw, is_v22)
+            if mime:
+                note += f", {mime}"
+            if span is not None and not unsynced and not tag_desynced:
+                payload = raw[span:]
+                img_abs = 10 + data_start + skip + span
+                fmt_name, extent = _embedded_file(payload)
+                if fmt_name is None:
+                    media, img_len = "image data", len(payload)
+                elif extent is None:
+                    media = f"{fmt_name} data, no terminator (truncated?)"
+                    img_len = len(payload)
+                else:
+                    # the region spans the self-delimited file itself, so a carve
+                    # of it opens directly. a NUL run past the terminator is frame
+                    # padding; any other trailing bytes are a genuine cavity.
+                    img_len = extent
+                    trailing = payload[extent:]
+                    if trailing.strip(b"\x00"):
+                        media = (f"complete {fmt_name} (carveable), "
+                                 f"{len(trailing):,} bytes follow it")
+                        warns.append(
+                            f"{fid_s} image is a complete {fmt_name} with "
+                            f"{len(trailing):,} non-padding bytes after its "
+                            "terminator")
+                    else:
+                        media = f"complete {fmt_name} (carveable)"
+                img_field = _f(img_abs, img_len, f"{fid_s}:image",
+                               f"{img_len:,} bytes", media)
+                img_ref = img_abs
         else:
             value = f"{fsize:,} bytes"
-        fields.append(_f(10 + pos, fhdr_len + fsize, fid_s, value, note))
+        fields.append(_f(10 + pos, fhdr_len + fsize, fid_s, value, note,
+                         xref=img_ref))
+        if img_field is not None:
+            fields.append(img_field)
         pos = data_start + fsize
     return fields, warns
 
