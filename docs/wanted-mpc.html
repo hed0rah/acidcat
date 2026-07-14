@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / WANTED . MPC</title>
+<script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Akai / MPC design language: Akai red over neutral MPC housing greys */
+  --paper:#E7E7E3; --panel:#ECECE8; --ink:#212120; --soft:#565651;
+  --faint:#9A9A92; --line:#C9C9C4; --hair:#D8D8D3;
+  --accent:#BC012E; --accent-soft:#F0D8DC;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+:root[data-theme="dark"]{--paper:#18191a;--panel:#212220;--ink:#e7e7e3;--soft:#a9a9a2;--faint:#7b7b73;--line:#383834;--hair:#2b2b28;--accent:#e08a99;--accent-soft:#2a1a1e;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;-webkit-font-smoothing:antialiased;padding:clamp(1rem,4vw,2.5rem);min-height:100vh}
+::selection{background:var(--accent);color:var(--paper)}
+.poster{max-width:600px;margin:0 auto;border:3px double var(--accent);background:var(--panel)}
+.inner{border:1px solid var(--line);margin:0.55rem;padding:clamp(1.4rem,5vw,2.4rem) clamp(1.1rem,4vw,1.9rem) 1.6rem}
+
+.tag{text-align:center;font-size:0.56rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--accent)}
+h1{text-align:center;font-size:clamp(3rem,15vw,5.2rem);font-weight:600;letter-spacing:0.14em;line-height:0.95;margin:0.5rem 0 0.4rem;text-indent:0.14em}
+.sub{text-align:center;font-size:clamp(0.85rem,3vw,1rem);color:var(--ink);font-weight:400;letter-spacing:0.01em}
+.daoa{text-align:center;font-size:0.62rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--faint);margin-top:0.5rem}
+
+.reward{text-align:center;border-top:1px solid var(--accent);border-bottom:1px solid var(--accent);margin:1.5rem 0 1.6rem;padding:0.75rem 0.5rem}
+.reward .rl{font-size:0.54rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint)}
+.reward .rv{font-size:clamp(0.9rem,3.4vw,1.12rem);color:var(--accent);font-weight:500;letter-spacing:0.02em;margin-top:0.28rem}
+
+.lede{font-size:0.8rem;color:var(--soft);line-height:1.7;margin-bottom:1.2rem;text-align:center}
+.lede b{color:var(--ink);font-weight:500}
+
+.wlist{border-top:1px solid var(--hair)}
+.w{border-bottom:1px solid var(--hair);padding:0.6rem 0.2rem;display:grid;grid-template-columns:7.2rem 1fr;gap:0.3rem 0.8rem;align-items:baseline}
+.w .m{color:var(--ink);font-weight:500;font-size:0.82rem;letter-spacing:0.01em;white-space:nowrap}
+.w .d{color:var(--soft);font-size:0.74rem;line-height:1.5}
+.w.prize .m{color:var(--accent)}
+.w.prize .m::after{content:"top prize";display:block;font-size:0.5rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--faint);font-weight:400;margin-top:2px}
+
+.drop{margin-top:1.1rem;background:var(--accent-soft);border:1px solid var(--accent);padding:0.7rem 0.9rem;font-size:0.76rem;color:var(--ink);line-height:1.55;text-align:center}
+.drop b{color:var(--accent);font-weight:600}
+
+.how{margin-top:1.3rem;padding-top:1rem;border-top:1px solid var(--accent);font-size:0.75rem;color:var(--soft);line-height:1.6;text-align:center}
+.how b{color:var(--ink);font-weight:500}
+.mark{text-align:center;margin-top:1.3rem;font-size:0.54rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint)}
+.mark a{color:inherit;border-bottom:1px solid var(--hair)} .mark a:hover{color:var(--accent);border-color:var(--accent)}
+
+.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer}
+.theme-toggle:hover{color:var(--accent);border-color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="poster">
+  <div class="inner">
+    <div class="tag">acidcat . Akai MPC hardware A.P.B.</div>
+    <h1>WANTED</h1>
+    <div class="sub">hardware-written Akai MPC files</div>
+    <div class="daoa">12-bit or 16-bit &middot; floppy or CompactFlash</div>
+
+    <div class="reward">
+      <div class="rl">reward</div>
+      <div class="rv">rare and uncompressed PCM treasures</div>
+    </div>
+
+    <p class="lede">acidcat reads MPC files written by the MPC <b>software</b>. Files saved by the <b>hardware</b> may use a different layout, and closing that gap is the hunt. We want on-device saves, copied raw off the card or disk, unconverted.</p>
+
+    <div class="wlist">
+      <div class="w prize"><span class="m">MPC2000 / XL</span><span class="d">a .PGM + .SND -- settles the hardware-vs-software program layout for good.</span></div>
+      <div class="w"><span class="m">MPC3000</span><span class="d">a .PGM + .SND -- same family as the 2000, or its own dialect?</span></div>
+      <div class="w"><span class="m">MPC4000</span><span class="d">one program -- confirm the Akai Z-series (APRG) format we already read.</span></div>
+      <div class="w"><span class="m">MPC5000</span><span class="d">a .PGM -- the extended MPC1000 variant.</span></div>
+      <div class="w"><span class="m">MPC500</span><span class="d">a program + a .50s -- the .50s format is completely unmapped.</span></div>
+      <div class="w"><span class="m">MPC60 / mkII</span><span class="d">a 12-bit sound -- the oldest era, a different bit depth entirely.</span></div>
+    </div>
+
+    <div class="drop"><b>the perfect drop:</b> the same simple kit saved on several machines. Identical sample names across formats let us decode unknown bytes on sight.</div>
+
+    <div class="how">turn one in at <b>github.com/hed0rah/acidcat</b>. small, plain, non-copyrighted -- a few pads and a sine burst is ideal. tell us the machine + firmware if you know it.</div>
+    <div class="mark"><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a> &middot; byte-level format forensics</div>
+  </div>
+</div>
+<button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme"></button>
+<script>(function(){var t=document.getElementById("themeToggle");function cur(){return document.documentElement.getAttribute("data-theme")||"light";}function label(m){t.textContent=(m==="dark"?"light":"dark");}function set(m,p){document.documentElement.setAttribute("data-theme",m);if(p){try{localStorage.setItem("acidcat-theme",m);}catch(e){}}label(m);}t.addEventListener("click",function(){set(cur()==="dark"?"light":"dark",true);});label(cur());})();</script>
+</body>
+</html>
