@@ -156,7 +156,7 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
 
   <!-- ===================== OVERVIEW ===================== -->
   <div class="panel on" data-panel="overview">
-    <p class="lede">The Akai MPC line spans thirty-five years of sampler formats, from 12-bit floppy sounds to gzipped JSON kits. Every binary format is <b>little-endian</b>. This sheet collects them; the tabs open each one's byte layout. <span class="k-en">Akai red</span> = verified against real files, <span class="k-fl">amber</span> = documented but needs a hardware specimen to confirm. The single most useful test artifact is a kit that ships the <b>same sounds across generations</b> (a Rosetta stone): identical sample names in an unknown binary reveal its record structure.</p>
+    <p class="lede">The Akai MPC line spans nearly four decades of sampler formats, from 12-bit floppy sounds to gzipped JSON kits. Every binary format is <b>little-endian</b>. This sheet collects them; the tabs open each one's byte layout. <span class="k-en">Akai red</span> = verified against real files, <span class="k-fl">amber</span> = documented but needs a hardware specimen to confirm. The single most useful test artifact is a kit that ships the <b>same sounds across generations</b> (a Rosetta stone): identical sample names in an unknown binary reveal its record structure.</p>
 
     <div class="sec">format &times; generation matrix</div>
     <table class="matrix">
@@ -441,9 +441,9 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
         {label:"tune",k:"flag",r:[20,20],val:"0",body:"Tune, signed, 10-cent steps."},
         {label:"channels",k:"enum",r:[21,21],val:"stereo",sel:1,branch:[["0","mono"],["1","stereo"]],body:"Discriminates perfectly across the kit. Stereo PCM is stored non-interleaved: the whole left block then the whole right.",note:"stereo stride = frames x 2 x 2 bytes."},
         {label:"start",k:"sync",r:[22,25],val:"0",body:"Sample start point, in frames (u32 LE)."},
-        {label:"frame count",k:"enum",r:[26,29],val:"6760",body:"Total sample frames per channel (u32 LE). In the compact header this sits at 0x1a; the classic 42-byte header moves it to 0x1e.",note:"38 + 6760 x 2 x 2 = 27078 = the file size, exactly."},
-        {label:"end / loop",k:"sync",r:[30,33],val:"6760",body:"End / loop-end point (u32 LE); equals the length when there is no loop."},
-        {label:"pad",k:"rsv",r:[34,37],val:"0",body:"Trailing header bytes; PCM begins at byte 38 (or 42 in the classic header)."}
+        {label:"frame count",k:"enum",r:[26,29],val:"6760",body:"Sample length in frames per channel (u32 LE) -- acidcat reads it here and confirms it by fit. Per the classic-header docs this offset is the end point and 0x1e the frame count; they are equal in every unlooped specimen we have, so the two cannot be told apart from this file.",note:"38 + 6760 x 2 x 2 = 27078 = the file size, exactly."},
+        {label:"length (copy)",k:"sync",r:[30,33],val:"6760",body:"A second copy of the length (the canonical frame count in the classic layout). Equal to the field above when there is no loop."},
+        {label:"loop length",k:"rsv",r:[34,37],val:"0",body:"Loop length in frames; 0 = no loop (loop start = end - loop length). PCM begins at byte 38; the classic 42-byte header adds loop mode, beats, and sample rate before its PCM at byte 42."}
       ]],
     "pgm1000-hdr":["byte",
       [0x04,0x2a,0x00,0x00,0x4d,0x50,0x43,0x31,0x30,0x30,0x30,0x20,0x50,0x47,0x4d,0x20,0x31,0x2e,0x30,0x30,0x00,0x00,0x00,0x00],
