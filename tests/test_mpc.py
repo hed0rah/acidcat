@@ -3,6 +3,7 @@ nested MPC3 event schema) and the .xpm XML keygroup program.
 
 Fixtures are synthesized here from the documented shapes -- no real expansion."""
 import json
+import struct
 
 from acidcat.core.sniff import sniff
 from acidcat.core.walk import mpc
@@ -209,3 +210,95 @@ def test_xtd_rejects_non_acvs(tmp_path):
         assert False, "expected Unsupported"
     except Unsupported:
         pass
+
+
+def _make_snd(tmp_path, name="Kick", frames=100, stereo=False):
+    ch = 2 if stereo else 1
+    hdr = bytearray(38)
+    hdr[0], hdr[1] = 1, 2
+    hdr[2:18] = name.encode("latin-1")[:16].ljust(16, b" ")
+    hdr[19] = 100                                  # level
+    hdr[21] = 1 if stereo else 0
+    struct.pack_into("<I", hdr, 26, frames)
+    struct.pack_into("<I", hdr, 30, frames)
+    p = tmp_path / (name + ".snd")
+    p.write_bytes(bytes(hdr) + bytes(frames * 2 * ch))
+    return str(p)
+
+
+def test_snd_mono(tmp_path):
+    p = _make_snd(tmp_path, frames=100)
+    assert sniff(p) == "snd"
+    chunks, warns = mpc.inspect_snd(p)
+    assert warns == []
+    f = {x["name"]: x for x in chunks[0]["fields"]}
+    assert f["name"]["value"] == "Kick"
+    assert f["channels"]["value"] == 1 and f["channels"]["note"] == "mono"
+    assert f["frames"]["value"] == "100"
+    pcm = next(c for c in chunks if c["id"] == "pcm")
+    assert pcm["offset"] == 38 and pcm["size"] == 200      # 100 frames x 2 bytes mono
+
+
+def test_snd_stereo_non_interleaved(tmp_path):
+    p = _make_snd(tmp_path, frames=100, stereo=True)
+    chunks, _ = mpc.inspect_snd(p)
+    f = {x["name"]: x for x in chunks[0]["fields"]}
+    assert f["channels"]["value"] == 2
+    pcm = next(c for c in chunks if c["id"] == "pcm")
+    assert pcm["size"] == 400                              # 100 x 2 bytes x 2ch
+    assert "non-interleaved" in pcm["summary"]
+
+
+def test_snd_not_confused_with_next_au(tmp_path):
+    # a NeXT/Sun .snd starts with the ASCII magic '.snd' -- must not sniff as MPC
+    p = tmp_path / "next.snd"
+    p.write_bytes(b".snd" + b"\x00" * 40)
+    assert sniff(str(p)) != "snd"
+
+
+def _make_pgm_mpc1000(tmp_path, pads):
+    pad0, padsz, npads, laysz = 24, 164, 64, 24
+    data = bytearray(pad0 + npads * padsz + 236)
+    struct.pack_into("<H", data, 0, len(data))
+    data[4:20] = b"MPC1000 PGM 1.00"
+    for pi, layers in enumerate(pads):
+        base = pad0 + pi * padsz
+        for li, nm in enumerate(layers):
+            n = nm.encode("latin-1")
+            data[base + li * laysz:base + li * laysz + len(n)] = n
+    p = tmp_path / "kit.PGM"
+    p.write_bytes(bytes(data))
+    return str(p)
+
+
+def test_pgm_mpc1000(tmp_path):
+    p = _make_pgm_mpc1000(tmp_path, [["Kick", "KickB"], ["Snare"], ["Kick"]])
+    assert sniff(p) == "pgm"                               # magic in sniff_bytes
+    chunks, warns = mpc.inspect_pgm(p)
+    f = {x["name"]: x["value"] for x in chunks[0]["fields"]}
+    assert f["program_type"] == "MPC1000/2500"
+    assert f["format"] == "MPC1000 PGM 1.00"
+    assert f["pads_used"] == "3/64"
+    assert f["referenced_samples"] == 3                    # Kick deduped
+    pad0 = next(c for c in chunks if c["id"] == "pad[0]")
+    assert [x["value"] for x in pad0["fields"]] == ["Kick", "KickB"]
+
+
+def _make_pgm_mpc2000(tmp_path, names):
+    data = bytearray(struct.pack("<H", len(names)))
+    for nm in names:
+        data += nm.encode("latin-1")[:16].ljust(16, b" ") + b"\x00"
+    p = tmp_path / "kit2000.pgm"
+    p.write_bytes(bytes(data))
+    return str(p)
+
+
+def test_pgm_mpc2000(tmp_path):
+    p = _make_pgm_mpc2000(tmp_path, ["Kick", "Snare", "Hat"])
+    assert sniff(p) == "pgm"                               # content-sniffed
+    chunks, _ = mpc.inspect_pgm(p)
+    f = {x["name"]: x["value"] for x in chunks[0]["fields"]}
+    assert f["program_type"] == "MPC2000/2000XL/3000"
+    assert f["referenced_samples"] == 3
+    samples = next(c for c in chunks if c["id"] == "samples")
+    assert [x["value"] for x in samples["fields"]] == ["Kick", "Snare", "Hat"]
