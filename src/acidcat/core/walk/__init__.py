@@ -11,8 +11,8 @@ in this package, and add one registry entry below.
 
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
-    aiff, bitwig, flac, fxp, midi, mp3, mp4, multisample, ncw, ni, ogg, rf64, rmid, rx2,
-    serum, sf2, tracker, vital, wav, wt,
+    aiff, bitwig, flac, fxp, labx, midi, mp3, mp4, multisample, ncw, ni, ogg, rf64,
+    rmid, rx2, serum, sf2, tracker, vital, wav, wt,
 )
 from acidcat.core.walk.base import Unsupported
 
@@ -33,6 +33,7 @@ _WALKERS = {
     "wt": ("Bitwig wavetable", lambda path, deep: wt.inspect_wt(path)),
     "multisample": ("Bitwig multisample",
                     lambda path, deep: multisample.inspect_multisample(path)),
+    "labx": ("Arturia Analog Lab bank", lambda path, deep: labx.inspect_labx(path)),
     "bitwig": ("Bitwig preset",
                lambda path, deep: bitwig.inspect_bitwig(path, deep=deep)),
     "ncw": ("NI Compressed Wave", lambda path, deep: ncw.inspect_ncw(path)),
