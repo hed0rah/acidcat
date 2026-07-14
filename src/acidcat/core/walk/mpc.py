@@ -33,6 +33,17 @@ def _num(x):
     return round(x, 3) if isinstance(x, float) else x
 
 
+def _data_offset(z, zi):
+    """Absolute file offset of a zip entry's data (past the local file header):
+    the entry's real on-disk bytes, so a STORED program carves to the literal
+    .xpm (a DEFLATED one carves to its raw deflate stream)."""
+    z.fp.seek(zi.header_offset)
+    hdr = z.fp.read(30)
+    n = int.from_bytes(hdr[26:28], "little")
+    m = int.from_bytes(hdr[28:30], "little")
+    return zi.header_offset + 30 + n + m
+
+
 # ---- .mpcpattern (JSON sequence) -----------------------------------------
 
 def _note_of(e):
@@ -147,3 +158,76 @@ def inspect_xpm(filepath):
         chunks.append({"id": "samples", "offset": 0, "size": 0, "payload_base": 0,
                        "summary": summ, "fields": sf, "warnings": []})
     return chunks, []
+
+
+# ---- .xpn (ZIP expansion package) ----------------------------------------
+
+_XPN_MANIFEST_KEYS = ("title", "manufacturer", "type", "version", "identifier")
+
+
+def inspect_xpn(filepath):
+    size = os.path.getsize(filepath)
+    try:
+        z = zipfile.ZipFile(filepath)
+    except zipfile.BadZipFile:
+        return ([{"id": "xpn", "offset": 0, "size": size,
+                  "summary": "not a valid zip archive", "fields": [],
+                  "warnings": ["not a zip archive"], "payload_base": 0}],
+                ["not a zip archive"])
+
+    warns = []
+    with z:
+        names = set(z.namelist())
+        infos = [zi for zi in z.infolist() if not zi.is_dir()]
+        man = {}
+        if "Expansion.xml" in names:
+            try:
+                xml = z.read("Expansion.xml").decode("utf-8", "replace")
+                for tag in _XPN_MANIFEST_KEYS + ("description", "img"):
+                    v = _xml_text(xml, tag)
+                    if v:
+                        man[tag] = v
+            except Exception:
+                warns.append("Expansion.xml did not parse")
+        else:
+            warns.append("no Expansion.xml manifest")
+
+        programs = [zi for zi in infos if zi.filename.lower().endswith(".xpm")]
+        samples = [zi for zi in infos
+                   if zi.filename.lower().endswith((".wav", ".flac", ".aif", ".aiff"))]
+        title = man.get("title") or os.path.basename(filepath)
+        fields = [_f(None, 0, "title", title)]
+        for k in _XPN_MANIFEST_KEYS[1:]:
+            if man.get(k):
+                fields.append(_f(None, 0, k, man[k]))
+        fields.append(_f(None, 0, "programs", len(programs)))
+        fields.append(_f(None, 0, "samples", len(samples)))
+        if man.get("description"):
+            fields.append(_f(None, 0, "description", man["description"][:120]))
+        if man.get("img"):
+            fields.append(_f(None, 0, "cover_image", man["img"]))
+        maker = f" by {man['manufacturer']}" if man.get("manufacturer") else ""
+        chunks = [{"id": "expansion", "offset": 0, "size": size, "payload_base": 0,
+                   "summary": f"MPC expansion '{title}'{maker}: {len(programs)} "
+                              f"program(s), {len(samples)} sample(s)",
+                   "fields": fields, "warnings": []}]
+
+        # each .xpm program is a real on-disk byte region; a STORED entry carves
+        # to the literal .xpm, a DEFLATED one to its raw deflate stream.
+        for zi in programs[:_XPN_ENTRY_CAP]:
+            doff = _data_offset(z, zi)
+            stored = zi.compress_type == zipfile.ZIP_STORED
+            comp = "stored (carveable .xpm)" if stored else "deflated (raw stream)"
+            chunks.append({"id": "program", "offset": doff, "size": zi.compress_size,
+                           "summary": f"{zi.filename}  [{'stored' if stored else 'deflated'}]",
+                           "fields": [_f(None, 0, "file", zi.filename),
+                                      _f(None, 0, "size", f"{zi.file_size:,} bytes",
+                                         "uncompressed"),
+                                      _f(None, 0, "compression", comp)],
+                           "warnings": [], "payload_base": doff})
+        if len(programs) > _XPN_ENTRY_CAP:
+            chunks.append({"id": "program", "offset": 0, "size": 0,
+                           "summary": f"... {len(programs) - _XPN_ENTRY_CAP} more "
+                                      "program(s)",
+                           "fields": [], "warnings": [], "payload_base": 0})
+    return chunks, warns

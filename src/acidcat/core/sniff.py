@@ -117,6 +117,11 @@ def sniff(filepath):
     if fmt is None and head[:4] == b"PK\x03\x04" \
             and (filepath.lower().endswith(".labx") or _is_labx(filepath)):
         return "labx"
+    # an Akai MPC .xpn expansion package is a zip carrying an Expansion.xml
+    # manifest alongside its .xpm programs and samples.
+    if fmt is None and head[:4] == b"PK\x03\x04" \
+            and (filepath.lower().endswith(".xpn") or _is_xpn(filepath)):
+        return "xpn"
     # a free-format MPEG sync (bitrate index 0): sniff_bytes stays strict
     # because 16 bytes cannot confirm it; with the file in hand, accept only
     # when the constant frame length is measurable (a matching second sync).
@@ -216,3 +221,13 @@ def _is_labx(filepath):
     except Exception:
         pass
     return False
+
+
+def _is_xpn(filepath):
+    """A zip carrying an Expansion.xml manifest (Akai MPC expansion package)."""
+    try:
+        import zipfile
+        with zipfile.ZipFile(filepath) as z:
+            return "Expansion.xml" in z.namelist()
+    except Exception:
+        return False

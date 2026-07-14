@@ -112,3 +112,56 @@ def test_xpm_rejects_non_mpc(tmp_path):
         assert False, "expected Unsupported"
     except Unsupported:
         pass
+
+
+def _make_xpn(tmp_path, deflated=False):
+    import zipfile
+    manifest = ('<?xml version="1.0"?><expansion version="2.0.0.0">'
+                '<title>Test Expansion</title><manufacturer>ACME</manufacturer>'
+                '<type>drum</type><version>1.0.0.0</version>'
+                '<identifier>com.test.exp</identifier>'
+                '<description>a test</description><img>cover.jpg</img></expansion>')
+    p = tmp_path / "exp.xpn"
+    comp = zipfile.ZIP_DEFLATED if deflated else zipfile.ZIP_STORED
+    with zipfile.ZipFile(p, "w", comp) as z:
+        z.writestr("Expansion.xml", manifest)
+        z.writestr("Prog1.xpm", _XPM)
+        z.writestr("kick.wav", b"RIFF____WAVE")
+        z.writestr("cover.jpg", b"\xff\xd8\xff\xd9")
+    return str(p)
+
+
+def test_xpn_manifest_and_census(tmp_path):
+    p = _make_xpn(tmp_path)
+    assert sniff(p) == "xpn"
+    chunks, warns = mpc.inspect_xpn(p)
+    assert warns == []
+    f = {x["name"]: x["value"] for x in chunks[0]["fields"]}
+    assert f["title"] == "Test Expansion" and f["manufacturer"] == "ACME"
+    assert f["type"] == "drum" and f["programs"] == 1 and f["samples"] == 1
+    assert f["cover_image"] == "cover.jpg"
+
+
+def test_xpn_stored_program_carves(tmp_path):
+    p = _make_xpn(tmp_path, deflated=False)
+    raw = open(p, "rb").read()
+    chunks, _ = mpc.inspect_xpn(p)
+    prog = next(c for c in chunks if c["id"] == "program")
+    assert raw[prog["offset"]:prog["offset"] + prog["size"]] == _XPM.encode()
+    comp = next(x for x in prog["fields"] if x["name"] == "compression")
+    assert "stored" in comp["value"]
+
+
+def test_xpn_deflated_program_noted(tmp_path):
+    p = _make_xpn(tmp_path, deflated=True)
+    chunks, _ = mpc.inspect_xpn(p)
+    prog = next(c for c in chunks if c["id"] == "program")
+    comp = next(x for x in prog["fields"] if x["name"] == "compression")
+    assert "deflated" in comp["value"]     # honest: not a clean carve target
+
+
+def test_xpn_not_a_zip(tmp_path):
+    p = tmp_path / "bad.xpn"
+    p.write_bytes(b"PK\x03\x04 not really")
+    chunks, warns = mpc.inspect_xpn(str(p))
+    assert warns == ["not a zip archive"]
