@@ -115,6 +115,11 @@ def sniff(filepath):
     # when the constant frame length is measurable (a matching second sync).
     if fmt is None and len(head) >= 4 and _free_format_mp3(filepath, head):
         return "mp3"
+    # S3M's 'SCRM' magic sits at 0x2C (outside the head), a disk-level confirm.
+    # It runs before the MOD check: it is cheaper and more precise, and MOD's
+    # offset-1080 heuristic can false-positive inside S3M pattern data.
+    if fmt is None and _is_s3m(filepath):
+        return "s3m"
     # ProTracker MOD has no leading signature; its only reliable magic sits at
     # offset 1080, so it can only be confirmed with the file in hand.
     if fmt is None and _is_mod(filepath):
@@ -127,6 +132,15 @@ def _is_mod(filepath):
     try:
         with open(filepath, "rb") as f:
             return tkmod.is_mod(f.read(1084))
+    except OSError:
+        return False
+
+
+def _is_s3m(filepath):
+    from acidcat.core import tracker as tkmod
+    try:
+        with open(filepath, "rb") as f:
+            return tkmod.is_s3m(f.read(48))
     except OSError:
         return False
 

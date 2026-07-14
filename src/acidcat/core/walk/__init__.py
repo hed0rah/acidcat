@@ -48,6 +48,7 @@ _WALKERS = {
     "mp3": ("MP3/MPEG audio",
             lambda path, deep: mp3.inspect_mp3(path, deep=deep)),
     "mod": ("ProTracker MOD", lambda path, deep: tracker.inspect_mod(path)),
+    "s3m": ("ScreamTracker 3 S3M", lambda path, deep: tracker.inspect_s3m(path)),
     "xm": ("FastTracker II XM", lambda path, deep: tracker.inspect_xm(path)),
     "it": ("Impulse Tracker", lambda path, deep: tracker.inspect_it(path)),
 }
@@ -65,7 +66,7 @@ def walk_file(filepath, deep=False):
     if entry is None:
         raise Unsupported("not a recognized audio/preset file (WAV, RF64, AIFF, "
                           "MIDI, Serum, Bitwig, Vital, NCW, SF2, MP4/M4A, Ogg, "
-                          "Native Instruments, MP3, FLAC, or a MOD/XM/IT tracker "
-                          "module)")
+                          "Native Instruments, MP3, FLAC, or a MOD/S3M/XM/IT "
+                          "tracker module)")
     label, walker = entry
     return (label, *walker(filepath, deep))
