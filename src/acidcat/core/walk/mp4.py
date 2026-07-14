@@ -17,6 +17,12 @@ _AUDIO_ENTRY_4CC = {b"mp4a", b"alac", b"Opus", b"fLaC", b"ac-3", b"ec-3",
                     b"samr", b"sawb", b".mp3", b"lpcm", b"sowt", b"twos",
                     b"in24", b"in32", b"fl32", b"fl64", b"ulaw", b"alaw"}
 
+# bytes read from the head to build the box tree. a moov that fits here is used in
+# place; one that overruns it (or sits at EOF) is re-read in full so its udta/ilst
+# metadata is not truncated. module-level so tests can shrink the window.
+_HEAD_WINDOW = 8 * 1024 * 1024
+_MOOV_CAP = 32 * 1024 * 1024
+
 
 def _aac_profile(moov_data):
     """The exact codec name from the first audio entry's esds, when it is an
@@ -216,16 +222,21 @@ def inspect_mp4(filepath):
     udta > meta > ilst and the movie duration) followed by the box tree."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
-        data = f.read(min(file_size, 8 * 1024 * 1024))  # box tree from the head
-        # metadata lives in moov; non-faststart files (most Apple/ffmpeg output)
-        # put moov at EOF, past the head window. locate and read just moov then.
+        data = f.read(min(file_size, _HEAD_WINDOW))  # box tree from the head
+        # metadata lives in moov. use the head window when the whole moov fits in
+        # it; re-read the full moov when it sits at EOF (non-faststart output) OR
+        # when it starts in the head but overruns it (large faststart files) --
+        # otherwise its udta/ilst atoms at the tail of moov get truncated off.
         moov_data = data
-        if not any(b["type"] == b"moov" for b in mp4mod.iter_boxes(data)) \
-                and file_size > len(data):
+        moov_box = next((b for b in mp4mod.iter_boxes(data)
+                         if b["type"] == b"moov"), None)
+        overruns = moov_box is not None and \
+            moov_box["offset"] + moov_box["size"] > len(data)
+        if (moov_box is None or overruns) and file_size > len(data):
             moff, msz = mp4mod.find_moov(filepath, file_size)
             if moff is not None:
                 f.seek(moff)
-                moov_data = f.read(min(msz, 32 * 1024 * 1024))
+                moov_data = f.read(min(msz, _MOOV_CAP))
     chunks, warns = [], []
 
     ts, dur = mp4mod.movie_timescale_duration(moov_data)
