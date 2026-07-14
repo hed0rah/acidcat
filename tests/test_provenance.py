@@ -153,3 +153,31 @@ def test_dp_and_edison_canon():
     assert c("Edison") == "Image-Line Edison (FL Studio)"
     # a full FL Studio string still canonicalizes to FL Studio (bare-Edison rule only)
     assert c("FL Studio 21") == "FL Studio"
+
+
+def test_tracker_field_distinctive_and_default():
+    # a distinctive tracker stamp is a writer tell; the format default is suppressed
+    d = provenance.identify("FastTracker II XM",
+                            _chunks_with([("tracker", "OpenMPT 1.30.06.00")]), b"")
+    assert any(s["tool"] == "OpenMPT 1.30.06.00" for s in d)
+    default = provenance.identify("FastTracker II XM",
+                                  _chunks_with([("tracker", "FastTracker v2.00")]), b"")
+    assert default == []
+
+
+def test_comment_tell_is_narrow():
+    # "made with <tool>" is mined; a free-text / URL comment is not
+    fl = provenance.identify(
+        "RIFF/WAVE", _chunks_with([("comment", "made with FL Studio 4 (98-02)")]), b"")
+    assert any(s["tool"] == "FL Studio" and s["confidence"] == "likely" for s in fl)
+    url = provenance.identify(
+        "RIFF/WAVE", _chunks_with([("comment", "Visit https://example.bandcamp.com")]), b"")
+    assert url == []
+
+
+def test_iart_portapack_device_tell():
+    dev = provenance.identify("RIFF/WAVE", _chunks_with([("iart", "PortaPack")]), b"")
+    assert any("PortaPack" in s["tool"] for s in dev)
+    # a normal IART artist is not a device tell
+    assert provenance.identify(
+        "RIFF/WAVE", _chunks_with([("iart", "Some Artist")]), b"") == []
