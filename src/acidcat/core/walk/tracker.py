@@ -129,6 +129,103 @@ def inspect_xm(filepath):
     return chunks, warns
 
 
+def inspect_s3m(filepath):
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 64 * 1024 * 1024))
+    if not tk.is_s3m(data):
+        raise Unsupported("no SCRM magic at offset 0x2C")
+    s = tk.parse_s3m(data)
+    writer = tk._S3M_WRITERS.get(s["cwt"] >> 12, "unknown")
+    flag_names = ", ".join(n for b, n in tk._S3M_FLAGS if s["flags"] & b) or "none"
+    cmap, active = tk._s3m_channel_map(s["channels"])
+    chunks = [{
+        "id": "S3M", "offset": 0, "size": file_size,
+        "summary": f"ScreamTracker 3, made with 0x{s['cwt']:04x} ({writer}), "
+                   f"{s['insnum']} instruments, {s['patnum']} patterns"
+                   + (f" -- '{s['song_name']}'" if s["song_name"] else ""),
+        "fields": [
+            _f(0x00, 28, "song_name", s["song_name"]),
+            _f(0x1D, 1, "type", 16, "ST3 module"),
+            _f(0x20, 2, "order_count", s["ordnum"]),
+            _f(0x22, 2, "instrument_count", s["insnum"]),
+            _f(0x24, 2, "pattern_count", s["patnum"]),
+            _f(0x26, 2, "flags", f"0x{s['flags']:04x}", flag_names),
+            _f(0x28, 2, "created_with", f"0x{s['cwt']:04x}", writer),
+            _f(0x2A, 2, "sample_format", s["ffi"],
+               "signed PCM" if s["ffi"] == 1 else "unsigned PCM"),
+            _f(0x30, 1, "global_volume", s["gvol"]),
+            _f(0x31, 1, "initial_speed", s["speed"]),
+            _f(0x32, 1, "initial_tempo", s["tempo"], "BPM"),
+            _f(0x33, 1, "master_volume", s["mvol"] & 0x7F,
+               "stereo" if s["mvol"] & 0x80 else "mono"),
+            _f(0x40, 32, "channel_map", cmap or "(none)", f"{active} active"),
+        ],
+        "warnings": [], "payload_base": 0,
+    }, {
+        "id": "order", "offset": 0x60, "size": s["ordnum"],
+        "summary": f"pattern order, {s['ordnum']} positions",
+        "fields": [_f(0, s["ordnum"], "order", _order_field(s["order"]))],
+        "warnings": [], "payload_base": 0x60,
+    }]
+
+    # parapointer tables: each entry is a paragraph (byte offset = value << 4),
+    # annotated as an xref the TUI can follow (and flag when it dangles past EOF)
+    for label, base, paras, target in (
+        ("ins_parapointers", s["ins_base"], s["ins_para"], "instrument"),
+        ("pat_parapointers", s["pat_base"], s["pat_para"], "pattern"),
+    ):
+        if not paras:
+            continue
+        flds = [_f(i * 2, 2, f"[{i}]", f"0x{p:04x}",
+                   f"<<4 -> {target} @ 0x{p << 4:08x}", xref=p << 4)
+                for i, p in enumerate(paras[:_XREF_CAP])]
+        chunks.append({
+            "id": label, "offset": base, "size": len(paras) * 2,
+            "summary": f"{len(paras)} {target} parapointer(s), byte = value * 16",
+            "fields": flds, "warnings": [], "payload_base": base,
+        })
+
+    sign = "unsigned" if s["ffi"] == 2 else "signed"
+    for i, sm in enumerate(s["samples"][:_SAMPLE_CAP], 1):
+        if not sm.get("valid"):
+            continue
+        if not sm.get("is_pcm"):                 # adlib instrument: no PCM to point at
+            chunks.append({
+                "id": f"ins[{i}]", "offset": sm["offset"], "size": 0x50,
+                "summary": f"{sm['name'] or '(unnamed)'}  adlib instrument (no PCM)",
+                "fields": [_f(0x00, 1, "type", sm["type"], "adlib"),
+                           _f(0x30, 28, "name", sm["name"])],
+                "warnings": [], "payload_base": sm["offset"],
+            })
+            continue
+        bits = "16-bit" if sm["bits16"] else "8-bit"
+        chan = "stereo (non-interleaved)" if sm["stereo"] else "mono"
+        flag_note = ", ".join(n for b, n in tk._S3M_SAMPLE_FLAGS
+                              if sm["flags"] & b) or "none"
+        chunks.append({
+            "id": f"smp[{i}]", "offset": sm["offset"], "size": 0x50,
+            "summary": f"{sm['name'] or sm['dos_name'] or '(unnamed)'}  "
+                       f"{sm['low_len']:,} pts {bits} {chan} {sign} PCM, "
+                       f"C2 {sm['c2spd']} Hz  (data @ 0x{sm['pcm_off']:08x})",
+            "fields": [
+                _f(0x00, 1, "type", sm["type"], "PCM sample"),
+                _f(0x01, 12, "dos_name", sm["dos_name"]),
+                _f(0x0D, 3, "memseg", f"0x{sm['memseg']:06x}",
+                   f"<<4 -> PCM @ 0x{sm['pcm_off']:08x}", xref=sm["pcm_off"]),
+                _f(0x10, 4, "length", f"{sm['length']:,}", "sample points"),
+                _f(0x14, 4, "loop_begin", sm["loop_beg"]),
+                _f(0x18, 4, "loop_end", sm["loop_end"]),
+                _f(0x1C, 1, "volume", sm["vol"]),
+                _f(0x1F, 1, "flags", f"0x{sm['flags']:02x}", flag_note),
+                _f(0x20, 4, "c2_speed", sm["c2spd"], "Hz"),
+                _f(0x30, 28, "name", sm["name"]),
+            ],
+            "warnings": [], "payload_base": sm["offset"],
+        })
+    return chunks, s["warnings"]
+
+
 def inspect_it(filepath):
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:

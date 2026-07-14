@@ -107,3 +107,77 @@ def test_id3_tsse_encoder_frame():
     chunks = [{"id": "ID3v2", "fields": [{"name": "TSSE", "value": "Lavf62.13.101"}]}]
     sigs = provenance.identify("MP3/MPEG audio", chunks, b"")
     assert any(s["tool"] == "FFmpeg (libav 62.13.101)" for s in sigs)
+
+
+# ── DAW chunk signatures (field-team DEV FINDINGS, corpus-verified) ──
+
+
+def test_logic_pro_chunk_signatures():
+    # LGWV (405 files) and ResU (303) each identify Logic even when the bext
+    # originator is stripped or re-branded. Corpus: ResU is Logic, not Steinberg.
+    for cid in ("LGWV", "ResU"):
+        sigs = provenance._structural("RIFF/WAVE", _chunks_ids(["fmt ", "data", cid]), b"")
+        assert any(s["tool"] == "Apple Logic Pro" and s["confidence"] == "likely"
+                   for s in sigs), cid
+
+
+def test_digital_performer_chunk_signature():
+    # any of the dp* family identifies MOTU DP (100% co-occur, 0 FP in 2345 files)
+    for cid in ("dprn", "dpte", "dpas", "dpam"):
+        sigs = provenance._structural("RIFF/WAVE", _chunks_ids(["fmt ", "data", cid]), b"")
+        assert any(s["tool"] == "MOTU Digital Performer" for s in sigs), cid
+
+
+def test_bitwig_bwbm_chunk_signature():
+    # BWBM is the only provenance handle on a string-stripped Bitwig render
+    sigs = provenance._structural("RIFF/WAVE", _chunks_ids(["JUNK", "BWBM", "data"]), b"")
+    assert any(s["tool"] == "Bitwig Studio" for s in sigs)
+
+
+def test_digidesign_dgda_chunk_signature():
+    sigs = provenance._structural("RIFF/WAVE", _chunks_ids(["fmt ", "data", "DGDA"]), b"")
+    assert any("Digidesign" in s["tool"] for s in sigs)
+
+
+def test_afan_afmd_not_attributed_to_one_app():
+    # shared macOS CoreAudio chunks must NOT identify a single app (Logic or DP)
+    sigs = provenance._structural(
+        "RIFF/WAVE", _chunks_ids(["fmt ", "data", "AFAn", "AFmd"]), b"")
+    assert sigs == []
+
+
+def test_dp_and_edison_canon():
+    c = provenance._canon
+    assert c("Digital Performer") == "MOTU Digital Performer"
+    assert c("Digital Performer 11") == "MOTU Digital Performer"
+    assert c("Edison") == "Image-Line Edison (FL Studio)"
+    # a full FL Studio string still canonicalizes to FL Studio (bare-Edison rule only)
+    assert c("FL Studio 21") == "FL Studio"
+
+
+def test_tracker_field_distinctive_and_default():
+    # a distinctive tracker stamp is a writer tell; the format default is suppressed
+    d = provenance.identify("FastTracker II XM",
+                            _chunks_with([("tracker", "OpenMPT 1.30.06.00")]), b"")
+    assert any(s["tool"] == "OpenMPT 1.30.06.00" for s in d)
+    default = provenance.identify("FastTracker II XM",
+                                  _chunks_with([("tracker", "FastTracker v2.00")]), b"")
+    assert default == []
+
+
+def test_comment_tell_is_narrow():
+    # "made with <tool>" is mined; a free-text / URL comment is not
+    fl = provenance.identify(
+        "RIFF/WAVE", _chunks_with([("comment", "made with FL Studio 4 (98-02)")]), b"")
+    assert any(s["tool"] == "FL Studio" and s["confidence"] == "likely" for s in fl)
+    url = provenance.identify(
+        "RIFF/WAVE", _chunks_with([("comment", "Visit https://example.bandcamp.com")]), b"")
+    assert url == []
+
+
+def test_iart_portapack_device_tell():
+    dev = provenance.identify("RIFF/WAVE", _chunks_with([("iart", "PortaPack")]), b"")
+    assert any("PortaPack" in s["tool"] for s in dev)
+    # a normal IART artist is not a device tell
+    assert provenance.identify(
+        "RIFF/WAVE", _chunks_with([("iart", "Some Artist")]), b"") == []
