@@ -6,7 +6,26 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-07-14
+
 ### Added
+
+- New format walkers: Arturia Analog Lab bank (`.labx`), ScreamTracker 3
+  (`.s3m`), SigMF recordings and bare IQ captures (`.sigmf-meta`/`.sigmf-data`,
+  `.cu8`, GQRX `.raw`, PortaPack `.C16`+`.TXT`), Akai S5000/S6000 programs
+  (`.akp`), and the Akai MPC family: `.mpcpattern` sequences, `.xpm` keygroup
+  programs, `.xpn` expansion packages, `.xtd` kits, plus the vintage MPC1000/2500
+  and MPC2000 `.pgm` programs and MPC2000 `.snd` sounds. The tracker, SigMF, and
+  vintage MPC formats expose their samples/segments as carveable byte regions.
+- Provenance: DAW structural chunk-signatures (Apple Logic, MOTU Digital
+  Performer, Bitwig, Avid/Digidesign) and narrow comment / device / tracker
+  writer tells, corpus-verified.
+- MP3: ID3 picture-frame (APIC/PIC) image data is surfaced as a carveable
+  `<id>:image` region with an xref, flagging a complete embedded file
+  (JPEG/PNG/GIF) and warning on non-padding bytes past its terminator.
+- Vital: unknown top-level JSON keys and trailing bytes after the preset are
+  flagged as unvalidated side-channels instead of being silently accepted or
+  rejected.
 
 - Public library API for tools built on acidcat: `edit_metadata(path, changes)`
   (plus `EditError` / `EditResult`), `read_tags(path)`, `read_id3v2(path)`,
@@ -24,6 +43,14 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `(glyph, hex_color)`; the byte-class -> color map lives in
   `tui_theme.BYTE_CLASS` so the CLI `probe map` and the TUI byte-map views share
   one palette (they had drifted). Breaking for any direct `byte_class` caller.
+
+### Fixed
+
+- `.multisample` zone and manifest chunks pointed at the ZIP local-file header,
+  so `carve` yielded the header instead of the sample; they now use the entry's
+  real data offset, and a STORED sample carves to the literal WAV/FLAC.
+- MP4: re-read the `moov` box when a faststart layout overruns the head-read
+  window, so a large-file encoder tag no longer goes missing.
 
 ## [0.47.0] - 2026-07-12
 
