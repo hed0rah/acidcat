@@ -253,3 +253,7 @@ def test_multisample_bitwig(tmp_path):
     assert len(zones) == 2
     assert _field(chunks, "root") == "36"          # first zone's root note
     assert _field(chunks, "key_range") == "36-40"
+    # a zone points at the entry's real data offset, so carving a STORED sample
+    # yields the literal file, not the zip local header
+    raw = f.read_bytes()
+    assert raw[zones[0]["offset"]:zones[0]["offset"] + zones[0]["size"]] == b"RIFF____WAVE"
