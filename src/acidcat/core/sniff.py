@@ -217,14 +217,15 @@ def _is_mpc2000_pgm(filepath):
 
 
 def _is_mpc_snd(filepath):
-    """An MPC2000 .snd sound: 0x01 0x02 then a printable 16-char name -- not a
-    NeXT/Sun .snd (which starts with the ASCII magic '.snd')."""
+    """An MPC2000 .snd sound: validity byte 1, a type byte < 5 (classic files
+    use 4, some exporters 2), then a printable name -- not a NeXT/Sun .snd
+    (which starts with the ASCII magic '.snd')."""
     try:
         with open(filepath, "rb") as f:
             h = f.read(3)
     except OSError:
         return False
-    return len(h) >= 3 and h[0] == 1 and h[1] == 2 and 0x20 <= h[2] < 0x7f
+    return len(h) >= 3 and h[0] == 1 and h[1] < 5 and 0x20 <= h[2] < 0x7f
 
 
 def _free_format_mp3(filepath, head):

@@ -212,15 +212,16 @@ def test_xtd_rejects_non_acvs(tmp_path):
         pass
 
 
-def _make_snd(tmp_path, name="Kick", frames=100, stereo=False):
+def _make_snd(tmp_path, name="Kick", frames=100, stereo=False, classic=False):
     ch = 2 if stereo else 1
-    hdr = bytearray(38)
-    hdr[0], hdr[1] = 1, 2
+    hdr = bytearray(42 if classic else 38)
+    hdr[0], hdr[1] = 1, (4 if classic else 2)      # classic hardware uses type 4
     hdr[2:18] = name.encode("latin-1")[:16].ljust(16, b" ")
     hdr[19] = 100                                  # level
     hdr[21] = 1 if stereo else 0
-    struct.pack_into("<I", hdr, 26, frames)
-    struct.pack_into("<I", hdr, 30, frames)
+    struct.pack_into("<I", hdr, 0x1e, frames)      # total frame count
+    if not classic:
+        struct.pack_into("<I", hdr, 0x1a, frames)  # compact variant also at 0x1a
     p = tmp_path / (name + ".snd")
     p.write_bytes(bytes(hdr) + bytes(frames * 2 * ch))
     return str(p)
@@ -235,8 +236,21 @@ def test_snd_mono(tmp_path):
     assert f["name"]["value"] == "Kick"
     assert f["channels"]["value"] == 1 and f["channels"]["note"] == "mono"
     assert f["frames"]["value"] == "100"
+    assert f["header_bytes"]["value"] == 38
     pcm = next(c for c in chunks if c["id"] == "pcm")
     assert pcm["offset"] == 38 and pcm["size"] == 200      # 100 frames x 2 bytes mono
+
+
+def test_snd_classic_42byte_header(tmp_path):
+    # the documented hardware .snd has a 42-byte header with the count at 0x1e;
+    # size-fit resolves it and the relaxed sniff (type byte 4) still catches it
+    p = _make_snd(tmp_path, name="Classic", frames=500, classic=True)
+    assert sniff(p) == "snd"
+    chunks, warns = mpc.inspect_snd(p)
+    assert warns == []
+    f = {x["name"]: x["value"] for x in chunks[0]["fields"]}
+    assert f["header_bytes"] == 42 and f["frames"] == "500"
+    assert next(c for c in chunks if c["id"] == "pcm")["offset"] == 42
 
 
 def test_snd_stereo_non_interleaved(tmp_path):
@@ -282,6 +296,9 @@ def test_pgm_mpc1000(tmp_path):
     assert f["referenced_samples"] == 3                    # Kick deduped
     pad0 = next(c for c in chunks if c["id"] == "pad[0]")
     assert [x["value"] for x in pad0["fields"]] == ["Kick", "KickB"]
+    # each layer carries verified zone params in its note, at a real offset
+    assert "level" in pad0["fields"][0]["note"] and "one-shot" in pad0["fields"][0]["note"]
+    assert pad0["fields"][0]["off"] == 24                  # first layer of pad 0
 
 
 def _make_pgm_mpc2000(tmp_path, names):
