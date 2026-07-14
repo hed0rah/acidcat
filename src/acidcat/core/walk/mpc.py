@@ -310,44 +310,57 @@ def inspect_xtd(filepath):
 def inspect_snd(filepath):
     size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
-        head = f.read(_SND_HDR)
-    if len(head) < _SND_HDR or head[0] != 1:
+        head = f.read(48)
+    if len(head) < 42 or head[0] != 1:
         raise _Unsupported("not an MPC2000 .snd sound")
     name = head[2:18].split(b"\x00")[0].decode("latin-1", "replace").rstrip()
     level = head[19]
     stereo = head[21] == 1
     channels = 2 if stereo else 1
-    frames = struct.unpack_from("<I", head, 26)[0]
-    end = struct.unpack_from("<I", head, 30)[0]
+    warns = []
+    # the frame count sits at 0x1e in the classic 42-byte header, but some
+    # exporters write a compact 38-byte header (count at 0x1a). resolve both by
+    # size-fit: pick the (header, count) whose PCM span lands exactly on EOF.
+    resolved = None
+    for hdr, foff in ((42, 0x1e), (38, 0x1a), (38, 0x1e), (42, 0x1a)):
+        frames = struct.unpack_from("<I", head, foff)[0]
+        if frames and hdr + frames * 2 * channels == size:
+            resolved = (hdr, frames)
+            break
+    if resolved is None:
+        hdr, frames = 42, struct.unpack_from("<I", head, 0x1e)[0]
+        warns.append(f"{frames:,} frames x {channels}ch do not fit the "
+                     f"{size:,}-byte file at a 38- or 42-byte header")
+    else:
+        hdr, frames = resolved
     pcm_bytes = frames * 2 * channels
     chan = "stereo (non-interleaved)" if stereo else "mono"
-    warns = []
-    if _SND_HDR + pcm_bytes != size:
-        warns.append(f"{frames:,} frames x {channels}ch imply "
-                     f"{_SND_HDR + pcm_bytes:,} bytes but the file is {size:,}")
     dur = frames / 44100.0
     fields = [
         _f(0x02, 16, "name", name),
         _f(0x13, 1, "level", level),
         _f(0x15, 1, "channels", channels, chan),
-        _f(0x1a, 4, "frames", f"{frames:,}", "sample frames per channel",
-           enc="<I", raw=frames),
-        _f(0x1e, 4, "sample_end", f"{end:,}", enc="<I", raw=end),
+        _f(0x1e if hdr == 42 else 0x1a, 4, "frames", f"{frames:,}",
+           "sample frames per channel", enc="<I", raw=frames),
+        _f(None, 0, "header_bytes", hdr),
         _f(None, 0, "duration", f"{dur:.3f}", "s at 44100 Hz (MPC2000 native)"),
     ]
+    if hdr == 42 and head[0x26]:                      # classic header: loop fields
+        loop_len = struct.unpack_from("<I", head, 0x22)[0]
+        fields.append(_f(0x22, 4, "loop_length", f"{loop_len:,}", "frames"))
     chunks = [{"id": "SND", "offset": 0, "size": size, "payload_base": 0,
                "summary": f"MPC2000 sound '{name}': {frames:,} frames {chan}, "
                           f"{dur:.2f}s",
                "fields": fields, "warnings": warns}]
-    if _SND_HDR < size:
+    if hdr < size:
         # the raw 16-bit PCM is a carveable region (stereo is non-interleaved)
         chan_word = "stereo" if stereo else "mono"
         note = " (non-interleaved)" if stereo else ""
-        chunks.append({"id": "pcm", "offset": _SND_HDR,
-                       "size": min(pcm_bytes, size - _SND_HDR),
+        chunks.append({"id": "pcm", "offset": hdr,
+                       "size": min(pcm_bytes, size - hdr),
                        "summary": f"{frames:,} x 16-bit signed LE {chan_word} "
                                   f"PCM{note}",
-                       "fields": [], "warnings": [], "payload_base": _SND_HDR})
+                       "fields": [], "warnings": [], "payload_base": hdr})
     return chunks, warns
 
 
@@ -381,12 +394,20 @@ def _inspect_pgm_mpc1000(data, size, prog):
             break
         layers = []
         for li in range(nlay):
-            nm = _pgm_name(data[base + li * laysz:base + li * laysz + 16])
-            if nm:
-                layers.append(nm)
-                if nm not in seen:
-                    seen.add(nm)
-                    all_samples.append(nm)
+            loff = base + li * laysz
+            nm = _pgm_name(data[loff:loff + 16])
+            if not nm:
+                continue
+            # layer params (offsets verified vs a factory-default PGM)
+            level = data[loff + 0x11]
+            vlo, vhi = data[loff + 0x12], data[loff + 0x13]
+            tune = struct.unpack_from("<h", data, loff + 0x14)[0] / 100.0
+            play = "one-shot" if data[loff + 0x16] == 0 else "note-on"
+            note = f"level {level}, vel {vlo}-{vhi}, {tune:+g} st, {play}"
+            layers.append((loff, nm, note))
+            if nm not in seen:
+                seen.add(nm)
+                all_samples.append(nm)
         if layers:
             pads.append((pi, base, layers))
     fields = [_f(None, 0, "program_name", prog),
@@ -399,7 +420,8 @@ def _inspect_pgm_mpc1000(data, size, prog):
                           f"{len(all_samples)} sample(s)",
                "fields": fields, "warnings": []}]
     for pi, base, layers in pads[:_PGM_PAD_CAP]:
-        pf = [_f(None, 0, f"layer[{j}]", s) for j, s in enumerate(layers)]
+        pf = [_f(loff, laysz, f"layer[{j}]", nm, note)
+              for j, (loff, nm, note) in enumerate(layers)]
         chunks.append({"id": f"pad[{pi}]", "offset": base, "size": padsz,
                        "summary": f"pad {pi}: {len(layers)} layer(s)",
                        "fields": pf, "warnings": [], "payload_base": base})
