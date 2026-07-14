@@ -103,6 +103,9 @@ def sniff(filepath):
     # the mandated extension reroutes it, exactly like the id3-wrapped demotion.
     if fmt == "vital" and filepath.lower().endswith(".sigmf-meta"):
         return "sigmf"
+    # an MPC .mpcpattern is also bare JSON ('{'); reroute on its extension.
+    if fmt == "vital" and filepath.lower().endswith(".mpcpattern"):
+        return "mpcpattern"
     # a ZIP whose archive holds multisample.xml is a Bitwig .multisample. This is
     # the one content-sniff that must peek inside the container (the local-file
     # header magic alone cannot tell it from any other zip).
@@ -132,6 +135,10 @@ def sniff(filepath):
             return "sigmf"
         if low.endswith(_IQ_EXTS) or (low.endswith(".raw") and _gqrx_sniff(filepath)):
             return "iq"
+        # an MPC .xpm program is XML; content-confirm to avoid the X11 pixmap
+        # that shares the extension.
+        if low.endswith(".xpm") and _is_mpc_program(filepath):
+            return "xpm"
     # ProTracker MOD has no leading signature; its only reliable magic sits at
     # offset 1080, so it can only be confirmed with the file in hand.
     if fmt is None and _is_mod(filepath):
@@ -164,6 +171,16 @@ _IQ_EXTS = (".cu8", ".c16", ".c8", ".cs8", ".cs16", ".cf32", ".cfile")
 def _gqrx_sniff(filepath):
     from acidcat.core.walk import sigmf
     return sigmf._gqrx_name(filepath) is not None
+
+
+def _is_mpc_program(filepath):
+    """An MPC .xpm is XML with an <MPCVObject> root; distinguishes it from an
+    X11 pixmap, which also uses .xpm."""
+    try:
+        with open(filepath, "rb") as f:
+            return b"<MPCVObject" in f.read(512)
+    except OSError:
+        return False
 
 
 def _free_format_mp3(filepath, head):
