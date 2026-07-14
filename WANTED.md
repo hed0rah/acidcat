@@ -4,7 +4,7 @@
 |   rare, vintage, and weird file-format specimens            |
 |   dead or alive, compressed or raw                          |
 |                                                             |
-|   REWARD: rare and uncompressed PCM treasures               |
+|   REWARD: ¤1,000,000,000                                    |
 +--------------------------------------------------------------+
 ```
 
@@ -51,12 +51,12 @@ Identical sample names across formats let us decode unknown bytes on sight.
 ## WHAT MAKES A GOOD SPECIMEN
 
 - **Small and simple.** A few pads, a short sample, plain names (`KICK`, `SNARE`).
-- **Not copyrighted.** Synthesize a sine or noise burst -- that is perfect.
 - **Raw and unmodified.** The actual bytes the tool or hardware wrote.
 
 ## HOW TO TURN ONE IN
 
-Open an issue or a discussion on this repo with the file attached. Tell us what
-wrote it (machine, OS/firmware version, how it was saved) if you know.
+Email **killengn77@gmail.com** with a lead, or open an issue on this repo. Tell
+us what wrote it (machine, OS/firmware version, how it was saved) if you know.
+It is for science.
 
 Every specimen makes the tool read one more corner of the world correctly.
