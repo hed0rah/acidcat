@@ -43,6 +43,8 @@ _WALKERS = {
     "xpm": ("Akai MPC program", lambda path, deep: mpc.inspect_xpm(path)),
     "xpn": ("Akai MPC expansion", lambda path, deep: mpc.inspect_xpn(path)),
     "xtd": ("Akai MPC track/kit", lambda path, deep: mpc.inspect_xtd(path)),
+    "pgm": ("Akai MPC program", lambda path, deep: mpc.inspect_pgm(path)),
+    "snd": ("Akai MPC2000 sound", lambda path, deep: mpc.inspect_snd(path)),
     "bitwig": ("Bitwig preset",
                lambda path, deep: bitwig.inspect_bitwig(path, deep=deep)),
     "ncw": ("NI Compressed Wave", lambda path, deep: ncw.inspect_ncw(path)),

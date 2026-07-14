@@ -42,6 +42,8 @@ def sniff_bytes(head):
         return "rmid"
     if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"APRG":
         return "akp"                                   # Akai S5000/S6000 program
+    if head[4:15] == b"MPC1000 PGM":                   # Akai MPC1000/2500 program
+        return "pgm"
     if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
         return "aiff" if head[8:12] == b"AIFF" else "aifc"
     if len(head) >= 14 and head[:4] == b"MThd":
@@ -151,6 +153,14 @@ def sniff(filepath):
         # that shares the extension.
         if low.endswith(".xpm") and _is_mpc_program(filepath):
             return "xpm"
+        # an older MPC2000 .pgm has no magic (a 17-byte sample-name-table record
+        # at offset 2); the MPC1000 form is caught by magic in sniff_bytes.
+        if low.endswith(".pgm") and _is_mpc2000_pgm(filepath):
+            return "pgm"
+        # an MPC2000 .snd sound starts 0x01 0x02 then a printable name, which
+        # distinguishes it from a NeXT/Sun .snd (magic ".snd").
+        if low.endswith(".snd") and _is_mpc_snd(filepath):
+            return "snd"
     # ProTracker MOD has no leading signature; its only reliable magic sits at
     # offset 1080, so it can only be confirmed with the file in hand.
     if fmt is None and _is_mod(filepath):
@@ -193,6 +203,28 @@ def _is_mpc_program(filepath):
             return b"<MPCVObject" in f.read(512)
     except OSError:
         return False
+
+
+def _is_mpc2000_pgm(filepath):
+    """An MPC2000/2000XL .pgm: a 17-byte sample-name record at offset 2 (a
+    printable name then a 0 at [18]). The MPC1000 form is caught by magic."""
+    try:
+        with open(filepath, "rb") as f:
+            h = f.read(20)
+    except OSError:
+        return False
+    return len(h) >= 19 and h[18] == 0 and 0x20 <= h[2] < 0x7f
+
+
+def _is_mpc_snd(filepath):
+    """An MPC2000 .snd sound: 0x01 0x02 then a printable 16-char name -- not a
+    NeXT/Sun .snd (which starts with the ASCII magic '.snd')."""
+    try:
+        with open(filepath, "rb") as f:
+            h = f.read(3)
+    except OSError:
+        return False
+    return len(h) >= 3 and h[0] == 1 and h[1] == 2 and 0x20 <= h[2] < 0x7f
 
 
 def _free_format_mp3(filepath, head):

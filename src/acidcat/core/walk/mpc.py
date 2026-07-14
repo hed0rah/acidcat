@@ -18,6 +18,7 @@ import gzip
 import json
 import os
 import re
+import struct
 import zipfile
 from collections import Counter
 
@@ -29,6 +30,9 @@ _NOTE_PREVIEW = 16
 _XPM_SAMPLE_CAP = 128
 _XPN_ENTRY_CAP = 48
 _XTD_CAP = 64 * 1024 * 1024                       # decompression-bomb guard
+_PGM_PAD_CAP = 128
+_SND_HDR = 38                                     # MPC2000 .snd header (RE'd exact)
+_MPC1000_MAGIC = b"MPC1000 PGM"
 
 
 def _num(x):
@@ -299,3 +303,128 @@ def inspect_xtd(filepath):
         chunks.append({"id": "samples", "offset": 0, "size": 0, "payload_base": 0,
                        "summary": summ, "fields": sf, "warnings": []})
     return chunks, warns
+
+
+# ---- .snd (MPC2000 sound: 16-bit PCM container) --------------------------
+
+def inspect_snd(filepath):
+    size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        head = f.read(_SND_HDR)
+    if len(head) < _SND_HDR or head[0] != 1:
+        raise _Unsupported("not an MPC2000 .snd sound")
+    name = head[2:18].split(b"\x00")[0].decode("latin-1", "replace").rstrip()
+    level = head[19]
+    stereo = head[21] == 1
+    channels = 2 if stereo else 1
+    frames = struct.unpack_from("<I", head, 26)[0]
+    end = struct.unpack_from("<I", head, 30)[0]
+    pcm_bytes = frames * 2 * channels
+    chan = "stereo (non-interleaved)" if stereo else "mono"
+    warns = []
+    if _SND_HDR + pcm_bytes != size:
+        warns.append(f"{frames:,} frames x {channels}ch imply "
+                     f"{_SND_HDR + pcm_bytes:,} bytes but the file is {size:,}")
+    dur = frames / 44100.0
+    fields = [
+        _f(0x02, 16, "name", name),
+        _f(0x13, 1, "level", level),
+        _f(0x15, 1, "channels", channels, chan),
+        _f(0x1a, 4, "frames", f"{frames:,}", "sample frames per channel",
+           enc="<I", raw=frames),
+        _f(0x1e, 4, "sample_end", f"{end:,}", enc="<I", raw=end),
+        _f(None, 0, "duration", f"{dur:.3f}", "s at 44100 Hz (MPC2000 native)"),
+    ]
+    chunks = [{"id": "SND", "offset": 0, "size": size, "payload_base": 0,
+               "summary": f"MPC2000 sound '{name}': {frames:,} frames {chan}, "
+                          f"{dur:.2f}s",
+               "fields": fields, "warnings": warns}]
+    if _SND_HDR < size:
+        # the raw 16-bit PCM is a carveable region (stereo is non-interleaved)
+        chan_word = "stereo" if stereo else "mono"
+        note = " (non-interleaved)" if stereo else ""
+        chunks.append({"id": "pcm", "offset": _SND_HDR,
+                       "size": min(pcm_bytes, size - _SND_HDR),
+                       "summary": f"{frames:,} x 16-bit signed LE {chan_word} "
+                                  f"PCM{note}",
+                       "fields": [], "warnings": [], "payload_base": _SND_HDR})
+    return chunks, warns
+
+
+# ---- .pgm (MPC program: MPC1000 magic form, or older MPC2000 table form) --
+
+def _pgm_name(raw):
+    return raw.split(b"\x00")[0].decode("latin-1", "replace").rstrip()
+
+
+def inspect_pgm(filepath):
+    size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(size, 8 * 1024 * 1024))
+    prog = os.path.splitext(os.path.basename(filepath))[0]
+    if data[4:4 + len(_MPC1000_MAGIC)] == _MPC1000_MAGIC:
+        return _inspect_pgm_mpc1000(data, size, prog)
+    if len(data) >= 19 and data[18] == 0 and 0x20 <= data[2] < 0x7f:
+        return _inspect_pgm_mpc2000(data, size, prog)
+    raise _Unsupported("not an MPC program (.pgm)")
+
+
+def _inspect_pgm_mpc1000(data, size, prog):
+    # 24-byte header (file size, magic), then 64 pads x 164 bytes; each pad has
+    # four 24-byte layers whose first field is a NUL-terminated sample name.
+    version = data[16:20].decode("latin-1", "replace").strip()
+    pad0, padsz, npads, laysz, nlay = 24, 164, 64, 24, 4
+    pads, seen, all_samples = [], set(), []
+    for pi in range(npads):
+        base = pad0 + pi * padsz
+        if base + padsz > len(data):
+            break
+        layers = []
+        for li in range(nlay):
+            nm = _pgm_name(data[base + li * laysz:base + li * laysz + 16])
+            if nm:
+                layers.append(nm)
+                if nm not in seen:
+                    seen.add(nm)
+                    all_samples.append(nm)
+        if layers:
+            pads.append((pi, base, layers))
+    fields = [_f(None, 0, "program_name", prog),
+              _f(None, 0, "program_type", "MPC1000/2500"),
+              _f(0x04, 16, "format", "MPC1000 PGM " + version),
+              _f(None, 0, "pads_used", f"{len(pads)}/{npads}"),
+              _f(None, 0, "referenced_samples", len(all_samples))]
+    chunks = [{"id": "PGM", "offset": 0, "size": size, "payload_base": 0,
+               "summary": f"MPC1000 program '{prog}': {len(pads)} pad(s), "
+                          f"{len(all_samples)} sample(s)",
+               "fields": fields, "warnings": []}]
+    for pi, base, layers in pads[:_PGM_PAD_CAP]:
+        pf = [_f(None, 0, f"layer[{j}]", s) for j, s in enumerate(layers)]
+        chunks.append({"id": f"pad[{pi}]", "offset": base, "size": padsz,
+                       "summary": f"pad {pi}: {len(layers)} layer(s)",
+                       "fields": pf, "warnings": [], "payload_base": base})
+    return chunks, []
+
+
+def _inspect_pgm_mpc2000(data, size, prog):
+    # a table of 17-byte records (16-char name + 1 byte) from offset 2
+    entries, off = [], 2
+    while off + 17 <= len(data) and len(entries) < 256:
+        if data[off] == 0:
+            break
+        entries.append((off, _pgm_name(data[off:off + 16])))
+        off += 17
+    distinct = len({n for _, n in entries if n})
+    fields = [_f(None, 0, "program_name", prog),
+              _f(None, 0, "program_type", "MPC2000/2000XL/3000"),
+              _f(None, 0, "referenced_samples", distinct)]
+    chunks = [{"id": "pgm", "offset": 0, "size": size, "payload_base": 0,
+               "summary": f"MPC2000 program '{prog}': {distinct} sample(s)",
+               "fields": fields, "warnings": []}]
+    if entries:
+        sf = [_f(o, 16, f"[{j}]", n)
+              for j, (o, n) in enumerate(entries[:_PGM_PAD_CAP])]
+        chunks.append({"id": "samples", "offset": 2, "size": len(entries) * 17,
+                       "summary": f"{len(entries)} sample-name slot(s)",
+                       "fields": sf, "warnings": [], "payload_base": 2})
+    return chunks, []
