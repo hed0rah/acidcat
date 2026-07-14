@@ -104,6 +104,12 @@ def sniff(filepath):
     # header magic alone cannot tell it from any other zip).
     if fmt is None and head[:4] == b"PK\x03\x04" and _is_multisample(filepath):
         return "multisample"
+    # an Arturia Analog Lab .labx is also a zip; its entries follow an
+    # <Engine>/User|Factory/<Bank>/<Preset> layout of boost text archives. The
+    # multisample check (an exact member name) is more specific, so it runs first.
+    if fmt is None and head[:4] == b"PK\x03\x04" \
+            and (filepath.lower().endswith(".labx") or _is_labx(filepath)):
+        return "labx"
     # a free-format MPEG sync (bitrate index 0): sniff_bytes stays strict
     # because 16 bytes cannot confirm it; with the file in hand, accept only
     # when the constant frame length is measurable (a matching second sync).
@@ -142,3 +148,19 @@ def _is_multisample(filepath):
             return "multisample.xml" in z.namelist()
     except Exception:
         return False
+
+
+def _is_labx(filepath):
+    """A zip whose entries follow <Engine>/User|Factory/<Bank>/<Preset> and hold
+    boost text-serialization archives (Arturia Analog Lab bank export)."""
+    try:
+        import zipfile
+        with zipfile.ZipFile(filepath) as z:
+            for n in z.namelist()[:8]:
+                if len(n.split("/")) >= 3 and ("/User/" in n or "/Factory/" in n):
+                    if z.read(n)[:40].split(b" ", 1)[-1].startswith(
+                            b"serialization::archive"):
+                        return True
+    except Exception:
+        pass
+    return False
