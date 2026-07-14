@@ -122,6 +122,11 @@ def sniff(filepath):
     if fmt is None and head[:4] == b"PK\x03\x04" \
             and (filepath.lower().endswith(".xpn") or _is_xpn(filepath)):
         return "xpn"
+    # an MPC3 .xtd track/kit is gzip wrapping an ACVS container; confirm the
+    # ACVS magic inside rather than claiming every .xtd gzip.
+    if fmt is None and head[:2] == b"\x1f\x8b" \
+            and filepath.lower().endswith(".xtd") and _is_xtd(filepath):
+        return "xtd"
     # a free-format MPEG sync (bitrate index 0): sniff_bytes stays strict
     # because 16 bytes cannot confirm it; with the file in hand, accept only
     # when the constant frame length is measurable (a matching second sync).
@@ -229,5 +234,15 @@ def _is_xpn(filepath):
         import zipfile
         with zipfile.ZipFile(filepath) as z:
             return "Expansion.xml" in z.namelist()
+    except Exception:
+        return False
+
+
+def _is_xtd(filepath):
+    """A gzip stream whose decompressed head is the ACVS magic (MPC3 .xtd)."""
+    import gzip
+    try:
+        with gzip.open(filepath, "rb") as g:
+            return g.read(4) == b"ACVS"
     except Exception:
         return False

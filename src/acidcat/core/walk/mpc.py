@@ -14,6 +14,7 @@ Each is inspect-only: this maps structure and surfaces references, it does not
 render a sequence or resolve sample paths on disk.
 """
 
+import gzip
 import json
 import os
 import re
@@ -27,6 +28,7 @@ _INT64_MAX = 2 ** 63 - 1                          # MPC's "unbounded length" sen
 _NOTE_PREVIEW = 16
 _XPM_SAMPLE_CAP = 128
 _XPN_ENTRY_CAP = 48
+_XTD_CAP = 64 * 1024 * 1024                       # decompression-bomb guard
 
 
 def _num(x):
@@ -230,4 +232,70 @@ def inspect_xpn(filepath):
                            "summary": f"... {len(programs) - _XPN_ENTRY_CAP} more "
                                       "program(s)",
                            "fields": [], "warnings": [], "payload_base": 0})
+    return chunks, warns
+
+
+# ---- .xtd (gzip ACVS container: MPC3 track / kit) -------------------------
+
+def inspect_xtd(filepath):
+    size = os.path.getsize(filepath)
+    try:
+        with gzip.open(filepath, "rb") as g:
+            raw = g.read(_XTD_CAP + 1)
+    except (OSError, EOFError) as e:
+        raise _Unsupported("not a valid .xtd (gzip did not open: "
+                           f"{e.__class__.__name__})")
+    if not raw.startswith(b"ACVS"):
+        raise _Unsupported("not an ACVS container (.xtd)")
+    truncated = len(raw) > _XTD_CAP
+    raw = raw[:_XTD_CAP]
+    # header is newline-delimited lines (ACVS, app version, data type, format,
+    # platform) followed by the JSON body at the first brace.
+    brace = raw.find(b"{")
+    hlines = [ln for ln in raw[:brace if brace >= 0 else len(raw)]
+              .decode("utf-8", "replace").splitlines() if ln.strip()]
+    hmap = dict(zip(["magic", "app_version", "data_type", "format", "platform"],
+                    hlines))
+    warns = []
+    kit = {}
+    if brace >= 0 and not truncated:
+        try:
+            obj = json.loads(raw[brace:])
+            kit = obj.get("data", {}) if isinstance(obj, dict) else {}
+        except (ValueError, RecursionError):
+            warns.append("ACVS JSON payload did not parse")
+    elif truncated:
+        warns.append(f"decompressed payload exceeds {_XTD_CAP // (1 << 20)} MB cap; "
+                     "metadata not parsed")
+
+    samples = kit.get("samples") if isinstance(kit.get("samples"), list) else []
+    prog = kit.get("program") if isinstance(kit.get("program"), dict) else {}
+    name = kit.get("name", "")
+    dtype = hmap.get("data_type", "ACVS data")
+    fields = [_f(None, 0, "container", "ACVS"),
+              _f(None, 0, "data_type", dtype),
+              _f(None, 0, "app_version", hmap.get("app_version", "?")),
+              _f(None, 0, "platform", hmap.get("platform", "?"))]
+    if name:
+        fields.insert(1, _f(None, 0, "name", name))
+    if "version" in kit:
+        fields.append(_f(None, 0, "data_version", kit["version"]))
+    if prog.get("name"):
+        fields.append(_f(None, 0, "program", prog["name"], prog.get("type", "")))
+    fields.append(_f(None, 0, "samples", len(samples)))
+    chunks = [{"id": "xtd", "offset": 0, "size": size, "payload_base": 0,
+               "summary": f"MPC {dtype}" + (f" '{name}'" if name else "")
+                          + f", {len(samples)} sample(s)  "
+                          f"(gzip, {hmap.get('app_version', '?')})",
+               "fields": fields, "warnings": warns}]
+    if samples:
+        sf = [_f(None, 0, f"[{i}]",
+                 (s.get("name") if isinstance(s, dict) else None) or "(unnamed)",
+                 (s.get("path") if isinstance(s, dict) else "") or "")
+              for i, s in enumerate(samples[:_XPM_SAMPLE_CAP])]
+        summ = f"{len(samples)} referenced sample(s)"
+        if len(samples) > _XPM_SAMPLE_CAP:
+            summ += f" (first {_XPM_SAMPLE_CAP} shown)"
+        chunks.append({"id": "samples", "offset": 0, "size": 0, "payload_base": 0,
+                       "summary": summ, "fields": sf, "warnings": []})
     return chunks, warns
