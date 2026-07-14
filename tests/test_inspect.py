@@ -824,6 +824,17 @@ def _id3_text_frame(fid, text):
     return fid + struct.pack(">I", len(payload)) + b"\x00\x00" + payload
 
 
+# a complete standalone JPEG (SOI .. EOI), small enough to embed in a test frame
+_JPEG = bytes.fromhex("ffd8ffe00010") + b"cover-jpg" + b"\xff\xd9"
+
+
+def _apic_frame(img, enc=0, mime=b"image/jpeg", desc=b"", term=b"\x00",
+                flags=b"\x00\x00"):
+    """A v2.3 APIC frame: encoding byte, MIME, picture-type, description, image."""
+    body = bytes([enc]) + mime + b"\x00" + b"\x03" + desc + term + img
+    return b"APIC" + struct.pack(">I", len(body)) + flags + body
+
+
 class TestInspectMp3:
     def test_frames_counted_cbr(self, tmp_path):
         from acidcat.core.walk.mp3 import inspect_mp3
@@ -885,6 +896,65 @@ class TestInspectMp3:
         chunks, _ = inspect_mp3(str(p))
         id3 = next(c for c in chunks if c["id"] == "ID3v2")
         assert any("unsynchronised" in w for w in id3["warnings"])
+
+    def test_apic_image_surfaced_as_carveable_region(self, tmp_path):
+        from acidcat.core.walk.mp3 import inspect_mp3
+        data = _id3v2(_apic_frame(_JPEG), major=3) + _MP3_FRAME
+        p = tmp_path / "cover.mp3"
+        p.write_bytes(data)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        apic = next(f for f in id3["fields"] if f["name"] == "APIC")
+        img = next(f for f in id3["fields"] if f["name"] == "APIC:image")
+        # the frame xrefs its image data; the image field spans a byte-exact JPEG
+        assert apic["xref"] == img["off"]
+        assert "image/jpeg" in apic["note"]
+        assert "complete JPEG" in img["note"]
+        assert data[img["off"]:img["off"] + img["len"]] == _JPEG
+        assert id3["warnings"] == []
+
+    def test_apic_cavity_past_eoi_warns(self, tmp_path):
+        from acidcat.core.walk.mp3 import inspect_mp3
+        data = _id3v2(_apic_frame(_JPEG + b"HIDDEN"), major=3) + _MP3_FRAME
+        p = tmp_path / "cavity.mp3"
+        p.write_bytes(data)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        img = next(f for f in id3["fields"] if f["name"] == "APIC:image")
+        assert "6 bytes follow it" in img["note"]
+        assert any("non-padding bytes after its terminator" in w
+                   for w in id3["warnings"])
+        # the region still spans just the clean JPEG, so a carve of it opens
+        assert data[img["off"]:img["off"] + img["len"]] == _JPEG
+
+    def test_apic_nul_padding_after_eoi_is_benign(self, tmp_path):
+        # a NUL run past the terminator is frame padding, not a cavity: no warning
+        from acidcat.core.walk.mp3 import inspect_mp3
+        tag = _id3v2(_apic_frame(_JPEG + b"\x00\x00\x00\x00"), major=3)
+        p = tmp_path / "pad.mp3"
+        p.write_bytes(tag + _MP3_FRAME)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        img = next(f for f in id3["fields"] if f["name"] == "APIC:image")
+        assert img["note"] == "complete JPEG (carveable)"
+        assert id3["warnings"] == []
+
+    def test_apic_unsynced_frame_not_flagged_carveable(self, tmp_path):
+        # v2.4 per-frame unsync remaps the on-disk bytes, so an offset/length
+        # carve would not reproduce the image: the region must not be advertised.
+        from acidcat.core.walk.mp3 import inspect_mp3
+        body = b"\x00" + b"image/jpeg\x00" + b"\x03" + b"\x00" + _JPEG
+        n = len(body)
+        ss = bytes([(n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F])
+        frame = b"APIC" + ss + b"\x00\x02" + body   # v2.4 frame flag 0x0002 = unsync
+        tag = _id3v2(frame, major=4)
+        p = tmp_path / "u.mp3"
+        p.write_bytes(tag + _MP3_FRAME)
+        chunks, _ = inspect_mp3(str(p))
+        id3 = next(c for c in chunks if c["id"] == "ID3v2")
+        names = [f["name"] for f in id3["fields"]]
+        assert "APIC" in names and "APIC:image" not in names
+        assert "xref" not in next(f for f in id3["fields"] if f["name"] == "APIC")
 
     def test_mp3_vbri_header_parsed(self, tmp_path):
         from acidcat.core.walk.mp3 import inspect_mp3
