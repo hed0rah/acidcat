@@ -181,6 +181,23 @@ def test_walker_descends_stsd(tmp_path):
     assert codec.startswith("AAC LC")                 # profile from the esds
 
 
+def test_faststart_moov_overrunning_head_window(tmp_path, monkeypatch):
+    # large faststart file: moov starts in the head window but its udta/ilst tail
+    # (the (c)too encoder atom) lands past it -- the walker must re-read the full
+    # moov, not the truncated head. regression for the MP4 (c)too field-team finding.
+    from acidcat.core.walk import mp4 as wmp4
+    too = _box(b"\xa9too", _box(b"data", struct.pack(">II", 1, 0) + b"Lavf58.51.100"))
+    meta = _box(b"meta", b"\x00\x00\x00\x00" + _box(b"ilst", too))
+    moov = _box(b"moov", _box(b"free", b"\x00" * 4096) + _box(b"udta", meta))
+    p = tmp_path / "faststart_big.m4a"
+    p.write_bytes(_box(b"ftyp", b"M4A \x00\x00\x00\x00") + moov)
+    monkeypatch.setattr(wmp4, "_HEAD_WINDOW", 64)     # smaller than the moov
+    chunks, _w = wmp4.inspect_mp4(str(p))
+    enc = next((f["value"] for c in chunks for f in c.get("fields", [])
+                if str(f.get("name", "")).lower() == "encoder"), None)
+    assert enc == "Lavf58.51.100"
+
+
 def _full_box(btype, version_flags, payload):
     return _box(btype, struct.pack(">I", version_flags) + payload)
 
