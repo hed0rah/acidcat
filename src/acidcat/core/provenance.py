@@ -37,8 +37,10 @@ _CANON = [
     (re.compile(r"Audacity\s*([\d.]+)?", re.I), r"Audacity \1"),
     (re.compile(r"REAPER", re.I), "Cockos REAPER"),
     (re.compile(r"Logic Pro|GarageBand", re.I), "Apple Logic / GarageBand"),
+    (re.compile(r"Digital Performer", re.I), "MOTU Digital Performer"),
     (re.compile(r"Ableton|Live \d", re.I), "Ableton Live"),
     (re.compile(r"FL Studio|Image[- ]?Line|Fruity", re.I), "FL Studio"),
+    (re.compile(r"\bEdison\b", re.I), "Image-Line Edison (FL Studio)"),
     (re.compile(r"Steinberg|Cubase|Nuendo|WaveLab", re.I), "Steinberg (Cubase/WaveLab)"),
     (re.compile(r"\bNero\b", re.I), "Nero"),
     (re.compile(r"WavePad|\bNCH\b", re.I), "NCH WavePad"),
@@ -74,10 +76,20 @@ def _canon(raw):
 # tool-specific chunks, reported at "likely" (a structural tell, not a stamp).
 _CHUNK_SIGNATURES = [
     ({"regn", "minf", "elm1"}, "Avid Pro Tools"),
+    ({"DGDA"}, "Avid Pro Tools (Digidesign)"),
+    ({"LGWV"}, "Apple Logic Pro"),
+    # corpus: ResU is overwhelmingly Logic (288/303), not Steinberg as the web
+    # research guessed -- do not reassign to Steinberg without a corroborating tell.
+    ({"ResU"}, "Apple Logic Pro"),
+    ({"dprn", "dpte", "dpas", "dpam"}, "MOTU Digital Performer"),
+    ({"BWBM"}, "Bitwig Studio"),
     ({"SMED"}, "Steinberg (Cubase/Nuendo/WaveLab)"),
     ({"AFsp"}, "AFsp audio library (SoX / afconvert lineage)"),
     ({"umid"}, "a broadcast/production tool (SMPTE UMID)"),
 ]
+# deliberately NOT signatures: AFAn/AFmd (shared macOS CoreAudio -- Logic AND Digital
+# Performer AND generic Mac renders) and FLLR (padding shared with Apple APIs). Too
+# ambiguous to attribute to one app; use only to corroborate a string tell.
 
 
 def _chunk_signatures(chunks):
