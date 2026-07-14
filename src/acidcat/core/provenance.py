@@ -20,8 +20,22 @@ import re
 # deliberately excludes free-text like "comment" -- that catches URLs and notes,
 # not tools.
 _TELL_FIELDS = {"isft", "software", "encoder", "vendor", "writing_library",
-                "originator", "tool", "coding_history",
+                "originator", "tool", "coding_history", "tracker",
                 "tsse", "tenc", "tss"}   # ID3v2 encoder-settings / encoded-by frames
+
+# tracker `tracker` field values that are format defaults, not app identity --
+# only distinctive writers (OpenMPT, MilkyTracker, Sk@le) are a real tell.
+_TRACKER_DEFAULTS = {"FastTracker v2.00", "ProTracker", "Scream Tracker 3.00",
+                     "Impulse Tracker"}
+
+# WAV INFO IART values that name a recording device, not an artist.
+_IART_DEVICES = {"portapack": "HackRF PortaPack (SDR capture)"}
+
+# narrow comment prefixes that actually carry tool identity. comment/icmt is kept
+# out of _TELL_FIELDS (it catches URLs and free text); this matches only the
+# "made with / Modified by / Recorded ... in <tool>" idiom, first line only.
+_COMMENT_TELL = re.compile(
+    r"^(?:made with|modified by|recorded[^.\r\n]*\bin)\s+([^\r\n]+)", re.I)
 
 # raw-string canonicalization: (regex, template). \1 is the captured version.
 _CANON = [
@@ -103,6 +117,38 @@ def _chunk_signatures(chunks):
     return out
 
 
+def _comment_tell(chunks):
+    """A tool named in a RIFF ICMT / comment via the narrow 'made with ...' idiom.
+    Kept separate from the string-tell scan so free-text comments are not mined."""
+    out = []
+    for c in chunks:
+        for f in c.get("fields") or []:
+            if str(f.get("name", "")).lower() not in ("comment", "icmt"):
+                continue
+            m = _COMMENT_TELL.match(str(f.get("value", "")).strip())
+            if m:
+                tool = _canon(m.group(1).strip(" ."))
+                if tool:
+                    out.append({"tool": tool, "basis": "comment tell",
+                                "confidence": "likely"})
+    return out
+
+
+def _iart_device(chunks):
+    """A recording device named in the WAV INFO IART field (e.g. HackRF PortaPack).
+    IART is normally the artist, so only a known device brand set is matched."""
+    out = []
+    for c in chunks:
+        for f in c.get("fields") or []:
+            if str(f.get("name", "")).lower() != "iart":
+                continue
+            dev = _IART_DEVICES.get(str(f.get("value", "")).strip().lower())
+            if dev:
+                out.append({"tool": dev, "basis": "IART device tell",
+                            "confidence": "likely"})
+    return out
+
+
 def _mp3_lame(chunks):
     """Enrich a LAME MP3 with its encode settings from the Xing/LAME tag: the
     VBR method, lowpass, bitrate/quality. Turns 'LAME 3.100' into a detailed
@@ -167,11 +213,15 @@ def identify(label, chunks, data):
                 if name.lower() == "encoder" and \
                         str(val).upper().startswith(("LAME", "L3.9", "GOGO")):
                     continue
+                if name.lower() == "tracker" and str(val).strip() in _TRACKER_DEFAULTS:
+                    continue          # format-default stamp, not the writing app
                 tool = _canon(str(val))
                 if tool:
                     signals.append({"tool": tool, "basis": f"{name} string",
                                     "confidence": "high"})
     signals += _structural(label, chunks, data)
+    signals += _comment_tell(chunks)
+    signals += _iart_device(chunks)
 
     # de-dup: keep the first (highest-confidence, string tells come first) per tool
     seen, out = set(), []
