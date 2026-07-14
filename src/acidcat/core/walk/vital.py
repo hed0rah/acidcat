@@ -21,10 +21,21 @@ def inspect_vital(filepath, deep=False):
     # the big 'settings' object before synth_version).
     if b'"synth_version"' not in data:
         raise _Unsupported("not a Vital preset (no synth_version marker)")
-    obj = vitalmod.parse_vital(data)
+    obj, jend = vitalmod.parse_vital_span(data)
     if obj is None:
         raise _Unsupported("not a Vital preset (JSON did not parse or lacks "
                            "the synth_version key)")
+    warns = []
+    # bytes after the top-level JSON value are trailing data -- a tolerant loader
+    # ignores them and the preset still loads, so warn instead of rejecting.
+    if data[jend:].strip():
+        warns.append(f"{len(data) - jend:,} bytes of trailing data after the "
+                     "top-level JSON value (ignored by the parser; still loads)")
+    # top-level members outside the Vital schema are an unvalidated side-channel
+    unknown = sorted(k for k in obj if k not in vitalmod.KNOWN_TOP_LEVEL)
+    if unknown:
+        warns.append("unvalidated top-level key(s) outside the Vital schema: "
+                     + ", ".join(unknown))
     fields = []
     for k in vitalmod.META_KEYS:
         v = obj.get(k)
@@ -36,7 +47,7 @@ def inspect_vital(filepath, deep=False):
     chunks = [{"id": "vital", "offset": 0, "size": file_size,
                "summary": f"'{name}' by {obj.get('author', '?')}, "
                           f"{nkeys} settings keys",
-               "fields": fields, "warnings": []}]
+               "fields": fields, "warnings": warns}]
     if deep:
         st = vitalmod.deep_structure(obj)
         engine = []
