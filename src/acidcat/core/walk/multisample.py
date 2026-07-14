@@ -21,14 +21,22 @@ from acidcat.core.walk.base import _f
 _ZONE_CAP = 48                                   # don't flood the view on big kits
 
 
-def _read_entry(z, name):
-    """Read one zip entry bypassing CRC validation (Bitwig writes bad CRCs)."""
-    zi = z.getinfo(name)
+def _data_offset(z, zi):
+    """Absolute file offset of a zip entry's data (past the local file header).
+    ZipInfo.header_offset points at the PK local header, not the payload, so a
+    chunk that means to be the entry's bytes -- a STORED sample, so `carve`
+    yields the literal WAV/FLAC -- must start here, not at header_offset."""
     z.fp.seek(zi.header_offset)
     hdr = z.fp.read(30)
     n = int.from_bytes(hdr[26:28], "little")
     m = int.from_bytes(hdr[28:30], "little")
-    z.fp.read(n + m)                             # skip filename + extra field
+    return zi.header_offset + 30 + n + m
+
+
+def _read_entry(z, name):
+    """Read one zip entry bypassing CRC validation (Bitwig writes bad CRCs)."""
+    zi = z.getinfo(name)
+    z.fp.seek(_data_offset(z, zi))
     raw = z.fp.read(zi.compress_size)
     if zi.compress_type == zipfile.ZIP_DEFLATED:
         return zlib.decompress(raw, -15)         # raw deflate, no zlib wrapper
@@ -77,12 +85,13 @@ def inspect_multisample(filepath):
         mfields.append(_f(None, 0, "sample_zones", len(samples)))
         mfields.append(_f(None, 0, "member_files", len(wavs)))
         mx = infos.get("multisample.xml")
+        mx_off = _data_offset(z, mx) if mx else 0
         chunks = [{"id": "multisample.xml",
-                   "offset": mx.header_offset if mx else 0,
-                   "size": mx.file_size if mx else 0,
+                   "offset": mx_off,
+                   "size": mx.compress_size if mx else 0,
                    "summary": (f"{name or 'multisample'}: {len(samples)} zone(s), "
                                f"{len(wavs)} sample file(s)"),
-                   "fields": mfields, "warnings": [], "payload_base": 0}]
+                   "fields": mfields, "warnings": [], "payload_base": mx_off}]
 
         for s in samples[:_ZONE_CAP]:
             fname = s.get("file", "?")
@@ -103,11 +112,12 @@ def inspect_multisample(filepath):
                              f"{loop.get('mode')} {loop.get('start', '?')}-"
                              f"{loop.get('stop', '?')}"))
             zi = infos.get(fname)
+            z_off = _data_offset(z, zi) if zi else 0
             chunks.append({"id": "zone",
-                           "offset": zi.header_offset if zi else 0,
-                           "size": zi.file_size if zi else 0,
+                           "offset": z_off,
+                           "size": zi.compress_size if zi else 0,
                            "summary": f"{fname} @ root {root_note}",
-                           "fields": zf, "warnings": [], "payload_base": 0})
+                           "fields": zf, "warnings": [], "payload_base": z_off})
         if len(samples) > _ZONE_CAP:
             chunks.append({"id": "zone", "offset": 0, "size": 0,
                            "summary": f"... {len(samples) - _ZONE_CAP} more zone(s)",
