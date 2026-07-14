@@ -20,8 +20,22 @@ import re
 # deliberately excludes free-text like "comment" -- that catches URLs and notes,
 # not tools.
 _TELL_FIELDS = {"isft", "software", "encoder", "vendor", "writing_library",
-                "originator", "tool", "coding_history",
+                "originator", "tool", "coding_history", "tracker",
                 "tsse", "tenc", "tss"}   # ID3v2 encoder-settings / encoded-by frames
+
+# tracker `tracker` field values that are format defaults, not app identity --
+# only distinctive writers (OpenMPT, MilkyTracker, Sk@le) are a real tell.
+_TRACKER_DEFAULTS = {"FastTracker v2.00", "ProTracker", "Scream Tracker 3.00",
+                     "Impulse Tracker"}
+
+# WAV INFO IART values that name a recording device, not an artist.
+_IART_DEVICES = {"portapack": "HackRF PortaPack (SDR capture)"}
+
+# narrow comment prefixes that actually carry tool identity. comment/icmt is kept
+# out of _TELL_FIELDS (it catches URLs and free text); this matches only the
+# "made with / Modified by / Recorded ... in <tool>" idiom, first line only.
+_COMMENT_TELL = re.compile(
+    r"^(?:made with|modified by|recorded[^.\r\n]*\bin)\s+([^\r\n]+)", re.I)
 
 # raw-string canonicalization: (regex, template). \1 is the captured version.
 _CANON = [
@@ -37,8 +51,10 @@ _CANON = [
     (re.compile(r"Audacity\s*([\d.]+)?", re.I), r"Audacity \1"),
     (re.compile(r"REAPER", re.I), "Cockos REAPER"),
     (re.compile(r"Logic Pro|GarageBand", re.I), "Apple Logic / GarageBand"),
+    (re.compile(r"Digital Performer", re.I), "MOTU Digital Performer"),
     (re.compile(r"Ableton|Live \d", re.I), "Ableton Live"),
     (re.compile(r"FL Studio|Image[- ]?Line|Fruity", re.I), "FL Studio"),
+    (re.compile(r"\bEdison\b", re.I), "Image-Line Edison (FL Studio)"),
     (re.compile(r"Steinberg|Cubase|Nuendo|WaveLab", re.I), "Steinberg (Cubase/WaveLab)"),
     (re.compile(r"\bNero\b", re.I), "Nero"),
     (re.compile(r"WavePad|\bNCH\b", re.I), "NCH WavePad"),
@@ -74,10 +90,20 @@ def _canon(raw):
 # tool-specific chunks, reported at "likely" (a structural tell, not a stamp).
 _CHUNK_SIGNATURES = [
     ({"regn", "minf", "elm1"}, "Avid Pro Tools"),
+    ({"DGDA"}, "Avid Pro Tools (Digidesign)"),
+    ({"LGWV"}, "Apple Logic Pro"),
+    # corpus: ResU is overwhelmingly Logic (288/303), not Steinberg as the web
+    # research guessed -- do not reassign to Steinberg without a corroborating tell.
+    ({"ResU"}, "Apple Logic Pro"),
+    ({"dprn", "dpte", "dpas", "dpam"}, "MOTU Digital Performer"),
+    ({"BWBM"}, "Bitwig Studio"),
     ({"SMED"}, "Steinberg (Cubase/Nuendo/WaveLab)"),
     ({"AFsp"}, "AFsp audio library (SoX / afconvert lineage)"),
     ({"umid"}, "a broadcast/production tool (SMPTE UMID)"),
 ]
+# deliberately NOT signatures: AFAn/AFmd (shared macOS CoreAudio -- Logic AND Digital
+# Performer AND generic Mac renders) and FLLR (padding shared with Apple APIs). Too
+# ambiguous to attribute to one app; use only to corroborate a string tell.
 
 
 def _chunk_signatures(chunks):
@@ -88,6 +114,38 @@ def _chunk_signatures(chunks):
         if hit:
             out.append({"tool": tool, "confidence": "likely",
                         "basis": f"{'/'.join(sorted(hit))} chunk"})
+    return out
+
+
+def _comment_tell(chunks):
+    """A tool named in a RIFF ICMT / comment via the narrow 'made with ...' idiom.
+    Kept separate from the string-tell scan so free-text comments are not mined."""
+    out = []
+    for c in chunks:
+        for f in c.get("fields") or []:
+            if str(f.get("name", "")).lower() not in ("comment", "icmt"):
+                continue
+            m = _COMMENT_TELL.match(str(f.get("value", "")).strip())
+            if m:
+                tool = _canon(m.group(1).strip(" ."))
+                if tool:
+                    out.append({"tool": tool, "basis": "comment tell",
+                                "confidence": "likely"})
+    return out
+
+
+def _iart_device(chunks):
+    """A recording device named in the WAV INFO IART field (e.g. HackRF PortaPack).
+    IART is normally the artist, so only a known device brand set is matched."""
+    out = []
+    for c in chunks:
+        for f in c.get("fields") or []:
+            if str(f.get("name", "")).lower() != "iart":
+                continue
+            dev = _IART_DEVICES.get(str(f.get("value", "")).strip().lower())
+            if dev:
+                out.append({"tool": dev, "basis": "IART device tell",
+                            "confidence": "likely"})
     return out
 
 
@@ -155,11 +213,15 @@ def identify(label, chunks, data):
                 if name.lower() == "encoder" and \
                         str(val).upper().startswith(("LAME", "L3.9", "GOGO")):
                     continue
+                if name.lower() == "tracker" and str(val).strip() in _TRACKER_DEFAULTS:
+                    continue          # format-default stamp, not the writing app
                 tool = _canon(str(val))
                 if tool:
                     signals.append({"tool": tool, "basis": f"{name} string",
                                     "confidence": "high"})
     signals += _structural(label, chunks, data)
+    signals += _comment_tell(chunks)
+    signals += _iart_device(chunks)
 
     # de-dup: keep the first (highest-confidence, string tells come first) per tool
     seen, out = set(), []
