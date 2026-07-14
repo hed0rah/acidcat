@@ -165,3 +165,47 @@ def test_xpn_not_a_zip(tmp_path):
     p.write_bytes(b"PK\x03\x04 not really")
     chunks, warns = mpc.inspect_xpn(str(p))
     assert warns == ["not a zip archive"]
+
+
+def _make_xtd(tmp_path, name="Test Kit"):
+    import gzip
+    payload = {"data": {"version": 5, "name": name,
+                        "program": {"name": name, "type": "Drum"},
+                        "samples": [{"name": "Kick", "path": "../Samples/Kick.wav"},
+                                    {"name": "Snare", "path": "../Samples/Snare.wav"}]}}
+    body = (b"ACVS\n3.6.0.134\nSerialisableTrackData\njson\nLinux\n"
+            + json.dumps(payload).encode())
+    p = tmp_path / "kit.xtd"
+    with gzip.open(p, "wb") as g:
+        g.write(body)
+    return str(p)
+
+
+def test_xtd_kit(tmp_path):
+    import gzip  # noqa: F401  (used by _make_xtd)
+    p = _make_xtd(tmp_path)
+    assert sniff(p) == "xtd"
+    chunks, warns = mpc.inspect_xtd(p)
+    assert warns == []
+    f = {x["name"]: x for x in chunks[0]["fields"]}
+    assert f["container"]["value"] == "ACVS"
+    assert f["data_type"]["value"] == "SerialisableTrackData"
+    assert f["name"]["value"] == "Test Kit"
+    assert f["app_version"]["value"] == "3.6.0.134"
+    assert f["program"]["value"] == "Test Kit" and f["program"]["note"] == "Drum"
+    assert f["samples"]["value"] == 2
+    samples = next(c for c in chunks if c["id"] == "samples")
+    assert samples["fields"][0]["value"] == "Kick"
+    assert samples["fields"][0]["note"] == "../Samples/Kick.wav"
+
+
+def test_xtd_rejects_non_acvs(tmp_path):
+    import gzip
+    p = tmp_path / "x.xtd"
+    with gzip.open(p, "wb") as g:
+        g.write(b"not an acvs container")
+    try:
+        mpc.inspect_xtd(str(p))
+        assert False, "expected Unsupported"
+    except Unsupported:
+        pass
