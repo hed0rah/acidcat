@@ -6,6 +6,22 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-07-16
+
+### Added
+
+- E-MU sampler bank walker (`.E4B`, `.exb`, `.ebl`): reads both the EOS hardware
+  bank (`FORM E4B0`) and the Emulator X / Proteus X software bank + sample
+  library (`FORM E5B0`). Surfaces the container, the table of contents (with an
+  offset cross-check against the chunk chain that flags corruption), presets
+  (resolving voice/zone sample references back to names), and samples (name,
+  rate, loop). Validated on ~19k real Emulator X / Proteus X files and 48 real
+  EOS banks carved from a native E-MU CD-ROM; adaptive chunk word-alignment
+  handles the non-padding Proteus-module banks, and CD-streamed banks (no EMSt,
+  padded tails) are reported as informational notes rather than corruption.
+- Format-anatomy datasheet for the E-MU family, `docs/formats/emu-anatomy.html`
+  (interactive byte-level register maps for FORM/TOC2/E5P1/E5S1/E5SL/E4B0).
+
 ## [0.48.0] - 2026-07-14
 
 ### Added

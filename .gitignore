@@ -72,3 +72,6 @@ internal_references/
 
 # downloaded specimen libraries / scratch (local-only, not repo content)
 test_samples/
+
+# cloned RE references + scratch specimens (local-only, GPL third-party tools)
+to_analyze/
