@@ -46,6 +46,10 @@ def sniff_bytes(head):
         return "pgm"
     if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
         return "aiff" if head[8:12] == b"AIFF" else "aifc"
+    if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] == b"E4B0":
+        return "e4b"                                   # E-MU Emulator 4 / EOS bank
+    if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] == b"E5B0":
+        return "e5b"                                   # E-MU Emulator X / Proteus X
     if len(head) >= 14 and head[:4] == b"MThd":
         return "midi"
     if len(head) >= 12 and head[:4] == b"RF64" and head[8:12] == b"WAVE":

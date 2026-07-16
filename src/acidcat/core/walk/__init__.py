@@ -11,8 +11,8 @@ in this package, and add one registry entry below.
 
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
-    aiff, akai, bitwig, flac, fxp, labx, midi, mp3, mp4, mpc, multisample, ncw, ni,
-    ogg, rf64, rmid, rx2, serum, sf2, sigmf, tracker, vital, wav, wt,
+    aiff, akai, bitwig, emu, flac, fxp, labx, midi, mp3, mp4, mpc, multisample,
+    ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, tracker, vital, wav, wt,
 )
 from acidcat.core.walk.base import Unsupported
 
@@ -31,6 +31,9 @@ _WALKERS = {
     "fxp": ("VST FXP preset", lambda path, deep: fxp.inspect_fxp(path)),
     "rx2": ("ReCycle RX2", lambda path, deep: rx2.inspect_rx2(path)),
     "akp": ("Akai S5000/S6000 program", lambda path, deep: akai.inspect_akp(path)),
+    "e4b": ("E-MU Emulator 4 / EOS bank", lambda path, deep: emu.inspect_emu(path)),
+    "e5b": ("E-MU Emulator X / Proteus X bank",
+            lambda path, deep: emu.inspect_emu(path)),
     "wt": ("Bitwig wavetable", lambda path, deep: wt.inspect_wt(path)),
     "multisample": ("Bitwig multisample",
                     lambda path, deep: multisample.inspect_multisample(path)),
