@@ -142,7 +142,7 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
 
   <!-- ===================== OVERVIEW ===================== -->
   <div class="panel on" data-panel="overview">
-    <p class="lede">E-MU's samplers wrote an <b>IFF-like <code>FORM</code> container</b> with <b>big-endian chunk sizes</b> from the EOS era onward. Two generations share acidcat's walker: the EOS hardware <b>.E4B</b> (form-type <code>E4B0</code>, ASCII names) and the Emulator X / Proteus X software <b>.exb</b> bank + <b>.ebl</b> sample library (form-type <code>E5B0</code>, UTF-16LE names). <span class="k-en">E-mu blue</span> = verified against real files, <span class="k-fl">amber</span> = inferred / needs confirming. Every byte layout below is a hover-to-decode map of a real specimen.</p>
+    <p class="lede">E-MU's samplers wrote an <b>IFF-like <code>FORM</code> container</b> with <b>big-endian chunk sizes</b> from the EOS era onward. Two generations share acidcat's walker: the EOS hardware <b>.E4B</b> (form-type <code>E4B0</code>, ASCII names) and the Emulator X / Proteus X software <b>.exb</b> bank + <b>.ebl</b> sample library (form-type <code>E5B0</code>, UTF-16LE names). <span class="k-en">E-mu blue</span> = verified against real files, <span class="k-fl">amber</span> = inferred.</p>
 
     <div class="sec">format &times; generation matrix</div>
     <table class="matrix">
@@ -203,7 +203,7 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
     <div id="toc2-entry" data-build></div>
 
     <div class="callout"><b>the 0x0e name trap</b>
-    The name starts at <b>0x0e</b>, after a 2-byte index at 0x0c. Decoding the name from 0x0c instead hits the index's leading null byte and yields an <b>empty string</b> -- a bug acidcat itself carried until a real file surfaced it.</div>
+    The name starts at <b>0x0e</b>, after a 2-byte index at 0x0c. Decoded from 0x0c, the index's leading null byte truncates it to an <b>empty string</b>.</div>
   </div>
 
   <!-- ===================== E5P1 ===================== -->
@@ -214,12 +214,12 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
       <div>sub-chunks<b>~9 typical</b></div>
       <div>status<b class="need">name verified, rest inferred</b></div>
     </div>
-    <p class="lede">Unlike E4B's flat preset, the E5 preset is a <b>container of named sub-chunks</b> -- typically nine: <code>Phdr</code> (header), <code>E5IC</code>, <code>E5CL</code>, <code>E5MP</code>, <code>EXPs</code>, and four <code>LIST</code>s. The preset <b>name</b> is UTF-16LE inside <code>Phdr</code> (at its sub-body offset 4). The voice / zone internals live in the <code>LIST</code> sub-chunks and are not yet decoded. This layout is not documented anywhere public.</p>
+    <p class="lede">Unlike E4B's flat preset, the E5 preset is a <b>container of named sub-chunks</b> -- typically nine: <code>Phdr</code> (header), <code>E5IC</code>, <code>E5CL</code>, <code>E5MP</code>, <code>EXPs</code>, and four <code>LIST</code>s. The preset <b>name</b> is UTF-16LE inside <code>Phdr</code> (at its sub-body offset 4). The voice / zone internals live in the <code>LIST</code> sub-chunks and are not yet decoded. No public source documents this layout.</p>
 
     <div class="sec">E5P1 body head + Phdr</div>
     <div id="e5p1-head" data-build></div>
 
-    <p class="note">acidcat surfaces the preset name and a sub-chunk inventory today. The E-MU naming convention packs a fixed-width name with a 2-3 char tag (<code>kyb</code>/<code>lnk</code> for the keyboard-map vs link variants of a kit) and a GM-drum note number (<code>36</code> kick, <code>38</code> snare).</p>
+    <p class="note">acidcat surfaces the preset name and sub-chunk inventory. The E-MU naming convention packs a fixed-width name with a 2-3 char tag (<code>kyb</code>/<code>lnk</code> for the keyboard-map vs link variants of a kit) and a GM-drum note number (<code>36</code> kick, <code>38</code> snare).</p>
   </div>
 
   <!-- ===================== E5S1 ===================== -->
@@ -266,7 +266,7 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
       <div>toc<b>TOC1, 32-byte, ASCII</b></div>
       <div>status<b class="veri">verified (48 real banks)</b></div>
     </div>
-    <p class="lede">The EOS hardware bank -- the older sibling. Same <code>FORM</code> container, but form-type <code>E4B0</code>, a <b>filesize - 12</b> size quirk (it excludes the 4-byte form-type), a 32-byte ASCII <code>TOC1</code>, flat <code>E4P1</code> presets (a fixed header + packed voices that resolve zones to samples by index), and <code>E3S1</code> 16-bit PCM samples. A hardware-saved bank ends with an <code>EMSt</code> master-setup chunk; CD-streamed banks omit it and pad the last sample's tail.</p>
+    <p class="lede">The EOS hardware bank, one generation older. Same <code>FORM</code> container, but form-type <code>E4B0</code>, a <b>filesize - 12</b> size quirk (it excludes the 4-byte form-type), a 32-byte ASCII <code>TOC1</code>, flat <code>E4P1</code> presets (a fixed header + packed voices that resolve zones to samples by index), and <code>E3S1</code> 16-bit PCM samples. A hardware-saved bank ends with an <code>EMSt</code> master-setup chunk; CD-streamed banks omit it and pad the last sample's tail.</p>
 
     <div class="sec">FORM header (E4B0)</div>
     <div id="e4b-form" data-build></div>
