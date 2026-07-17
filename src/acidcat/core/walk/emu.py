@@ -9,10 +9,11 @@ Two generations of E-MU's IFF-like ``FORM`` bank format share this walker:
 
 * **E5B0** - the Emulator X / Proteus X software sampler (~2004) bank (``.exb``)
   and sample-library (``.ebl``). Table of contents ``TOC2`` (78-byte entries,
-  UTF-16LE names), ``E5P1`` presets (a nested container of ``Phdr``/``E5IC``/
-  ``E5CL``/``LIST`` sub-chunks), ``E5S1`` samples, ``E5SL`` 6-byte sample links.
-  Names are UTF-16LE and the FORM size is standard IFF (filesize - 8). Banks
-  hold presets + links; the sample PCM lives in sibling ``.ebl`` files.
+  UTF-16LE names), ``E5P1`` presets (a nested container: ``Phdr``, then a voice
+  list ``LIST/E5VL`` of ``E5V1`` voices, each holding a zone list ``LIST/E5ZL``
+  of ``Zhdr`` zones that map a sample + key), ``E5S1`` samples, ``E5SL`` 6-byte
+  sample links. Names are UTF-16LE and the FORM size is standard IFF (filesize -
+  8). Banks hold presets + links; the sample PCM lives in sibling ``.ebl`` files.
 
 Both are dissected leniently: the chunk chain is followed by declared big-endian
 sizes, a desync or overrun degrades to a warning rather than raising, and the
@@ -49,6 +50,9 @@ _E5P1 = b"E5P1"
 _E5S1 = b"E5S1"
 _E5SL = b"E5SL"
 _PHDR = b"Phdr"
+_E5VL = b"E5VL"                 # LIST list-type: the voice list inside a preset
+_E5V1 = b"E5V1"                 # one voice
+_ZHDR = b"Zhdr"                 # zone header (inside a voice's E5ZL zone list)
 
 _SAMP_HDR = 94                  # E3S1 fixed header before the PCM
 _PRES_HDR = 82                  # E4P1 fixed header before the voice blocks
@@ -69,6 +73,19 @@ _REF_CAP = 128
 def _is_tag(b):
     """A valid IFF chunk tag: 4 printable-ASCII bytes."""
     return len(b) == 4 and all(0x20 <= c < 0x7f for c in b)
+
+
+def _advance(buf, pos, size):
+    """Next chunk position from a chunk at ``pos`` of data length ``size``.
+
+    E-MU word-alignment is inconsistent -- EOS pads odd chunks, the Proteus-X
+    banks (top-level AND interior) do not. Consume the pad byte only when
+    skipping it does not already land on a valid chunk tag.
+    """
+    pos += 8 + size
+    if size & 1 and not _is_tag(buf[pos:pos + 4]):
+        pos += 1
+    return pos
 
 
 def _name(raw):
@@ -104,12 +121,7 @@ def _walk_records(data):
                 f"{tag.decode('ascii', 'replace')} at {pos:#x} declares size "
                 f"{size} but only {len(data) - pos - 8} bytes remain; truncated")
             break
-        pos += 8 + size
-        # word-alignment is inconsistent across E-MU writers: EOS pads odd chunks
-        # to a word, the Proteus-X module banks do not. Only consume the pad byte
-        # when skipping it does not already land on a real chunk tag.
-        if size & 1 and not _is_tag(data[pos:pos + 4]):
-            pos += 1
+        pos = _advance(data, pos, size)
     return records, warns, desync_pos
 
 
@@ -342,20 +354,89 @@ def _walk_e4b(data, size):
 
 # ── E5B0 (Emulator X / Proteus X) ────────────────────────────────────
 
-def _e5_preset(body):
-    """Return (name, sub_chunks) for an E5P1 nested preset container."""
-    name, subs = "", []
+def _e5_preset_name(body):
+    """The preset name (UTF-16LE, inside the Phdr sub-chunk) of an E5P1 body."""
     p = 2                       # body[0:2] is a leading count/flag
-    while p + 8 <= len(body) and len(subs) < _REF_CAP:
-        st = body[p:p + 4]
-        if not _is_tag(st):
+    while p + 8 <= len(body):
+        t = body[p:p + 4]
+        if not _is_tag(t):
             break
-        ss = _bu32(body, p + 4)
-        if st == _PHDR and p + 12 <= len(body):
-            name = _wname(body[p + 12:p + 12 + 64])
-        subs.append((st.decode("ascii", "replace"), p, ss))
-        p += 8 + ss + (ss & 1)
-    return name, subs
+        s = _bu32(body, p + 4)
+        if t == _PHDR and p + 12 <= len(body):
+            return _wname(body[p + 12:p + 12 + 64])
+        p = _advance(body, p, s)
+    return ""
+
+
+def _e5_iter(body, want, depth=0):
+    """Yield each ``want``-tagged sub-chunk body within an E5 chunk body, walking
+    into nested ``LIST`` and ``E5V1`` containers only (bounded depth). Real E5
+    banks nest solely through those two, so restricting recursion there -- and
+    not descending into a chunk just yielded -- avoids both double-counting and
+    matching a ``want`` tag that is really opaque payload bytes."""
+    q = 0
+    while q + 8 <= len(body):
+        t = body[q:q + 4]
+        if not _is_tag(t):
+            break
+        s = _bu32(body, q + 4)
+        sub = body[q + 8:q + 8 + s]
+        if t == want:
+            yield sub
+        elif depth < 8 and t in (b"LIST", _E5V1):
+            inner = sub[4:] if t == b"LIST" else sub
+            if len(inner) >= 8 and _is_tag(inner[:4]):
+                yield from _e5_iter(inner, want, depth + 1)
+        q = _advance(body, q, s)
+
+
+def _e5_voice_list(body):
+    """The ``LIST/E5VL`` voice-list body (after its list-type) of an E5P1, or
+    None. A 'lnk' preset legitimately has none."""
+    p = 2
+    while p + 8 <= len(body):
+        t = body[p:p + 4]
+        if not _is_tag(t):
+            break
+        s = _bu32(body, p + 4)
+        if t == b"LIST" and body[p + 8:p + 12] == _E5VL:
+            return body[p + 12:p + 8 + s]
+        p = _advance(body, p, s)
+    return None
+
+
+def _e5_preset_voices(body):
+    """Decode an E5P1 preset's voices and zones. Returns (n_voices, zones, note):
+    zones is a list of (sample_index, root_key) -- the 1-based SamplePool sample
+    each zone plays (matching the E5SL links) and its mapped root key; note is a
+    warning string (or "") when the voice walk desyncs or hits a cap. Verified
+    against real banks; the zone's velocity window and key range stay undecoded.
+    """
+    vl = _e5_voice_list(body)
+    if vl is None:
+        return 0, [], ""
+    n_voices, zones, note = 0, [], ""
+    q = 0
+    while q + 8 <= len(vl):
+        t = vl[q:q + 4]
+        if not _is_tag(t):
+            note = f"voice list desynced at +{q:#x} (a chunk size is likely wrong)"
+            break
+        s = _bu32(vl, q + 4)
+        if t == _E5V1:
+            if n_voices >= _VOICE_CAP:
+                note = f"voice list truncated at {_VOICE_CAP} voices"
+                break
+            n_voices += 1
+            for zh in _e5_iter(vl[q + 8:q + 8 + s], _ZHDR):
+                if len(zh) < 11:
+                    continue
+                if len(zones) >= _ZONE_CAP:
+                    note = note or f"zone list truncated at {_ZONE_CAP} zones"
+                    break
+                zones.append((_bu16(zh, 4), zh[10]))
+        q = _advance(vl, q, s)
+    return n_voices, zones, note
 
 
 def _e5_sample_fields(body, size):
@@ -431,13 +512,25 @@ def _walk_e5b(data, size):
                            "fields": fields, "warnings": cw})
         elif tag == _E5P1:
             body = data[base:base + csize]
-            name, subs = _e5_preset(body)
+            name = _e5_preset_name(body)
+            n_voices, zones, note = _e5_preset_voices(body)
+            if note:
+                cw.append(note)
             fields = [_f(None, 0, "name", name)] if name else []
-            for j, (st, soff, ss) in enumerate(subs[:_REF_CAP]):
-                fields.append(_f(soff, 8, f"sub[{j}]", f"{st} ({ss:,} bytes)"))
+            fields.append(_f(None, 0, "voices", n_voices))
+            fields.append(_f(None, 0, "zones", len(zones)))
+            seen, seen_idx = [], set()
+            for sidx, key in zones:
+                if sidx not in seen_idx:
+                    seen_idx.add(sidx)
+                    seen.append((sidx, key))
+            for j, (sidx, key) in enumerate(seen[:_REF_CAP]):
+                fields.append(_f(None, 0, f"sample[{j}]", f"#{sidx}",
+                                 f"SamplePool, root key {key}"))
             chunks.append({"id": f"E5P1[{pi}]", "offset": off, "size": csize,
                            "payload_base": base,
-                           "summary": f"preset '{name}': {len(subs)} sub-chunk(s)",
+                           "summary": f"preset '{name}': {n_voices} voice(s), "
+                                      f"{len(zones)} zone(s)",
                            "fields": fields, "warnings": cw})
             pi += 1
         elif tag == _E5S1:
