@@ -33,7 +33,9 @@ def _riff_chunks(data):
     pos = 12
     n = len(data)
     while pos + 8 <= n:
-        cid = data[pos:pos + 4]
+        # bytes() so the id keys _COUNTED and decodes even when ``data`` is
+        # a memoryview (audit maps the file and analyzes through a view)
+        cid = bytes(data[pos:pos + 4])
         size = struct.unpack_from("<I", data, pos + 4)[0]
         if pos + 8 + size > n:
             break

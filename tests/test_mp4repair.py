@@ -76,6 +76,21 @@ def test_shifted_stco_rebuilt_to_correct_offsets():
     assert changes and "rebuilt" in changes[0]["new"]
 
 
+def test_patch_false_reports_without_materializing_a_copy():
+    # the read-only analyze path (validate/audit) asks for the changes but must
+    # not build a patched full-file copy
+    sizes, runs, payload, start, good = _make_multichunk()
+    shift = good[0] - 8
+    broken = [o - shift for o in good]
+    data = _build(sizes, runs, broken, payload)
+    unpatched, changes = R.repair_mp4(data, patch=False)
+    assert unpatched is data                 # the input object, not a copy
+    patched, ref = R.repair_mp4(data)
+    assert changes == ref                    # same verdict as the patching path
+    _, _, _, fixed = R._parse_stco(patched, R._find_boxes(patched)["stco"])
+    assert fixed == good
+
+
 def test_repair_never_touches_mdat():
     sizes, runs, payload, start, good = _make_multichunk()
     broken = [start, start, start]           # all wrong
