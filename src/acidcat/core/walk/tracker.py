@@ -7,6 +7,7 @@ are annotated as xref fields -- follow one in the TUI to jump to its target
 and see a dangling (past-EOF) pointer flagged. Parsing lives in core/tracker."""
 
 import os
+import struct
 
 from acidcat.core import tracker as tk
 from acidcat.core.walk.base import Unsupported, _f
@@ -21,6 +22,16 @@ def _order_field(order, cap=_ORDER_CAP):
     if len(order) > cap:
         shown += f", ... (+{len(order) - cap})"
     return shown
+
+
+def _truncated(fmt_id, size, msg):
+    """Degraded single-chunk result for a header too short to parse. The magic
+    matched, so the file is not Unsupported; it is a truncated instance of the
+    format, and the contract is to degrade with a warning (like the RIFF walkers)
+    rather than let the fixed-header unpack raise."""
+    return ([{"id": fmt_id, "offset": 0, "size": size,
+              "summary": f"{fmt_id}: header truncated, cannot decode",
+              "fields": [], "warnings": [msg], "payload_base": 0}], [msg])
 
 
 def inspect_mod(filepath):
@@ -74,7 +85,10 @@ def inspect_xm(filepath):
         data = f.read(min(os.path.getsize(filepath), 64 * 1024 * 1024))
     if data[:17] != b"Extended Module: ":
         raise Unsupported("not an Extended Module")
-    x = tk.parse_xm(data)
+    try:
+        x = tk.parse_xm(data)
+    except (struct.error, IndexError):
+        return _truncated("XM", len(data), "XM header is truncated (need 80 bytes)")
     linear = "linear" if x["flags"] & 0x01 else "amiga"
     chunks = [{
         "id": "XM", "offset": 0, "size": len(data),
@@ -135,7 +149,10 @@ def inspect_s3m(filepath):
         data = f.read(min(file_size, 64 * 1024 * 1024))
     if not tk.is_s3m(data):
         raise Unsupported("no SCRM magic at offset 0x2C")
-    s = tk.parse_s3m(data)
+    try:
+        s = tk.parse_s3m(data)
+    except (struct.error, IndexError):
+        return _truncated("S3M", file_size, "S3M header is truncated (need 96 bytes)")
     writer = tk._S3M_WRITERS.get(s["cwt"] >> 12, "unknown")
     flag_names = ", ".join(n for b, n in tk._S3M_FLAGS if s["flags"] & b) or "none"
     cmap, active = tk._s3m_channel_map(s["channels"])
@@ -232,7 +249,10 @@ def inspect_it(filepath):
         data = f.read(min(file_size, 64 * 1024 * 1024))
     if data[:4] != b"IMPM":
         raise Unsupported("not an Impulse Tracker module")
-    it = tk.parse_it(data)
+    try:
+        it = tk.parse_it(data)
+    except (struct.error, IndexError):
+        return _truncated("IMPM", file_size, "IT header is truncated (need 52 bytes)")
     flag_names = ", ".join(n for b, n in tk._IT_FLAGS if it["flags"] & b) or "none"
     chunks = [{
         "id": "IMPM", "offset": 0, "size": file_size,

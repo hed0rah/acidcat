@@ -29,7 +29,7 @@ def parse_serum_preset(filepath):
     meta = {}
 
     with open(filepath, "rb") as f:
-        raw = f.read()
+        raw = f.read(4 * 1024 * 1024)   # a Serum preset is small JSON; cap the read
 
     # find the JSON block
     json_start = raw.find(b"{")
