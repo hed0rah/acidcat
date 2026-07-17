@@ -28,6 +28,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Added
 
+- E-mu Emulator X / Proteus X (E5B0) voice decode: the walker now reads each
+  voice's `LIST`/`TWL ` crossfade windows and reports the per-voice key range
+  and (when narrowed) velocity window on the E5P1 preset. It also stops
+  deduping by sample index, so a multisample preset shows its full
+  keyboard/velocity map instead of collapsing voices that reuse a sample. The
+  window byte layout (lo at [4], hi at [7]) was confirmed by save-and-diff
+  against Emulator X.
 - A differential + round-trip fuzz harness (`tests/test_differential_fuzz.py`):
   seeded mutations of a hermetic IFF file assert the lenient walker degrades and
   the strict `structure.parse`/`emit` either round-trips byte-exactly or raises

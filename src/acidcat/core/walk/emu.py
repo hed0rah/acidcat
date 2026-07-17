@@ -405,13 +405,28 @@ def _e5_voice_list(body):
     return None
 
 
+def _e5_voice_windows(voice_body):
+    """The voice's crossfade windows as (lo, hi) tuples in file order, decoded
+    from its ``LIST``/``TWL `` list of ``ETW `` chunks. window[0] is the key
+    range and window[1] the velocity window (both confirmed by save-and-diff
+    against Emulator X); each ``ETW `` payload carries lo at byte [4] and hi at
+    byte [7]. Real voices carry five (key, velocity, then realtime/aux); only
+    the first two are semantically pinned, so callers take [0] and [1]."""
+    wins = []
+    for e in _e5_iter(voice_body, b"ETW "):
+        if len(e) >= 8:
+            wins.append((e[4], e[7]))
+    return wins
+
+
 def _e5_preset_voices(body):
     """Decode an E5P1 preset's voices and zones. Returns (n_voices, zones, note):
-    zones is a list of (sample_index, root_key) -- the 1-based SamplePool sample
-    each zone plays (matching the E5SL links) and its mapped root key; note is a
-    warning string (or "") when the voice walk desyncs or hits a cap. Verified
-    against real banks; the zone's velocity window and key range stay undecoded.
-    """
+    zones is a list of (sample_index, root_key, key_win, vel_win) -- the 1-based
+    SamplePool sample each zone plays (matching the E5SL links), its mapped root
+    key, and the parent voice's key range and velocity window as (lo, hi) tuples
+    (or None when the voice carries no window list). note is a warning string
+    (or "") when the voice walk desyncs or hits a cap. Verified against real
+    banks (windows confirmed by save-and-diff against Emulator X)."""
     vl = _e5_voice_list(body)
     if vl is None:
         return 0, [], ""
@@ -428,13 +443,17 @@ def _e5_preset_voices(body):
                 note = f"voice list truncated at {_VOICE_CAP} voices"
                 break
             n_voices += 1
-            for zh in _e5_iter(vl[q + 8:q + 8 + s], _ZHDR):
+            vb = vl[q + 8:q + 8 + s]
+            wins = _e5_voice_windows(vb)
+            key_win = wins[0] if len(wins) >= 1 else None
+            vel_win = wins[1] if len(wins) >= 2 else None
+            for zh in _e5_iter(vb, _ZHDR):
                 if len(zh) < 11:
                     continue
                 if len(zones) >= _ZONE_CAP:
                     note = note or f"zone list truncated at {_ZONE_CAP} zones"
                     break
-                zones.append((_bu16(zh, 4), zh[10]))
+                zones.append((_bu16(zh, 4), zh[10], key_win, vel_win))
         q = _advance(vl, q, s)
     return n_voices, zones, note
 
@@ -519,14 +538,15 @@ def _walk_e5b(data, size):
             fields = [_f(None, 0, "name", name)] if name else []
             fields.append(_f(None, 0, "voices", n_voices))
             fields.append(_f(None, 0, "zones", len(zones)))
-            seen, seen_idx = [], set()
-            for sidx, key in zones:
-                if sidx not in seen_idx:
-                    seen_idx.add(sidx)
-                    seen.append((sidx, key))
-            for j, (sidx, key) in enumerate(seen[:_REF_CAP]):
-                fields.append(_f(None, 0, f"sample[{j}]", f"#{sidx}",
-                                 f"SamplePool, root key {key}"))
+            for j, (sidx, key, kwin, vwin) in enumerate(zones[:_REF_CAP]):
+                desc = f"SamplePool, root key {key}"
+                if kwin:
+                    desc += f", keys {kwin[0]}-{kwin[1]}"
+                if vwin and vwin != (0, 127):
+                    desc += f", vel {vwin[0]}-{vwin[1]}"
+                fields.append(_f(None, 0, f"sample[{j}]", f"#{sidx}", desc))
+            if len(zones) > _REF_CAP:
+                cw.append(f"{len(zones)} zones; showing first {_REF_CAP}")
             chunks.append({"id": f"E5P1[{pi}]", "offset": off, "size": csize,
                            "payload_base": base,
                            "summary": f"preset '{name}': {n_voices} voice(s), "
