@@ -127,11 +127,13 @@ def _find_boxes(data):
     return {"mdat": mdat, "stco": stco[0], "stsz": stsz, "stsc": stsc}
 
 
-def repair_mp4(data):
+def repair_mp4(data, patch=True):
     """Rebuild a broken chunk-offset table. Returns (new_bytes, changes) where
     changes is a list of ``{path, field, old, new}``; an empty list means the
     table was already valid. Raises Mp4RepairError when out of scope or when the
-    rebuilt table cannot be confidently witnessed."""
+    rebuilt table cannot be confidently witnessed. With ``patch=False`` (the
+    read-only analyze path) the changes are computed but ``data`` is returned
+    unpatched, so no full-size copy of the file is materialized."""
     boxes = _find_boxes(data)
     mdat = boxes["mdat"]
     mdat_start = mdat["offset"] + mdat["hdr"]
@@ -170,16 +172,17 @@ def repair_mp4(data):
         raise Mp4RepairError("rebuilt table does not fit mdat; layout not "
                              "contiguous-from-start (out of scope)")
 
-    out = bytearray(data)
-    step = 8 if is64 else 4
-    fmt = ">Q" if is64 else ">I"
-    changed = 0
-    for i, (old, new) in enumerate(zip(stored, rebuilt)):
-        if old != new:
-            struct.pack_into(fmt, out, entries_base + i * step, new)
-            changed += 1
+    changed = sum(1 for old, new in zip(stored, rebuilt) if old != new)
     box_id = "co64" if is64 else "stco"
     changes = [{"path": box_id, "field": "chunk_offsets",
                 "old": f"{changed} of {nchunks} wrong",
                 "new": f"rebuilt from mdat @ 0x{mdat_start:08x}"}]
+    if not patch:
+        return data, changes
+    out = bytearray(data)
+    step = 8 if is64 else 4
+    fmt = ">Q" if is64 else ">I"
+    for i, (old, new) in enumerate(zip(stored, rebuilt)):
+        if old != new:
+            struct.pack_into(fmt, out, entries_base + i * step, new)
     return bytes(out), changes

@@ -82,11 +82,11 @@ class Mp4OffsetRepairer(Repairer):
         b = mp4repair._find_boxes(data)["mdat"]
         return data[b["offset"] + b["hdr"]:b["offset"] + b["size"]]
 
-    def _run(self, data):
+    def _run(self, data, patch=True):
         """Returns (new_bytes, Report). Out-of-scope files come back as a Report
         with a note and no violations rather than an error."""
         try:
-            new_data, changes = mp4repair.repair_mp4(data)
+            new_data, changes = mp4repair.repair_mp4(data, patch=patch)
         except mp4repair.Mp4RepairError as e:
             return data, Report(self.label, note=str(e))
         vios = [Violation(OFFSET, c["path"], c["field"], c["old"], c["new"],
@@ -94,7 +94,9 @@ class Mp4OffsetRepairer(Repairer):
         return new_data, Report(self.label, vios)
 
     def analyze(self, data, opts=None):
-        return self._run(data)[1]
+        # patch=False: analyze is read-only, so do not materialize the
+        # patched full-file copy just to enumerate the violations
+        return self._run(data, patch=False)[1]
 
     def apply(self, data, opts=None):
         before = self._mdat(data)

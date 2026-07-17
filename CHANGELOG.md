@@ -18,6 +18,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   select) carry 1 data byte and 0xF2 (song position) carries 2, but all were
   skipped by a blind 2 bytes, misaligning the events that followed (wrong track
   stats). Fixed in both the walker and the legacy parser.
+- Command-layer memory: `audit`, `od`, and `probe` read the whole input with
+  `f.read()`, so peak memory scaled with file size (~96 MB on a 48 MB file).
+  They now memory-map the input (`core/mapped.map_file`), keeping peak memory
+  flat regardless of size (audit 96 -> 0.2 MB, od 96 -> 0.03 MB, probe 48 ->
+  0.04 MB) with no loss of full-file coverage. The mmap-safety fixes this
+  surfaced are included: memoryview element access in `structure`, and
+  copy-on-read paths in `mp4repair`/`countrepair`/`repairers`.
 
 ### Added
 

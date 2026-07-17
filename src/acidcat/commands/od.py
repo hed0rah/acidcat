@@ -10,6 +10,7 @@ Complements `inspect --hex` (a value-first table); this is a bytes-first layout.
 
 import sys
 
+from acidcat.core.mapped import map_file
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
 
@@ -51,46 +52,52 @@ def run(args):
         print(f"acidcat od: {path}: {e}", file=sys.stderr)
         return 2
     on = _use_color(args.color)
-    with open(path, "rb") as f:
-        data = f.read()
+    # mmap, not f.read(): od only slices small header/field/preview runs, and
+    # a mapped file serves those without loading multi-GB payloads into RAM
+    data, close = map_file(path)
+    try:
+        def dim(t):
+            return _c("2", t, on)
 
-    def dim(t):
-        return _c("2", t, on)
+        header = _c("1", f"{label}  {len(data):,} bytes  {len(chunks)} chunks", on)
+        if warns:
+            header += dim(f"   {len(warns)} warning(s)")
+        print(header)
 
-    header = _c("1", f"{label}  {len(data):,} bytes  {len(chunks)} chunks", on)
-    if warns:
-        header += dim(f"   {len(warns)} warning(s)")
-    print(header)
+        for c in chunks:
+            base = c.get("payload_base", c["offset"] + 8)
+            summary = c.get("summary", "")
+            title = _c("1;37", f"{str(c['id'])!r} @ 0x{c['offset']:08x}  {c['size']:,} bytes", on)
+            print("\n" + title + (dim("  " + summary) if summary else ""))
 
-    for c in chunks:
-        base = c.get("payload_base", c["offset"] + 8)
-        summary = c.get("summary", "")
-        title = _c("1;37", f"{str(c['id'])!r} @ 0x{c['offset']:08x}  {c['size']:,} bytes", on)
-        print("\n" + title + (dim("  " + summary) if summary else ""))
+            # the chunk/block header bytes (id + size), dimmed
+            hdr = data[c["offset"]:base]
+            c_off = f"0x{c['offset']:08x}"
+            print(f"  {dim(c_off)}  {dim(_hexcells(hdr))}  {dim(_ascii(hdr))}")
 
-        # the chunk/block header bytes (id + size), dimmed
-        hdr = data[c["offset"]:base]
-        c_off = f"0x{c['offset']:08x}"
-        print(f"  {dim(c_off)}  {dim(_hexcells(hdr))}  {dim(_ascii(hdr))}")
+            fields = c.get("fields", [])
+            for i, fl in enumerate(fields):
+                off = fl.get("off")
+                name = _c("1", fl["name"], on)
+                value = fl.get("value")
+                note = dim("  " + fl["note"]) if fl.get("note") else ""
+                if off is None:                   # derived / synthetic field
+                    print(f"  {'':10}  {dim('(derived)')}  {name} = {value}{note}")
+                    continue
+                abs_off = base + off
+                avail = max(0, min(abs_off + fl.get("len", 0), len(data)) - abs_off)
+                # copy only the rendered prefix out of the map; a multi-MB
+                # field must not be materialized to show its first bytes
+                fb = data[abs_off:abs_off + min(avail, args.width)]
+                cells = _c(_FIELD_COLORS[i % len(_FIELD_COLORS)], _hexcells(fb), on)
+                more = dim(f" +{avail - args.width}") if avail > args.width else ""
+                print(f"  0x{abs_off:08x}  {cells}{more}  {name} = {value}{note}")
 
-        fields = c.get("fields", [])
-        for i, fl in enumerate(fields):
-            off = fl.get("off")
-            name = _c("1", fl["name"], on)
-            value = fl.get("value")
-            note = dim("  " + fl["note"]) if fl.get("note") else ""
-            if off is None:                       # derived / synthetic field
-                print(f"  {'':10}  {dim('(derived)')}  {name} = {value}{note}")
-                continue
-            abs_off = base + off
-            fb = data[abs_off:abs_off + fl.get("len", 0)]
-            cells = _c(_FIELD_COLORS[i % len(_FIELD_COLORS)], _hexcells(fb[:args.width]), on)
-            more = dim(f" +{len(fb) - args.width}") if len(fb) > args.width else ""
-            print(f"  0x{abs_off:08x}  {cells}{more}  {name} = {value}{note}")
-
-        # opaque chunk (no decoded fields): show the first row, elide the rest
-        if not fields and c["size"] > 0:
-            preview = data[base:base + args.width]
-            elided = dim(f"({c['size']:,} bytes payload)")
-            print(f"  0x{base:08x}  {dim(_hexcells(preview))}  {dim(_ascii(preview))}  {elided}")
-    return 0
+            # opaque chunk (no decoded fields): show the first row, elide the rest
+            if not fields and c["size"] > 0:
+                preview = data[base:base + args.width]
+                elided = dim(f"({c['size']:,} bytes payload)")
+                print(f"  0x{base:08x}  {dim(_hexcells(preview))}  {dim(_ascii(preview))}  {elided}")
+        return 0
+    finally:
+        close()
