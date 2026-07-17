@@ -481,7 +481,10 @@ def parse_nksf(data):
     return None
 
 
-def _safe_inflate(chunk, maxlen=8 * 1024 * 1024):
+_MAX_INFLATE = 8 * 1024 * 1024      # zlib output cap (decompression-bomb guard)
+
+
+def _safe_inflate(chunk, maxlen=_MAX_INFLATE):
     """zlib-inflate with an output cap so a decompression bomb cannot exhaust
     memory. Returns the bytes, or None on error or if the stream exceeds the
     cap."""
@@ -538,8 +541,10 @@ def edit_ksd(data, changes):
             break
         d = zlib.decompressobj()
         try:
-            dec = d.decompress(data[m.start():])
+            dec = d.decompress(data[m.start():], _MAX_INFLATE)
         except zlib.error:
+            continue
+        if d.unconsumed_tail:           # exceeded the cap: refuse (bomb guard)
             continue
         if b"NI_DOC_HEADER" in dec:
             z, blob = m.start(), dec

@@ -14,11 +14,17 @@ import tempfile
 from acidcat.core.walk import midi as midimod
 from acidcat.core.walk.base import _f
 
+_RMID_CAP = 256 * 1024 * 1024      # a RIFF-wrapped SMF; match the MIDI read cap
+
 
 def inspect_rmid(filepath, deep=False):
+    size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
-        data = f.read()
+        data = f.read(min(size, _RMID_CAP))
     warns = []
+    if size > _RMID_CAP:
+        warns.append(f"file exceeds {_RMID_CAP >> 20} MB; parsed the first "
+                     f"{_RMID_CAP >> 20} MB")
     if data[:4] != b"RIFF" or data[8:12] != b"RMID":
         warns.append("missing RIFF/RMID magic")
     riff_size = struct.unpack_from("<I", data, 4)[0] if len(data) >= 8 else 0

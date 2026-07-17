@@ -23,6 +23,7 @@ from acidcat.core.walk.base import _f
 
 _EXT_KEY_CAP = 48                  # metadata keys to list (mirrors _ZONE_CAP)
 _ANNOTATION_CAP = 64
+_META_CAP = 32 * 1024 * 1024       # a .sigmf-meta sidecar is small JSON; cap the read
 _DEEP_READ = 8 * 1024 * 1024       # DC/clipping sampled from the first 8 MB
 
 _GQRX_RE = re.compile(r"gqrx_(\d{8})_(\d{6})_(\d+)_(\d+)_fc\.raw$", re.I)
@@ -166,17 +167,29 @@ def _pair_paths(path):
     return stem + ".sigmf-meta", stem + ".sigmf-data"
 
 
+def _num(v):
+    """A SigMF JSON value coerced to a real number, or None. The sidecar is
+    untrusted: a field the format defines as numeric may arrive as a string,
+    list, or null, so every numeric use goes through this. bool is rejected (a
+    JSON true/false must not read as 1/0)."""
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
 def inspect_sigmf(path, deep=False):
     meta_path, data_path = _pair_paths(path)
     warns = []
     g, captures, annotations, meta_ok = {}, [], [], False
-    if os.path.isfile(meta_path):
+    if os.path.isfile(meta_path) and os.path.getsize(meta_path) > _META_CAP:
+        warns.append(f"sidecar exceeds {_META_CAP >> 20} MB; not parsed")
+    elif os.path.isfile(meta_path):
         try:
             with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
                 m = json.loads(f.read())
-            g = m.get("global") or {}
-            captures = m.get("captures") or []
-            annotations = m.get("annotations") or []
+            if not isinstance(m, dict):
+                raise ValueError("top-level SigMF JSON is not an object")
+            g = m.get("global") if isinstance(m.get("global"), dict) else {}
+            captures = m.get("captures") if isinstance(m.get("captures"), list) else []
+            annotations = m.get("annotations") if isinstance(m.get("annotations"), list) else []
             meta_ok = True
         except (ValueError, OSError) as e:
             warns.append(f"sidecar JSON did not parse: {e.__class__.__name__}")
@@ -198,7 +211,10 @@ def inspect_sigmf(path, deep=False):
     if sb and data_size % sb:
         warns.append(f"data size {data_size:,} is not a whole number of {dt} "
                      f"samples ({data_size % sb} bytes trail)")
-    fs = g.get("core:sample_rate")
+    _fs_raw = g.get("core:sample_rate")
+    fs = _num(_fs_raw)
+    if _fs_raw is not None and fs is None:
+        warns.append("core:sample_rate is not numeric; ignoring")
     dur = (n_samp / fs) if (fs and n_samp) else None
 
     chunks = []
@@ -245,11 +261,15 @@ def inspect_sigmf(path, deep=False):
         })
 
         for i, c in enumerate(captures):
-            s0 = c.get("core:sample_start", 0) or 0
-            nxt = (captures[i + 1].get("core:sample_start", n_samp)
-                   if i + 1 < len(captures) else n_samp)
+            if not isinstance(c, dict):
+                warns.append(f"capture[{i}] is not an object; skipped")
+                continue
+            s0 = int(_num(c.get("core:sample_start")) or 0)
+            nc = captures[i + 1] if i + 1 < len(captures) else None
+            nxt = _num(nc.get("core:sample_start")) if isinstance(nc, dict) else None
+            nxt = n_samp if nxt is None else int(nxt)
             off, span = s0 * sb, max(0, nxt - s0)
-            fc = c.get("core:frequency")
+            fc = _num(c.get("core:frequency"))
             cf = []
             if fc is not None:
                 cf.append(_f(None, 0, "frequency", fc, "Hz, center; maps to the DC bin"))
@@ -267,9 +287,15 @@ def inspect_sigmf(path, deep=False):
             })
 
         for i, a in enumerate(annotations[:_ANNOTATION_CAP]):
-            s0 = a.get("core:sample_start", 0) or 0
-            cnt = a.get("core:sample_count", 0) or 0
+            if not isinstance(a, dict):
+                warns.append(f"annotation[{i}] is not an object; skipped")
+                continue
+            s0 = int(_num(a.get("core:sample_start")) or 0)
+            cnt = int(_num(a.get("core:sample_count")) or 0)
             off = s0 * sb
+            if sb and off > data_size:
+                warns.append(f"annotation[{i}] sample_start implies offset "
+                             f"0x{off:x} past EOF")
             lab = a.get("core:label") or a.get("core:generator") or f"annotation {i}"
             af = [_f(None, 0, "sample_start", s0, "", xref=off),
                   _f(None, 0, "sample_count", cnt)]

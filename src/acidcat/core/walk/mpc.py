@@ -30,6 +30,7 @@ _NOTE_PREVIEW = 16
 _XPM_SAMPLE_CAP = 128
 _XPN_ENTRY_CAP = 48
 _XTD_CAP = 64 * 1024 * 1024                       # decompression-bomb guard
+_XPN_XML_CAP = 16 * 1024 * 1024                   # Expansion.xml manifest is small XML
 _PGM_PAD_CAP = 128
 _SND_HDR = 38                                     # MPC2000 .snd header (RE'd exact)
 _MPC1000_MAGIC = b"MPC1000 PGM"
@@ -188,7 +189,12 @@ def inspect_xpn(filepath):
         man = {}
         if "Expansion.xml" in names:
             try:
-                xml = z.read("Expansion.xml").decode("utf-8", "replace")
+                with z.open("Expansion.xml") as zf:   # streamed: bomb-safe
+                    raw = zf.read(_XPN_XML_CAP + 1)
+                if len(raw) > _XPN_XML_CAP:
+                    warns.append(f"Expansion.xml exceeds {_XPN_XML_CAP >> 20} MB; truncated")
+                    raw = raw[:_XPN_XML_CAP]
+                xml = raw.decode("utf-8", "replace")
                 for tag in _XPN_MANIFEST_KEYS + ("description", "img"):
                     v = _xml_text(xml, tag)
                     if v:

@@ -44,11 +44,15 @@ def _scan_track(trk, ctx, collect=False):
     time_sig = key_sig = None
     has_eot = False
     events = []
+    n_events = 0
     sysex = []
 
     def emit(name, detail=""):
+        nonlocal n_events
         if collect:
-            events.append({"tick": ticks, "event": name, "detail": detail})
+            n_events += 1
+            if len(events) < _FRAME_LISTING_CAP:   # cap while collecting, not after
+                events.append({"tick": ticks, "event": name, "detail": detail})
 
     while pos < len(trk):
         delta, pos = _read_vlq(trk, pos)
@@ -156,7 +160,8 @@ def _scan_track(trk, ctx, collect=False):
     return {"ticks": ticks, "notes": notes, "nmin": nmin, "nmax": nmax,
             "channels": channels, "tempos": tempos, "names": names,
             "copyright": copyright, "time_sig": time_sig, "key_sig": key_sig,
-            "has_eot": has_eot, "events": events, "sysex": sysex}
+            "has_eot": has_eot, "events": events, "n_events": n_events,
+            "sysex": sysex}
 
 
 # a few common MIDI manufacturer ids (System Exclusive id table); enough to name
@@ -280,10 +285,11 @@ def inspect_midi(filepath, deep=False, ctx=None):
             )
         st = _scan_track(trk, ctx, collect=deep)
         if deep:
-            entry["rows"] = st["events"][:_FRAME_LISTING_CAP]
-            if len(st["events"]) > _FRAME_LISTING_CAP:
+            entry["rows"] = st["events"]         # already capped while collecting
+            if st["n_events"] > _FRAME_LISTING_CAP:
                 entry["warnings"].append(
-                    f"event listing capped at {_FRAME_LISTING_CAP:,}"
+                    f"event listing capped at {_FRAME_LISTING_CAP:,} "
+                    f"of {st['n_events']:,}"
                 )
         flds = entry["fields"]
         if st["names"]:
