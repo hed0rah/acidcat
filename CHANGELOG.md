@@ -6,6 +6,26 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-07-17
+
+### Fixed
+
+- MP3 frame walker performance: on a sync loss it rescanned with a seek + read
+  per byte, so `acidcat audit` on a crafted MP3 (a valid frame then a long run
+  of `0xFF`) took ~21 s for 30 MB. It now scans a buffered window in memory and
+  bounds the resync distance; the same input is ~1 s.
+- MIDI System Common / Real-Time message advance: 0xF1 (MTC) and 0xF3 (song
+  select) carry 1 data byte and 0xF2 (song position) carries 2, but all were
+  skipped by a blind 2 bytes, misaligning the events that followed (wrong track
+  stats). Fixed in both the walker and the legacy parser.
+
+### Added
+
+- A differential + round-trip fuzz harness (`tests/test_differential_fuzz.py`):
+  seeded mutations of a hermetic IFF file assert the lenient walker degrades and
+  the strict `structure.parse`/`emit` either round-trips byte-exactly or raises
+  `StructError`, exercising the strict/lenient split the audit noted was untested.
+
 ## [0.51.0] - 2026-07-17
 
 ### Fixed
