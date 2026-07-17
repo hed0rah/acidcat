@@ -71,6 +71,17 @@ def test_healthy_file_has_no_violations():
     assert C.analyze(_wav()).violations == []
 
 
+def test_analyze_accepts_memoryview():
+    # audit maps the file and analyzes through a memoryview (zero-copy chunk
+    # payloads); the report must match the bytes path, ids must still decode
+    with memoryview(_broken_wav()) as view:
+        report = C.analyze(view)
+    ref = C.analyze(_broken_wav())
+    assert report.label == ref.label == "WAVE"
+    assert [(v.kind, v.path, v.stored, v.computed) for v in report.violations] \
+        == [(v.kind, v.path, v.stored, v.computed) for v in ref.violations]
+
+
 def test_offset_violation_kind_from_mp4(tmp_path):
     # build a minimal broken single-track MP4 and confirm the framework reports
     # an OFFSET-kind violation witnessed by mdat + sample tables
