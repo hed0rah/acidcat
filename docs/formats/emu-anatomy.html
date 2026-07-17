@@ -212,9 +212,9 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
       <div>structure<b>nested sub-chunks</b></div>
       <div>name<b>Phdr, UTF-16LE</b></div>
       <div>sub-chunks<b>~9 typical</b></div>
-      <div>status<b class="need">name verified, rest inferred</b></div>
+      <div>status<b class="veri">name + voices + zones</b></div>
     </div>
-    <p class="lede">Unlike E4B's flat preset, the E5 preset is a <b>container of named sub-chunks</b> -- typically nine: <code>Phdr</code> (header), <code>E5IC</code>, <code>E5CL</code>, <code>E5MP</code>, <code>EXPs</code>, and four <code>LIST</code>s. The preset <b>name</b> is UTF-16LE inside <code>Phdr</code> (at its sub-body offset 4). The voice / zone internals live in the <code>LIST</code> sub-chunks and are not yet decoded. No public source documents this layout.</p>
+    <p class="lede">Unlike E4B's flat preset, the E5 preset is a <b>container of named sub-chunks</b> -- typically nine: <code>Phdr</code> (header), <code>E5IC</code>, <code>E5CL</code>, <code>E5MP</code>, <code>EXPs</code>, and four <code>LIST</code>s. The preset <b>name</b> is UTF-16LE inside <code>Phdr</code> (at its sub-body offset 4). The voice list <code>LIST/E5VL</code> holds one <code>E5V1</code> per voice, each with a zone list <code>LIST/E5ZL</code> of <code>Zhdr</code> zones; each zone gives a <b>sample index</b> (into the SamplePool, <code>Zhdr[4:6]</code>) and a <b>root key</b> (<code>Zhdr[10]</code>). Envelopes, filter, LFOs, and mod cords sit alongside, undecoded. No public source documents this layout.</p>
 
     <div class="sec">E5P1 body head + Phdr</div>
     <div id="e5p1-head" data-build></div>

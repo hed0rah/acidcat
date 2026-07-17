@@ -197,24 +197,50 @@ def _e5_sample(idx, name, sample_rate, pcm_frames=8):
     return _iff(b"E5S1", bytes(body) + b"\x00\x00" * pcm_frames)
 
 
-def _e5_preset(name):
+def _sub(tag, body):
+    return tag + struct.pack(">I", len(body)) + body
+
+
+def _zhdr(sample_index, key, size=16):
+    b = bytearray(size)                          # real banks use 16 or 28
+    struct.pack_into(">H", b, 4, sample_index)   # [4:6] sample index
+    b[10] = key                                  # [10] root key
+    return _sub(b"Zhdr", bytes(b))
+
+
+def _e5_voice(zones, filler=None, zhdr_size=16):  # zones: [(sample_index, key), ...]
+    parts = b""
+    if filler is not None:                       # an unpadded interior chunk (may be odd)
+        parts += _sub(b"EFGn", b"\x00" * filler)
+    parts += _sub(b"LIST", b"E5ZL" + b"".join(_zhdr(s, k, zhdr_size) for s, k in zones))
+    return _sub(b"E5V1", parts)
+
+
+def _e5_preset_raw(name, voice_blobs):
     phdr_body = struct.pack(">I", 1) + _wname(name) + b"\x00\x00"
-    phdr = b"Phdr" + struct.pack(">I", len(phdr_body)) + phdr_body
-    e5cl = b"E5CL" + struct.pack(">I", 4) + b"\x00\x00\x00\x00"
-    return _iff(b"E5P1", b"\x00\x00" + phdr + e5cl)
+    parts = b"\x00\x00" + _sub(b"Phdr", phdr_body) + _sub(b"E5CL", b"\x00\x00\x00\x00")
+    if voice_blobs:
+        parts += _sub(b"LIST", b"E5VL" + b"".join(voice_blobs))
+    return _iff(b"E5P1", parts)
+
+
+def _e5_preset(name, voices=None):
+    return _e5_preset_raw(name, [_e5_voice(z) for z in voices] if voices else [])
 
 
 def _e5_link(slot, sample_index):
     return _iff(b"E5SL", struct.pack(">H", slot) + struct.pack(">I", sample_index))
 
 
-def _make_e5b(tmp_path, name="TESTX", kind="bank"):
+def _make_e5b(tmp_path, name="TESTX", kind="bank", preset=None):
     """Build a minimal FORM E5B0 container. kind='bank' -> preset+links (.exb),
-    kind='lib' -> one E5S1 sample (.ebl)."""
+    kind='lib' -> one E5S1 sample (.ebl). Pass `preset` to override the default
+    bank preset blob."""
     if kind == "lib":
         chunks = [(_e5_sample(1, "SPRING", 44100), b"E5S1", "SPRING")]
     else:
-        chunks = [(_e5_preset("DRUM KIT 1"), b"E5P1", "DRUM KIT 1"),
+        pblob = preset or _e5_preset("DRUM KIT 1", voices=[[(1, 36)], [(2, 38)]])
+        chunks = [(pblob, b"E5P1", "DRUM KIT 1"),
                   (_e5_link(1, 1), b"E5SL", "L1"),
                   (_e5_link(2, 2), b"E5SL", "L2")]
     n_entries = len(chunks)
@@ -255,6 +281,60 @@ def test_e5b_bank_presets_and_links(tmp_path):
     assert names["name"] == "DRUM KIT 1"
     link = next(c for c in chunks if c["id"] == "E5SL[0]")
     assert next(f for f in link["fields"] if f["name"] == "sample_index")["raw"] == 1
+
+
+def test_e5b_preset_decodes_voices_zones(tmp_path):
+    p = _make_e5b(tmp_path, kind="bank")
+    _, chunks, _ = walk_file(p)
+    preset = next(c for c in chunks if c["id"] == "E5P1[0]")
+    fd = {f["name"]: f for f in preset["fields"]}
+    assert fd["voices"]["value"] == 2
+    assert fd["zones"]["value"] == 2
+    assert "2 voice(s), 2 zone(s)" in preset["summary"]
+    assert fd["sample[0]"]["value"] == "#1" and "key 36" in fd["sample[0]"]["note"]
+    assert fd["sample[1]"]["value"] == "#2" and "key 38" in fd["sample[1]"]["note"]
+
+
+def test_e5b_unpadded_odd_interior_chunks(tmp_path):
+    """Regression: Proteus-X banks do not pad odd interior chunks. A voice with
+    an odd-sized (417) unpadded filler before its zone list must still have its
+    zones found -- the old unconditional-pad interior walk desynced here and
+    reported 1 voice / 0 zones."""
+    preset = _e5_preset_raw("KIT", [_e5_voice([(1, 36)], filler=417),
+                                    _e5_voice([(2, 38)])])
+    _, chunks, _ = walk_file(_make_e5b(tmp_path, kind="bank", preset=preset))
+    fd = {f["name"]: f for f in next(c for c in chunks if c["id"] == "E5P1[0]")["fields"]}
+    assert fd["voices"]["value"] == 2 and fd["zones"]["value"] == 2
+    assert fd["sample[1]"]["value"] == "#2"
+
+
+def test_e5b_zhdr_28byte_variant(tmp_path):
+    """The v2 zone header is 28 bytes (Proteus module banks); the same early
+    fields decode."""
+    preset = _e5_preset_raw("V2", [_e5_voice([(5, 60)], zhdr_size=28)])
+    _, chunks, _ = walk_file(_make_e5b(tmp_path, kind="bank", preset=preset))
+    fd = {f["name"]: f for f in next(c for c in chunks if c["id"] == "E5P1[0]")["fields"]}
+    assert fd["zones"]["value"] == 1
+    assert fd["sample[0]"]["value"] == "#5" and "key 60" in fd["sample[0]"]["note"]
+
+
+def test_e5b_no_voice_list_is_zero(tmp_path):
+    """A 'lnk' preset with no E5VL decodes to 0 voices / 0 zones, no warning."""
+    preset = _e5_preset_raw("LNK", [])
+    _, chunks, _ = walk_file(_make_e5b(tmp_path, kind="bank", preset=preset))
+    c = next(c for c in chunks if c["id"] == "E5P1[0]")
+    fd = {f["name"]: f for f in c["fields"]}
+    assert fd["voices"]["value"] == 0 and fd["zones"]["value"] == 0
+    assert c["warnings"] == []
+
+
+def test_e5b_short_zhdr_not_counted(tmp_path):
+    """A Zhdr shorter than 11 bytes carries no key and must not count as a zone."""
+    e5zl = _sub(b"LIST", b"E5ZL" + _sub(b"Zhdr", b"\x00" * 10) + _zhdr(3, 40))
+    preset = _e5_preset_raw("K", [_sub(b"E5V1", e5zl)])
+    _, chunks, _ = walk_file(_make_e5b(tmp_path, kind="bank", preset=preset))
+    fd = {f["name"]: f for f in next(c for c in chunks if c["id"] == "E5P1[0]")["fields"]}
+    assert fd["zones"]["value"] == 1        # only the valid 16-byte Zhdr
 
 
 def test_e5b_lib_sample_name_and_rate(tmp_path):
