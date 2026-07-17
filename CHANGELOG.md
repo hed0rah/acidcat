@@ -6,6 +6,19 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-07-17
+
+### Added
+
+- E-MU E5B0 (Emulator X / Proteus X) preset voice/zone decode: each `E5P1`
+  preset now reports its voice count, zone count, and the SamplePool sample each
+  zone plays (1-based index) with its root key, by walking the nested
+  `E5VL` / `E5V1` / `E5ZL` / `Zhdr` chunk tree. The root key is verified against
+  named sample pitches; the interior chunk walk uses the same adaptive
+  word-alignment as the top level (the Proteus module banks do not pad odd
+  interior chunks), and a desync or cap surfaces as a warning instead of
+  degrading silently. Corpus: 169 banks, 0 crashes, 225,578 zones decoded.
+
 ## [0.49.0] - 2026-07-16
 
 ### Added
