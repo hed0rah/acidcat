@@ -17,9 +17,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   (non-object top level, non-dict `global`/captures/annotations, or a string
   where a number is expected). Memory-amplification gaps closed with read caps:
   RMID, SF2 (now validated before the whole-file read), the `.xpn`
-  `Expansion.xml` member (streamed), the NI `.ksd` edit path (inflate cap), and
-  the Serum metadata reader. A cross-walker truncated-magic test guards the
-  class against regression.
+  `Expansion.xml` member (streamed), the NI `.ksd` edit path (inflate cap), the
+  Serum metadata reader, and the MIDI `--frames` event listing (now bounded
+  while collecting rather than built in full then sliced). A cross-walker
+  truncated-magic test guards the crash class against regression.
 
 ## [0.50.0] - 2026-07-17
 

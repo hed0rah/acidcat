@@ -249,3 +249,18 @@ def test_sysex_noncommercial_id_flagged_as_cavity(tmp_path):
     chunks, warns = inspect_midi(str(f))
     all_warns = list(warns) + [w for c in chunks for w in c.get("warnings", [])]
     assert any("non-commercial" in w and "cavity" in w for w in all_warns)
+
+
+def test_deep_event_listing_capped_while_collecting(tmp_path, monkeypatch):
+    """--frames event collection is bounded at _FRAME_LISTING_CAP WHILE scanning
+    (not built in full then sliced -- the 63x-memory audit finding), and still
+    reports the true total in the cap warning."""
+    from acidcat.core.walk import midi as wmidi
+    monkeypatch.setattr(wmidi, "_FRAME_LISTING_CAP", 3)
+    track = b"\x00\x90\x3c\x40" * 10 + b"\x00\xFF\x2F\x00"   # 10 note-ons + EOT
+    p = tmp_path / "many.mid"
+    p.write_bytes(_build_smf([track]))
+    chunks, _ = wmidi.inspect_midi(str(p), deep=True)
+    trk = next(c for c in chunks if c["id"] == "MTrk")
+    assert len(trk["rows"]) <= 3                             # bounded, not 10
+    assert any("capped at 3 of" in w for w in trk["warnings"])
