@@ -264,3 +264,17 @@ def test_deep_event_listing_capped_while_collecting(tmp_path, monkeypatch):
     trk = next(c for c in chunks if c["id"] == "MTrk")
     assert len(trk["rows"]) <= 3                             # bounded, not 10
     assert any("capped at 3 of" in w for w in trk["warnings"])
+
+
+def test_system_common_message_advance(tmp_path):
+    """A System Common message must advance by its real data-byte count so the
+    following event stays aligned. 0xF1 (MTC quarter-frame) carries 1 data byte;
+    a blind +2 used to swallow the next event and mis-count the notes."""
+    from acidcat.core.walk.midi import inspect_midi
+    track = b"\x00\xF1\x40" + b"\x00\x90\x3c\x40" + b"\x00\xFF\x2F\x00"
+    p = tmp_path / "sys.mid"
+    p.write_bytes(_build_smf([track]))
+    assert parse_midi(str(p))["note_count"] == 1            # note-on stays aligned
+    chunks, _ = inspect_midi(str(p))
+    trk = next(c for c in chunks if c["id"] == "MTrk")
+    assert next(f for f in trk["fields"] if f["name"] == "notes")["value"] == 1

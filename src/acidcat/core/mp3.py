@@ -283,35 +283,60 @@ def free_format_bitrate(hdr, frame_length):
     return round(bps / 1000, 1)
 
 
+_RESYNC_WINDOW = 1 << 20        # bytes buffered per read while walking frames
+_RESYNC_LIMIT = 1 << 20         # give up after this much contiguous non-frame data
+
+
 def iter_frames(filepath, start, end, max_frames=None):
     """Walk MPEG audio frames from ``start`` up to ``end``.
 
-    Yields (offset, header) for each decoded frame. Steps by the frame's
-    own computed length; on a sync loss it scans forward byte by byte for
-    the next valid header (so a stray ID3/APE chunk mid-stream doesn't
-    abort the walk). Free-format frames (bitrate index 0) are supported:
-    the constant length is measured once from the first two matching syncs,
-    and a lone free-format sync with no twin is treated as a false sync,
-    not a stream. Stops after ``max_frames`` if given.
+    Yields (offset, header) for each decoded frame. Steps by the frame's own
+    computed length; on a sync loss it scans forward for the next 0xFF sync
+    candidate *in memory* over a buffered window (so a stray ID3/APE chunk
+    mid-stream doesn't abort the walk, without a syscall per byte). If more than
+    ``_RESYNC_LIMIT`` contiguous bytes carry no valid frame the stream is treated
+    as lost and the walk stops -- a valid MPEG stream never has that gap, and it
+    bounds a crafted run of garbage. Free-format frames (bitrate index 0) are
+    supported. Stops after ``max_frames`` if given.
     """
     count = 0
     free_len = None
+    lost = 0                    # contiguous non-frame bytes since the last frame
     with open(filepath, "rb") as f:
         pos = start
+        buf = b""
+        buf_start = start
+
+        def _skip_to_next_sync(rel):
+            # in-memory jump to the next 0xFF in the buffer (or its end)
+            nxt = buf.find(b"\xff", rel + 1)
+            return (buf_start + nxt, nxt - rel) if nxt != -1 \
+                else (buf_start + len(buf), len(buf) - rel)
+
         while pos + 4 <= end:
-            f.seek(pos)
-            b4 = f.read(4)
-            hdr = decode_frame_header(b4, allow_free=True)
-            if hdr is None:
-                pos += 1
-                continue
-            if hdr["free_format"]:
+            rel = pos - buf_start
+            if rel < 0 or rel + 4 > len(buf):           # refill the window at pos
+                f.seek(pos)
+                buf = f.read(min(_RESYNC_WINDOW, end - pos))
+                buf_start = pos
+                rel = 0
+                if len(buf) < 4:
+                    break
+            hdr = decode_frame_header(buf[rel:rel + 4], allow_free=True)
+            if hdr is not None and hdr["free_format"]:
                 if free_len is None:
                     free_len = _free_frame_length(f, pos, hdr, end)
                 if free_len is None:
-                    pos += 1
-                    continue
-                hdr["frame_length"] = free_len
+                    hdr = None                          # lone free sync: false
+                else:
+                    hdr["frame_length"] = free_len
+            if hdr is None:
+                pos, skipped = _skip_to_next_sync(rel)
+                lost += skipped
+                if lost > _RESYNC_LIMIT:
+                    return
+                continue
+            lost = 0
             yield pos, hdr
             count += 1
             if max_frames is not None and count >= max_frames:

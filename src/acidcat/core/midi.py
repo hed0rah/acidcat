@@ -187,8 +187,14 @@ def parse_midi(filepath):
                 elif msg_type in (0xC0, 0xD0):
                     # 1-byte data
                     pos += 1
+                elif status >= 0xF0:
+                    # System Common / Real-Time (0xF0/0xF7 sysex + 0xFF meta are
+                    # handled above): 0xF1 MTC + 0xF3 song-select carry 1 data
+                    # byte, 0xF2 song-position 2, the rest 0. Advancing a blind 2
+                    # here misaligned the parse of whatever followed.
+                    pos += 2 if status == 0xF2 else (1 if status in (0xF1, 0xF3) else 0)
                 else:
-                    pos += 2  # default 2 data bytes
+                    pos += 2  # default 2 data bytes (0x80-0xB0, 0xE0 channel)
 
             else:
                 # running status
