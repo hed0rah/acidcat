@@ -137,3 +137,21 @@ def test_iq_bare_raw_not_gqrx_is_unsupported(tmp_path):
     p = tmp_path / "random.raw"
     p.write_bytes(b"\x00" * 64)
     assert sniff(str(p)) != "iq"
+
+
+def test_malformed_json_types_degrade(tmp_path):
+    """The .sigmf-meta sidecar is untrusted JSON. Wrong types (non-object top
+    level, non-dict global/captures/annotations, string where a number is
+    expected) must degrade, never raise -- the type-confusion class the audit
+    found."""
+    (tmp_path / "x.sigmf-data").write_bytes(b"\x00" * 64)
+    meta = tmp_path / "x.sigmf-meta"
+    for js in ("[]", "42", '"s"',
+               '{"global":[1,2]}',
+               '{"global":{"core:datatype":"ci16_le","core:sample_rate":"fast"}}',
+               '{"global":{"core:datatype":"ci16_le"},"captures":["x",42]}',
+               '{"global":{"core:datatype":"ci16_le"},"captures":[{"core:sample_start":"oops","core:frequency":"nan"}]}',
+               '{"global":{"core:datatype":"ci16_le"},"annotations":[null,5]}'):
+        meta.write_text(js)
+        chunks, warns = sigmf.inspect_sigmf(str(meta))   # must not raise
+        assert chunks                                    # always a degraded result

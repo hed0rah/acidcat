@@ -118,3 +118,21 @@ def test_it_detect_walk_and_xref(tmp_path):
     ptr = next(f for f in smp["fields"] if f["name"] == "sample_pointer")
     assert ptr["xref"] == data_off
     assert not warns
+
+
+def test_truncated_headers_degrade(tmp_path):
+    """A valid magic followed by a header too short for the fixed struct must
+    degrade with a warning, never raise -- the crash class the external audit
+    found (walk_file has no top-level guard, so a raise crashes audit/info)."""
+    s3m = (b"\x00" * 0x1C + b"\x1a\x10" + b"\x00" * 14 + b"SCRM").ljust(50, b"\x00")
+    cases = [
+        ("t.xm", b"Extended Module: " + b"\x00" * 30, wtk.inspect_xm),
+        ("t.it", b"IMPM" + b"\x00" * 20, wtk.inspect_it),
+        ("t.s3m", s3m, wtk.inspect_s3m),
+    ]
+    for fn, data, inspect in cases:
+        p = tmp_path / fn
+        p.write_bytes(data)
+        chunks, warns = inspect(str(p))              # must not raise
+        assert chunks and warns
+        assert any("truncated" in w for w in warns)

@@ -6,6 +6,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-07-17
+
+### Fixed
+
+- Robustness hardening, driven by an external audit (untrusted-input safety).
+  Crashes that violated the "degrade with warnings, never raise" contract now
+  degrade: the tracker walkers (`.xm`/`.it`/`.s3m`) on a truncated header, and
+  the SigMF walker on a `.sigmf-meta` sidecar whose JSON has the wrong types
+  (non-object top level, non-dict `global`/captures/annotations, or a string
+  where a number is expected). Memory-amplification gaps closed with read caps:
+  RMID, SF2 (now validated before the whole-file read), the `.xpn`
+  `Expansion.xml` member (streamed), the NI `.ksd` edit path (inflate cap), and
+  the Serum metadata reader. A cross-walker truncated-magic test guards the
+  class against regression.
+
 ## [0.50.0] - 2026-07-17
 
 ### Added

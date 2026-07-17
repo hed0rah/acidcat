@@ -8,6 +8,7 @@ from acidcat.core import sf2 as sf2mod
 from acidcat.core.walk.base import Unsupported, _PAYLOAD_CAP, _f
 
 _SAMPLE_LIST_CAP = 400          # named samples to list in inspect
+_SF2_CAP = 512 * 1024 * 1024    # cap the whole-file read; a forged sfbk must not OOM
 
 
 def inspect_sf2(filepath):
@@ -15,12 +16,14 @@ def inspect_sf2(filepath):
     sizes, and the named sample list (each with rate, duration, loop)."""
     file_size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
-        # the header + pdta/shdr table are near the ends; the giant smpl blob in
-        # between is not needed to enumerate structure, but parse_sf2 indexes by
-        # absolute offset, so read the whole file (bounded by the format's use)
-        data = f.read()
-    if not sf2mod.is_sf2(data):
-        raise Unsupported("not a RIFF/sfbk SoundFont")
+        # validate the sfbk magic before slurping, so a huge non-SoundFont is
+        # rejected without being read into memory
+        if not sf2mod.is_sf2(f.read(12)):
+            raise Unsupported("not a RIFF/sfbk SoundFont")
+        f.seek(0)
+        # parse_sf2 indexes by absolute offset so the whole file is read, but
+        # capped: a forged sfbk must not amplify into unbounded memory
+        data = f.read(min(file_size, _SF2_CAP))
     try:
         info = sf2mod.parse_sf2(data)
     except sf2mod.Sf2Error as e:
@@ -58,6 +61,9 @@ def inspect_sf2(filepath):
                    "warnings": [], "payload_base": info["smpl_offset"]})
 
     warns = []
+    if file_size > _SF2_CAP:
+        warns.append(f"file exceeds {_SF2_CAP >> 20} MB; parsed the first "
+                     f"{_SF2_CAP >> 20} MB (samples near the end may be missing)")
     for i, s in enumerate(info["samples"][:_SAMPLE_LIST_CAP]):
         looped = "looped" if s["loop_end"] > s["loop_start"] else "one-shot"
         stype = {1: "mono", 2: "right", 4: "left", 8: "linked"}.get(s["type"], f"type {s['type']}")
