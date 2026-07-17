@@ -133,6 +133,11 @@ def _scan_track(trk, ctx, collect=False):
                 d1 = trk[pos] if pos < len(trk) else 0
                 pos += 1
                 emit(_VOICE_NAMES[mtype], f"{d1} ch{ch + 1}")
+            elif status >= 0xF0:
+                # System Common / Real-Time (sysex 0xF0/0xF7 + meta 0xFF handled
+                # above): 0xF1 MTC + 0xF3 song-select carry 1 data byte, 0xF2
+                # song-position 2, the rest 0 -- a blind 2 misaligned the parse.
+                pos += 2 if status == 0xF2 else (1 if status in (0xF1, 0xF3) else 0)
             else:
                 pos += 2
         elif running:
