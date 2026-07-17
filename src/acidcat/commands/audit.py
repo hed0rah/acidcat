@@ -20,6 +20,7 @@ import os
 import sys
 
 from acidcat.core import anomalies, constraints, integrity, provenance
+from acidcat.core.mapped import map_file
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
 
@@ -48,30 +49,41 @@ def register(subparsers):
 
 
 def _gather(path):
-    with open(path, "rb") as f:
-        data = f.read()
-    report = constraints.analyze(data)              # structural violations (or None)
-    findings = []
-    label = None
-    prov = []
-    # an MP3's Xing/VBRI frame count vs the frames actually present is a
-    # truncation tell, but the walker only cross-checks it on the deep path;
-    # audit is thorough by nature, so deep-walk MP3 (only) to surface it.
-    from acidcat.core import sniff as sniffmod
+    # audit is the forensic verdict on untrusted input, so the file is mapped,
+    # not slurped: peak memory must not scale with file size (and a size cap
+    # would reject legitimate multi-GB RF64/BW64 files)
+    data, close = map_file(path)
     try:
-        deep = sniffmod.sniff(path) == "mp3"
-    except OSError:
-        deep = False
-    try:
-        label, chunks, warns = walk_file(path, deep=deep)
-        findings = anomalies.scan(path, label, chunks, warns)
-        prov = provenance.identify(label, chunks, data)
-        integ = integrity.analyze(label, chunks, data)
-    except Unsupported:
-        integ = []
-    if report is not None and label is None:
-        label = report.label
-    return label, report, findings, prov, integ
+        # constraints gets a memoryview: the IFF engine keeps a slice of every
+        # chunk payload it parses, and view slices are zero-copy windows into
+        # the map where mmap/bytes slices would materialize the whole payload
+        with memoryview(data) as view:
+            report = constraints.analyze(view)      # structural violations (or None)
+        findings = []
+        label = None
+        prov = []
+        # an MP3's Xing/VBRI frame count vs the frames actually present is a
+        # truncation tell, but the walker only cross-checks it on the deep path;
+        # audit is thorough by nature, so deep-walk MP3 (only) to surface it.
+        from acidcat.core import sniff as sniffmod
+        try:
+            deep = sniffmod.sniff(path) == "mp3"
+        except OSError:
+            deep = False
+        try:
+            label, chunks, warns = walk_file(path, deep=deep)
+            findings = anomalies.scan(path, label, chunks, warns)
+            # provenance/integrity only take small or capped slices, which an
+            # mmap serves as plain bytes -- no adaptation needed
+            prov = provenance.identify(label, chunks, data)
+            integ = integrity.analyze(label, chunks, data)
+        except Unsupported:
+            integ = []
+        if report is not None and label is None:
+            label = report.label
+        return label, report, findings, prov, integ
+    finally:
+        close()
 
 
 def run(args):

@@ -124,7 +124,10 @@ def parse(data):
 def _parse_leaf(data, off, endian, hard_end):
     """Parse one leaf chunk at ``off``. Returns (node, next_off). ``hard_end``
     bounds the payload against a lying size."""
-    node = Node(data[off:off + 4], off, endian)
+    # bytes() so the id decodes/compares even when ``data`` is a memoryview;
+    # the payload slice below is left as-is so a memoryview input keeps large
+    # payloads zero-copy (audit analyzes multi-GB files through one)
+    node = Node(bytes(data[off:off + 4]), off, endian)
     size = struct.unpack_from(endian + "I", data, off + 4)[0]
     body_off = off + 8
     avail = max(0, hard_end - body_off)
@@ -147,10 +150,11 @@ def _parse_leaf(data, off, endian, hard_end):
 def _parse_container(data, off, end, endian, top=False):
     """Parse a container at ``off`` spanning up to ``end``. Returns
     (node, next_off)."""
-    node = Node(data[off:off + 4], off, endian)
+    # bytes() for the same memoryview reason as in _parse_leaf
+    node = Node(bytes(data[off:off + 4]), off, endian)
     size = struct.unpack_from(endian + "I", data, off + 4)[0]
     node.declared_size = size
-    node.form_type = data[off + 8:off + 12]
+    node.form_type = bytes(data[off + 8:off + 12])
     node.children = []
     # at the top level a lying master size must not stop us short of real chunks
     # (the crash-truncated-size case we repair), so parse to the buffer end and

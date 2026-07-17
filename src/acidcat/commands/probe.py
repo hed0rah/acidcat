@@ -22,6 +22,7 @@ import sys
 
 from acidcat.core import probe as pr
 from acidcat.core import viz
+from acidcat.core.mapped import map_file
 from acidcat.tui_theme import BYTE_CLASS
 
 
@@ -88,11 +89,6 @@ def _byteorder(args, label):
     return pr.default_byteorder(label)
 
 
-def _read_file(path):
-    with open(path, "rb") as fh:
-        return fh.read()
-
-
 def run(args):
     verb = getattr(args, "verb", None)
     if not verb:
@@ -101,10 +97,20 @@ def run(args):
         return 2
     path = args.file
     try:
-        data = _read_file(path)
+        # mmap, not f.read(): every verb is random access (slice, find,
+        # unpack_from), which a mapped file serves with OS paging -- a large
+        # or crafted input no longer costs its full size in RAM
+        data, close = map_file(path)
     except OSError as e:
         print(f"acidcat probe: {path}: {e}", file=sys.stderr)
         return 1
+    try:
+        return _dispatch(args, verb, path, data)
+    finally:
+        close()
+
+
+def _dispatch(args, verb, path, data):
     label, _chunks, _warns = pr._walk(path)
 
     if verb == "read":
@@ -153,7 +159,10 @@ def run(args):
         return 0 if offs else 1
 
     if verb == "strings":
-        found = pr.strings(data, args.min)
+        # memoryview: byte-wise iteration must yield ints as bytes does
+        # (iterating the mmap itself yields 1-byte bytes objects)
+        with memoryview(data) as view:
+            found = pr.strings(view, args.min)
         for off, text in found:
             print(f"0x{off:08x}  {text}")
         return 0
@@ -170,11 +179,14 @@ def run(args):
 
     if verb == "diff":
         try:
-            other = _read_file(args.other)
+            other, oclose = map_file(args.other)
         except OSError as e:
             print(f"acidcat probe: {args.other}: {e}", file=sys.stderr)
             return 1
-        ranges, la, lb = pr.diff(data, other)
+        try:
+            ranges, la, lb = pr.diff(data, other)
+        finally:
+            oclose()
         if not ranges and la == lb:
             print("identical")
             return 0
@@ -187,23 +199,28 @@ def run(args):
         return 0
 
     if verb == "entropy":
-        ent = viz.windowed_entropy(data, max(8, args.width))
-        print(f"entropy  {os.path.basename(path)}  {len(data):,} bytes  (0 = uniform .. 8 = random)")
-        for line in viz.braille_line(ent, width=args.width, height=8, vmin=0, vmax=8):
-            print("  " + line)
-        hi = sum(1 for e in ent if e >= 7.2)
-        summary = (f"  min {min(ent):.2f}  max {max(ent):.2f}  "
-                   f"mean {sum(ent) / len(ent):.2f} bits/byte")
-        if hi:
-            summary += f"   [{hi} window(s) >= 7.2: encrypted or compressed]"
-        print(summary)
-        print("  byte distribution:")
-        for line in viz.byte_histogram(data, width=128, height=5):
-            print("  " + line)
+        # memoryview: viz iterates bytes as ints, and view slices are
+        # zero-copy windows into the map
+        with memoryview(data) as view:
+            ent = viz.windowed_entropy(view, max(8, args.width))
+            print(f"entropy  {os.path.basename(path)}  {len(data):,} bytes  (0 = uniform .. 8 = random)")
+            for line in viz.braille_line(ent, width=args.width, height=8, vmin=0, vmax=8):
+                print("  " + line)
+            hi = sum(1 for e in ent if e >= 7.2)
+            summary = (f"  min {min(ent):.2f}  max {max(ent):.2f}  "
+                       f"mean {sum(ent) / len(ent):.2f} bits/byte")
+            if hi:
+                summary += f"   [{hi} window(s) >= 7.2: encrypted or compressed]"
+            print(summary)
+            print("  byte distribution:")
+            for line in viz.byte_histogram(view, width=128, height=5):
+                print("  " + line)
         return 0
 
     if verb == "map":
-        grid, side = viz.hilbert_grid(data, args.order)
+        # memoryview for the same int-iteration reason as entropy/strings
+        with memoryview(data) as view:
+            grid, side = viz.hilbert_grid(view, args.order)
         color = _use_color(args.no_color)
         print(f"byte map  {os.path.basename(path)}  {len(data):,} bytes  "
               f"({side}x{side} Hilbert; adjacent cells are adjacent bytes)")
