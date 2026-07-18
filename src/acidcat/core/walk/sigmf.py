@@ -184,7 +184,7 @@ def inspect_sigmf(path, deep=False):
     elif os.path.isfile(meta_path):
         try:
             with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
-                m = json.loads(f.read())
+                m = json.loads(f.read(_META_CAP))  # size gated above; bounded read
             if not isinstance(m, dict):
                 raise ValueError("top-level SigMF JSON is not an object")
             g = m.get("global") if isinstance(m.get("global"), dict) else {}

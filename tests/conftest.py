@@ -5,6 +5,10 @@ import tempfile
 import os
 import pytest
 
+# in production walk_file degrades a walker bug to a warning; in the suite a
+# walker bug must stay a loud traceback (see core/walk/__init__.py)
+os.environ.setdefault("ACIDCAT_WALKER_RAISE", "1")
+
 
 @pytest.fixture(autouse=True)
 def _isolate_acidcat_env(monkeypatch):

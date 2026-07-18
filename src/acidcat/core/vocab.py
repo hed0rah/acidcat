@@ -68,6 +68,18 @@ CTX_KEYS = frozenset({
     "data_off", "data_bytes", "fact_samples", "frames", "duration",
     "acid_bpm", "acid_beats", "acid_one_shot", "acid_root",
     "smpl_root", "smpl_loop_start", "smpl_loop_end",
+    # AIFF walker keys the scan path reads (walk/aiff.py, core/indexing.py)
+    "rate", "compression", "marker_ids", "inst_loop_marker_ids",
+    "basc_beats", "basc_root_key", "basc_scale",
+    "name", "author", "copyright", "annotation",
+    # MIDI walker scan keys (walk/midi.py, core/indexing.py)
+    "tempo_bpm", "key_sig", "time_sig", "track_name", "track_names",
+    "note_count", "note_min", "note_max", "duration_ticks", "channels_used",
+    "division", "format", "tracks",
 })
-# invariant (test_ctx_keys_covers_walker): CTX_KEYS must stay a superset of every
-# ctx key the walkers publish, so a real key can never fail Field.ctx validation.
+# invariant (test_ctx_keys_covers_walker in test_grammar_wav.py, plus the
+# aiff/midi checks in test_walker_invariants.py): CTX_KEYS must stay a superset
+# of every ctx key the fixed-key walkers (wav/aiff/midi) publish, so a real key
+# can never fail Field.ctx validation and a walker rename cannot silently
+# desynchronize from the scan path. The Serum walker is excluded on purpose:
+# it publishes the preset's raw JSON keys, an open set.
