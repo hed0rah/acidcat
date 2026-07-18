@@ -36,8 +36,6 @@ def register(subparsers):
                    help="Estimate BPM/key with librosa if no metadata found.")
     p.add_argument("--features", action="store_true",
                    help="Extract 50+ audio features for ML analysis.")
-    p.add_argument("--ml-ready", action="store_true",
-                   help="Output normalized ML-ready features.")
     p.set_defaults(func=run)
 
 
@@ -151,7 +149,6 @@ def run(args):
     verbose = getattr(args, 'verbose', False) and not quiet
     do_fallback = getattr(args, 'fallback', False)
     do_features = getattr(args, 'features', False)
-    do_ml_ready = getattr(args, 'ml_ready', False)
     num = getattr(args, 'num', 500)
 
     def _vlog(msg):
@@ -196,7 +193,7 @@ def run(args):
                     continue
 
             # optional ML features
-            if do_features or do_ml_ready:
+            if do_features:
                 from acidcat.core.features import extract_audio_features
                 if not quiet:
                     print(f"  [features] {os.path.basename(filepath)}...", file=sys.stderr)
@@ -241,7 +238,7 @@ def run(args):
         "title", "artist",
         "acid_beats", "expected_duration", "duration_diff", "chunks",
     ]
-    if (do_features or do_ml_ready) and rows:
+    if do_features and rows:
         all_keys = set()
         for r in rows:
             all_keys.update(r.keys())
@@ -251,36 +248,12 @@ def run(args):
         fieldnames = base_fieldnames
 
     # output
-    if do_ml_ready:
-        import numpy as np
-        import pandas as pd
-        from sklearn.preprocessing import StandardScaler
-
-        df = pd.DataFrame(rows)
-        df.to_csv(output_csv, index=False)
-
-        ml_csv = output_csv.replace('.csv', '_ml_ready.csv')
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if numeric_cols:
-            scaler = StandardScaler()
-            df_norm = df.copy()
-            df_norm[numeric_cols] = scaler.fit_transform(df[numeric_cols])
-            df_norm.to_csv(ml_csv, index=False)
-            if not quiet:
-                print(f"\n[INFO] Wrote raw features for {len(rows)} files to {output_csv}",
-                      file=sys.stderr)
-                print(f"[INFO] Wrote ML-ready normalized features to {ml_csv}", file=sys.stderr)
-        else:
-            if not quiet:
-                print(f"\n[INFO] Wrote metadata for {len(rows)} files to {output_csv}",
-                      file=sys.stderr)
-    else:
-        with open(output_csv, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(rows)
-        if not quiet:
-            print(f"\n[INFO] Wrote metadata for {len(rows)} files to {output_csv}",
-                  file=sys.stderr)
+    with open(output_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    if not quiet:
+        print(f"\n[INFO] Wrote metadata for {len(rows)} files to {output_csv}",
+              file=sys.stderr)
 
     return 0

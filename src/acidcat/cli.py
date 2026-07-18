@@ -12,8 +12,6 @@ Usage:
     acidcat survey DIR               # chunk type census
     acidcat detect file.wav          # librosa BPM/key estimation
     acidcat features DIR             # ML feature extraction
-    acidcat similar CSV TARGET       # similarity search
-    acidcat search CSV QUERY         # text search (legacy, CSV-based)
     acidcat dump file.wav acid       # hex dump a chunk
     acidcat carve file.wav --trailing -o blob   # extract a byte range / appended blob
     acidcat convert font.sf2                     # extract SoundFont samples to WAV
@@ -27,14 +25,14 @@ import sys
 
 from acidcat import __version__
 from acidcat.commands import (
-    info, scan, shape, od, chunks, survey, detect, features, similar, search, dump,
+    info, scan, shape, od, chunks, survey, detect, features, dump,
     index, query, inspect, convert, write, cover, explore, tui, carve, repair, validate, audit, probe,
 )
 from acidcat.util.stdin import is_stdin_target
 
 SUBCOMMANDS = {
-    "info", "scan", "shape", "od", "chunks", "survey", "detect", "features", "similar",
-    "search", "dump", "index", "query", "inspect", "convert", "write", "cover",
+    "info", "scan", "shape", "od", "chunks", "survey", "detect", "features",
+    "dump", "index", "query", "inspect", "convert", "write", "cover",
     "explore", "tui", "carve", "repair", "validate", "audit", "probe",
 }
 
@@ -56,8 +54,6 @@ def _build_parser():
     survey.register(subparsers)
     detect.register(subparsers)
     features.register(subparsers)
-    similar.register(subparsers)
-    search.register(subparsers)
     dump.register(subparsers)
     index.register(subparsers)
     query.register(subparsers)
@@ -110,7 +106,6 @@ def _try_bare_path(argv):
         fb.add_argument("--has", default=None)
         fb.add_argument("--fallback", action="store_true")
         fb.add_argument("--features", action="store_true")
-        fb.add_argument("--ml-ready", dest="ml_ready", action="store_true")
         fb_args, _ = fb.parse_known_args(argv)
 
         if is_stdin_target(fb_args.target):

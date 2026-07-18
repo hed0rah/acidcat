@@ -12,13 +12,15 @@ Last updated: 2026-04-23
 ## What it is
 
 **Similarity search**: given a reference sample, return the N
-closest other samples by some distance measure. Implemented in
-`commands/similar.py` and exposed via the MCP `find_similar`
-tool.
+closest other samples by some distance measure. Implemented against
+the per-library index (features stored by `acidcat index --features`)
+and exposed via the MCP `find_similar` tool.
 
 **Clustering**: given the full feature matrix, partition samples
-into groups of perceptually similar content. Exposed via
-`acidcat similar CSV cluster`.
+into groups of perceptually similar content. No longer exposed on the
+CLI (the CSV-era `similar cluster` verb was retired); the feature
+vectors in the index are the substrate for a future index-backed
+equivalent.
 
 Both tasks operate on the feature vectors described in
 `feature_pipeline.md`. The math is standard unsupervised machine
@@ -112,7 +114,8 @@ large model dependencies and is out of scope for current acidcat.
 
 ## Current implementation
 
-In `commands/similar.py` (uses sklearn):
+In the MCP `find_similar` tool (z-standardized cosine over the packed
+feature vectors; the retired CSV-era command used sklearn the same way):
 
 ```python
 from sklearn.metrics.pairwise import cosine_similarity
@@ -359,9 +362,9 @@ primitives (`reindex_features`, hypothetical `cluster_samples`,
 `tag_sample`). The agent composes them.
 
 A `cluster_samples` primitive is on the potential-future-tool list.
-Current workflow requires going through `acidcat features ... CSV`
-then `acidcat similar CSV cluster`, which is CSV-mediated and not
-ideal for agent use.
+There is currently no clustering surface at all (the CSV-mediated
+`similar cluster` verb was retired); an index-backed primitive is the
+right shape if clustering comes back.
 
 ---
 

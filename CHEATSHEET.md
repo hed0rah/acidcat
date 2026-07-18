@@ -16,7 +16,6 @@ A low-level audio and preset metadata tool. readelf/exiftool for audio.
 | `acidcat detect FILE\|DIR` | estimate bpm/key with librosa |
 | `acidcat features DIR` | extract 50+ audio features (ML) |
 | `acidcat scan DIR` | batch scan to CSV |
-| `acidcat similar CSV find\|cluster` | similarity search / clustering |
 | `acidcat index DIR` | upsert into the global SQLite index |
 | `acidcat query [flags]` | filter the index by bpm/key/tag/text |
 | `acidcat query --compatible-with FILE` | samples that mix with FILE (key + tempo, `--same-key` `--bpm-tolerance` `--kind`) |
