@@ -6,6 +6,23 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- The "degrade with warnings, never raise" walker contract is now enforced
+  structurally, at the `walk_file` boundary every consumer shares: a walker
+  bug on hostile input degrades to a walker-error warning instead of a
+  traceback out of `od`, `audit`, the TUI, or the public `acidcat.walk()`
+  (previously only `inspect` and `shape` carried their own catch-all).
+  `ACIDCAT_WALKER_RAISE=1`, set by the test suite, re-raises so a walker
+  defect stays a loud CI failure.
+- Two walker conventions became mechanically enforced invariants
+  (`tests/test_walker_invariants.py`): no argless `.read()` in `core/walk/`
+  (the class behind the historical sf2/rmid memory-amplification bugs), and
+  every semantic ctx key the wav/aiff/midi walkers publish must be registered
+  in `vocab.CTX_KEYS` (so a walker rename cannot silently desynchronize from
+  the scan path). The ctx check immediately surfaced three unregistered MIDI
+  keys (`division`, `format`, `tracks`), now registered.
+
 ### Removed
 
 - The CSV-era `similar` and `search` verbs (pandas/sklearn pipelines over
