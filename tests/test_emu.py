@@ -226,6 +226,31 @@ def _e5_voice(zones, filler=None, zhdr_size=16, windows=None):  # zones: [(sampl
     return _sub(b"E5V1", parts)
 
 
+def _e5fl(ftype, freq, q):                       # filter: type[4], freq[5:9], param2[9:13]
+    body = struct.pack(">I", 1) + bytes([ftype]) + struct.pack(">ff", freq, q)
+    return _sub(b"E5Fl", body + b"\x00" * (62 - len(body)))
+
+
+def _e5ev(levels):                               # one envelope: 10B header + 6 [rate][level][pad]
+    hdr = struct.pack(">I", 2) + b"\x00\x00\x00\x00\x01\x00"
+    stages = b"".join(struct.pack(">ff", 0.0, float(lv)) + b"\x00" for lv in levels)
+    return _sub(b"E5Ev", hdr + stages)
+
+
+def _e5cd(src, dst, amount):                     # cord: src[4], dst[5], amount[6:10]
+    return _sub(b"E5Cd", struct.pack(">I", 1) + bytes([src, dst]) + struct.pack(">f", amount))
+
+
+def _e5_voice_dsp(zones, ftype=33, freq=0.6, q=0.3, envs=None, cords=None):
+    parts = _e5fl(ftype, freq, q)
+    if envs:
+        parts += _sub(b"LIST", b"EvL " + b"".join(_e5ev(e) for e in envs))
+    if cords:
+        parts += _sub(b"LIST", b"CrdL" + b"".join(_e5cd(*c) for c in cords))
+    parts += _sub(b"LIST", b"E5ZL" + b"".join(_zhdr(s, k) for s, k in zones))
+    return _sub(b"E5V1", parts)
+
+
 def _e5_preset_raw(name, voice_blobs):
     phdr_body = struct.pack(">I", 1) + _wname(name) + b"\x00\x00"
     parts = b"\x00\x00" + _sub(b"Phdr", phdr_body) + _sub(b"E5CL", b"\x00\x00\x00\x00")
@@ -321,6 +346,31 @@ def test_e5b_decodes_voice_windows(tmp_path):
     assert fd["sample[1]"]["value"] == "#2"
     assert "keys 52-84" in fd["sample[1]"]["note"]
     assert "vel 64-127" in fd["sample[1]"]["note"]        # narrowed velocity shown
+
+
+def test_e5b_verbose_dumps_voice_dsp(tmp_path):
+    """Verbose (deep) mode dumps the decoded front-panel DSP -- filter, the three
+    envelopes as percent levels, and active mod cords with known source/dest names
+    -- while the default view stays compact. Offsets verified by save-and-diff."""
+    voice = _e5_voice_dsp(
+        [(1, 60)], ftype=33, freq=0.6265, q=0.35,
+        envs=[[88, 67, 48, 73, 27, 15], [-61, -39, 41, 35, -35, 24], [0, 0, 0, 0, 0, 0]],
+        cords=[(17, 169, 25.92), (96, 48, -8.70)])
+    p = _make_e5b(tmp_path, kind="bank", preset=_e5_preset_raw("SBS", [voice]))
+
+    _, chunks, _ = walk_file(p, True)               # deep
+    fd = {f["name"]: f for f in next(c for c in chunks if c["id"] == "E5P1[0]")["fields"]}
+    assert fd["voice[0].filter"]["value"] == "type 33"
+    assert "freq 0.6" in fd["voice[0].filter"]["note"]
+    assert fd["voice[0].amp_env"]["value"] == "levels 88/67/48/73/27/15%"
+    assert fd["voice[0].filter_env"]["value"] == "levels -61/-39/41/35/-35/24%"
+    assert fd["voice[0].cords"]["value"] == "2 active"
+    assert "Mod Wheel->Cord 02 Amt +25.9" in fd["voice[0].cords"]["note"]
+    assert "LFO1->Pitch -8.7" in fd["voice[0].cords"]["note"]
+
+    _, chunks2, _ = walk_file(p, False)             # default: no DSP fields
+    names = {f["name"] for f in next(c for c in chunks2 if c["id"] == "E5P1[0]")["fields"]}
+    assert not any(n.startswith("voice[") for n in names)
 
 
 def test_e5b_unpadded_odd_interior_chunks(tmp_path):
