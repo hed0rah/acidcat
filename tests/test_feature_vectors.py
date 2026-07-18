@@ -9,7 +9,7 @@ import pytest
 
 from acidcat.core import index as idx
 from acidcat.core import features as feat
-from acidcat import mcp_server
+from acidcat.core import search
 
 
 def test_pack_unpack_roundtrip():
@@ -63,7 +63,7 @@ def test_standardized_cosine_ranks_by_timbre():
         {"spectral_centroid_mean": 250.0, "rms_mean": 0.45, "zcr_mean": 0.03})
     bright = feat.vector_from_features(
         {"spectral_centroid_mean": 6000.0, "rms_mean": 0.1, "zcr_mean": 0.4})
-    sims = mcp_server._standardized_cosine_py(tgt, [dark, bright])
+    sims = search._standardized_cosine_py(tgt, [dark, bright])
     assert sims[0] > sims[1]                 # dark is more similar than bright
     assert _spread(sims) > 0.1               # real separation, not a 0.99 cluster
 
@@ -75,7 +75,7 @@ def test_standardized_cosine_numpy_matches_python():
     dims = feat.FEATURE_DIMS
     tgt = [rng.uniform(-5, 5000) for _ in range(dims)]
     cands = [[rng.uniform(-5, 5000) for _ in range(dims)] for _ in range(20)]
-    py = mcp_server._standardized_cosine_py(tgt, cands)
-    both = mcp_server._standardized_cosine(tgt, cands)   # numpy path (numpy present here)
+    py = search._standardized_cosine_py(tgt, cands)
+    both = search._standardized_cosine(tgt, cands)   # numpy path (numpy present here)
     for a, b in zip(py, both):
         assert abs(a - float(b)) < 1e-9
