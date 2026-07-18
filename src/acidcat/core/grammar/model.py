@@ -102,6 +102,17 @@ class NoteFunc:
 
 
 @dataclass
+class NoteLocal:
+    """Field note = a named (raw, local)->str function (grammar.helpers.
+    _NOTEFUNCS_LOCAL). Like NoteFunc but the note reads sibling fields already
+    parsed in this region (e.g. FLAC total_samples' "N s at R Hz" needs the
+    sample_rate field too). Still decoration -- no payload, no field
+    determination -- so it stays descriptor-side."""
+
+    fn: str
+
+
+@dataclass
 class Valid:
     """A declarative plausibility range on a field -> WARNING, never a raise.
     Structured (min/max) so the differential/fuzz payoff can reason about it;
@@ -188,6 +199,51 @@ class Switch:
 
 
 @dataclass
+class BitField:
+    """One field packed inside a BitGroup's container word. ``off``/``length``
+    are the DISPLAY span (which bytes the hex view attributes to this field,
+    possibly overlapping a sibling, exactly as the walker chooses them); the
+    value is ``width`` bits at ``bitpos`` from the container MSB, stored as
+    (value + bias). The interpreter emits the walker's exact
+    enc="bits:DELTA:CLEN:BITPOS:WIDTH:BIAS" so the field stays editable."""
+
+    off: int
+    length: int
+    name: str
+    bitpos: int
+    width: int
+    bias: int = 0
+    note: object = ""     # static str or a NoteLocal (reads sibling bit-fields)
+    ctx: str = None
+
+    def __post_init__(self):
+        if self.ctx is not None and self.ctx not in CTX_KEYS:
+            raise ValueError(f"unknown ctx key {self.ctx!r} on bitfield {self.name!r}")
+
+
+@dataclass
+class BitGroup:
+    """A container word holding several overlapping bit-fields (e.g. FLAC
+    STREAMINFO packs sample_rate/channels/bits/total_samples into one 8-byte
+    word). One entry in a region's ordered fields tuple: the interpreter reads
+    ``nbytes`` from ``off``, emits each BitField, then advances the parse
+    position past the whole word ONCE (not per field, which would double-count
+    the overlap)."""
+
+    off: int
+    nbytes: int
+    fields: tuple
+
+    def __post_init__(self):
+        for bf in self.fields:
+            span = bf.bitpos + bf.width
+            if span > self.nbytes * 8:
+                raise ValueError(
+                    f"bitfield {bf.name!r} ends at bit {span} past the "
+                    f"{self.nbytes}-byte container")
+
+
+@dataclass
 class Helper:
     """A named decode helper (grammar.helpers._HELPERS): the budgeted escape
     hatch for irregular decode. Counts against the measurable helper budget."""
@@ -208,6 +264,9 @@ def _validate_entries(region_id, entries, declared):
                                      f"undeclared field {ref!r}")
             for case in e.cases.values():
                 _validate_entries(region_id, case.fields, set(declared))
+        elif isinstance(e, BitGroup):
+            for bf in e.fields:      # bit-fields declare their names into scope
+                declared.add(bf.name)
         elif isinstance(e, Helper):
             continue
         else:  # Field

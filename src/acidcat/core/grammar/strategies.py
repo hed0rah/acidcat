@@ -16,7 +16,11 @@ core/riff.iter_spans, the single lenient RIFF/WAVE traversal that the walker
 never drift between the two. Span lives in core/riff for the same reason.
 """
 
+import os
+
 from acidcat.core import riff
+from acidcat.core import flac as flacmod
+from acidcat.core.riff import PAYLOAD_CAP
 
 Span = riff.Span  # re-exported for callers that name the type
 
@@ -40,4 +44,31 @@ class IffStrategy:
         return riff.iter_spans(filepath)
 
 
-STRATEGIES = {"iff": IffStrategy()}
+class FlacStrategy:
+    """FLAC metadata blocks: the ``fLaC`` magic, then a chain of blocks each a
+    4-byte header + payload. Delegates block enumeration to
+    core/flac.iter_metadata_blocks (the one traversal the walker also uses), so
+    the block-walk arithmetic never drifts. payload_base is offset+4 (the FLAC
+    block header is 4 bytes, unlike RIFF's 8).
+
+    Yields the metadata-block regions only. The synthetic ``fLaC`` magic and the
+    opaque ``frames`` region the walker appends are walker-side synthesis, out
+    of descriptor scope; the harness compares described regions, not the frame.
+    """
+
+    def label(self, filepath):
+        with open(filepath, "rb") as f:
+            return "FLAC" if f.read(4) == b"fLaC" else None
+
+    def regions(self, filepath):
+        spans = []
+        with open(filepath, "rb") as f:
+            for _bt, name, off, length, _last in \
+                    flacmod.iter_metadata_blocks(filepath):
+                f.seek(off + 4)
+                payload = f.read(min(length, PAYLOAD_CAP))
+                spans.append(Span(name, off, off + 4, payload, length))
+        return spans, []
+
+
+STRATEGIES = {"iff": IffStrategy(), "flac_blocks": FlacStrategy()}

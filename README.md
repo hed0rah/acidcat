@@ -94,6 +94,7 @@ full-text.
 | `acidcat shape DIR` | One-line structural fingerprint per file for specimen-hunting -- pipe to `sort \| uniq -c` to surface rare shapes; `--fast` (header-only), `--anomalies`, `--format FMT`, `--coarse` |
 | `acidcat detect FILE\|DIR` | Estimate BPM/key using librosa |
 | `acidcat features DIR` | Extract 50+ audio features for ML |
+| `acidcat similar FILE` | Find samples that sound like FILE, over the index (`index --features` first); `-n N`, `--kind`, `--no-kind-filter`, `--paths-only` |
 | `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
 | `acidcat od FILE` | Colored objdump-x-style hex view: header bytes plus per-field offset / hex / decoded value, opaque payloads dimmed; `--color`, `--width` |
 | `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--anomalies] [--pretty] [--color]` | Byte-level structural dump (WAV, RF64, AIFF, MIDI, RMID, Serum, VST FXP, ReCycle RX2, Bitwig WT, MP3, FLAC, OGG, MP4/M4A, Bitwig, Vital, NCW, Native Instruments (Massive/Absynth/Kontakt/NKS/KORE)) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump feeding `acidcat explore`, `--anomalies` a forensic scan (trailing data, polyglots, cavities, size mismatches, LSB-stego notice), `--pretty` a human-friendly metadata view, `--verbose` a deep deconstruction (Bitwig device tree/parameters/notes, Vital modulation matrix, ...), `--color` to syntax-highlight |
@@ -173,8 +174,19 @@ Most commands accept `table`, `json`, and `csv` (default `table`, but
     # extract 50+ audio features to CSV
     acidcat features ~/Samples/Loops -n 500
 
-Similarity search runs on the index (`acidcat index --features`, then the
-MCP `find_similar` tool), not on these one-off CSVs.
+### Similarity Search
+
+Index a library with feature vectors, then find sounds like a reference:
+
+    acidcat index ~/Samples/Loops --features       # store the vectors
+    acidcat similar ~/Samples/kick.wav -n 10        # nearest neighbours
+
+`similar` scores z-standardized cosine over the feature vectors across every
+registered library, filtered to the target's kind (loop / one-shot) by default
+(`--no-kind-filter` to disable). The same ranking is available to an LLM through
+the MCP `find_similar` tool -- both call one core implementation, so the CLI and
+MCP never drift. If the reference is not indexed, its vector is extracted live
+(needs `[analysis]`).
 
 ## Libraries (per-directory indexes)
 

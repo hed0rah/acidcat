@@ -16,7 +16,6 @@ import argparse
 import contextlib
 import importlib.util
 import json
-import math
 import os
 import sqlite3
 import sys
@@ -543,194 +542,39 @@ def find_compatible(args):
 
 
 def find_similar(args):
+    """Rank indexed samples by feature-vector similarity to a reference. Thin
+    adapter over core.search.find_similar (shared with the CLI `similar` verb):
+    resolve the target's features from the index or a live extract, then fan out
+    and score in core."""
     path = _require_path(args)
     n = int(args.get("n") or 5)
     kind_arg = (args.get("kind") or "").lower() or None
     kind_filter_enabled = bool(args.get("kind_filter", True))
 
-    # try each library for the target's stored features AND metadata first.
-    # we need duration + acid_beats to infer target kind for the filter.
-    target_feats = None
-    target_meta = None
-    with _fanout_conns() as pairs:
-        for _, conn in pairs:
-            for candidate in (acidpaths.normalize(path), path):
-                feats = idx.get_features(conn, candidate)
-                if feats is None:
-                    continue
-                row = conn.execute(
-                    "SELECT duration, acid_beats FROM samples WHERE path = ?",
-                    (candidate,),
-                ).fetchone()
-                target_feats = feats
-                if row is not None:
-                    target_meta = {
-                        "duration": row["duration"],
-                        "acid_beats": row["acid_beats"],
-                    }
-                break
-            if target_feats is not None:
-                break
+    rconn = reg.open_registry(_REGISTRY_PATH)
+    try:
+        libs = reg.list_libraries(rconn, only_existing=True)
+    finally:
+        rconn.close()
 
-    if target_feats is None:
+    target_feats, target_meta = search.resolve_target_features(path, libs)
+    if target_feats is None:                      # not indexed: live extract
         if not _librosa_available():
             return _analysis_unavailable()
         from acidcat.core.features import extract_audio_features
         target_feats = extract_audio_features(path)
         if target_feats is None:
             raise ToolError(f"could not extract features from {path}")
-        # no row to read acid_beats from; fall back to features dict's
-        # duration_sec, acid_beats unknown
-        target_meta = {
-            "duration": target_feats.get("duration_sec"),
-            "acid_beats": None,
-        }
+        target_meta = {"duration": target_feats.get("duration_sec"),
+                       "acid_beats": None}
 
-    target_kind = infer_kind(
-        (target_meta or {}).get("duration"),
-        (target_meta or {}).get("acid_beats"),
-    )
-    if kind_arg and kind_arg not in ("loop", "one_shot", "any"):
-        raise ToolError(
-            f"kind must be loop, one_shot, or any (got {kind_arg!r})"
-        )
-    effective_kind = (
-        kind_arg
-        if kind_arg
-        else (target_kind if kind_filter_enabled else "any")
-    )
-
-    from acidcat.core import features as feat
-
-    tv = feat.vector_from_features(target_feats)
-    if not tv or not any(tv):
-        raise ToolError("no usable features for target")
-    dims = len(tv)
-
-    target_norm = acidpaths.normalize(path)
-    vecs, meta = [], []
-    with _fanout_conns() as pairs:
-        for lib, conn in pairs:
-            sql = (
-                "SELECT f.path, f.feature_vec, f.features_json, "
-                "s.bpm, s.key, s.duration, s.format, s.acid_beats "
-                "FROM features f JOIN samples s ON s.path = f.path"
-            )
-            if effective_kind == "loop":
-                sql += " WHERE (s.acid_beats > 0 OR s.duration >= 2.0)"
-            elif effective_kind == "one_shot":
-                sql += (" WHERE ((s.acid_beats IS NULL OR s.acid_beats = 0) "
-                        "AND (s.duration IS NULL OR s.duration < 1.0))")
-            for r in conn.execute(sql).fetchall():
-                if r["path"] == target_norm:
-                    continue
-                v = idx.unpack_vector(r["feature_vec"], dims)
-                if v is None:               # older row without a packed vector
-                    try:
-                        v = feat.vector_from_features(
-                            json.loads(r["features_json"]))
-                    except (ValueError, TypeError):
-                        v = None
-                    if v is not None and len(v) != dims:
-                        v = None
-                if v is None:
-                    continue
-                vecs.append(v)
-                meta.append((r["path"], r["bpm"], r["key"], r["duration"],
-                             r["format"], lib["label"]))
-
-    population = len(vecs)
-    scored = []
-    if population:
-        sims = _standardized_cosine(tv, vecs)
-        for i, (p, bpm, key, dur, fmt, label) in enumerate(meta):
-            scored.append({
-                "path": p, "bpm": bpm, "key": key, "duration": dur,
-                "format": fmt, "library_label": label,
-                "similarity": round(float(sims[i]), 6),
-            })
-
-    scored.sort(key=lambda x: x["similarity"], reverse=True)
-    scored = _dedup_by_path(scored)
-
-    # population stats across the full filtered candidate set, used to
-    # surface percentile rank and relative-to-mean similarity. Helps users
-    # distinguish results inside the very-tight 0.99x clusters that pure
-    # cosine produces on same-pack samples processed identically.
-    pop_n = len(scored)
-    if pop_n > 0:
-        sims = [s["similarity"] for s in scored]
-        pop_mean = sum(sims) / pop_n
-        for rank, item in enumerate(scored):
-            # 100th percentile = top, 0th = bottom. Stable definition: the
-            # fraction of the population with a STRICTLY LOWER similarity.
-            below = sum(1 for sim in sims if sim < item["similarity"])
-            item["percentile_rank"] = round(100.0 * below / pop_n, 1)
-            item["similarity_above_mean"] = round(
-                item["similarity"] - pop_mean, 6
-            )
-
-    scored = scored[:n]
-    return {
-        "target": path,
-        "target_kind": target_kind,
-        "filter_kind": effective_kind,
-        "population": population,
-        "results": scored,
-    }
-
-
-def _standardized_cosine(target, cands):
-    """Cosine similarity between `target` and each vector in `cands`, after
-    per-dimension z-standardization across candidates + target. Standardizing is
-    the correctness fix: the raw spectral dims (10^3-10^6) otherwise dominate the
-    cosine and pin every score near 0.99, so ranking reflects scale, not timbre.
-
-    Uses numpy when importable (vectorized, fast on big libraries); otherwise a
-    pure-Python fallback with identical math, since scoring a shared index may
-    run somewhere the analysis extra (numpy) is not installed. Population std
-    (ddof=0) in both paths so results match."""
     try:
-        import numpy as np
-    except ImportError:
-        return _standardized_cosine_py(target, cands)
-    M = np.asarray(cands, dtype=np.float64)
-    t = np.asarray(target, dtype=np.float64)
-    allv = np.vstack([M, t])
-    mu = allv.mean(axis=0)
-    sd = allv.std(axis=0)
-    sd[sd == 0] = 1.0                             # a constant dim carries no info
-    Mz = (M - mu) / sd
-    tz = (t - mu) / sd
-    denom = np.linalg.norm(Mz, axis=1) * np.linalg.norm(tz)
-    denom[denom == 0] = np.inf
-    return list((Mz @ tz) / denom)
-
-
-def _standardized_cosine_py(target, cands):
-    """Pure-Python twin of _standardized_cosine (no numpy). See that docstring."""
-    dims = len(target)
-    cnt = len(cands) + 1
-    mu = list(target)
-    for v in cands:
-        for j in range(dims):
-            mu[j] += v[j]
-    mu = [s / cnt for s in mu]
-    var = [(target[j] - mu[j]) ** 2 for j in range(dims)]
-    for v in cands:
-        for j in range(dims):
-            d = v[j] - mu[j]
-            var[j] += d * d
-    sd = [math.sqrt(x / cnt) if x > 0 else 1.0 for x in var]
-    tz = [(target[j] - mu[j]) / sd[j] for j in range(dims)]
-    tn = math.sqrt(sum(x * x for x in tz))
-    out = []
-    for v in cands:
-        vz = [(v[j] - mu[j]) / sd[j] for j in range(dims)]
-        vn = math.sqrt(sum(x * x for x in vz))
-        denom = vn * tn
-        out.append(sum(a * b for a, b in zip(vz, tz)) / denom if denom else 0.0)
-    return out
+        result = search.find_similar(
+            libs, target_feats, target_meta, n=n, kind=kind_arg,
+            kind_filter=kind_filter_enabled, exclude_path=path)
+    except ValueError as e:
+        raise ToolError(str(e))
+    return {"target": path, **result}
 
 
 def analyze_sample(args):

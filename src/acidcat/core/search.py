@@ -15,6 +15,8 @@ Design notes (from the architecture review):
   keyed samples on BPM alone is musically meaningless.
 """
 
+import json
+import math
 import os
 
 from acidcat.core import camelot
@@ -181,3 +183,205 @@ def find_compatible(libs, *, key=None, bpm=None, kind="any", bpm_tol=0.06,
             scored.append((rank, bpm_dist, p or "", d))
     scored.sort(key=lambda t: (t[0], t[1], t[2]))
     return [d for _, _, _, d in scored[:limit]]
+
+
+# ── similarity search (feature-vector cosine, index-backed) ──────────────────
+# Shared by the MCP `find_similar` tool and the CLI `acidcat similar` verb, so
+# the fan-out + standardized-cosine scoring lives once in core (the no-drift
+# rule). The caller resolves the target's features (from the index or a live
+# librosa extract) and hands them in; this module does the fan-out and ranking.
+
+
+def resolve_target_features(path, libs):
+    """(features_dict, meta) for a reference file's stored features, or
+    (None, None) if it is not indexed anywhere. meta carries duration +
+    acid_beats for kind inference. Mirrors resolve_reference: index-first, and
+    the caller decides whether to fall back to a live extract."""
+    for cand in (acidpaths.normalize(path), path):
+        for lib in libs:
+            try:
+                conn = idx.open_db(lib["db_path"])
+            except Exception:
+                continue
+            try:
+                feats = idx.get_features(conn, cand)
+                if feats is None:
+                    continue
+                row = conn.execute(
+                    "SELECT duration, acid_beats FROM samples WHERE path = ?",
+                    (cand,)).fetchone()
+            except Exception:
+                feats, row = None, None
+            finally:
+                conn.close()
+            if feats is not None:
+                meta = ({"duration": row["duration"],
+                         "acid_beats": row["acid_beats"]} if row is not None
+                        else {"duration": None, "acid_beats": None})
+                return feats, meta
+    return None, None
+
+
+def find_similar(libs, target_features, target_meta=None, *, n=5, kind=None,
+                 kind_filter=True, exclude_path=None):
+    """Rank indexed samples by z-standardized cosine over the feature vector.
+
+    ``target_features`` is the reference's features dict (index or live extract).
+    ``kind`` (loop/one_shot/any) overrides the inferred target kind; when kind is
+    None and kind_filter is True the target's own kind filters candidates.
+    Returns {target_kind, filter_kind, population, results} where each result
+    carries path/bpm/key/duration/format/library_label/similarity plus population
+    stats (percentile_rank, similarity_above_mean). Raises ValueError when the
+    target has no usable vector or kind is invalid."""
+    from acidcat.core import features as feat
+
+    target_meta = target_meta or {}
+    target_kind = infer_kind(target_meta.get("duration"),
+                             target_meta.get("acid_beats"))
+    if kind and kind not in ("loop", "one_shot", "any"):
+        raise ValueError(f"kind must be loop, one_shot, or any (got {kind!r})")
+    effective_kind = kind or (target_kind if kind_filter else "any")
+
+    tv = feat.vector_from_features(target_features)
+    if not tv or not any(tv):
+        raise ValueError("no usable features for target")
+    dims = len(tv)
+
+    exclude = acidpaths.normalize(exclude_path) if exclude_path else None
+    kind_where = ""
+    if effective_kind == "loop":
+        kind_where = " WHERE (s.acid_beats > 0 OR s.duration >= 2.0)"
+    elif effective_kind == "one_shot":
+        kind_where = (" WHERE ((s.acid_beats IS NULL OR s.acid_beats = 0) "
+                      "AND (s.duration IS NULL OR s.duration < 1.0))")
+    sql = ("SELECT f.path, f.feature_vec, f.features_json, s.bpm, s.key, "
+           "s.duration, s.format, s.acid_beats "
+           "FROM features f JOIN samples s ON s.path = f.path" + kind_where)
+
+    # deepest-root-first so dedup keeps the most-specific library's row
+    # (libs may be sqlite3.Row, which has no .get())
+    def _root_len(lib):
+        try:
+            return len(lib["root_path"] or "")
+        except (KeyError, IndexError):
+            return 0
+    libs = sorted(libs, key=lambda r: -_root_len(r))
+    vecs, meta = [], []
+    for lib in libs:
+        try:
+            conn = idx.open_db(lib["db_path"])
+        except Exception:
+            continue
+        try:
+            rows = conn.execute(sql).fetchall()
+        except Exception:
+            rows = []
+        finally:
+            conn.close()
+        for r in rows:
+            if exclude and r["path"] == exclude:
+                continue
+            v = idx.unpack_vector(r["feature_vec"], dims)
+            if v is None:                    # older row without a packed vector
+                try:
+                    v = feat.vector_from_features(json.loads(r["features_json"]))
+                except (ValueError, TypeError):
+                    v = None
+                if v is not None and len(v) != dims:
+                    v = None
+            if v is None:
+                continue
+            vecs.append(v)
+            meta.append((r["path"], r["bpm"], r["key"], r["duration"],
+                         r["format"], lib["label"]))
+
+    population = len(vecs)
+    scored = []
+    if population:
+        sims = _standardized_cosine(tv, vecs)
+        for i, (p, bpm, key, dur, fmt, label) in enumerate(meta):
+            scored.append({
+                "path": p, "bpm": bpm, "key": key, "duration": dur,
+                "format": fmt, "library_label": label,
+                "similarity": round(float(sims[i]), 6),
+            })
+    scored.sort(key=lambda x: x["similarity"], reverse=True)
+    seen, deduped = set(), []
+    for row in scored:
+        if row["path"] in seen:
+            continue
+        seen.add(row["path"])
+        deduped.append(row)
+    scored = deduped
+
+    # population stats over the full candidate set: percentile rank and distance
+    # from the mean, which separate results inside the tight 0.99x clusters that
+    # same-pack samples produce
+    pop_n = len(scored)
+    if pop_n:
+        allsims = [s["similarity"] for s in scored]
+        pop_mean = sum(allsims) / pop_n
+        for item in scored:
+            below = sum(1 for s in allsims if s < item["similarity"])
+            item["percentile_rank"] = round(100.0 * below / pop_n, 1)
+            item["similarity_above_mean"] = round(
+                item["similarity"] - pop_mean, 6)
+
+    return {
+        "target_kind": target_kind,
+        "filter_kind": effective_kind,
+        "population": population,
+        "results": scored[:n],
+    }
+
+
+def _standardized_cosine(target, cands):
+    """Cosine similarity between `target` and each vector in `cands`, after
+    per-dimension z-standardization across candidates + target. Standardizing is
+    the correctness fix: the raw spectral dims (10^3-10^6) otherwise dominate the
+    cosine and pin every score near 0.99, so ranking reflects scale, not timbre.
+
+    Uses numpy when importable (vectorized); otherwise a pure-Python fallback
+    with identical math (population std, ddof=0), since a shared index may be
+    scored where the analysis extra is not installed."""
+    try:
+        import numpy as np
+    except ImportError:
+        return _standardized_cosine_py(target, cands)
+    M = np.asarray(cands, dtype=np.float64)
+    t = np.asarray(target, dtype=np.float64)
+    allv = np.vstack([M, t])
+    mu = allv.mean(axis=0)
+    sd = allv.std(axis=0)
+    sd[sd == 0] = 1.0
+    Mz = (M - mu) / sd
+    tz = (t - mu) / sd
+    denom = np.linalg.norm(Mz, axis=1) * np.linalg.norm(tz)
+    denom[denom == 0] = np.inf
+    return list((Mz @ tz) / denom)
+
+
+def _standardized_cosine_py(target, cands):
+    """Pure-Python twin of _standardized_cosine (no numpy). See that docstring."""
+    dims = len(target)
+    cnt = len(cands) + 1
+    mu = list(target)
+    for v in cands:
+        for j in range(dims):
+            mu[j] += v[j]
+    mu = [s / cnt for s in mu]
+    var = [(target[j] - mu[j]) ** 2 for j in range(dims)]
+    for v in cands:
+        for j in range(dims):
+            d = v[j] - mu[j]
+            var[j] += d * d
+    sd = [math.sqrt(x / cnt) if x > 0 else 1.0 for x in var]
+    tz = [(target[j] - mu[j]) / sd[j] for j in range(dims)]
+    tn = math.sqrt(sum(x * x for x in tz))
+    out = []
+    for v in cands:
+        vz = [(v[j] - mu[j]) / sd[j] for j in range(dims)]
+        vn = math.sqrt(sum(x * x for x in vz))
+        denom = vn * tn
+        out.append(sum(a * b for a, b in zip(vz, tz)) / denom if denom else 0.0)
+    return out
