@@ -13,8 +13,9 @@ import os
 
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
-    aiff, akai, bitwig, emu, flac, fxp, labx, midi, mp3, mp4, mpc, multisample,
-    ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, tracker, vital, wav, wt,
+    aiff, akai, bitwig, emu, flac, fxp, krz, labx, midi, mp3, mp4, mpc,
+    multisample, ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, tracker,
+    vital, wav, wt,
 )
 from acidcat.core.walk.base import Unsupported
 
@@ -36,6 +37,8 @@ _WALKERS = {
     "e4b": ("E-MU Emulator 4 / EOS bank", lambda path, deep: emu.inspect_emu(path, deep)),
     "e5b": ("E-MU Emulator X / Proteus X bank",
             lambda path, deep: emu.inspect_emu(path, deep)),
+    "krz": ("Kurzweil K2000/K2500/K2600 bank",
+            lambda path, deep: krz.inspect_krz(path)),
     "wt": ("Bitwig wavetable", lambda path, deep: wt.inspect_wt(path)),
     "multisample": ("Bitwig multisample",
                     lambda path, deep: multisample.inspect_multisample(path)),
