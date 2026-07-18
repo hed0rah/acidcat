@@ -1,13 +1,30 @@
-"""tests for acidcat.core.riff."""
+"""tests for acidcat.core.riff and the WAV walker behaviors that
+replaced the legacy parse_riff/get_duration parsers."""
 
 import struct
 import time
 
 import pytest
-from acidcat.core.riff import (
-    iter_chunks, get_riff_info, get_duration, parse_riff,
-    effective_acid_beats,
-)
+from acidcat.core.riff import iter_chunks, get_riff_info, effective_acid_beats
+from acidcat.core.walk.wav import inspect_wav
+
+
+def _fmt_chunk():
+    fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
+    return b"fmt " + struct.pack("<I", 16) + fmt
+
+
+def _data_chunk(n=4):
+    return b"data" + struct.pack("<I", n) + b"\x00" * n
+
+
+def _wav_bytes(*chunks):
+    body = b"WAVE" + b"".join(chunks)
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def _chunk_by_id(chunks, cid):
+    return next(c for c in chunks if c["id"] == cid)
 
 
 class TestGetRiffInfo:
@@ -53,201 +70,126 @@ class TestIterChunks:
         assert isinstance(result, list)
 
 
-class TestGetDuration:
+class TestWalkerDuration:
+    """the walker's ctx duration replaced core/riff.get_duration."""
+
     def test_silent_wav(self, silent_wav):
-        dur = get_duration(silent_wav)
-        assert dur is not None
-        assert abs(dur - 0.1) < 0.01  # 4410 samples at 44100 Hz = 0.1s
+        ctx = {}
+        inspect_wav(silent_wav, ctx=ctx)
+        assert abs(ctx["duration"] - 0.1) < 0.01  # 4410 samples at 44100 Hz
 
     def test_minimal_wav(self, minimal_wav):
-        # 4 samples -- very short but valid
-        dur = get_duration(minimal_wav)
-        assert dur is not None
-        assert dur >= 0
-
-    def test_not_riff(self, not_riff):
-        # should return None or 0, not raise
-        result = get_duration(not_riff)
-        assert result is None or result == 0
-
-    def test_empty_file(self, empty_file):
-        result = get_duration(empty_file)
-        assert result is None or result == 0
+        ctx = {}
+        inspect_wav(minimal_wav, ctx=ctx)
+        assert ctx["duration"] >= 0
 
 
-class TestParseRiff:
-    def test_returns_three_tuple(self, minimal_wav):
-        results, meta, seen = parse_riff(minimal_wav)
-        assert isinstance(results, list)
-        assert isinstance(meta, dict)
-        assert isinstance(seen, list)
-
-    def test_fmt_fields_present(self, minimal_wav):
-        _, meta, seen = parse_riff(minimal_wav)
-        assert "fmt " in seen
-
-    def test_sample_rate_correct(self, minimal_wav):
-        results, _, _ = parse_riff(minimal_wav, enumerate_all=True)
-        sr_entry = next((v for c, k, v in results if k == "sample_rate"), None)
-        assert sr_entry == 44100
-
-    def test_channels_correct(self, minimal_wav):
-        results, _, _ = parse_riff(minimal_wav, enumerate_all=True)
-        ch_entry = next((v for c, k, v in results if k == "channels"), None)
-        assert ch_entry == 1
+class TestWavWalker:
+    """safety and acid-chunk behaviors carried over from the retired
+    parse_riff test suite, asserted against the walker."""
 
     def test_huge_num_cues_does_not_hang(self, tmp_path):
-        """B-7: the CUE chunk parser reads `num_cues` as a raw uint32
-        with no validation against the chunk's actual payload size, then
-        iterates `range(num_cues)`. A corrupt or malicious WAV with
-        `num_cues = 0xFFFFFFFF` would spin ~4 billion iterations before
-        the inner length check rejects each empty slice. This isn't
-        a crash, just 40-80s of wasted CPU per bad file.
-
-        Build a WAV whose `cue ` chunk advertises 0xFFFFFFFF cues but
-        carries zero real cue records. parse_riff must return promptly
-        (well under one second) and emit at most `payload_size // 24`
-        cue marker rows.
+        """B-7 lineage: a cue chunk advertising 0xFFFFFFFF cue points with a
+        4-byte payload must not iterate billions of times. The walker caps
+        the count against the payload's actual record capacity and warns.
         """
-        # fmt chunk
-        fmt = struct.pack(
-            "<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16,
-        )
-        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
-        # data chunk (tiny)
-        data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
-        # cue chunk: 4-byte num_cues header claiming 0xFFFFFFFF, then no
-        # actual cue records (payload smaller than what num_cues * 24
-        # would require). Total cue payload size = 4 bytes.
         cue_payload = struct.pack("<I", 0xFFFFFFFF)
         cue_chunk = b"cue " + struct.pack("<I", len(cue_payload)) + cue_payload
-        riff_body = b"WAVE" + fmt_chunk + data_chunk + cue_chunk
-        wav = b"RIFF" + struct.pack("<I", len(riff_body)) + riff_body
-
         wav_path = tmp_path / "huge_cue.wav"
-        wav_path.write_bytes(wav)
+        wav_path.write_bytes(_wav_bytes(_fmt_chunk(), _data_chunk(), cue_chunk))
 
         t0 = time.perf_counter()
-        results, _, _ = parse_riff(str(wav_path), enumerate_all=True)
+        chunks, _ = inspect_wav(str(wav_path))
         elapsed = time.perf_counter() - t0
+        assert elapsed < 0.5, f"walker took {elapsed:.2f}s on a 4-billion-cue claim"
 
-        # tight ceiling -- the fix should make this a no-op
-        assert elapsed < 0.5, (
-            f"parse_riff took {elapsed:.2f}s on a 4-billion-cue claim"
-        )
-        # bounded marker count: 4-byte payload after the 4-byte
-        # num_cues header leaves zero room for cue records, so the
-        # parser must not synthesize any.
-        cue_markers = [
-            (c, k, v) for c, k, v in results
-            if c == "cue " and isinstance(k, str) and k.startswith("marker_")
-        ]
-        assert len(cue_markers) == 0
-
+        cue = _chunk_by_id(chunks, "cue ")
+        # zero record capacity: no cue[i] fields may be synthesized
+        assert not any(f["name"].startswith("cue[") for f in cue["fields"])
+        assert any("declares 4294967295 cue points" in w for w in cue["warnings"])
 
     def test_acid_chunk_spec_layout(self, tmp_path):
         """the acid chunk layout is, per libsndfile and field-verified
-        against real ACIDized packs:
-
-            offset 0   uint32  type flags
-            offset 4   uint16  root note
-            offset 6   uint16  q1 (unknown, often 0x8000)
-            offset 8   float32 q2 (unknown, observed 0.0)
-            offset 12  uint32  num_beats
-            offset 16  uint16  meter denominator
-            offset 18  uint16  meter numerator
-            offset 20  float32 tempo
-
-        the old parser unpacked '<IHHIII f', which read num_beats from
-        the q2 float (always 0 in the wild) and the meter as two
-        uint32s spanning the real num_beats and the packed meter words.
-        every spec-conformant file reported acid_beats=0 and garbage
-        meter. real loops must surface their actual beat count.
+        against real ACIDized packs: flags u32, root u16, q1 u16, q2 f32,
+        num_beats u32, meter denom u16, meter numer u16, tempo f32. an old
+        parser unpacked '<IHHIII f' and reported acid_beats=0 on every
+        spec-conformant file; real loops must surface their beat count.
         """
-        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
-        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
-        data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
-        # 15-beat 4/4 loop at 122 bpm, root C3: mirrors a verified
-        # real-world acid payload byte for byte
-        acid_payload = struct.pack(
-            "<IHHfIHHf", 0x05, 60, 0x8000, 0.0, 15, 4, 4, 122.0,
-        )
+        acid_payload = struct.pack("<IHHfIHHf", 0x05, 60, 0x8000, 0.0, 15, 4, 4, 122.0)
         acid_chunk = b"acid" + struct.pack("<I", 24) + acid_payload
-        body = b"WAVE" + fmt_chunk + data_chunk + acid_chunk
         wav = tmp_path / "acid_loop.wav"
-        wav.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+        wav.write_bytes(_wav_bytes(_fmt_chunk(), _data_chunk(), acid_chunk))
 
-        results, meta, _ = parse_riff(str(wav), enumerate_all=True)
-        assert meta["acid_beats"] == 15
-        assert meta["acid_root_note"] == 60
-        assert meta["bpm"] == 122.0
-        meter = next((v for c, k, v in results if k == "meter"), None)
-        assert meter == "4/4"
+        ctx = {}
+        chunks, _ = inspect_wav(str(wav), ctx=ctx)
+        assert ctx["acid_beats"] == 15
+        assert ctx["acid_root"] == 60
+        assert ctx["acid_bpm"] == 122.0
+        acid = _chunk_by_id(chunks, "acid")
+        fields = {f["name"]: f["value"] for f in acid["fields"]}
+        assert fields["num_beats"] == 15
+        assert fields["meter_numerator"] == 4
+        assert fields["meter_denominator"] == 4
+        assert fields["tempo"] == 122.0
 
     def test_acid_chunk_padded_past_24_bytes(self, tmp_path):
         """some taggers pad the acid chunk past its 24-byte layout; an
         exact-length struct.unpack raised on the extra bytes and BPM,
         beats, and root were silently lost. trailing bytes are ignored.
         """
-        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
-        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
-        data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
         acid_payload = struct.pack(
             "<IHHfIHHf", 0x05, 60, 0x8000, 0.0, 8, 4, 4, 120.0,
         ) + b"\x00" * 4  # 28 bytes: 24-byte layout + 4 pad bytes
         acid_chunk = b"acid" + struct.pack("<I", len(acid_payload)) + acid_payload
-        body = b"WAVE" + fmt_chunk + data_chunk + acid_chunk
         wav = tmp_path / "padded_acid.wav"
-        wav.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+        wav.write_bytes(_wav_bytes(_fmt_chunk(), _data_chunk(), acid_chunk))
 
-        _, meta, _ = parse_riff(str(wav))
-        assert meta["bpm"] == 120.0
-        assert meta["acid_beats"] == 8
-        assert meta["acid_root_note"] == 60
+        ctx = {}
+        inspect_wav(str(wav), ctx=ctx)
+        assert ctx["acid_bpm"] == 120.0
+        assert ctx["acid_beats"] == 8
+        assert ctx["acid_root"] == 60
 
-    def test_acid_chunk_short_reports_error_not_garbage(self, tmp_path):
-        """an acid chunk under 24 bytes cannot hold the layout; it must
-        surface an error entry, not partially-decoded values."""
-        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
-        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
+    def test_acid_chunk_short_degrades_not_garbage(self, tmp_path):
+        """an acid chunk under 24 bytes cannot hold the layout; the walker
+        must degrade with a truncation warning, not emit partial values."""
         acid_chunk = b"acid" + struct.pack("<I", 12) + b"\x00" * 12
-        body = b"WAVE" + fmt_chunk + acid_chunk
         wav = tmp_path / "short_acid.wav"
-        wav.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+        wav.write_bytes(_wav_bytes(_fmt_chunk(), acid_chunk))
 
-        results, meta, _ = parse_riff(str(wav), enumerate_all=True)
-        assert meta["bpm"] is None
-        assert any(c == "acid" and k == "error" for c, k, _ in results)
+        ctx = {}
+        chunks, _ = inspect_wav(str(wav), ctx=ctx)
+        acid = _chunk_by_id(chunks, "acid")
+        assert acid["fields"] == []
+        assert acid["summary"] == "truncated"
+        assert any("acid payload is 12 bytes" in w for w in acid["warnings"])
+        assert "acid_bpm" not in ctx
+
+    def test_acid_one_shot_flag_surfaces(self, tmp_path):
+        """the walker reports facts: raw beats plus the one-shot flag.
+        vetting is the consumer's job via effective_acid_beats.
+        """
+        # flags 0x03 = one-shot + root set, boilerplate beats/tempo
+        acid_payload = struct.pack("<IHHfIHHf", 0x03, 47, 0x8000, 0.0, 8, 4, 4, 120.0)
+        acid_chunk = b"acid" + struct.pack("<I", 24) + acid_payload
+        wav = tmp_path / "oneshot.wav"
+        wav.write_bytes(_wav_bytes(_fmt_chunk(), _data_chunk(), acid_chunk))
+
+        ctx = {}
+        inspect_wav(str(wav), ctx=ctx)
+        assert ctx["acid_beats"] == 8
+        assert ctx["acid_one_shot"] is True
+        assert ctx["acid_root"] == 47
 
     def test_drum_loop_if_present(self):
         import os
         from conftest import SAMPLE_WAV
         if not os.path.isfile(SAMPLE_WAV):
             pytest.skip("Drum_Loop.wav not present")
-        results, meta, seen = parse_riff(SAMPLE_WAV)
-        assert "fmt " in seen
-        assert "data" in seen
-
-    def test_acid_one_shot_flag_surfaces(self, tmp_path):
-        """parse_riff reports facts: raw beats plus the one-shot flag.
-        vetting is the consumer's job via effective_acid_beats.
-        """
-        fmt = struct.pack("<HHIIHH", 1, 1, 44100, 44100 * 2, 2, 16)
-        fmt_chunk = b"fmt " + struct.pack("<I", 16) + fmt
-        data_chunk = b"data" + struct.pack("<I", 4) + b"\x00" * 4
-        # flags 0x03 = one-shot + root set, boilerplate beats/tempo
-        acid_payload = struct.pack(
-            "<IHHfIHHf", 0x03, 47, 0x8000, 0.0, 8, 4, 4, 120.0,
-        )
-        acid_chunk = b"acid" + struct.pack("<I", 24) + acid_payload
-        body = b"WAVE" + fmt_chunk + data_chunk + acid_chunk
-        wav = tmp_path / "oneshot.wav"
-        wav.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
-
-        _, meta, _ = parse_riff(str(wav))
-        assert meta["acid_beats"] == 8
-        assert meta["acid_one_shot"] is True
-        assert meta["acid_root_note"] == 47
+        chunks, _ = inspect_wav(SAMPLE_WAV)
+        ids = [c["id"] for c in chunks]
+        assert "fmt " in ids
+        assert "data" in ids
 
 
 class TestEffectiveAcidBeats:

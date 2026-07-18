@@ -1,12 +1,10 @@
 """
-Serum preset parser.
+Serum preset primitives.
 
 Xfer Serum presets use an 'XferJson' header followed by a JSON metadata
-block, then binary wavetable/modulation data.
+block, then binary wavetable/modulation data. Decoding lives in the
+walker (core/walk/serum.py); this module keeps the magic check.
 """
-
-import json
-import os
 
 
 def is_serum_preset(filepath):
@@ -17,40 +15,3 @@ def is_serum_preset(filepath):
             return header == b"XferJson"
     except Exception:
         return False
-
-
-def parse_serum_preset(filepath):
-    """
-    Parse a Serum preset file and extract JSON metadata.
-
-    Returns dict with: presetName, presetAuthor, presetDescription,
-    product, productVersion, tags, hash, vendor, url, fileType.
-    """
-    meta = {}
-
-    with open(filepath, "rb") as f:
-        raw = f.read(4 * 1024 * 1024)   # a Serum preset is small JSON; cap the read
-
-    # find the JSON block
-    json_start = raw.find(b"{")
-    if json_start < 0:
-        return meta
-
-    # raw_decode returns (object, end_index) in a single linear pass,
-    # stopping at the first complete JSON object. avoids the O(n^2)
-    # progressive-slice scan that prior versions used. RecursionError:
-    # the json scanner recurses per nesting level, so a forged preset
-    # with thousands of nested objects blows the stack instead of
-    # raising JSONDecodeError.
-    try:
-        text = raw[json_start:].decode("utf-8", errors="replace")
-        parsed, _ = json.JSONDecoder().raw_decode(text)
-    except (ValueError, RecursionError):
-        return meta
-
-    for key in ("fileType", "presetName", "presetAuthor",
-                "presetDescription", "product", "productVersion",
-                "tags", "hash", "vendor", "url", "version"):
-        if key in parsed:
-            meta[key] = parsed[key]
-    return meta

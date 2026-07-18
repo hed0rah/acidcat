@@ -6,6 +6,30 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Removed
+
+- The CSV-era `similar` and `search` verbs (pandas/sklearn pipelines over
+  one-off scan CSVs, untested and index-unaware; the index-backed
+  `find_similar` MCP tool is the real implementation) and the `--ml-ready`
+  flag on `scan`/`features`, whose only consumer they were. The `[ml]`,
+  `[viz]`, and `[notebook]` extras are gone with them; `[all]` now means
+  `[analysis,mcp-http,tui]`.
+- The legacy parsers the 2026-07 walker unification left behind:
+  `parse_riff`, `get_duration` (core/riff.py), `parse_aiff`, `parse_midi`,
+  `parse_serum_preset`. All had zero production callers except `parse_riff`,
+  whose one caller (`acidcat chunks`) now reads parsed fields from the
+  inspect walker, so every format is decoded in exactly one place. Their
+  malformed-input safety tests (cue-count bomb, acid layout/padding/
+  truncation, running status, SMPTE division, key signatures, AIFC
+  compression codes, non-finite 80-bit rates) were retargeted at the
+  walkers before deletion.
+
+### Changed
+
+- `acidcat chunks` parsed-field output now comes from the WAV walker:
+  every decoded field with its real name (previously a fixed subset of
+  acid/smpl/fmt/cue/LIST/bext fields).
+
 ## [0.53.0] - 2026-07-18
 
 ### Added
