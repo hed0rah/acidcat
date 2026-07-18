@@ -32,6 +32,8 @@ _MAGICS = [
     ("t.serum", b"XferJson"),
     ("t.s3m", b"\x00" * 0x1C + b"\x1a\x10" + b"\x00" * 14 + b"SCRM"),
     ("t.pgm", b"\x04\x2a\x00\x00MPC1000 PGM 1.00"),
+    ("t.krz", b"PRAM"),
+    ("t.srom.krz", b"SROM"),
 ]
 
 

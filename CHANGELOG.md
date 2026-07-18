@@ -6,6 +6,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- Kurzweil K2000 / K2500 / K2600 (VAST) `.KRZ` bank walker (`core/walk/krz.py`).
+  Decodes the flat object-database container (big-endian `PRAM` header,
+  negative-blocksize object walk, `type<<10 | id` hashing, the int32 end marker,
+  and the trailing 16-bit PCM region) and the Sample (root key, rate from
+  samplePeriod, loop/one-shot flag, PCM word offsets), Keymap (method, referenced
+  sample ids), and Program (VAST layer count) object bodies. Setup / Master /
+  Studio-FX and other object types are surfaced by type/id/name. `SROM`
+  effects/sample-ROM files (same `.krz` extension) are recognized header-only.
+  Reverse-engineered from the mpc2emu GPL reference + the KurzFiler source and
+  verified structurally against 242 real Sweetwater soundset banks (zero
+  crashes). The VAST program's per-parameter decode and the CAL keymap-ref offset
+  are follow-ups.
+
 ## [0.54.0] - 2026-07-18
 
 ### Added
