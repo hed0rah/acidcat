@@ -133,6 +133,7 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
     <button class="tab" data-p="form">FORM<small>container</small></button>
     <button class="tab" data-p="toc2">TOC2<small>table of contents</small></button>
     <button class="tab" data-p="e5p1">E5P1<small>preset</small></button>
+    <button class="tab" data-p="voice">E5V1<small>voice DSP</small></button>
     <button class="tab" data-p="e5s1">E5S1<small>sample</small></button>
     <button class="tab" data-p="e5sl">E5SL<small>sample link</small></button>
     <button class="tab" data-p="e4b">E4B0<small>EOS hardware</small></button>
@@ -220,6 +221,43 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
     <div id="e5p1-head" data-build></div>
 
     <p class="note">acidcat surfaces the preset name and sub-chunk inventory. The E-MU naming convention packs a fixed-width name with a 2-3 char tag (<code>kyb</code>/<code>lnk</code> for the keyboard-map vs link variants of a kit) and a GM-drum note number (<code>36</code> kick, <code>38</code> snare).</p>
+  </div>
+
+  <!-- ===================== E5V1 VOICE DSP ===================== -->
+  <div class="panel" data-panel="voice">
+    <div class="facts">
+      <div>structure<b>named sub-chunk per section</b></div>
+      <div>params<b>big-endian float32</b></div>
+      <div>view<b>verbose / -F dumps DSP</b></div>
+      <div>status<b class="veri">save-and-diff verified</b></div>
+    </div>
+    <p class="lede">Each <code>E5V1</code> voice is a flat sequence of named sub-chunks -- one per <b>front-panel section</b>. Every parameter is anchored to its chunk, and nearly all are a <b>big-endian float32 storing the displayed value directly</b> (fine tune 11.73 &rarr; <code>11.735</code>, cord amount +25.92 &rarr; <code>25.915</code>). Two use a normalized scale (filter frequency, envelope rate). acidcat prints the filter, three envelopes, and active cords per voice in <b>verbose</b> mode; the default view stays compact. Decoded by save-and-diff against Emulator X. <span class="k-en">blue</span> = verified, <span class="k-fl">amber</span> = located, values inferred.</p>
+
+    <div class="sec">voice section map</div>
+    <table class="matrix">
+      <thead><tr><th>chunk</th><th>front-panel section</th><th>encoding</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td class="f">LIST/TWL &rarr; ETW</td><td>key + velocity windows</td><td>u8 low[4] / high[7]</td><td class="st veri">verified (shipped 0.52)</td></tr>
+        <tr><td class="f">E5Oc</td><td>oscillator: fine tune, chorus, TwistaLoop, sample offset</td><td>BE float32, direct</td><td class="st veri">verified</td></tr>
+        <tr><td class="f">E5Fl</td><td>filter: type, frequency, resonance</td><td>type[4], freq[5:9], param2[9:13]</td><td class="st veri">verified</td></tr>
+        <tr><td class="f">E5Am</td><td>amplifier: volume, pan, aux sends</td><td>BE float32</td><td class="st need">located, fields inferred</td></tr>
+        <tr><td class="f">LIST/EvL &rarr; E5Ev &times;3</td><td>envelopes: Amp / Filter / Aux</td><td>6 stages [rate f32][level f32]</td><td class="st veri">verified</td></tr>
+        <tr><td class="f">LIST/LFOL &rarr; E5LF &times;2</td><td>LFO 1 / 2: rate, delay, variation</td><td>BE float32 + enum</td><td class="st veri">verified</td></tr>
+        <tr><td class="f">LIST &rarr; EFGn &times;3</td><td>function generators (FN GEN 1/2/3)</td><td>417 bytes each</td><td class="st need">located only</td></tr>
+        <tr><td class="f">LIST/CrdL &rarr; E5Cd &times;36</td><td>modulation matrix</td><td>src[4], dst[5], amount[6:10]</td><td class="st veri">verified amount</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout blue"><b>the scale rule</b>
+    Big-endian float32 = the displayed value, verbatim -- fine tune, chorus, LFO rate, envelope levels, cord amounts. Only <b>filter frequency</b> (normalized log-scale) and <b>envelope rate</b> (a knob-position curve) use an internal scale; those are shown raw, never a fabricated Hz / second value.</div>
+
+    <div class="sec">E5Ev envelope &mdash; header + stage 1</div>
+    <div id="e5ev" data-build></div>
+    <p class="note">Three 64-byte <code>E5Ev</code> envelopes per voice (Amp, Filter, Aux). A 10-byte header, then six 9-byte stages -- Attack 1/2, Decay 1/2, Release 1/2 -- each a rate float, a level float (percent, direct; filter/aux are bipolar), and a pad byte. Amp levels 87.7/67.3/48.4/73.4/27.2/15.4 matched the bytes exactly.</p>
+
+    <div class="sec">E5Cd mod cord</div>
+    <div id="e5cd" data-build></div>
+    <p class="note">Up to 36 ten-byte cords route a <b>source</b> to a <b>destination</b> with a float32 <b>amount</b> (the displayed percent). The source / destination index tables are partially mapped from a specimen; an unknown index prints raw as <code>#N</code>.</p>
   </div>
 
   <!-- ===================== E5S1 ===================== -->
@@ -405,6 +443,22 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
       [
         {label:"sample_index",k:"sync",r:[0,1],val:"1",body:"1-based sample index, big-endian u16. TOC1 entries and zone references point at this."},
         {label:"name",k:"enum",r:[2,17],val:"\"SINE_A_A2\"",body:"16-byte ASCII name, space-padded (E4 is ASCII; E5 widened to UTF-16). The trailing _<note><octave> suffix encodes the sample's root note for hardware browsers.",note:"numeric fields follow: rate (u32 LE) at 0x36, a loop word at 0x3c, loop start/end offsets."}
+      ]],
+    "e5ev":["byte",
+      [0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x01,0x00,0x3e,0xac,0x83,0x94,0x42,0xaf,0x7c,0x15,0x00],
+      [
+        {label:"header",k:"rsv",r:[0,9],val:"ver 2",body:"10-byte envelope header: a BE u32 = 2 (version/type), then six bytes ending 01 00. Constant across the corpus.",note:"the six stages begin at byte 10."},
+        {label:"A1 rate",k:"enum",r:[10,13],val:"0.33694",body:"Attack 1 rate, big-endian float32. Normalized, not seconds directly -- monotonic with the rate knob; displayed time also depends on the segment's level delta.",note:"shown raw; the seconds curve is unsolved."},
+        {label:"A1 level",k:"enum",r:[14,17],val:"87.742 %",body:"Attack 1 level, big-endian float32 = the displayed percent, direct. Proven exact against the editor (87.7 shown).",note:"filter and aux envelopes store bipolar levels here (negative floats)."},
+        {label:"pad",k:"rsv",r:[18,18],val:"0x00",body:"One pad byte closing the 9-byte stage. Attack 2 begins immediately after."}
+      ]],
+    "e5cd":["byte",
+      [0x00,0x00,0x00,0x01,0x11,0xa9,0x41,0xcf,0x52,0xd0],
+      [
+        {label:"marker",k:"sync",r:[0,3],val:"1",body:"A BE u32 marker; 1 on every cord."},
+        {label:"source",k:"enum",r:[4,4],val:"17 = Mod Wheel",body:"Modulation source index, u8. Partially mapped from a specimen: 17 Mod Wheel, 96 LFO1, 81 Filter Env, 20-34 MIDI A-E, 22 Footswitch 1.",note:"an unmapped index prints raw as #N."},
+        {label:"dest",k:"enum",r:[5,5],val:"169 = Cord 02 Amt",body:"Modulation destination index, u8. Mapped: 48 Pitch, 56 Filter Freq, 57 Filter Reson, 52 Sample Start, 73 Amp Env Attack, 169/174 another cord's amount.",note:"cords can modulate other cords' amounts."},
+        {label:"amount",k:"enum",r:[6,9],val:"+25.92",body:"Routing depth, big-endian float32 = the displayed percent, direct. Here +25.92.",note:"the mod matrix is the highest-value dissection target after the sample map."}
       ]]
   };
 

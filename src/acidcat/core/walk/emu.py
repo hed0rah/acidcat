@@ -68,6 +68,8 @@ _TOC_LIST_CAP = 512             # TOC entries surfaced as fields
 _VOICE_CAP = 512
 _ZONE_CAP = 512
 _REF_CAP = 128
+_VOICE_DETAIL_CAP = 16          # voices given full DSP detail per preset (deep mode)
+_CORD_PREVIEW = 6               # mod cords previewed per voice (deep mode)
 
 
 def _is_tag(b):
@@ -405,6 +407,23 @@ def _e5_voice_list(body):
     return None
 
 
+def _bf32(buf, o):
+    """Big-endian float32 at ``o`` (0.0 past end). E5 voice params are stored as
+    BE float32 holding the displayed value directly; two exceptions (filter
+    frequency, envelope rate) use a normalized scale, so those are reported raw."""
+    return struct.unpack_from(">f", buf, o)[0] if o + 4 <= len(buf) else 0.0
+
+
+# Mod-cord source / destination index -> name. Partial: seeded from a save-and-diff
+# specimen (the routings visible in one preset's screenshot); the full E-mu
+# PatchCord tables are large and best completed from the device documentation.
+_CORD_SRC = {17: "Mod Wheel", 20: "MIDI A", 21: "MIDI B", 22: "Footswitch 1",
+             32: "MIDI C", 33: "MIDI D", 34: "MIDI E", 81: "Filter Env", 96: "LFO1"}
+_CORD_DST = {8: "Key Sustain", 48: "Pitch", 52: "Sample Start", 56: "Filter Freq",
+             57: "Filter Reson", 73: "Amp Env Attack", 169: "Cord 02 Amt",
+             174: "Cord 07 Amt"}
+
+
 def _e5_voice_windows(voice_body):
     """The voice's crossfade windows as (lo, hi) tuples in file order, decoded
     from its ``LIST``/``TWL `` list of ``ETW `` chunks. window[0] is the key
@@ -458,6 +477,83 @@ def _e5_preset_voices(body):
     return n_voices, zones, note
 
 
+def _e5_voice_bodies(body):
+    """Yield each ``E5V1`` voice payload of an E5P1 preset (bounded by cap)."""
+    vl = _e5_voice_list(body)
+    if vl is None:
+        return
+    q, n = 0, 0
+    while q + 8 <= len(vl) and n < _VOICE_CAP:
+        t = vl[q:q + 4]
+        if not _is_tag(t):
+            break
+        s = _bu32(vl, q + 4)
+        if t == _E5V1:
+            n += 1
+            yield vl[q + 8:q + 8 + s]
+        q = _advance(vl, q, s)
+
+
+def _e5_voice_dsp(vb):
+    """Decode a voice's front-panel DSP for the verbose dump. Every offset here
+    is verified by save-and-diff against Emulator X; the two nonlinear params
+    (filter frequency, envelope rate) are reported as the raw normalized float,
+    never a fabricated physical value. Returns a dict:
+      filter    -- (type, freq_norm, param2) from ``E5Fl`` [4] / [5:9] / [9:13]
+      envelopes -- up to 3 (Amp, Filter, Aux), each six (rate, level%) stages,
+                   from ``LIST/EvL `` -> ``E5Ev`` (10-byte header, then
+                   6 x [rate:f32][level:f32][pad])
+      cords     -- active mod routings (src, dst, amount%) from ``LIST/CrdL`` ->
+                   ``E5Cd`` [4] / [5] / [6:10]
+    """
+    dsp = {"filter": None, "envelopes": [], "cords": []}
+    for fl in _e5_iter(vb, b"E5Fl"):
+        if len(fl) >= 13:
+            dsp["filter"] = (fl[4], _bf32(fl, 5), _bf32(fl, 9))
+        break
+    for ev in _e5_iter(vb, b"E5Ev"):
+        if len(ev) >= 10 + 6 * 9:
+            dsp["envelopes"].append([(_bf32(ev, 10 + k * 9), _bf32(ev, 14 + k * 9))
+                                     for k in range(6)])
+    for cd in _e5_iter(vb, b"E5Cd"):
+        if len(cd) >= 10:
+            src, dst, amt = cd[4], cd[5], _bf32(cd, 6)
+            if src or dst or amt:
+                dsp["cords"].append((src, dst, amt))
+    return dsp
+
+
+def _e5_dsp_fields(body):
+    """Verbose per-voice DSP fields for an E5P1 preset (filter, envelopes, cords),
+    capped. Front-panel controls only; the value scales that are known are applied,
+    the two nonlinear ones (filter freq, env rate) are shown raw."""
+    fields, cw = [], []
+    envn = ("amp", "filter", "aux")
+    voices = list(_e5_voice_bodies(body))
+    for vi, vb in enumerate(voices[:_VOICE_DETAIL_CAP]):
+        dsp = _e5_voice_dsp(vb)
+        flt = dsp["filter"]
+        if flt:
+            fields.append(_f(None, 0, f"voice[{vi}].filter", f"type {flt[0]}",
+                             f"freq {flt[1]:.3f} (norm), param2 {flt[2]:.3f}"))
+        for ei, env in enumerate(dsp["envelopes"]):
+            lv = "/".join(str(int(round(l))) for _, l in env)
+            fields.append(_f(None, 0, f"voice[{vi}].{envn[ei] if ei < 3 else ei}_env",
+                             f"levels {lv}%",
+                             "6-stage A1/A2/D1/D2/R1/R2; rates normalized"))
+        cords = dsp["cords"]
+        if cords:
+            preview = "; ".join(
+                f"{_CORD_SRC.get(s, '#' + str(s))}->{_CORD_DST.get(d, '#' + str(d))} {a:+.1f}"
+                for s, d, a in cords[:_CORD_PREVIEW])
+            if len(cords) > _CORD_PREVIEW:
+                preview += f"; +{len(cords) - _CORD_PREVIEW} more"
+            fields.append(_f(None, 0, f"voice[{vi}].cords", f"{len(cords)} active", preview))
+    if len(voices) > _VOICE_DETAIL_CAP:
+        cw.append(f"voice DSP detail capped at {_VOICE_DETAIL_CAP} of {len(voices)}")
+    return fields, cw
+
+
 def _e5_sample_fields(body, size):
     fields, name, sr = [], "", 0
     if len(body) >= 8:
@@ -477,7 +573,7 @@ def _e5_sample_fields(body, size):
     return fields, name, sr
 
 
-def _walk_e5b(data, size):
+def _walk_e5b(data, size, deep=False):
     warns = []
     form_size = _bu32(data, 4)
     if size <= _READ_CAP and form_size != size - 8:
@@ -547,6 +643,10 @@ def _walk_e5b(data, size):
                 fields.append(_f(None, 0, f"sample[{j}]", f"#{sidx}", desc))
             if len(zones) > _REF_CAP:
                 cw.append(f"{len(zones)} zones; showing first {_REF_CAP}")
+            if deep:
+                dsp_fields, dsp_cw = _e5_dsp_fields(body)
+                fields.extend(dsp_fields)
+                cw.extend(dsp_cw)
             chunks.append({"id": f"E5P1[{pi}]", "offset": off, "size": csize,
                            "payload_base": base,
                            "summary": f"preset '{name}': {n_voices} voice(s), "
@@ -581,7 +681,7 @@ def _walk_e5b(data, size):
     return chunks, warns
 
 
-def inspect_emu(filepath):
+def inspect_emu(filepath, deep=False):
     size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
         data = f.read(min(size, _READ_CAP))
@@ -591,5 +691,5 @@ def inspect_emu(filepath):
     if ft == _E4B0:
         return _walk_e4b(data, size)
     if ft == _E5B0:
-        return _walk_e5b(data, size)
+        return _walk_e5b(data, size, deep)
     raise _Unsupported(f"not an E-MU E4B/E5B bank (FORM {ft.decode('latin-1', 'replace')})")
