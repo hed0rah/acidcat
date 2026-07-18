@@ -19,7 +19,6 @@ command.
 The features are used for:
 
 - Similarity search via `find_similar` (cosine distance over the vector)
-- Clustering via k-means or agglomerative methods (`acidcat similar cluster`)
 - ML experiments that treat the sample library as a labeled or unlabeled dataset
 - Any downstream analysis that needs a compact numerical description of each sample
 
@@ -250,8 +249,8 @@ increasing MFCC count to 20 or 26 instead of expanding raw mel.
 
 ## Current similarity strategy
 
-In `commands/similar.py`, similarity uses cosine distance over the
-feature vector:
+In the MCP `find_similar` tool, similarity uses cosine distance over
+the feature vector:
 
 ```python
 from sklearn.metrics.pairwise import cosine_similarity

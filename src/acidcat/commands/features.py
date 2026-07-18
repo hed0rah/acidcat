@@ -2,6 +2,7 @@
 acidcat features -- extract 50+ audio features for ML analysis.
 """
 
+import csv
 import os
 import sys
 
@@ -14,8 +15,6 @@ def register(subparsers):
     p.add_argument("target", help="WAV file or directory.")
     p.add_argument("-n", "--num", type=int, default=500, help="Max files to scan.")
     p.add_argument("-q", "--quiet", action="store_true")
-    p.add_argument("--ml-ready", action="store_true",
-                   help="Also output normalized (StandardScaler) version.")
     p.add_argument("-f", "--format", default="csv", choices=["table", "json", "csv"],
                    help="Output format (default: csv).")
     p.add_argument("-o", "--output", help="Output file path.")
@@ -31,7 +30,6 @@ def run(args):
 
     target = args.target
     quiet = getattr(args, 'quiet', False)
-    ml_ready = getattr(args, 'ml_ready', False)
     fmt_name = getattr(args, 'format', 'csv')
 
     # Single file
@@ -84,23 +82,19 @@ def run(args):
         default_base + "_features.csv"
     )
 
-    import numpy as np
-    import pandas as pd
-    df = pd.DataFrame(rows)
-    df.to_csv(out_path, index=False)
+    # union of keys across rows, first-row order preserved, extras appended
+    fieldnames = list(rows[0].keys())
+    known = set(fieldnames)
+    for r in rows[1:]:
+        for k in r:
+            if k not in known:
+                fieldnames.append(k)
+                known.add(k)
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
     if not quiet:
         print(f"\n[INFO] Wrote features for {len(rows)} files to {out_path}", file=sys.stderr)
-
-    if ml_ready:
-        from sklearn.preprocessing import StandardScaler
-        ml_csv = out_path.replace('.csv', '_ml_ready.csv')
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if numeric_cols:
-            scaler = StandardScaler()
-            df_norm = df.copy()
-            df_norm[numeric_cols] = scaler.fit_transform(df[numeric_cols])
-            df_norm.to_csv(ml_csv, index=False)
-            if not quiet:
-                print(f"[INFO] Wrote ML-ready normalized features to {ml_csv}", file=sys.stderr)
 
     return 0
