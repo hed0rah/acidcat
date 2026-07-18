@@ -6,6 +6,8 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-07-18
+
 ### Added
 
 - `acidcat similar FILE` -- an index-backed similarity CLI verb, replacing the
