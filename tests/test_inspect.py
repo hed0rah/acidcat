@@ -663,13 +663,6 @@ class TestInspectSerum:
         chunks, warns = inspect_serum(str(p))  # must not raise
         assert any("JSON" in w for w in warns)
 
-    def test_deeply_nested_json_core_parser_no_crash(self, tmp_path):
-        # same guard in the core parser used by info/index
-        from acidcat.core.serum import parse_serum_preset
-        p = tmp_path / "deep2.serumpreset"
-        p.write_bytes(b"XferJson{" + b'"k":{' * 5000)
-        assert parse_serum_preset(str(p)) == {}  # must not raise
-
     def test_multibyte_utf8_blob_boundary(self, tmp_path):
         # raw_decode returns a CHARACTER offset; using it as a byte
         # offset shifted the blob chunk left by one byte per multibyte

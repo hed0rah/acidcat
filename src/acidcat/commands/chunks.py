@@ -5,7 +5,7 @@ acidcat chunks -- walk RIFF chunks in a file, showing offsets and parsed fields.
 import os
 import sys
 
-from acidcat.core.riff import parse_riff, iter_chunks, get_riff_info
+from acidcat.core.riff import iter_chunks, get_riff_info
 from acidcat.core.formats import output
 
 
@@ -57,10 +57,20 @@ def run(args):
     _vlog(args, f"[chunks] walked {len(chunk_list)} chunks in "
                 f"RIFF {riff_info['type']}")
 
-    # Also get parsed fields
-    results, meta, seen = parse_riff(filepath, enumerate_all=True)
+    # Parsed fields come from the inspect walker (the single decoder since
+    # the legacy parse_riff retirement); a RIFF form the walkers do not
+    # know degrades to the raw layout above.
+    from acidcat.core.walk import walk_file, Unsupported
+    results = []
+    try:
+        _label, walked, _fwarns = walk_file(filepath)
+    except Unsupported:
+        walked = []
+    for c in walked:
+        for fld in c.get("fields", []):
+            results.append((c["id"], fld["name"], fld["value"]))
     _vlog(args, f"[chunks] parsed {len(results)} fields from "
-                f"{len(seen)} unique chunk types")
+                f"{len(walked)} chunks")
 
     if fmt_name == "table":
         stream = sys.stdout
