@@ -8,6 +8,15 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Added
 
+- `acidcat similar FILE` -- an index-backed similarity CLI verb, replacing the
+  retired CSV-era one. It fans out across every registered library and ranks by
+  z-standardized cosine over the stored feature vectors, filtered to the target's
+  kind (loop/one-shot) by default. The scoring logic moved into
+  `core/search.py`, so this verb and the MCP `find_similar` tool now call one
+  shared implementation instead of the tool owning private logic -- the CLI and
+  MCP can no longer drift. If the reference is not indexed, its vector is
+  extracted live (needs `[analysis]`).
+
 - Descriptor-driven fuzzing (`tests/test_descriptor_fuzz.py`): a generator
   derives the walker's decision points mechanically from the WAVE grammar
   descriptor (every `Valid` range edge, every `Switch` case at each window size
