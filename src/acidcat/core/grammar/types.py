@@ -156,11 +156,56 @@ class Float(Type):
         return disp, raw, None
 
 
+@dataclass
+class Codec(Type):
+    """A field decoded by a named entry in fieldcodec._CODECS (the bespoke
+    layouts struct cannot express: u24be, synchsafe, float80). The display is
+    the decoded number; enc carries the codec name and raw the number, so the
+    editor re-encodes byte-exactly through the same codec."""
+
+    name: str
+
+    def __post_init__(self):
+        from acidcat.core.fieldcodec import _CODECS
+        if self.name not in _CODECS:
+            raise ValueError(f"unknown codec {self.name!r}")
+
+    def length(self, payload=None, pos=None, ctx=None):
+        from acidcat.core.fieldcodec import enc_size
+        return enc_size(self.name)
+
+    def decode(self, payload, pos, ctx):
+        from acidcat.core.fieldcodec import decode_value, enc_size
+        n = enc_size(self.name)
+        b = payload[pos:pos + n]
+        if len(b) != n:
+            raise ValueError("short read: decode called past the payload end")
+        raw = decode_value(self.name, b)
+        return raw, raw, self.name
+
+
+@dataclass
+class Raw(Type):
+    """A fixed run of opaque bytes shown as hex (e.g. a hash or GUID). No enc:
+    a raw digest is not a numerically-editable field. ``unset`` overrides the
+    display when every byte is zero (FLAC's md5 '0 (unset)' sentinel)."""
+
+    nbytes: int
+    unset: str = None
+
+    def length(self, payload=None, pos=None, ctx=None):
+        return self.nbytes
+
+    def decode(self, payload, pos, ctx):
+        b = payload[pos:pos + self.nbytes]
+        if len(b) != self.nbytes:
+            raise ValueError("short read: decode called past the payload end")
+        if self.unset is not None and not any(b):
+            return self.unset, None, None
+        return b.hex(), None, None
+
+
 class Bits(_NotBuilt):
-    pass
-
-
-class Codec(_NotBuilt):
     pass
 
 
