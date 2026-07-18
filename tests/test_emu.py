@@ -208,10 +208,20 @@ def _zhdr(sample_index, key, size=16):
     return _sub(b"Zhdr", bytes(b))
 
 
-def _e5_voice(zones, filler=None, zhdr_size=16):  # zones: [(sample_index, key), ...]
+def _etw(lo, hi):                                # one crossfade window
+    return _sub(b"ETW ", struct.pack(">I", 1) + bytes([lo, 0, 0, hi]))
+
+
+def _twl(windows):                               # windows: [(lo, hi), ...] key, vel, ...
+    return _sub(b"LIST", b"TWL " + b"".join(_etw(lo, hi) for lo, hi in windows))
+
+
+def _e5_voice(zones, filler=None, zhdr_size=16, windows=None):  # zones: [(sample_index, key), ...]
     parts = b""
     if filler is not None:                       # an unpadded interior chunk (may be odd)
         parts += _sub(b"EFGn", b"\x00" * filler)
+    if windows:
+        parts += _twl(windows)
     parts += _sub(b"LIST", b"E5ZL" + b"".join(_zhdr(s, k, zhdr_size) for s, k in zones))
     return _sub(b"E5V1", parts)
 
@@ -293,6 +303,24 @@ def test_e5b_preset_decodes_voices_zones(tmp_path):
     assert "2 voice(s), 2 zone(s)" in preset["summary"]
     assert fd["sample[0]"]["value"] == "#1" and "key 36" in fd["sample[0]"]["note"]
     assert fd["sample[1]"]["value"] == "#2" and "key 38" in fd["sample[1]"]["note"]
+
+
+def test_e5b_decodes_voice_windows(tmp_path):
+    """A voice's LIST/'TWL ' crossfade windows decode: window[0] -> key range,
+    window[1] -> velocity window (confirmed by save-and-diff against Emulator X).
+    The key range always shows; the velocity range shows only when narrowed, so a
+    full-range voice stays uncluttered."""
+    v0 = _e5_voice([(1, 60)], windows=[(21, 51), (0, 127)])   # full velocity
+    v1 = _e5_voice([(2, 72)], windows=[(52, 84), (64, 127)])  # velocity split
+    preset = _e5_preset_raw("SPLIT", [v0, v1])
+    _, chunks, _ = walk_file(_make_e5b(tmp_path, kind="bank", preset=preset))
+    fd = {f["name"]: f for f in next(c for c in chunks if c["id"] == "E5P1[0]")["fields"]}
+    assert fd["sample[0]"]["value"] == "#1"
+    assert "keys 21-51" in fd["sample[0]"]["note"]
+    assert "vel" not in fd["sample[0]"]["note"]           # full-range velocity omitted
+    assert fd["sample[1]"]["value"] == "#2"
+    assert "keys 52-84" in fd["sample[1]"]["note"]
+    assert "vel 64-127" in fd["sample[1]"]["note"]        # narrowed velocity shown
 
 
 def test_e5b_unpadded_odd_interior_chunks(tmp_path):
