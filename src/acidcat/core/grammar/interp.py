@@ -15,9 +15,12 @@ a place to grow without reshaping the API.
 
 from acidcat.core.walk.base import _f
 
-from acidcat.core.grammar.helpers import (_HELPERS, _NOTEFUNCS, _PUBLISH,
+from acidcat.core.grammar.helpers import (_HELPERS, _NOTEFUNCS,
+                                          _NOTEFUNCS_LOCAL, _PUBLISH,
                                           _RELATIONS, _SUMMARIES)
-from acidcat.core.grammar.model import Helper, NoteFunc, Switch
+from acidcat.core.grammar.model import (BitGroup, Helper, NoteFunc, NoteLocal,
+                                        Switch)
+from acidcat.core.fieldcodec import bitfield_extract
 from acidcat.core.grammar.strategies import STRATEGIES
 
 
@@ -88,6 +91,10 @@ def _parse_entries(entries, payload, pos, local, ctx):
             fields += f
             warns += w
             continue
+        if isinstance(entry, BitGroup):
+            f, pos = _apply_bitgroup(entry, payload, pos, local, ctx)
+            fields += f
+            continue
         if isinstance(entry, Helper):
             f, w = _HELPERS[entry.name](payload, pos, local, ctx)
             fields += f
@@ -101,7 +108,7 @@ def _parse_entries(entries, payload, pos, local, ctx):
         if pos + n > len(payload):
             break                     # truncated: degrade, never raise
         disp, raw, enc = fd.type.decode(payload, pos, ctx)
-        note = _note_for(fd, raw)
+        note = _note_for(fd, raw, local)
         # enc and raw travel together: a plain int (value == raw, enc None)
         # carries neither key, exactly like the walkers' _f calls
         fields.append(_f(pos, n, fd.name, disp, note, enc=enc,
@@ -117,11 +124,13 @@ def _parse_entries(entries, payload, pos, local, ctx):
     return fields, warns, pos
 
 
-def _note_for(fd, raw):
-    """A field's note: a NoteFunc computed note, else a note-source
+def _note_for(fd, raw, local=None):
+    """A field's note: a NoteFunc/NoteLocal computed note, else a note-source
     (NoteLookup/NoteFlags) resolved against raw, else a static string, else the
     type's own label note (Enum), else empty."""
     n = fd.note
+    if isinstance(n, NoteLocal):
+        return _NOTEFUNCS_LOCAL[n.fn](raw, local or {})
     if isinstance(n, NoteFunc):
         return _NOTEFUNCS[n.fn](raw)
     if hasattr(n, "resolve"):
@@ -129,6 +138,37 @@ def _note_for(fd, raw):
     if n:
         return n
     return fd.type.note(raw) if hasattr(fd.type, "note") else ""
+
+
+def _apply_bitgroup(group, payload, pos, local, ctx):
+    """Emit a BitGroup's overlapping bit-fields from one container word, then
+    advance the parse position past the whole word once. Each bit-field's raw
+    value is extracted from the container and re-encoded as the walker's exact
+    bits: enc so the field stays editable; the container short at EOF degrades
+    to no fields (never raises)."""
+    container = payload[group.off:group.off + group.nbytes]
+    if len(container) != group.nbytes:
+        return [], pos            # truncated word: degrade, do not advance
+    fields = []
+    for bf in group.fields:
+        raw = bitfield_extract(container, bf.bitpos, bf.width, bf.bias)
+        local[bf.name] = raw      # in scope for a sibling's NoteLocal
+        delta = group.off - bf.off
+        enc = f"bits:{delta}:{group.nbytes}:{bf.bitpos}:{bf.width}:{bf.bias}"
+        note = _bitnote(bf, raw, local)
+        fields.append(_f(bf.off, bf.length, bf.name, raw, note, enc=enc, raw=raw))
+        if bf.ctx:
+            ctx[bf.ctx] = raw
+    return fields, group.off + group.nbytes
+
+
+def _bitnote(bf, raw, local):
+    n = bf.note
+    if isinstance(n, NoteLocal):
+        return _NOTEFUNCS_LOCAL[n.fn](raw, local)
+    if isinstance(n, NoteFunc):
+        return _NOTEFUNCS[n.fn](raw)
+    return n or ""
 
 
 def _apply_switch(sw, payload, pos, local, ctx):
