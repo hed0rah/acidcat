@@ -6,6 +6,19 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- Descriptor-driven fuzzing (`tests/test_descriptor_fuzz.py`): a generator
+  derives the walker's decision points mechanically from the WAVE grammar
+  descriptor (every `Valid` range edge, every `Switch` case at each window size
+  around its `min_window`, every `min_len` truncation edge, each
+  `Requires`/`Order` rule) and asserts the walker, the interpreter, and the
+  strict `structure` parser agree at each one. It reaches boundary-exact inputs
+  the seeded-random differential fuzz cannot, and its interpreter-vs-walker
+  parity check catches a walker regression even when the walker swallows it into
+  a per-chunk warning (a class the never-raise contract otherwise hides). This
+  is the first non-test consumer of the grammar interpreter.
+
 ### Fixed
 
 - The "degrade with warnings, never raise" walker contract is now enforced
