@@ -116,10 +116,32 @@ def _acid_summary(local):
     return s
 
 
-_RELATIONS = {"wav_fmt_relations": _wav_fmt_relations}
+def _flac_streaminfo_relations(local, ctx):
+    """STREAMINFO's two cross-field lints, reading only local (matching the
+    walker's post-field checks)."""
+    warns = []
+    if local.get("sample_rate") == 0:
+        warns.append("sample rate is 0")
+    lo, hi = local.get("min_block_size"), local.get("max_block_size")
+    if lo is not None and hi is not None and lo > hi:
+        warns.append(f"min_block_size {lo} > max_block_size {hi}")
+    return warns
+
+
+def _flac_streaminfo_summary(local):
+    rate = local["sample_rate"]
+    total = local["total_samples"]
+    dur = total / rate if rate else 0
+    return (f"{local['bits_per_sample']}-bit {local['channels']}ch {rate} Hz, "
+            f"{total:,} samples, {dur:.3f} s")
+
+
+_RELATIONS = {"wav_fmt_relations": _wav_fmt_relations,
+              "flac_streaminfo_relations": _flac_streaminfo_relations}
 _SUMMARIES = {"wav_fmt_summary": _wav_fmt_summary,
               "inst_summary": _inst_summary,
-              "acid_summary": _acid_summary}
+              "acid_summary": _acid_summary,
+              "flac_streaminfo_summary": _flac_streaminfo_summary}
 
 
 # ── publish helpers ────────────────────────────────────────────────────────
@@ -148,3 +170,15 @@ _NOTEFUNCS = {
     "midi_note": midi_note_to_name,
     "acid_root_note": lambda raw: midi_note_to_name(raw) if raw else "unset",
 }
+
+
+# ── note-functions that read sibling fields (raw, local) -> str ──────────────
+# for a note computed from more than the field's own value (no payload, no field
+# determination -> still decoration, descriptor-side).
+
+def _flac_total_samples_note(raw, local):
+    rate = local.get("sample_rate")
+    return f"{raw / rate:.3f} s at {rate} Hz" if rate else ""
+
+
+_NOTEFUNCS_LOCAL = {"flac_total_samples": _flac_total_samples_note}

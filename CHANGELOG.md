@@ -6,7 +6,18 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-07-18
+
 ### Added
+
+- `acidcat similar FILE` -- an index-backed similarity CLI verb, replacing the
+  retired CSV-era one. It fans out across every registered library and ranks by
+  z-standardized cosine over the stored feature vectors, filtered to the target's
+  kind (loop/one-shot) by default. The scoring logic moved into
+  `core/search.py`, so this verb and the MCP `find_similar` tool now call one
+  shared implementation instead of the tool owning private logic -- the CLI and
+  MCP can no longer drift. If the reference is not indexed, its vector is
+  extracted live (needs `[analysis]`).
 
 - Descriptor-driven fuzzing (`tests/test_descriptor_fuzz.py`): a generator
   derives the walker's decision points mechanically from the WAVE grammar
@@ -18,6 +29,17 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   parity check catches a walker regression even when the walker swallows it into
   a per-chunk warning (a class the never-raise contract otherwise hides). This
   is the first non-test consumer of the grammar interpreter.
+- Grammar engine, FLAC foundation: the declarative descriptor now reproduces
+  FLAC STREAMINFO byte-for-byte against the walker (fields + summary, validated
+  across the fixtures and a descriptor-derived fuzz sweep). This is the second
+  container format and the first non-RIFF one, and it introduces three engine
+  primitives WAV never needed: a second container strategy (`flac_blocks`, over
+  `core/flac.iter_metadata_blocks`), the `Codec` type (the 3-byte big-endian
+  frame sizes via `u24be`) and `Raw` type (the md5 signature), and the
+  `BitGroup` construct for the overlapping bit-packed fields
+  (sample_rate/channels/bits/total_samples share one 8-byte word). Opt-in and
+  test-only, like the WAV descriptor. The other FLAC block types stay
+  walker-side until the repeat-over-records construct lands.
 
 ### Fixed
 
