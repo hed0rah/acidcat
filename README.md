@@ -29,8 +29,7 @@ full-text.
     git clone https://github.com/hed0rah/acidcat.git
     cd acidcat
     pip install -e .                # core + mutagen (WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A)
-    pip install -e .[analysis]      # + librosa BPM/key detection
-    pip install -e .[ml]            # + sklearn similarity/clustering
+    pip install -e .[analysis]      # + librosa BPM/key detection + features
     pip install -e .[mcp]           # + MCP server (acidcat-mcp, stdio)
     pip install -e .[mcp-http]      # + MCP streamable-HTTP transport (acidcat-mcp --transport http)
     pip install -e .[all]           # everything
@@ -95,9 +94,6 @@ full-text.
 | `acidcat shape DIR` | One-line structural fingerprint per file for specimen-hunting -- pipe to `sort \| uniq -c` to surface rare shapes; `--fast` (header-only), `--anomalies`, `--format FMT`, `--coarse` |
 | `acidcat detect FILE\|DIR` | Estimate BPM/key using librosa |
 | `acidcat features DIR` | Extract 50+ audio features for ML |
-| `acidcat similar CSV find TARGET` | Find similar samples by features |
-| `acidcat similar CSV cluster` | Cluster samples by audio characteristics |
-| `acidcat search CSV query TEXT` | Text-based sample search (legacy CSV) |
 | `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
 | `acidcat od FILE` | Colored objdump-x-style hex view: header bytes plus per-field offset / hex / decoded value, opaque payloads dimmed; `--color`, `--width` |
 | `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--anomalies] [--pretty] [--color]` | Byte-level structural dump (WAV, RF64, AIFF, MIDI, RMID, Serum, VST FXP, ReCycle RX2, Bitwig WT, MP3, FLAC, OGG, MP4/M4A, Bitwig, Vital, NCW, Native Instruments (Massive/Absynth/Kontakt/NKS/KORE)) with lint warnings. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump feeding `acidcat explore`, `--anomalies` a forensic scan (trailing data, polyglots, cavities, size mismatches, LSB-stego notice), `--pretty` a human-friendly metadata view, `--verbose` a deep deconstruction (Bitwig device tree/parameters/notes, Vital modulation matrix, ...), `--color` to syntax-highlight |
@@ -134,10 +130,7 @@ Most commands accept `table`, `json`, and `csv` (default `table`, but
 | Group | What it adds | Commands enabled |
 |-------|-------------|-----------------|
 | (none) | mutagen (base) | info, scan, chunks, survey, dump, inspect, explore, index, query, write, convert, cover for WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A + all inspect-only formats |
-| `[analysis]` | librosa, numpy, scipy, soundfile | detect, info --deep |
-| `[ml]` | + pandas, scikit-learn | features, similar, search |
-| `[viz]` | + matplotlib, seaborn | optional plotting |
-| `[notebook]` | + jupyter, ipykernel | optional notebook env |
+| `[analysis]` | librosa, numpy, scipy, soundfile | detect, features, info --deep |
 | `[mcp]` | mcp SDK | `acidcat-mcp` stdio server |
 | `[mcp-http]` | starlette + uvicorn | `acidcat-mcp --transport http` (streamable-HTTP transport) |
 | `[all]` | everything (includes `[mcp-http]`) | all commands, all formats |
@@ -180,16 +173,8 @@ Most commands accept `table`, `json`, and `csv` (default `table`, but
     # extract 50+ audio features to CSV
     acidcat features ~/Samples/Loops -n 500
 
-    # generate normalized (StandardScaler) ML-ready dataset
-    acidcat features ~/Samples/Loops --ml-ready -n 500
-
-### Similarity & Clustering
-
-    # find 5 samples similar to index 0
-    acidcat similar features.csv find 0 -n 5
-
-    # k-means clustering
-    acidcat similar features.csv cluster -k 10 -o clustered.csv
+Similarity search runs on the index (`acidcat index --features`, then the
+MCP `find_similar` tool), not on these one-off CSVs.
 
 ## Libraries (per-directory indexes)
 
