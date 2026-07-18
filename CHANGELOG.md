@@ -6,6 +6,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-07-18
+
+### Added
+
+- E-MU Emulator X / Proteus X (E5B0) voice DSP decode in verbose mode. `inspect
+  --verbose` / `-F` now dumps each voice's front-panel controls: the filter
+  (type, normalized frequency, resonance from `E5Fl`), the three envelopes
+  (Amp/Filter/Aux, six stages with levels as percent from `LIST/EvL ` -> `E5Ev`),
+  and the active modulation cords (source -> destination -> amount from
+  `LIST/CrdL` -> `E5Cd`, with a partial index -> name table). The default view
+  stays compact. Every parameter is anchored to a named `E5V1` sub-chunk; the two
+  nonlinear scales (filter frequency, envelope rate) are shown as the raw
+  normalized float rather than a fabricated physical value. All offsets verified
+  by save-and-diff against Emulator X. The anatomy sheet gains an `E5V1` tab.
+
 ## [0.52.0] - 2026-07-17
 
 ### Fixed
