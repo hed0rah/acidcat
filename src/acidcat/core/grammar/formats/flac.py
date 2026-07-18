@@ -1,8 +1,12 @@
 """The FLAC descriptor. Foundation slice: STREAMINFO byte-exact vs
 walk/flac._flac_streaminfo. Everything else (VORBIS_COMMENT, SEEKTABLE,
-PICTURE, CUESHEET, APPLICATION, PADDING) is left opaque here and stays
-walker-side until the repeat-over-records construct lands (the next slice);
-the interpreter shows those blocks as unparsed payload.
+PICTURE, CUESHEET, APPLICATION, PADDING) stays walker-side and is shown as
+unparsed payload here. SEEKTABLE/VORBIS_COMMENT/CUESHEET are walker-only by
+the partition policy (composite per-record displays, count-dependent
+synthesis, a computed xref); PICTURE/APPLICATION/PADDING are policy-clean but
+unbuilt. The grammar engine is frozen at this foundation (decision in
+internal_docs/2026-07-18-flac-repeat-vs-partition.md), so no repeat-over-records
+construct is planned.
 
 STREAMINFO forces the two type primitives WAV never needed: Codec (the 3-byte
 big-endian frame sizes) and the BitGroup (sample_rate/channels/bits/

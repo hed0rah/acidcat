@@ -33,8 +33,8 @@ on-device saves, copied raw off the floppy / CF / SCSI / Zip, unconverted:
 | MPC2000 / 2000XL | a `.PGM` + `.SND` | the top prize: settles hardware-vs-software layout |
 | MPC3000 | a `.PGM` + `.SND` | same family as the 2000, or its own dialect? |
 | MPC4000 | a program | confirm it is the AKAI/APRG format we already read |
-| MPC5000 | a `.PGM` | the extended MPC1000 variant |
-| MPC500 | a program + `.50s` | the `.50s` format is completely unmapped |
+| MPC5000 | a `.PGM` or `.50s` | `.PGM` is the extended MPC1000 variant; `.50s` is the MPC5000 native drum program (framing now mapped, a few params unverified) |
+| MPC500 | a program | the MPC500 native save format is still unmapped |
 | MPC60 / 60mkII | a 12-bit sound | completes the lineage |
 
 **The perfect drop:** the *same* simple kit saved on *several* machines.
