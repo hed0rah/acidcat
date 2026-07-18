@@ -9,6 +9,8 @@ To add a format: teach core/sniff.py its magic, write a walker module
 in this package, and add one registry entry below.
 """
 
+import os
+
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
     aiff, akai, bitwig, emu, flac, fxp, labx, midi, mp3, mp4, mpc, multisample,
@@ -72,7 +74,13 @@ def walk_file(filepath, deep=False):
     """Sniff the magic and dispatch to the format walker.
 
     Returns (fmt_label, chunks, file_warns); raises Unsupported for a
-    file the walkers do not decode."""
+    file the walkers do not decode. Any other exception out of a walker
+    is a walker bug, and the "degrade with warnings, never raise"
+    contract is enforced HERE, at the one boundary every consumer
+    shares (inspect/od/audit/shape, the TUI, the public walk()): the
+    walk degrades to zero chunks plus a walker-error warning instead of
+    crashing on hostile input. ACIDCAT_WALKER_RAISE=1 (set by the test
+    suite) re-raises so a walker bug stays a loud traceback in CI."""
     fmt = sniffmod.sniff(filepath)
     if fmt == "id3-wrapped":
         raise Unsupported("ID3 tag wraps a non-MP3 container; not supported")
@@ -83,4 +91,13 @@ def walk_file(filepath, deep=False):
                           "Native Instruments, MP3, FLAC, a MOD/S3M/XM/IT "
                           "tracker module, or a SigMF/IQ capture)")
     label, walker = entry
-    return (label, *walker(filepath, deep))
+    try:
+        chunks, file_warns = walker(filepath, deep)
+    except Unsupported:
+        raise
+    except Exception as e:
+        if os.environ.get("ACIDCAT_WALKER_RAISE"):
+            raise
+        return (label, [],
+                [f"walker error ({fmt}): {e.__class__.__name__}: {e}"])
+    return (label, chunks, file_warns)
