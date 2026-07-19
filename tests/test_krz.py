@@ -105,6 +105,25 @@ def test_one_shot_sample_flag(tmp_path):
     assert "one-shot" in sample["summary"]
 
 
+def test_info_routes_structural_format_to_walker(tmp_path):
+    """`acidcat info` (and bare-path dispatch) must give a walker-backed summary
+    for a structural format like KRZ, not mis-parse it as a headerless WAV."""
+    from acidcat.commands import info
+    p = tmp_path / "bank.krz"
+    p.write_bytes(_bank([_object(38, 200, "S", _sample_body())]))
+    assert info._detect_format(str(p)) == "walker"
+
+    class _A:
+        target = str(p)
+        quiet = True
+        verbose = False
+    rec = info._info_walker(str(p), _A())
+    assert rec["Format"].startswith("Kurzweil")
+    assert "Kurzweil bank" in rec["Summary"]
+    assert "inspect" in rec["Inspect"]
+    assert "Chunks" not in rec                    # not the WAV mis-parse output
+
+
 def test_srom_recognized(tmp_path):
     p = tmp_path / "fx.krz"
     p.write_bytes(b"SROM" + struct.pack(">I", 1000) + b"\x00" * 100)

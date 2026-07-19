@@ -6,6 +6,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- `acidcat info` (and bare-path `acidcat file.ext`) no longer mis-parses a
+  non-WAV structural format as a headerless WAV (the misleading "Chunks (none)"
+  output). Any format the walkers decode but `info` has no dedicated builder for
+  -- Kurzweil `.KRZ`, E-mu, Akai, ReCycle, VST FXP, trackers, SF2, the MPC
+  family, synth presets, RF64, ... -- now gets a walker-backed summary (format
+  label, top-level summary, region count) and a pointer to `acidcat inspect` for
+  the full decode. Previously only a hardcoded preset list was handled.
+
+### Changed
+
+- Package description aligned with the project's direction: "Binary analysis and
+  reverse-engineering for audio file formats and music-production hardware".
+
 ## [0.55.0] - 2026-07-18
 
 ### Added
