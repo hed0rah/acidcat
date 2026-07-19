@@ -20,6 +20,7 @@ WAVE_FORMAT_TAGS = {
     0x0006: "A-law",
     0x0007: "mu-law",
     0x0011: "IMA ADPCM",
+    0x0039: "Roland RDAC (RFC 2361; mmreg.h squats Crystal IMA ADPCM here)",
     0x0055: "MPEG Layer III",
     0xFFFE: "extensible",
 }

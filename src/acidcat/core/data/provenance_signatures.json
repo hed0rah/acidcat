@@ -10,6 +10,7 @@
     {"chunks": ["BWBM"], "tool": "Bitwig Studio", "note": "the only handle on a string-stripped Bitwig render. census 1976 files (web research could not corroborate; corpus did)."},
     {"chunks": ["SMED"], "tool": "Steinberg (Cubase/Nuendo/WaveLab)", "note": "census 18873 files (web research could not corroborate externally; corpus strongly confirms)."},
     {"chunks": ["strc", "str2"], "tool": "Sony/Magix ACID / Sound Forge", "note": "ACID stretch-marker chunks. census: strc 25288, str2 6054 files."},
+    {"chunks": ["clm"], "tool": "Xfer Serum (wavetable export)", "note": "Serum wavetable metadata chunk ('clm '); payload is '<!>2048 ... wavetab'. corpus-confirmed: 43/43 clm files are wavetables, 0 carry an acid chunk -- NOT Sonic Foundry despite old web lore."},
     {"chunks": ["SyLp"], "tool": "Sony/Magix ACID / Sound Forge", "note": "Sony loop chunk. census 7564 files."},
     {"chunks": ["SNDM"], "tool": "Soundminer", "note": "Soundminer post-production metadata. census 10721 files."},
     {"chunks": ["RLND"], "tool": "Roland", "note": "Roland-specific chunk. census 12 files; rare but a unique 4CC."},
