@@ -6,6 +6,17 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-07-19
+
+### Docs
+
+- Regenerated `docs/codebase_explorer.html` (was a v0.9.0 fossil): reframed from a
+  WAV metadata explorer to the current byte-level dissection / reverse-engineering
+  tool, updated to 23 CLI verbs, 26 walkers, the dissection surface
+  (inspect/probe/carve/shape + the repair/validate/audit constraint model), the
+  grammar engine, and provenance -- in the locked amp-orange aesthetic with the
+  hover margin cards.
+
 ### Changed
 
 - Provenance writer signatures now live in a sidecar data file
