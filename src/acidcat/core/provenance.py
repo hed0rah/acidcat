@@ -14,7 +14,64 @@ witness does -- strong evidence is trusted, weak evidence is labelled as such:
 ``identify`` returns a de-duplicated list of ``{tool, basis, confidence}``.
 """
 
+import json
+import os
 import re
+
+# ── signature database (data, not code) ────────────────────────────────────
+# The writer signatures live in a JSON sidecar so they can be edited without
+# touching this module. A user override at ~/.acidcat/provenance_signatures.json
+# is merged on top: its `canon` rules are tried FIRST (a user rule can override a
+# built-in first-match), and its `chunk_signatures` are appended (adding tools).
+
+_DATA_FILE = os.path.join(os.path.dirname(__file__), "data",
+                          "provenance_signatures.json")
+_USER_FILE = os.path.join(os.path.expanduser("~"), ".acidcat",
+                          "provenance_signatures.json")
+
+_RE_FLAGS = {"i": re.I, "s": re.S, "m": re.M, "x": re.X}
+
+
+def _load_db():
+    with open(_DATA_FILE, encoding="utf-8") as f:
+        db = json.load(f)
+    db.setdefault("canon", [])
+    db.setdefault("chunk_signatures", [])
+    try:
+        with open(_USER_FILE, encoding="utf-8") as f:
+            user = json.load(f)
+        # user canon wins first-match -> prepend; user signatures add -> append
+        db["canon"] = list(user.get("canon", [])) + db["canon"]
+        db["chunk_signatures"] = db["chunk_signatures"] + list(
+            user.get("chunk_signatures", []))
+    except (OSError, ValueError):
+        pass                                    # no/invalid override: ignore
+    return db
+
+
+def _build_canon(entries):
+    out = []
+    for e in entries:
+        flags = 0
+        for ch in e.get("flags", ""):
+            flags |= _RE_FLAGS.get(ch, 0)
+        try:
+            out.append((re.compile(e["pattern"], flags), e["template"]))
+        except (re.error, KeyError):
+            continue                            # a broken user rule can't crash us
+    return out
+
+
+def _build_signatures(entries):
+    out = []
+    for e in entries:
+        chunks = e.get("chunks") or []
+        if chunks and e.get("tool"):
+            out.append((set(chunks), e["tool"]))
+    return out
+
+
+_DB = _load_db()
 
 # field names (lowercased, as the walkers label them) that hold a writer string.
 # deliberately excludes free-text like "comment" -- that catches URLs and notes,
@@ -37,43 +94,9 @@ _IART_DEVICES = {"portapack": "HackRF PortaPack (SDR capture)"}
 _COMMENT_TELL = re.compile(
     r"^(?:made with|modified by|recorded[^.\r\n]*\bin)\s+([^\r\n]+)", re.I)
 
-# raw-string canonicalization: (regex, template). \1 is the captured version.
-_CANON = [
-    (re.compile(r"Lav[fc]\s*([\d.]+)", re.I), r"FFmpeg (libav \1)"),
-    (re.compile(r"libFLAC\s*([\d.]+)", re.I), r"libFLAC \1 (reference FLAC)"),
-    (re.compile(r"\bLAME\s*([\d.a-z]+)", re.I), r"LAME \1"),
-    (re.compile(r"libsndfile[- ]?([\d.]+)?", re.I), r"libsndfile \1"),
-    (re.compile(r"\bqaac\b", re.I), "qaac (Apple AAC)"),
-    (re.compile(r"\bafconvert\b|CoreAudio", re.I), "Apple CoreAudio"),
-    (re.compile(r"iTunes\s*([\d.]+)?", re.I), r"iTunes \1"),
-    (re.compile(r"Pro ?Tools", re.I), "Avid Pro Tools"),
-    (re.compile(r"Adobe (Audition|Premiere|Media)", re.I), r"Adobe \1"),
-    (re.compile(r"Audacity\s*([\d.]+)?", re.I), r"Audacity \1"),
-    (re.compile(r"REAPER", re.I), "Cockos REAPER"),
-    (re.compile(r"Logic Pro|GarageBand", re.I), "Apple Logic / GarageBand"),
-    (re.compile(r"Digital Performer", re.I), "MOTU Digital Performer"),
-    (re.compile(r"Ableton|Live \d", re.I), "Ableton Live"),
-    (re.compile(r"FL Studio|Image[- ]?Line|Fruity", re.I), "FL Studio"),
-    (re.compile(r"\bEdison\b", re.I), "Image-Line Edison (FL Studio)"),
-    (re.compile(r"Steinberg|Cubase|Nuendo|WaveLab", re.I), "Steinberg (Cubase/WaveLab)"),
-    (re.compile(r"\bNero\b", re.I), "Nero"),
-    (re.compile(r"WavePad|\bNCH\b", re.I), "NCH WavePad"),
-    (re.compile(r"Sound Forge|SoundForge", re.I), "Sony/Magix Sound Forge"),
-    (re.compile(r"iZotope|RX \d", re.I), "iZotope RX"),
-    # rip / convert / library tools (explicit strings)
-    (re.compile(r"Exact Audio Copy|\bEAC\b", re.I), "Exact Audio Copy"),
-    (re.compile(r"dBpoweramp|dbpa", re.I), "dBpoweramp"),
-    (re.compile(r"\bXLD\b|X Lossless", re.I), "XLD (X Lossless Decoder)"),
-    (re.compile(r"foobar2000", re.I), "foobar2000"),
-    (re.compile(r"fre:ac|freac", re.I), "fre:ac"),
-    (re.compile(r"\bMax\b \d|MediaHuman", re.I), "MediaHuman / Max"),
-    (re.compile(r"\bsox\b", re.I), "SoX"),
-    (re.compile(r"GoldWave", re.I), "GoldWave"),
-    (re.compile(r"Ocenaudio", re.I), "Ocenaudio"),
-    (re.compile(r"Twisted Wave|TwistedWave", re.I), "TwistedWave"),
-    (re.compile(r"Serato", re.I), "Serato"),
-    (re.compile(r"Traktor", re.I), "Native Instruments Traktor"),
-]
+# canonicalization rules (regex, template), built from the sidecar DB. \1 in a
+# template is the captured version. First match wins.
+_CANON = _build_canon(_DB["canon"])
 
 
 def _canon(raw):
@@ -86,24 +109,11 @@ def _canon(raw):
     return raw
 
 
-# signature chunk ids -> the tool that writes them. these are documented,
-# tool-specific chunks, reported at "likely" (a structural tell, not a stamp).
-_CHUNK_SIGNATURES = [
-    ({"regn", "minf", "elm1"}, "Avid Pro Tools"),
-    ({"DGDA"}, "Avid Pro Tools (Digidesign)"),
-    ({"LGWV"}, "Apple Logic Pro"),
-    # corpus: ResU is overwhelmingly Logic (288/303), not Steinberg as the web
-    # research guessed -- do not reassign to Steinberg without a corroborating tell.
-    ({"ResU"}, "Apple Logic Pro"),
-    ({"dprn", "dpte", "dpas", "dpam"}, "MOTU Digital Performer"),
-    ({"BWBM"}, "Bitwig Studio"),
-    ({"SMED"}, "Steinberg (Cubase/Nuendo/WaveLab)"),
-    ({"AFsp"}, "AFsp audio library (SoX / afconvert lineage)"),
-    ({"umid"}, "a broadcast/production tool (SMPTE UMID)"),
-]
-# deliberately NOT signatures: AFAn/AFmd (shared macOS CoreAudio -- Logic AND Digital
-# Performer AND generic Mac renders) and FLLR (padding shared with Apple APIs). Too
-# ambiguous to attribute to one app; use only to corroborate a string tell.
+# signature chunk ids -> the tool that writes them, built from the sidecar DB.
+# documented, tool-specific chunks reported at "likely" (a structural tell, not a
+# stamp). The DB's `not_signatures` records the deliberately-excluded shared
+# chunks (AFAn/AFmd/FLLR/_PMX) with the reasoning for each.
+_CHUNK_SIGNATURES = _build_signatures(_DB["chunk_signatures"])
 
 
 def _chunk_signatures(chunks):
@@ -178,6 +188,26 @@ def _mp3_lame(chunks):
     return None
 
 
+def _ffmpeg_rf64_junk(chunks):
+    """ffmpeg's RF64_AUTO structural tell: it reserves a 28-byte JUNK chunk
+    immediately after `fmt ` (the ds64 placeholder, overwritten in place if the
+    file grows past 4 GiB). A plain RIFF/WAVE carrying a 28-byte JUNK right after
+    fmt is an ffmpeg (or libav-lineage) signature -- a positional fingerprint, not
+    a bare chunk-id match, so it lives here rather than in the signature table.
+    Returns a single 'likely' signal or None."""
+    ids = [str(c.get("id", "")).strip() for c in chunks]
+    try:
+        fi = ids.index("fmt")
+    except ValueError:
+        return None
+    nxt = chunks[fi + 1] if fi + 1 < len(chunks) else None
+    if (nxt and str(nxt.get("id", "")).strip() == "JUNK"
+            and nxt.get("size") == 28):
+        return {"tool": "FFmpeg (libav)", "confidence": "likely",
+                "basis": "28-byte JUNK ds64 placeholder after fmt (RF64_AUTO)"}
+    return None
+
+
 def _structural(label, chunks, data):
     out = []
     if "MP3" in label or "MPEG" in label:
@@ -196,6 +226,10 @@ def _structural(label, chunks, data):
         pass
     if label in ("RIFF/WAVE", "RF64/WAVE", "IFF/AIFF", "IFF/AIFC"):
         out += _chunk_signatures(chunks)
+    if label == "RIFF/WAVE":            # RF64 already has a real ds64, not a placeholder
+        ff = _ffmpeg_rf64_junk(chunks)
+        if ff:
+            out.append(ff)
     return out
 
 
