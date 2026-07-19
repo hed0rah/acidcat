@@ -14,7 +14,7 @@ import os
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
     aiff, akai, bitwig, emu, flac, fxp, krz, labx, midi, mp3, mp4, mpc,
-    multisample, ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, tracker,
+    multisample, ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, svx, tracker,
     vital, wav, wt,
 )
 from acidcat.core.walk.base import Unsupported
@@ -26,6 +26,7 @@ _WALKERS = {
     "rf64": ("RF64/WAVE", lambda path, deep: rf64.inspect_rf64(path)),
     "aiff": ("IFF/AIFF", lambda path, deep: aiff.inspect_aiff(path, "AIFF")),
     "aifc": ("IFF/AIFC", lambda path, deep: aiff.inspect_aiff(path, "AIFC")),
+    "8svx": ("IFF/8SVX", lambda path, deep: svx.inspect_8svx(path)),
     "midi": ("Standard MIDI File",
              lambda path, deep: midi.inspect_midi(path, deep=deep)),
     "rmid": ("RMID (RIFF/MIDI)",
