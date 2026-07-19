@@ -105,6 +105,27 @@ def test_one_shot_sample_flag(tmp_path):
     assert "one-shot" in sample["summary"]
 
 
+def test_keymap_method_03_three_byte_entries(tmp_path):
+    # real Sweetwater banks use keymap method 0x03: a 3-byte entry whose
+    # sampleID sits at offset 0 (no tuning prefix), unlike the 5-byte 0x13
+    # layout where it sits at offset 2. regression: the id was always read at
+    # offset 2, so a 0x03 keymap referencing sample 200 reported 0x0100 = 256.
+    hdr = struct.pack(">HHHHHH", 0, 0x03, 0, 100, 127, 3) + b"\x00" * 16
+    entries = struct.pack(">HB", 200, 1) * 8        # 3-byte: sampleID u16, SSNr u8
+    objs = [
+        _object(38, 200, "S", _sample_body(rootkey=60, rate=48000)),
+        _object(37, 200, "K03", hdr + entries),
+    ]
+    p = tmp_path / "m03.krz"
+    p.write_bytes(_bank(objs, pcm=b"\x00\x00" * 100))
+    _, chunks, _ = walk_file(str(p))
+    keymap = next(c for c in chunks if c["id"] == "Keymap")
+    refs = next(f for f in keymap["fields"] if f["name"] == "sample_refs")
+    assert refs["value"] == "200"                   # id at offset 0, not 256
+    method = next(f for f in keymap["fields"] if f["name"] == "method")
+    assert "sampleID|subSample" in method["note"]
+
+
 def test_info_routes_structural_format_to_walker(tmp_path):
     """`acidcat info` (and bare-path dispatch) must give a walker-backed summary
     for a structural format like KRZ, not mis-parse it as a headerless WAV."""
