@@ -294,6 +294,7 @@ class Census:
         u16 = ">H" if be else "<H"
         fsize = os.fstat(fd).st_size
         pos, n = 12, 0
+        ds64_data = None                              # RF64/BW64 real data size
         while pos + 8 <= fsize and n < _MAX_CHUNKS:
             hdr = _pread(fd, 8, pos)
             if len(hdr) < 8:
@@ -308,7 +309,13 @@ class Census:
             self._bump(self.chunk_counts, fourcc)
             self.chunk_first.setdefault(fourcc, json_safe_path(path))
 
-            if cid == b"fmt ":
+            if cid == b"ds64":
+                # RF64/BW64 carry the real 64-bit data size here (dataSize is a
+                # u64 at payload offset 8); the data chunk then holds 0xFFFFFFFF.
+                db = _pread(fd, 8, pos + 16)
+                if len(db) == 8:
+                    ds64_data = struct.unpack("<Q", db)[0]
+            elif cid == b"fmt ":
                 tag = self._peek_u16(fd, pos + 8, u16)
                 if tag is not None:
                     self._bump(self.fmt_tags, tag)
@@ -348,8 +355,11 @@ class Census:
             elif cid in (b"chna", b"axml", b"aXML"):
                 self._flag("adm_" + fourcc.strip(), path)
 
-            step = 8 + csz + (csz & 1)                 # pad odd sizes to even
-            if step <= 8 or csz == 0xFFFFFFFF:
+            real = csz
+            if csz == 0xFFFFFFFF and cid == b"data" and ds64_data is not None:
+                real = ds64_data                       # resolve the RF64 sentinel
+            step = 8 + real + (real & 1)               # pad odd sizes to even
+            if step <= 8 or real == 0xFFFFFFFF:
                 break                                  # garbage/sentinel size: stop cleanly
             pos += step
 
