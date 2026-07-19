@@ -74,6 +74,14 @@ code{background:var(--panel);border:1px solid var(--hair);padding:0.05rem 0.3rem
 .matrix .veri{color:var(--enum)} .matrix .need{color:var(--flag)} .matrix .part{color:var(--soft)}
 .matrix tr:hover td{background:var(--panel)}
 
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
 .dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
 .bcol{display:flex;flex-direction:column;align-items:center}
 .bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
@@ -113,6 +121,23 @@ code{background:var(--panel);border:1px solid var(--hair);padding:0.05rem 0.3rem
 
 footer{margin-top:3rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
 footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+
+/* intro + color key (homogenized with the format sheet fleet) */
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
 </style>
 </head>
 <body>
@@ -128,12 +153,24 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
     </div>
   </div>
 
+  <div class="intro">
+    <p class="lede"><b>Hover</b> a field to light its bytes, <b>click</b> a field with a <span class="k-en">+</span> for its table. Color marks kind (see the key).</p>
+    <aside class="sig" aria-label="color key">
+    <div class="legrows">
+    <div class="row"><span class="sw dark k-enum">teal</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-flag">ochre</span><span class="swsep">&#8594;</span><span class="sw light k-flag">flag</span></div>
+    <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
+    </div>
+    <div class="siglabel">color key</div>
+  </aside>
+  </div>
+
   <div class="tabs" id="tabs">
     <button class="tab on" data-p="overview">Overview<small>the family</small></button>
     <button class="tab" data-p="form">FORM<small>container</small></button>
     <button class="tab" data-p="toc2">TOC2<small>table of contents</small></button>
     <button class="tab" data-p="e5p1">E5P1<small>preset</small></button>
-    <button class="tab" data-p="voice">E5V1<small>voice DSP</small></button>
     <button class="tab" data-p="e5s1">E5S1<small>sample</small></button>
     <button class="tab" data-p="e5sl">E5SL<small>sample link</small></button>
     <button class="tab" data-p="e4b">E4B0<small>EOS hardware</small></button>
@@ -223,43 +260,6 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
     <p class="note">acidcat surfaces the preset name and sub-chunk inventory. The E-MU naming convention packs a fixed-width name with a 2-3 char tag (<code>kyb</code>/<code>lnk</code> for the keyboard-map vs link variants of a kit) and a GM-drum note number (<code>36</code> kick, <code>38</code> snare).</p>
   </div>
 
-  <!-- ===================== E5V1 VOICE DSP ===================== -->
-  <div class="panel" data-panel="voice">
-    <div class="facts">
-      <div>structure<b>named sub-chunk per section</b></div>
-      <div>params<b>big-endian float32</b></div>
-      <div>view<b>verbose / -F dumps DSP</b></div>
-      <div>status<b class="veri">save-and-diff verified</b></div>
-    </div>
-    <p class="lede">Each <code>E5V1</code> voice is a flat sequence of named sub-chunks -- one per <b>front-panel section</b>. Every parameter is anchored to its chunk, and nearly all are a <b>big-endian float32 storing the displayed value directly</b> (fine tune 11.73 &rarr; <code>11.735</code>, cord amount +25.92 &rarr; <code>25.915</code>). Two use a normalized scale (filter frequency, envelope rate). acidcat prints the filter, three envelopes, and active cords per voice in <b>verbose</b> mode; the default view stays compact. Decoded by save-and-diff against Emulator X. <span class="k-en">blue</span> = verified, <span class="k-fl">amber</span> = located, values inferred.</p>
-
-    <div class="sec">voice section map</div>
-    <table class="matrix">
-      <thead><tr><th>chunk</th><th>front-panel section</th><th>encoding</th><th>status</th></tr></thead>
-      <tbody>
-        <tr><td class="f">LIST/TWL &rarr; ETW</td><td>key + velocity windows</td><td>u8 low[4] / high[7]</td><td class="st veri">verified (shipped 0.52)</td></tr>
-        <tr><td class="f">E5Oc</td><td>oscillator: fine tune, chorus, TwistaLoop, sample offset</td><td>BE float32, direct</td><td class="st veri">verified</td></tr>
-        <tr><td class="f">E5Fl</td><td>filter: type, frequency, resonance</td><td>type[4], freq[5:9], param2[9:13]</td><td class="st veri">verified</td></tr>
-        <tr><td class="f">E5Am</td><td>amplifier: volume, pan, aux sends</td><td>BE float32</td><td class="st need">located, fields inferred</td></tr>
-        <tr><td class="f">LIST/EvL &rarr; E5Ev &times;3</td><td>envelopes: Amp / Filter / Aux</td><td>6 stages [rate f32][level f32]</td><td class="st veri">verified</td></tr>
-        <tr><td class="f">LIST/LFOL &rarr; E5LF &times;2</td><td>LFO 1 / 2: rate, delay, variation</td><td>BE float32 + enum</td><td class="st veri">verified</td></tr>
-        <tr><td class="f">LIST &rarr; EFGn &times;3</td><td>function generators (FN GEN 1/2/3)</td><td>417 bytes each</td><td class="st need">located only</td></tr>
-        <tr><td class="f">LIST/CrdL &rarr; E5Cd &times;36</td><td>modulation matrix</td><td>src[4], dst[5], amount[6:10]</td><td class="st veri">verified amount</td></tr>
-      </tbody>
-    </table>
-
-    <div class="callout blue"><b>the scale rule</b>
-    Big-endian float32 = the displayed value, verbatim -- fine tune, chorus, LFO rate, envelope levels, cord amounts. Only <b>filter frequency</b> (normalized log-scale) and <b>envelope rate</b> (a knob-position curve) use an internal scale; those are shown raw, never a fabricated Hz / second value.</div>
-
-    <div class="sec">E5Ev envelope &mdash; header + stage 1</div>
-    <div id="e5ev" data-build></div>
-    <p class="note">Three 64-byte <code>E5Ev</code> envelopes per voice (Amp, Filter, Aux). A 10-byte header, then six 9-byte stages -- Attack 1/2, Decay 1/2, Release 1/2 -- each a rate float, a level float (percent, direct; filter/aux are bipolar), and a pad byte. Amp levels 87.7/67.3/48.4/73.4/27.2/15.4 matched the bytes exactly.</p>
-
-    <div class="sec">E5Cd mod cord</div>
-    <div id="e5cd" data-build></div>
-    <p class="note">Up to 36 ten-byte cords route a <b>source</b> to a <b>destination</b> with a float32 <b>amount</b> (the displayed percent). The source / destination index tables are partially mapped from a specimen; an unknown index prints raw as <code>#N</code>.</p>
-  </div>
-
   <!-- ===================== E5S1 ===================== -->
   <div class="panel" data-panel="e5s1">
     <div class="facts">
@@ -330,29 +330,50 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
   function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
   function build(mountId, unit, bytes, fields){
     var mount=document.getElementById(mountId);
-    var N = bytes.length;
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
     var owner=new Array(N);
     fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
-    var diagram=document.createElement("div"); diagram.className="dbytes";
-    bytes.forEach(function(b,i){
-      var f=fields[owner[i]];
-      var col=document.createElement("div"); col.className="bcol";
-      var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
-      var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
-      if(i===f.r[0]) cell.classList.add("fstart");
-      cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
-    });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
     var list=document.createElement("div"); list.className="fields";
     var aside=document.createElement("aside"); aside.className="detail";
     aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
-      "<h3>Hover a field or byte</h3><div class='dc'>"+bytes.length+" bytes</div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
       "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
     var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
     var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
     var rows=[];
     function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
     function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
-    function rl(f){ return "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
     function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
       det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
     function activeRow(){return list.querySelector(".field.active");}
@@ -361,7 +382,7 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
     function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
     fields.forEach(function(f,fi){
       var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
-      var lab = "0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):"");
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
       row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
       if(f.branch){
         var bw=document.createElement("div"); bw.className="branch";
@@ -372,21 +393,26 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
       row.addEventListener("click",function(){pin(fi);});
       rows.push(row); list.appendChild(row);
     });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
     cells.forEach(function(c){
       var fi=owner[+c.dataset.idx];
       c.addEventListener("mouseenter",function(){cue(fi);});
       c.addEventListener("click",function(){pin(fi);});
     });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
     var left=document.createElement("div"); left.className="left";
     left.appendChild(diagram); left.appendChild(list);
     var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
-    var blk=document.createElement("div"); blk.className="block";
-    blk.appendChild(left); blk.appendChild(dcol);
-    blk.addEventListener("mouseleave",restore);
-    mount.appendChild(blk);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
     var maxH=aside.scrollHeight;
     fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
-    det.t.textContent="Hover a field or byte"; det.c.textContent=bytes.length+" bytes";
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
     det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
     det.n.textContent="";
     dcol.style.minHeight=(maxH+6)+"px";
@@ -443,22 +469,6 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
       [
         {label:"sample_index",k:"sync",r:[0,1],val:"1",body:"1-based sample index, big-endian u16. TOC1 entries and zone references point at this."},
         {label:"name",k:"enum",r:[2,17],val:"\"SINE_A_A2\"",body:"16-byte ASCII name, space-padded (E4 is ASCII; E5 widened to UTF-16). The trailing _<note><octave> suffix encodes the sample's root note for hardware browsers.",note:"numeric fields follow: rate (u32 LE) at 0x36, a loop word at 0x3c, loop start/end offsets."}
-      ]],
-    "e5ev":["byte",
-      [0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x01,0x00,0x3e,0xac,0x83,0x94,0x42,0xaf,0x7c,0x15,0x00],
-      [
-        {label:"header",k:"rsv",r:[0,9],val:"ver 2",body:"10-byte envelope header: a BE u32 = 2 (version/type), then six bytes ending 01 00. Constant across the corpus.",note:"the six stages begin at byte 10."},
-        {label:"A1 rate",k:"enum",r:[10,13],val:"0.33694",body:"Attack 1 rate, big-endian float32. Normalized, not seconds directly -- monotonic with the rate knob; displayed time also depends on the segment's level delta.",note:"shown raw; the seconds curve is unsolved."},
-        {label:"A1 level",k:"enum",r:[14,17],val:"87.742 %",body:"Attack 1 level, big-endian float32 = the displayed percent, direct. Proven exact against the editor (87.7 shown).",note:"filter and aux envelopes store bipolar levels here (negative floats)."},
-        {label:"pad",k:"rsv",r:[18,18],val:"0x00",body:"One pad byte closing the 9-byte stage. Attack 2 begins immediately after."}
-      ]],
-    "e5cd":["byte",
-      [0x00,0x00,0x00,0x01,0x11,0xa9,0x41,0xcf,0x52,0xd0],
-      [
-        {label:"marker",k:"sync",r:[0,3],val:"1",body:"A BE u32 marker; 1 on every cord."},
-        {label:"source",k:"enum",r:[4,4],val:"17 = Mod Wheel",body:"Modulation source index, u8. Partially mapped from a specimen: 17 Mod Wheel, 96 LFO1, 81 Filter Env, 20-34 MIDI A-E, 22 Footswitch 1.",note:"an unmapped index prints raw as #N."},
-        {label:"dest",k:"enum",r:[5,5],val:"169 = Cord 02 Amt",body:"Modulation destination index, u8. Mapped: 48 Pitch, 56 Filter Freq, 57 Filter Reson, 52 Sample Start, 73 Amp Env Attack, 169/174 another cord's amount.",note:"cords can modulate other cords' amounts."},
-        {label:"amount",k:"enum",r:[6,9],val:"+25.92",body:"Routing depth, big-endian float32 = the displayed percent, direct. Here +25.92.",note:"the mod matrix is the highest-value dissection target after the sample map."}
       ]]
   };
 

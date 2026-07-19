@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / krz anatomy</title>
+<script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* krz palette: moss value, ochre flag, slate structural */
+  --enum:#3F6B57;  --enum-soft:#D4E0D9;
+  --flag:#9A7B3F;  --flag-soft:#E7DECA;
+  --rsv:#9C9889;   --rsv-soft:rgba(32,31,27,0.03);
+  --sync:#5A5560;  --sync-soft:#DBD8DE;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+:root[data-theme="dark"]{--paper:#191a17;--panel:#212320;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#383a32;--hair:#2b2d26;--enum:#8fb09e;--enum-soft:#1f2622;--flag:#c3b492;--flag-soft:#2c291d;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#a7a4a7;--sync-soft:#232322;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{padding:0.9rem 1.1rem}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
+/* two boxes per row: the dark (selected) state naming the color, and the light
+   (resting) state naming the meaning, matching how a field looks in the map. */
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+.tree .kf{color:var(--enum)} .tree .kr{color:var(--flag)}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+.callout{font-size:0.76rem;color:var(--soft);line-height:1.7;border:1px solid var(--line);border-left:2px solid var(--flag);background:var(--panel);padding:0.8rem 1rem;margin:1.2rem 0 0.4rem;max-width:74ch}
+.callout b{color:var(--ink);font-weight:500}
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.7rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500} .region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px}
+.region.req .rname::after{content:"req";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--enum);border:1px solid var(--enum);padding:1px 4px}
+.region .rbody{padding:0.6rem 1rem 1.1rem 3rem;border-top:1px solid var(--hair)}
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.3rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+/* variant tabs */
+.tabs{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-bottom:none;margin-bottom:0}
+.tab{padding:0.55rem 0.9rem;font-size:0.64rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--soft);cursor:pointer;border-right:1px solid var(--hair);background:none;font-family:var(--ff);border-top:none;border-left:none;border-bottom:2px solid transparent;text-align:left}
+.tab:last-child{border-right:none}
+.tab:hover{color:var(--enum)}
+.tab.on{color:var(--ink);border-bottom-color:var(--enum);background:var(--panel)}
+.tab small{display:block;font-size:0.5rem;color:var(--faint);letter-spacing:0.08em;margin-top:1px;text-transform:none}
+.panelwrap{border:1px solid var(--line);border-top:none;padding:1.6rem clamp(1rem,3vw,1.8rem) 2rem;margin-bottom:2rem}
+.panel{display:none}
+.panel.on{display:block}
+.panel .plede{color:var(--soft);max-width:76ch;font-size:0.82rem;line-height:1.75;margin-bottom:0.3rem}
+.panel .plede b{color:var(--ink);font-weight:500}
+.panel .pfacts{display:flex;flex-wrap:wrap;gap:0 1.8rem;font-size:0.64rem;letter-spacing:0.06em;color:var(--soft);text-transform:uppercase;margin-bottom:1.1rem;border-bottom:1px solid var(--hair);padding-bottom:0.7rem}
+.panel .pfacts b{color:var(--enum);font-weight:500;margin-left:0.4rem;text-transform:none;letter-spacing:0.02em}
+
+/* bit diagram (canonical renderer, used when a field is drawn bit-by-bit) */
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+
+/* byte diagram */
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px;letter-spacing:0.02em}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.bcell.k-sync{background:var(--sync-soft)} .bcell.k-enum{background:var(--enum-soft)}
+.bcell.k-flag{background:var(--flag-soft)} .bcell.k-rsv{background:var(--rsv-soft)}
+.bcell.fstart{border-left:2px solid var(--line)}
+.bcell.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bcell.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bcell.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bcell.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.bit.k-sync{background:var(--sync-soft)} .bit.k-enum{background:var(--enum-soft)}
+.bit.k-flag{background:var(--flag-soft)} .bit.k-rsv{background:var(--rsv-soft)}
+.bit.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bit.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bit.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bit.hi.k-rsv{background:var(--faint);color:var(--paper)}
+
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:26rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+.timeline{font-size:0.76rem;color:var(--soft);line-height:1.9;margin:1rem 0 0.4rem}
+.timeline div{display:grid;grid-template-columns:5.5rem 1fr;gap:1rem;padding:0.15rem 0}
+.timeline .y{color:var(--enum);font-weight:500} .timeline b{color:var(--ink);font-weight:500}
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>Kurzweil Anatomy</h1></div>
+      <div class="stamp"><b>K2000 / K2500 / K2600</b>VAST . big-endian<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"PRAM"</b></div><div>endian <b>big (68k)</b></div>
+      <div>container <b>object db</b></div><div>lineage <b>K2000 1991</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="plede lede">A <b>.KRZ</b> file is not a chunked container &mdash; it is a flat <b>object-database dump</b>. A 32-byte <b>PRAM</b> header, then a run of length-prefixed <b>object blocks</b> (Sample, Keymap, Program, Setup, Studio-FX...), an <b>int32 = 0</b> end marker, and one contiguous region of raw 16-bit PCM the samples point into by absolute word offset. Everything is <b>big-endian</b> &mdash; the K-series is a Motorola 68000 platform. Objects cross-reference by numeric <b>id</b>: a Program layer names a Keymap, a Keymap entry names a Sample. The tabs open each structure, drawn byte by byte from a real bank. <b>Hover</b> a field to light its bytes, <b>click</b> a field with a <span class="k-en">+</span> for its table. Color marks kind (see the key).</p>
+  <aside class="sig" aria-label="color key">
+    <div class="legrows">
+    <div class="row"><span class="sw dark k-enum">moss</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-flag">ochre</span><span class="swsep">&#8594;</span><span class="sw light k-flag">flag</span></div>
+    <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
+    </div>
+    <div class="siglabel">color key</div>
+  </aside>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-p="overview">Overview<small>the object model</small></button>
+    <button class="tab" data-p="pram">PRAM<small>file header</small></button>
+    <button class="tab" data-p="object">Object block<small>the framing</small></button>
+    <button class="tab" data-p="sample">Sample<small>KSample + head</small></button>
+    <button class="tab" data-p="keymap">Keymap<small>key -&gt; sample</small></button>
+    <button class="tab" data-p="program">Program<small>VAST segments</small></button>
+    <button class="tab" data-p="srom">SROM<small>effects file</small></button>
+  </div>
+  <div class="panelwrap">
+
+    <!-- ===================== OVERVIEW ===================== -->
+    <div class="panel on" data-panel="overview">
+      <p class="plede">Where a WAV or AIFF is a self-describing tree of chunks, a Kurzweil bank is a <b>database dump</b>: a header, a flat list of independent objects, an end marker, then the audio. There is <b>no preset/voice/zone hierarchy inside an object</b> &mdash; instead a bank is three <i>kinds</i> of object that reference each other by numeric id. A <b>Program</b> (a VAST synth patch) names a <b>Keymap</b>; a Keymap's key entries name <b>Samples</b>; the Samples point by absolute word offset into one shared PCM blob at the end of the file. The object below is a real Sweetwater bank, <code>e3_bass.krz</code>.</p>
+
+      <div class="sec">a real bank, laid out</div>
+      <div class="tree">
+<b>PRAM</b>  <span class="kf">osize=1028</span>  OS v2.08                    <span class="kr">— 32-byte file header</span>
+&#9500;&#9472; <b>Sample</b>  #200  "UNNAMED WS"    39101 Hz loop, root C2    <span class="kr">— KSample + Soundfilehead</span>
+&#9500;&#9472; <b>Keymap</b>  #200  "E3 BASS  C2-C4"  <span class="kf">-&gt; sample 200</span>, 127 keys
+&#9500;&#9472; <b>Keymap</b>  #201  "E3 BASS    -L2"  <span class="kf">-&gt; sample 200</span>
+&#9492;&#9472; <b>Program</b> #200  "E3 BASS"        1 layer <span class="kf">-&gt; keymap 200</span>
+   <b>int32 = 0</b>                                            <span class="kr">— object-section end marker</span>
+<b>PCM</b>  0x0404 .. EOF   205,610 bytes  102,805 samples      <span class="kr">— raw 16-bit BIG-endian</span>
+      </div>
+
+      <div class="sec">the K-series, dated</div>
+      <div class="timeline">
+        <div><span class="y">1991</span><span><b>K2000</b> &mdash; Kurzweil's VAST engine (Variable Architecture Synthesis): sample playback into a DSP block chain. The <b>.KRZ</b> bank format is its disk-save.</span></div>
+        <div><span class="y">1996</span><span><b>K2500</b> &mdash; expanded VAST, more DSP, same bank model. Reads K2000 banks.</span></div>
+        <div><span class="y">1999</span><span><b>K2600</b> &mdash; the last of the line; the format is stable across all three, disambiguated by the OS version in the header.</span></div>
+        <div><span class="y">68k</span><span><b>big-endian throughout.</b> The K-series runs a Motorola 68000, so every size, id, and sample word is big-endian &mdash; the opposite of the little-endian RIFF/WAV world and of E-mu's E4B.</span></div>
+      </div>
+
+      <div class="callout"><b>the type-in-the-hash trick.</b> Every object's 16-bit <b>hash</b> packs both a type and an id: <code>hash = (type &lt;&lt; 10) | id</code>. So <code>0x98C8</code> is <code>(38 &lt;&lt; 10) | 200</code> &mdash; type 38 (Sample), id 200. The reader recovers <code>type = hash &gt;&gt; 10</code> and <code>id = hash &amp; 0x3FF</code>. Confirmed types: 36 Program, 37 Keymap, 38 Sample, 28 Studio/FX, 39 Setup, 25 Master. The three id spaces (sample/keymap/program) all start at 200 and can collide harmlessly &mdash; the type qualifies the id.</div>
+      <div class="callout"><b>walk by the negative length.</b> Each object opens with a <b>signed 32-bit blocksize stored negative</b> &mdash; a reader advances to the next object by adding <code>&minus;blocksize</code> to its position. The walk ends at an <code>int32 = 0</code>. After that marker sits one contiguous PCM region, word-addressed as <code>osize + word_index &times; 2</code>. acidcat's walker never raises across all 242 corpus banks, even on a forged length.</div>
+      <div class="callout"><b>RAM &ne; file.</b> The K2000's live SysEx object dump returns a fixed-layout <i>RAM</i> object, not this tagged-segment disk format &mdash; the firmware converts on load and save. These bytes describe the <b>.KRZ file</b>, the form a librarian or converter sees on disk.</div>
+    </div>
+
+    <!-- ===================== PRAM ===================== -->
+    <div class="panel" data-panel="pram">
+      <div class="pfacts"><span>magic<b>"PRAM"</b></span><span>size<b>32 bytes</b></span><span>endian<b>big</b></span><span>osize<b>points at PCM</b></span></div>
+      <p class="plede">The 32-byte file header. Four things matter: the <b>PRAM</b> magic, the <b>osize</b> pointer to where the PCM sample region begins (which is also the end of the object section), and the <b>software version</b> that dates the bank. The remaining words are reserved &mdash; the mpc2emu writer leaves them zero, but hardware-saved banks carry non-zero values whose meaning is not pinned down, so acidcat surfaces them without guessing.</p>
+      <div class="sec">PRAM header (32 bytes)</div>
+      <p class="note">Example: <code>e3_bass.krz</code> &mdash; a small 4-object bank, K2000 OS v2.08.</p>
+      <div id="pram-hdr" data-build></div>
+      <div class="callout"><b>osize is a pointer, not a size.</b> The name is misleading: <code>osize</code> is the absolute byte <i>offset</i> where the PCM begins (written last, patched in after all objects are laid out). It doubles as the end of the object section. A file where <code>osize == filesize</code> has objects but no samples (a program-only or keymap-only bank).</div>
+    </div>
+
+    <!-- ===================== OBJECT BLOCK ===================== -->
+    <div class="panel" data-panel="object">
+      <div class="pfacts"><span>blocksize<b>negative i32</b></span><span>hash<b>type &lt;&lt; 10 | id</b></span><span>name<b>&le; 16 ASCII</b></span></div>
+      <p class="plede">Every object &mdash; whatever its kind &mdash; opens with the same framing: a <b>negative blocksize</b> to walk by, a <b>hash</b> carrying type and id, an <b>obj_size</b>, a <b>name offset</b>, the ASCII <b>name</b>, and word-alignment padding. Only after this common header does the type-specific body begin. The map below is the header of the Sample object from the bank on the Overview tab.</p>
+      <div class="sec">object block header (Sample #200)</div>
+      <p class="note">The 22 bytes from block start to the object-specific data. Hover the <span class="k-en">hash</span> to see the type/id split.</p>
+      <div id="object-hdr" data-build></div>
+      <div class="callout"><b>the name offset.</b> <code>name_ofs</code> is the distance from its own field to the start of the object data: <code>name_len + 3</code> for an odd-length name, <code>name_len + 4</code> for even (the extra byte word-aligns). "UNNAMED WS" is 10 chars (even), so <code>ofs = 14</code> and the data starts 14 bytes past the field &mdash; after the name and its two null pad bytes.</div>
+    </div>
+
+    <!-- ===================== SAMPLE ===================== -->
+    <div class="panel" data-panel="sample">
+      <div class="pfacts"><span>KSample<b>12 B</b></span><span>Soundfilehead<b>32 B</b></span><span>loop bit<b>0x80 inverted</b></span><span>rate<b>from period</b></span></div>
+      <p class="plede">A Sample object body is a 12-byte <b>KSample</b> header (mono/stereo, header count) then a 32-byte <b>Soundfilehead</b> per channel: root key, loop flag, the word offsets into the shared PCM blob, and the sample period from which the rate is derived. Two envelope structs follow (not drawn). The whole thing points <i>into</i> the PCM region &mdash; it carries no audio itself.</p>
+      <div class="sec">KSample + Soundfilehead (44 bytes)</div>
+      <p class="note">Example: Sample #200, 16-bit mono, 39101 Hz, looped, root C2. Hover <span class="k-en">sf_flags</span> for the loop encoding.</p>
+      <div id="sample-body" data-build></div>
+      <div class="callout"><b>the inverted loop bit (HW-confirmed).</b> <code>Soundfilehead.flags</code> is <code>0x70</code> when <b>looped</b> and <code>0xF0</code> when <b>one-shot</b> &mdash; the loop on/off bit <code>0x80</code> is <b>inverted</b> (set = one-shot). The <code>0x10|0x20|0x40</code> bits are the load + playback-enable set; <code>0x40</code> alone loads the sample but produces <i>no sound</i> (the original "silent KRZ" bug). For a looped sample <code>sampleEnd</code> is the <b>loop end</b> word, not the PCM end.</div>
+      <div class="callout"><b>rate from period.</b> There is no sample-rate field. <code>samplePeriod</code> is a big-endian u32 = <code>round(1e9 / rate)</code> in nanoseconds; acidcat recovers <code>rate = round(1e9 / period)</code>. Here <code>0x000063E7 = 25575 ns &rarr; 39101 Hz</code>.</div>
+    </div>
+
+    <!-- ===================== KEYMAP ===================== -->
+    <div class="panel" data-panel="keymap">
+      <div class="pfacts"><span>header<b>28 B</b></span><span>entries<b>128 keys</b></span><span>method<b>0x03 / 0x13</b></span><span>maps<b>key -&gt; sample</b></span></div>
+      <p class="plede">A Keymap is one voice's key-to-sample map: a 28-byte header, then up to 128 fixed-size key entries. Each entry names the <b>Sample id</b> to play for that key (the K2000 auto-transposes it from the sample root). The entry width is set by the <b>method</b> field &mdash; and it is not the same across the corpus, which is where a real specimen teaches more than a spec.</p>
+      <div class="sec">KKeymap header (28 bytes)</div>
+      <p class="note">Example: Keymap #200 from <code>e3_bass.krz</code>. Hover <span class="k-en">method</span> and <span class="k-en">entry_size</span>.</p>
+      <div id="keymap-hdr" data-build></div>
+      <div class="sec">key entry (3 bytes, method 0x03)</div>
+      <p class="note">One key's mapping. This bank uses <b>method 0x03</b> &mdash; a 3-byte entry with no per-key tuning.</p>
+      <div id="keymap-entry" data-build></div>
+      <div class="callout"><b>two entry layouts in the wild.</b> The modern K2000 (and the mpc2emu writer) save <b>method 0x0013</b>: a 5-byte entry, <code>tuning[i16] &#124; sampleID[u16] &#124; SSNr[u8]</code>. But this 2013 Sweetwater bank uses <b>method 0x0003</b>: a 3-byte entry, <code>sampleID[u16] &#124; SSNr[u8]</code> with <b>no tuning prefix</b> &mdash; so the Sample id sits at offset 0, not offset 2. A reader that hard-codes the 5-byte layout reads the wrong bytes here (it lands on <code>0x0100 = 256</code> instead of the real <code>0x00C8 = 200</code>). The <code>entry_size</code> field is the authoritative stride; the <code>method</code> low nibble bit <code>0x10</code> is what adds the tuning word.</div>
+    </div>
+
+    <!-- ===================== PROGRAM ===================== -->
+    <div class="panel" data-panel="program">
+      <div class="pfacts"><span>encoding<b>tagged segments</b></span><span>seg len<b>by tag &amp; 0xF8</b></span><span>ends<b>int16 = 0</b></span><span>layers<b>1 LYR each</b></span></div>
+      <p class="plede">A Program is a VAST patch: a stream of <b>tagged segments</b>, each a 1-byte tag then a fixed number of data bytes, terminated by <code>int16 = 0</code>. The segment length is keyed by <code>tag &amp; 0xF8</code> (a family), with one exact-tag exception. The shape is <b>PGM FX</b> once, then per layer a run of <b>LYR ... ENC ENV ENC CAL HOB HOB HOB HOB</b> &mdash; one LYR and one CAL (which names the layer's Keymap) per voice.</p>
+      <div class="sec">program stream (first 24 bytes: PGM + FX)</div>
+      <p class="note">Example: Program #200. Hover <span class="k-en">pgm_tag</span> / <span class="k-en">fx_tag</span> to see the two segment boundaries.</p>
+      <div id="program-seg" data-build></div>
+      <div class="callout"><b>segment lengths (data bytes after the tag).</b> <code>0x08</code> PGM / <code>0x09</code> LYR = 15; <code>0x0F</code> FX = 7 (the exact-tag exception &mdash; it lives in the 0x08 family but is short); <code>0x18</code> FUN = 3; <code>0x10</code> ASR / <code>0x14</code> LFO / <code>0x68</code> KDFX = 7; <code>0x20</code> ENC / <code>0x50</code> HOB = 15; <code>0x40</code> CAL / <code>0x78</code> KB3 = 31. acidcat counts <b>LYR (0x09)</b> tags for the layer count; the per-parameter VAST decode (filter, envelopes, LFO) is a deferred follow-up.</div>
+      <div class="callout"><b>CAL holds the keymap link.</b> Each layer's <b>CAL</b> (0x40, 31 bytes) references its Keymap id in bytes <code>[11,12]</code> only &mdash; a second keymap slot at <code>[7,8]</code> must stay zero, or the K2000 claims two keymaps per layer and goes silent past four layers (HW-confirmed). This is the Program &rarr; Keymap edge of the reference graph.</div>
+    </div>
+
+    <!-- ===================== SROM ===================== -->
+    <div class="panel" data-panel="srom">
+      <div class="pfacts"><span>magic<b>"SROM"</b></span><span>not<b>PRAM</b></span><span>content<b>effects / sample ROM</b></span></div>
+      <p class="plede">Not every <b>.krz</b> is a PRAM bank. Effects and sample-ROM files use a different, simpler container that opens with <b>SROM</b> instead of PRAM &mdash; a magic, a declared size, then a zero-filled body (in this specimen). acidcat recognizes it and surfaces the header rather than mis-parsing it as an object bank; a full SROM body decode is future work.</p>
+      <div class="sec">SROM header (8 bytes)</div>
+      <p class="note">Example: <code>verbhall.krz</code>, a reverb-hall effects file.</p>
+      <div id="srom-hdr" data-build></div>
+      <div class="callout"><b>sniff both magics.</b> acidcat routes a <code>.krz</code> to the Kurzweil walker on either <b>PRAM</b> or <b>SROM</b> at offset 0. Files like <code>flangefx</code>, <code>gatedvrb</code>, <code>verbhall</code>, and <code>chorus</code> are SROM; the rest of a soundset is PRAM. Anything else at offset 0 is declined, not force-fit.</div>
+    </div>
+
+  </div>
+
+  <footer><span>acidcat / krz anatomy</span><span>kurzweil . k2000/k2500/k2600 . VAST object bank</span><span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // byte-map specs, built lazily the first time a tab is shown (a hidden panel
+  // reports zero height, so the detail pane would size wrong if built up front).
+  // every byte value below is copied verbatim from a real Sweetwater specimen
+  // (e3_bass.krz for the bank objects, verbhall.krz for SROM).
+  var SPECS={
+    "pram-hdr":["byte",
+      [0x50,0x52,0x41,0x4D, 0x00,0x00,0x04,0x04, 0x00,0x00,0x1F,0x14, 0x00,0x01,0xE0,0xE8, 0x00,0x00,0x00,0xD0, 0x03,0x10,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00],
+      [
+        {label:"magic",k:"sync",r:[0,3],val:"\"PRAM\"",sel:0,branch:[["PRAM","object bank"],["SROM","effects / sample-ROM (see SROM tab)"]],
+          body:"The bank signature, ASCII. \"PRAM\" is an object database; \"SROM\" is the effects/sample-ROM container.",
+          note:"acidcat sniffs the first 4 bytes and routes either magic to the Kurzweil walker."},
+        {label:"osize (pcm_offset)",k:"enum",r:[4,7],val:"1028",body:"BIG-endian i32: the absolute byte offset where the PCM sample region begins -- which is also the end of the object section. Written last, patched in after all objects are laid out.",
+          note:"0x00000404 = 1028. If osize == filesize, the bank has objects but no samples."},
+        {label:"reserved",k:"rsv",r:[8,11],val:"0x00001F14",body:"Reserved header word. The mpc2emu writer emits 0; this hardware-saved bank carries a non-zero value whose meaning is not pinned down.",note:"surfaced, never interpreted -- the walker does not guess."},
+        {label:"reserved",k:"rsv",r:[12,15],val:"0x0001E0E8",body:"Reserved header word, likewise non-zero in hardware banks and 0 from mpc2emu."},
+        {label:"software_version",k:"enum",r:[16,19],val:"208 (v2.08)",body:"BIG-endian i32: the K2000 OS version times 100. acidcat prints it as v2.08.",note:"0x000000D0 = 208. mpc2emu writes 353 (v3.53); the corpus ranges v1.00 .. v3.54."},
+        {label:"reserved",k:"rsv",r:[20,31],val:"0x03100000..",body:"Trailing 12 reserved bytes. Zero from the writer; hardware banks vary. Not interpreted."}
+      ]],
+    "object-hdr":["byte",
+      [0xFF,0xFF,0xFF,0xA4, 0x98,0xC8, 0x00,0x56, 0x00,0x0E, 0x55,0x4E,0x4E,0x41,0x4D,0x45,0x44,0x20,0x57,0x53, 0x00,0x00],
+      [
+        {label:"blocksize",k:"sync",r:[0,3],val:"-92",body:"BIG-endian i32, stored NEGATIVE = -(total bytes of this block). A reader advances to the next object by adding -blocksize to its position; the walk stops at an int32 = 0.",
+          note:"0xFFFFFFA4 = -92. This block is 92 bytes, so the next object is at pos + 92."},
+        {label:"hash",k:"enum",r:[4,5],val:"0x98C8 (Sample #200)",sel:4,branch:[
+          ["25","Master"],["28","Studio/FX"],["36","Program"],["37","Keymap"],["38","Sample"],["39","Setup"]],
+          body:"BIG-endian u16 packing type and id: (type << 10) | id. Here 0x98C8 = (38 << 10) | 200 -> type 38 (Sample), id 200.",
+          note:"type = hash >> 10, id = hash & 0x3FF. The three id spaces (sample/keymap/program) all start at 200; the type qualifies the id."},
+        {label:"obj_size",k:"enum",r:[6,7],val:"86",body:"BIG-endian u16: the object size, from the size field to the end of the object body. 0x0056 = 86.",note:"distinct from blocksize, which counts the whole padded block."},
+        {label:"name_ofs",k:"enum",r:[8,9],val:"14",body:"BIG-endian u16: offset from this field to the start of the object data = name_len + 3 (odd name) or + 4 (even). \"UNNAMED WS\" is 10 chars (even), so 14.",
+          note:"the object body begins at this field's position + 14."},
+        {label:"name",k:"sync",r:[10,19],val:"\"UNNAMED WS\"",body:"ASCII object name, up to 16 chars. Not how objects reference each other -- that is always by numeric id -- but what a librarian displays."},
+        {label:"pad",k:"rsv",r:[20,21],val:"00 00",body:"Null terminator + word-alignment. One 0x00 for an odd-length name, two for even. Then the type-specific body begins."}
+      ]],
+    "sample-body":["byte",
+      [0x00,0x01, 0x00,0x00, 0x00,0x08, 0x00, 0x00,0x00,0x00,0x00,0x00, 0x30, 0x70, 0x00,0x00, 0x14,0x24, 0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x01,0x35,0x06, 0x00,0x01,0x91,0x94, 0x00,0x08, 0x00,0x12, 0x00,0x00,0x63,0xE7],
+      [
+        {label:"base_id",k:"rsv",r:[0,1],val:"1",body:"KSample header: always 1 in every real soundset. A structural constant, not a reference."},
+        {label:"num_headers",k:"enum",r:[2,3],val:"0 (mono)",body:"Soundfilehead count minus one: 0 = one header (mono). A stereo sample sets this to 1 and appends a second Soundfilehead.",note:"mpc2emu and this specimen are mono-only."},
+        {label:"headers_ofs",k:"rsv",r:[4,5],val:"8",body:"Offset to the first Soundfilehead. Always 8."},
+        {label:"ks_flags",k:"flag",r:[6,6],val:"0x00 (mono)",body:"KSample flags. Bit 0 is the STEREO flag (not needsLoad). 0 here = mono."},
+        {label:"reserved",k:"rsv",r:[7,11],val:"0x00..",body:"ks1 + copyID + ks2, all zero. Completes the 12-byte KSample header."},
+        {label:"root_key",k:"enum",r:[12,12],val:"48 = C2",body:"Soundfilehead: the MIDI root note. The K2000 auto-transposes each key relative to this pitch.",note:"0x30 = 48; acidcat labels it C2."},
+        {label:"sf_flags",k:"flag",r:[13,13],val:"0x70 = loop",sel:0,branch:[["0x70","looped"],["0xF0","one-shot"],["0x40 only","loads but silent (bug)"]],
+          body:"Soundfilehead flags. 0x70 = looped, 0xF0 = one-shot. The loop on/off bit 0x80 is INVERTED: set = one-shot. The 0x10|0x20|0x40 bits are the load + playback-enable set.",
+          note:"0x40 alone loads the sample but produces no sound -- the original silent-KRZ bug (HW-confirmed)."},
+        {label:"vol_adjust",k:"rsv",r:[14,15],val:"0",body:"volumeAdjust + altVolumeAdjust, both 0."},
+        {label:"max_pitch",k:"enum",r:[16,17],val:"5156",body:"BIG-endian u16, x100 cents: the pitch ceiling at which the sample, transposed up, hits the K2000's 48 kHz playback limit. Keys above it are not assigned the sample.",note:"0x1424 = 5156 -> ~root + 12*log2(48000/rate) semitones."},
+        {label:"offset_to_name",k:"rsv",r:[18,19],val:"0",body:"Unused here, 0."},
+        {label:"sample_start",k:"enum",r:[20,23],val:"0",body:"BIG-endian i32: absolute WORD offset of the sample's first PCM word. The byte address is osize + this*2.",note:"0 = the very start of the shared PCM region."},
+        {label:"alt_sample_start",k:"rsv",r:[24,27],val:"0",body:"altSampleStart; equals sample_start in real files."},
+        {label:"loop_start",k:"enum",r:[28,31],val:"79110",body:"BIG-endian i32: for a looped sample, the loop start as a PCM word offset.",note:"0x00013506 = 79110 words."},
+        {label:"sample_end",k:"enum",r:[32,35],val:"102804",body:"BIG-endian i32: for a looped sample this is the LOOP END word, not the PCM end -- the K2000 loops over [loop_start, sample_end]. For a one-shot both collapse onto the PCM end.",note:"0x00019194 = 102804 words."},
+        {label:"offset_to_env",k:"rsv",r:[36,37],val:"8",body:"offsetToEnvelope = 8 (mono, one header)."},
+        {label:"alt_offset_to_env",k:"rsv",r:[38,39],val:"18",body:"altOffsetToEnvelope = 6 in the writer; 18 (0x12) in this specimen. Followed by two 12-byte Envelope structs (not drawn)."},
+        {label:"sample_period",k:"enum",r:[40,43],val:"25575 -> 39101 Hz",body:"BIG-endian u32 = round(1e9 / sample_rate) in nanoseconds. There is no rate field; acidcat recovers rate = round(1e9 / period).",note:"0x000063E7 = 25575 -> 39101 Hz."}
+      ]],
+    "keymap-hdr":["byte",
+      [0x00,0x00, 0x00,0x03, 0x00,0x00, 0x00,0x64, 0x00,0x7F, 0x00,0x03, 0x00,0x10,0x00,0x0E,0x00,0x0C,0x00,0x0A,0x00,0x08,0x00,0x06,0x00,0x04,0x00,0x02],
+      [
+        {label:"sample_id",k:"enum",r:[0,1],val:"0",body:"Default sample id for the keymap. 0 for a multi-sample map -- the per-entry ids carry the actual mapping.",note:"the K2000 itself writes 0 here on save."},
+        {label:"method",k:"enum",r:[2,3],val:"0x0003",sel:0,branch:[["0x0003","3-byte: sampleID | SSNr"],["0x0013","5-byte: tuning | sampleID | SSNr"]],
+          body:"The per-entry format selector. 0x03 = 3-byte entries (sampleID + subsample, no tuning). 0x13 = 5-byte entries with a 2-byte tuning prefix -- the layout the modern K2000 and mpc2emu write.",
+          note:"the 0x10 bit is what adds the tuning word. This 2013 bank uses 0x03; a reader that assumes 0x13 misreads the sample id (see the entry map)."},
+        {label:"base_pitch",k:"rsv",r:[4,5],val:"0",body:"basePitch = 0 in every real production soundset."},
+        {label:"cents_per_entry",k:"enum",r:[6,7],val:"100",body:"Cents between adjacent keys: 100 = one semitone per key. 0x64 = 100."},
+        {label:"entries_per_vel",k:"enum",r:[8,9],val:"127",body:"NUM_KEYS - 1. 0x7F = 127."},
+        {label:"entry_size",k:"enum",r:[10,11],val:"3",body:"Bytes per key entry -- the authoritative stride for walking the entries. 3 here (matching method 0x03); 5 for method 0x13.",note:"acidcat reads this field rather than assuming a width."},
+        {label:"Level[8]",k:"rsv",r:[12,27],val:"velocity levels",body:"Eight big-endian i16 velocity-level words, (8 - j)*2 for j in 0..7 -- the single-velocity-level encoding a reader decodes back to one level spanning all 8 buckets.",note:"0x0010,0x000E,... = 16,14,12,10,8,6,4,2."}
+      ]],
+    "keymap-entry":["byte",
+      [0x00,0xC8, 0x01],
+      [
+        {label:"sample_id",k:"enum",r:[0,1],val:"200",body:"BIG-endian u16: the Sample object id this key plays. 0x00C8 = 200 -- Sample #200 from the Overview bank. This is the Keymap -> Sample edge of the reference graph.",
+          note:"in a method-0x13 entry a 2-byte signed tuning precedes this, so the id sits at offset 2 instead of 0."},
+        {label:"SSNr",k:"enum",r:[2,2],val:"1",body:"Subsample index within the sample, 1-based. 1 here."}
+      ]],
+    "program-seg":["byte",
+      [0x08, 0x02,0x01,0x00,0x37,0x40,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x0F, 0x00,0x1E,0x2C,0x00,0x00,0x00,0x00],
+      [
+        {label:"pgm_tag",k:"sync",r:[0,0],val:"0x08 PGM",body:"The program-globals segment tag. Segment length is keyed by tag & 0xF8: the 0x08 family is 15 data bytes.",note:"the stream is PGM FX once, then LYR...CAL HOB HOB HOB HOB per layer, ending at int16 = 0."},
+        {label:"mode",k:"enum",r:[1,1],val:"2 = K2000",body:"PGM data byte 0: the synth mode. 2 = K2000."},
+        {label:"num_layers",k:"enum",r:[2,2],val:"1",body:"PGM data byte 1: the layer count. One LYR segment, one CAL (and thus one keymap reference) per layer.",note:"acidcat also derives this by counting LYR (0x09) tags."},
+        {label:"reserved",k:"rsv",r:[3,3],val:"0",body:"PGM data byte 2, unused here."},
+        {label:"bend_range",k:"enum",r:[4,4],val:"0x37 = 55",body:"PGM data byte 3: the pitch-bend range."},
+        {label:"portamento",k:"enum",r:[5,5],val:"0x40 = 64",body:"PGM data byte 4: portamento."},
+        {label:"pgm_tail",k:"rsv",r:[6,15],val:"0x00..",body:"The rest of the 15-byte PGM segment, zero in this program."},
+        {label:"fx_tag",k:"sync",r:[16,16],val:"0x0F FX",body:"The effect-selection segment tag: 7 data bytes. This is the exact-tag exception -- 0x0F is in the 0x08 family by the mask but is short, so a reader must check exact tags first.",note:"masking 0x0F & 0xF8 = 0x08 would over-read by 8 bytes and desync the walk."},
+        {label:"fx_data",k:"enum",r:[17,23],val:"FX reference",body:"The 7-byte FX segment body -- the studio/effect the program routes through (the K2000 ROM effects, in a program that writes no type-28 object)."}
+      ]],
+    "srom-hdr":["byte",
+      [0x53,0x52,0x4F,0x4D, 0x00,0x00,0x06,0x60],
+      [
+        {label:"magic",k:"sync",r:[0,3],val:"\"SROM\"",body:"The effects / sample-ROM signature, ASCII -- a different container from PRAM. acidcat recognizes it and surfaces the header instead of mis-parsing it as an object bank."},
+        {label:"size",k:"enum",r:[4,7],val:"1632",body:"BIG-endian u32: the declared file size. Followed by a zero-filled body in this specimen; a full SROM decode is future work.",note:"0x00000660 = 1632 bytes."}
+      ]]
+  };
+
+  // tab switching -- build a panel's byte-maps the first time it is shown
+  var built={};
+  function buildPanel(name){
+    var panel=document.querySelector('[data-panel="'+name+'"]'); if(!panel) return;
+    panel.querySelectorAll("[data-build]").forEach(function(m){
+      if(built[m.id]) return; built[m.id]=1;
+      var spec=SPECS[m.id]; if(spec) build(m.id, spec[0], spec[1], spec[2]);
+    });
+  }
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  var panels=[].slice.call(document.querySelectorAll(".panel"));
+  function activate(name){
+    tabs.forEach(function(t){t.classList.toggle("on",t.dataset.p===name);});
+    panels.forEach(function(p){p.classList.toggle("on",p.dataset.panel===name);});
+    buildPanel(name);
+  }
+  tabs.forEach(function(t){t.addEventListener("click",function(){
+    activate(t.dataset.p);
+    if(history.replaceState) history.replaceState(null,"","#"+t.dataset.p);
+  });});
+  var initial=(location.hash||"").replace("#","");
+  if(initial && document.querySelector('[data-panel="'+initial+'"]')) activate(initial);
+  else buildPanel("overview");   // overview has no byte-map, but keep the hook uniform
+  buildPanel(document.querySelector(".panel.on").dataset.panel);
+})();
+</script>
+<button class="theme-toggle" id="themeToggle" aria-label="Toggle light and dark theme"></button>
+<script>(function(){var t=document.getElementById("themeToggle");function cur(){return document.documentElement.getAttribute("data-theme")||"light";}function label(m){t.textContent=(m==="dark"?"light":"dark");}function set(m,p){document.documentElement.setAttribute("data-theme",m);if(p){try{localStorage.setItem("acidcat-theme",m);}catch(e){}}label(m);}t.addEventListener("click",function(){set(cur()==="dark"?"light":"dark",true);});label(cur());})();</script>
+</body>
+</html>

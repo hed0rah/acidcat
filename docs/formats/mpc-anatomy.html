@@ -16,10 +16,10 @@
   --enum:#BC012E;  --enum-soft:#F0D8DC;   /* Akai red -- primary accent / verified */
   --flag:#A8761E;  --flag-soft:#F1E5C9;   /* Casablanca amber -- needs / caution */
   --rsv:#9C9C93;   --rsv-soft:rgba(30,30,28,0.03);
-  --sync:#1C355E;  --sync-soft:#D8DDE7;   /* classic MPC blue -- structural */
+  --sync:#54585C;  --sync-soft:#DBDCDD;   /* classic MPC gray -- structural */
   --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
 }
-:root[data-theme="dark"]{--paper:#18191a;--panel:#212220;--ink:#e7e7e3;--soft:#a9a9a2;--faint:#7b7b73;--line:#383834;--hair:#2b2b28;--enum:#e08a99;--enum-soft:#2a1a1e;--flag:#e0bd83;--flag-soft:#2c261b;--rsv:#bbbbb2;--rsv-soft:rgba(230,230,225,0.04);--sync:#93a6c6;--sync-soft:#1b1f26;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+:root[data-theme="dark"]{--paper:#18191a;--panel:#212220;--ink:#e7e7e3;--soft:#a9a9a2;--faint:#7b7b73;--line:#383834;--hair:#2b2b28;--enum:#e08a99;--enum-soft:#2a1a1e;--flag:#e0bd83;--flag-soft:#2c261b;--rsv:#bbbbb2;--rsv-soft:rgba(230,230,225,0.04);--sync:#a7a9ad;--sync-soft:#202120;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
 ::selection{background:var(--enum);color:var(--paper)}
 .sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
@@ -87,6 +87,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 .matrix .veri{color:var(--enum)} .matrix .need{color:var(--flag)} .matrix .part{color:var(--soft)}
 .matrix tr:hover td{background:var(--panel)}
 
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
 .dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
 .bcol{display:flex;flex-direction:column;align-items:center}
 .bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
@@ -126,6 +134,23 @@ body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:
 
 footer{margin-top:3rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
 footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+
+/* intro + color key (homogenized with the format sheet fleet) */
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
 </style>
 </head>
 <body>
@@ -139,6 +164,19 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
       </div>
       <div class="stamp"><b>MPC + S-series family</b>vintage &rarr; modern<br>rev 2026.07</div>
     </div>
+  </div>
+
+  <div class="intro">
+    <p class="lede"><b>Hover</b> a field to light its bytes, <b>click</b> a field with a <span class="k-en">+</span> for its table. Color marks kind (see the key).</p>
+    <aside class="sig" aria-label="color key">
+    <div class="legrows">
+    <div class="row"><span class="sw dark k-enum">akai red</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-flag">ochre</span><span class="swsep">&#8594;</span><span class="sw light k-flag">flag</span></div>
+    <div class="row"><span class="sw dark k-sync">mpc gray</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
+    </div>
+    <div class="siglabel">color key</div>
+  </aside>
   </div>
 
   <div class="tabs" id="tabs">
@@ -365,29 +403,50 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
   function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
   function build(mountId, unit, bytes, fields){
     var mount=document.getElementById(mountId);
-    var N = bytes.length;
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
     var owner=new Array(N);
     fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
-    var diagram=document.createElement("div"); diagram.className="dbytes";
-    bytes.forEach(function(b,i){
-      var f=fields[owner[i]];
-      var col=document.createElement("div"); col.className="bcol";
-      var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
-      var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
-      if(i===f.r[0]) cell.classList.add("fstart");
-      cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
-    });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
     var list=document.createElement("div"); list.className="fields";
     var aside=document.createElement("aside"); aside.className="detail";
     aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
-      "<h3>Hover a field or byte</h3><div class='dc'>"+bytes.length+" bytes</div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
       "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
     var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
     var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
     var rows=[];
     function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
     function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
-    function rl(f){ return "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
     function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
       det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
     function activeRow(){return list.querySelector(".field.active");}
@@ -396,7 +455,7 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
     function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
     fields.forEach(function(f,fi){
       var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
-      var lab = "0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):"");
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
       row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
       if(f.branch){
         var bw=document.createElement("div"); bw.className="branch";
@@ -407,21 +466,26 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
       row.addEventListener("click",function(){pin(fi);});
       rows.push(row); list.appendChild(row);
     });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
     cells.forEach(function(c){
       var fi=owner[+c.dataset.idx];
       c.addEventListener("mouseenter",function(){cue(fi);});
       c.addEventListener("click",function(){pin(fi);});
     });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
     var left=document.createElement("div"); left.className="left";
     left.appendChild(diagram); left.appendChild(list);
     var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
-    var blk=document.createElement("div"); blk.className="block";
-    blk.appendChild(left); blk.appendChild(dcol);
-    blk.addEventListener("mouseleave",restore);
-    mount.appendChild(blk);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
     var maxH=aside.scrollHeight;
     fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
-    det.t.textContent="Hover a field or byte"; det.c.textContent=bytes.length+" bytes";
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
     det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
     det.n.textContent="";
     dcol.style.minHeight=(maxH+6)+"px";
