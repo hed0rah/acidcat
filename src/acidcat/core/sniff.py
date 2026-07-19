@@ -52,6 +52,14 @@ def sniff_bytes(head):
         return "e5b"                                   # E-MU Emulator X / Proteus X
     if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] == b"8SVX":
         return "8svx"                                  # IFF 8-bit sampled voice (Amiga)
+    if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] == b"SMUS":
+        return "smus"                                  # IFF Sonix musical score (Amiga)
+    if head[:8] == b"OKTASONG":
+        return "okt"                                   # Oktalyzer module (Amiga)
+    if head[:4] in (b"MMD0", b"MMD1", b"MMD2", b"MMD3"):
+        return "med"                                   # MED / OctaMED module (Amiga)
+    if head[:4] in (b"SMOD", b"FC14"):
+        return "fc"                                    # Future Composer chiptune (Amiga)
     if head[:4] == b"PRAM" or head[:4] == b"SROM":
         return "krz"                                   # Kurzweil K2000/K2500/K2600
     if len(head) >= 14 and head[:4] == b"MThd":
