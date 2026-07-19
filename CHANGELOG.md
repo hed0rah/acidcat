@@ -6,6 +6,20 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-07-19
+
+### Added
+
+- **Amiga music-format walkers** (`core/walk/amiga.py`), from the acidcat-cassie
+  corpus: **SMUS** (IFF `FORM/SMUS`, the Sonix score and Deluxe Music
+  Construction Set save format -- SHDR tempo/volume/tracks, NAME, INS1
+  instruments, TRAK tracks); **Oktalyzer** (`OKTASONG` -- CMOD channel-split
+  giving 4-8 voices, the SAMP sample table); and recognize-plus-header for
+  **MED/OctaMED** (`MMD0`-`MMD3`) and **Future Composer** (`SMOD`/`FC14`). All
+  magic-sniffed, never-raise; field-tested on 29 corpus specimens (0 crashes).
+  The magic-less 15-instrument Ultimate Soundtracker (`mod15`) is intentionally
+  not sniffed (it would require guessing).
+
 ## [0.58.0] - 2026-07-19
 
 ### Added
