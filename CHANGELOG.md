@@ -6,6 +6,8 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-07-18
+
 ### Added
 
 - Kurzweil K2000 / K2500 / K2600 (VAST) `.KRZ` bank walker (`core/walk/krz.py`).
