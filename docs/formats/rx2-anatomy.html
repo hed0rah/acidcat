@@ -276,11 +276,13 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       row.addEventListener("click",function(){pin(fi);});
       rows.push(row); list.appendChild(row);
     });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
     cells.forEach(function(c){
       var fi=owner[+c.dataset.idx];
       c.addEventListener("mouseenter",function(){cue(fi);});
       c.addEventListener("click",function(){pin(fi);});
     });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
     var left=document.createElement("div"); left.className="left";
     left.appendChild(diagram); left.appendChild(list);
     var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
@@ -288,6 +290,8 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     block.appendChild(left); block.appendChild(dcol);
     block.addEventListener("mouseleave",restore);
     mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
     var maxH=aside.scrollHeight;
     fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
     det.t.textContent="Hover a field or byte";
