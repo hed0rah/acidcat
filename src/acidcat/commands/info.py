@@ -45,7 +45,13 @@ def register(subparsers):
 
 
 def _detect_format(filepath):
-    """Detect file format by magic bytes, falling back to extension."""
+    """Detect file format by magic bytes, falling back to extension.
+
+    Formats with a dedicated info builder (WAV/AIFF/MIDI/Serum/tagged) route to
+    themselves; every other format the walkers structurally decode
+    (Kurzweil/E-mu/Akai/RX2/FXP/tracker/SF2/MPC/... banks and presets) routes to
+    "walker" for a walker-backed summary, so it is never mis-parsed as a
+    headerless WAV."""
     if is_midi(filepath):
         return "midi"
     if is_aiff(filepath):
@@ -59,10 +65,15 @@ def _detect_format(filepath):
         return "midi"
     if ext.lower() == ".serumpreset":
         return "serum"
-    if _is_preset(filepath, ext):
-        return "preset"
     if is_tagged_format(filepath):
         return "tagged"
+    # any other structural format the walkers recognize gets a walker-backed
+    # summary instead of a mis-parse; rf64 too (its walker is not the WAV one)
+    from acidcat.core import sniff as sniffmod
+    if sniffmod.sniff(filepath) not in (None, "wav"):
+        return "walker"
+    if _is_preset(filepath, ext):        # ext-only presets sniff may not catch
+        return "walker"
     return "wav"
 
 
@@ -277,6 +288,33 @@ def _info_midi(filepath, args):
     return rec
 
 
+def _info_walker(filepath, args):
+    """Quick summary for a structural format the walkers decode but `info` has
+    no dedicated builder for (Kurzweil/E-mu/Akai/RX2/FXP/tracker/SF2/MPC/... banks
+    and synth presets). Shows the walker's top-level label + summary and points
+    to `inspect` for the full byte-level decode, instead of mis-parsing the file
+    as a headerless WAV."""
+    from acidcat.core.walk import walk_file, Unsupported
+
+    _vlog(args, "[detect] fmt=walker (structural)")
+    rec = {"File": os.path.basename(filepath)}
+    try:
+        label, chunks, warns = walk_file(filepath)
+    except Unsupported as e:
+        rec["Format"] = "unrecognized structural format"
+        rec["Note"] = str(e)
+        return rec
+    rec["Format"] = label
+    if chunks and chunks[0].get("summary"):
+        rec["Summary"] = chunks[0]["summary"]
+    rec["Regions"] = len(chunks)
+    if warns:
+        rec["Warnings"] = len(warns)
+    rec["Inspect"] = (f"use `acidcat inspect {os.path.basename(filepath)}` "
+                      "for the full structural decode")
+    return rec
+
+
 def _info_serum(filepath, args):
     """Build info record for a Serum preset, from the inspect walker."""
     from acidcat.core.walk.serum import inspect_serum
@@ -436,13 +474,6 @@ def run(args):
     try:
         fmt_type = _detect_format(filepath)
 
-        if fmt_type == "preset":
-            print(f"acidcat info: {os.path.basename(filepath)} is a synth/DAW "
-                  f"preset. `info` reads audio and tags; use `acidcat inspect "
-                  f"{os.path.basename(filepath)}` to decode preset structure.",
-                  file=sys.stderr)
-            return 2
-
         if fmt_type == "aiff":
             rec = _info_aiff(filepath, args)
         elif fmt_type == "midi":
@@ -451,6 +482,8 @@ def run(args):
             rec = _info_serum(filepath, args)
         elif fmt_type == "tagged":
             rec = _info_tagged(filepath, args)
+        elif fmt_type == "walker":
+            rec = _info_walker(filepath, args)
         else:
             rec = _info_wav(filepath, args)
 
