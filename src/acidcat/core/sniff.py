@@ -50,6 +50,8 @@ def sniff_bytes(head):
         return "e4b"                                   # E-MU Emulator 4 / EOS bank
     if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] == b"E5B0":
         return "e5b"                                   # E-MU Emulator X / Proteus X
+    if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] == b"8SVX":
+        return "8svx"                                  # IFF 8-bit sampled voice (Amiga)
     if head[:4] == b"PRAM" or head[:4] == b"SROM":
         return "krz"                                   # Kurzweil K2000/K2500/K2600
     if len(head) >= 14 and head[:4] == b"MThd":
