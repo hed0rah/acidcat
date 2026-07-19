@@ -6,6 +6,23 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **`acidcat census`** -- a scaled-up, read-only chunk-ID histogram and
+  open-question survey over a corpus of RIFF-family files (containers, format
+  tags, LIST types, fact sizes, bext versions, and flags for the rare/
+  undocumented chunks). Engineered for millions of files: an explicit-stack
+  `os.scandir` traversal that never stats a file it will not open (extension +
+  `d_type` off the dirent), is loop-safe and boundary-aware (unconditional
+  `(st_dev, st_ino)` directory dedup catches symlink loops and same-device bind
+  mounts; autofs mountpoints read from the mount table, never probed; optional
+  `--one-file-system`), positioned `pread` reads of chunk headers only (no audio
+  payload), with `posix_fadvise` readahead suppression + `DONTNEED` so a scan
+  does not evict the page cache, and an SSD/HDD-aware reader thread pool. Fixes
+  two bugs carried by the prototype: the bext version was read at payload offset
+  602 instead of 346, and non-printable FOURCCs from corrupt files were emitted
+  raw (now grouped as `hex:` tokens so the JSON stays well-formed).
+
 ## [0.56.1] - 2026-07-19
 
 ### Fixed
