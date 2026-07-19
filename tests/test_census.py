@@ -87,6 +87,27 @@ def test_rifx_big_endian(tmp_path):
     assert cx.chunk_counts.get("fmt ") == 1
 
 
+def test_rf64_ds64_resolves_sentinel_data_size(tmp_path):
+    # RF64: the data chunk's size field is the 0xFFFFFFFF sentinel; its real size
+    # lives in the ds64 chunk. The walk must use it to step over data and reach a
+    # trailing chunk (else it stops at data and misses everything after).
+    data_payload = b"\x00\x00\x00\x00" * 4                    # 16 real bytes
+    ds64 = struct.pack("<QQQI", 0, len(data_payload), 4, 0)   # riff/data/samples/tbl
+    body = (b"WAVE"
+            + b"ds64" + struct.pack("<I", len(ds64)) + ds64
+            + _FMT
+            + b"data" + struct.pack("<I", 0xFFFFFFFF) + data_payload
+            + _chunk(b"id3 ", b"tag"))                        # trailing, past data
+    rf64 = b"RF64" + struct.pack("<I", 0xFFFFFFFF) + body
+    p = _write(tmp_path, "big.wav", rf64)
+    cx = census.Census()
+    cx.census_file(p)
+    assert cx.by_container == {"RF64": 1}
+    assert "ds64" in cx.chunk_counts
+    assert "id3 " in cx.chunk_counts                          # reached past the data chunk
+    assert "id3_in_wav" in cx.flags
+
+
 def test_non_riff_file_skipped(tmp_path):
     p = _write(tmp_path, "not.wav", b"ID3\x03\x00" + b"\x00" * 100)
     cx = census.Census()
