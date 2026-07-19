@@ -181,3 +181,83 @@ def test_iart_portapack_device_tell():
     # a normal IART artist is not a device tell
     assert provenance.identify(
         "RIFF/WAVE", _chunks_with([("iart", "Some Artist")]), b"") == []
+
+
+# ── census-validated new tells (2026-07-19 WAV/RIFF corpus study) ──
+
+
+def test_new_chunk_tells_from_census():
+    cases = {
+        "strc": "Sony/Magix ACID / Sound Forge",   # ACID stretch markers, 25k files
+        "str2": "Sony/Magix ACID / Sound Forge",
+        "SyLp": "Sony/Magix ACID / Sound Forge",   # Sony loop, 7.5k files
+        "SNDM": "Soundminer",                        # 10.7k files
+        "LGBM": "Apple Logic Pro",                   # Logic companion to LGWV
+        "DIGI": "Avid Pro Tools (Digidesign)",       # Digidesign companion to DGDA
+        "RLND": "Roland",
+    }
+    for cid, tool in cases.items():
+        sigs = provenance._structural("RIFF/WAVE", _chunks_ids(["fmt ", "data", cid]), b"")
+        assert any(s["tool"] == tool and s["confidence"] == "likely"
+                   for s in sigs), f"{cid} -> {tool}"
+
+
+def test_ffmpeg_rf64_junk_positional_tell():
+    # ffmpeg RF64_AUTO reserves a 28-byte JUNK right after fmt (ds64 placeholder)
+    chunks = [{"id": "fmt ", "size": 16}, {"id": "JUNK", "size": 28},
+              {"id": "data", "size": 1000}]
+    sigs = provenance._structural("RIFF/WAVE", chunks, b"")
+    assert any(s["tool"] == "FFmpeg (libav)" and s["confidence"] == "likely"
+               for s in sigs)
+    # a JUNK of a different size, or not right after fmt, is NOT the tell
+    other = [{"id": "fmt ", "size": 16}, {"id": "JUNK", "size": 512},
+             {"id": "data", "size": 1000}]
+    assert not any(s["tool"] == "FFmpeg (libav)"
+                   for s in provenance._structural("RIFF/WAVE", other, b""))
+    notafter = [{"id": "fmt ", "size": 16}, {"id": "data", "size": 1000},
+                {"id": "JUNK", "size": 28}]
+    assert not any(s["tool"] == "FFmpeg (libav)"
+                   for s in provenance._structural("RIFF/WAVE", notafter, b""))
+
+
+def test_pmx_xmp_is_not_a_writer_signature():
+    # Adobe XMP is written by many tools -- a shared tell, corroborate-only, never
+    # a standalone writer attribution (like AFAn/FLLR)
+    assert provenance._structural(
+        "RIFF/WAVE", _chunks_ids(["fmt ", "data", "_PMX"]), b"") == []
+
+
+# ── the sidecar signature database (data, not code) ──
+
+
+def test_signatures_load_from_sidecar_json():
+    # the tables are built from the packaged JSON, not hardcoded
+    import os
+    assert os.path.isfile(provenance._DATA_FILE)
+    assert len(provenance._CANON) > 20
+    assert len(provenance._CHUNK_SIGNATURES) > 10
+
+
+def test_user_override_adds_a_signature(tmp_path, monkeypatch):
+    # a ~/.acidcat/provenance_signatures.json override adds a tool without code changes
+    import json
+    override = tmp_path / "provenance_signatures.json"
+    override.write_text(json.dumps({
+        "chunk_signatures": [{"chunks": ["ZZZZ"], "tool": "My Custom Tool"}],
+        "canon": [{"pattern": "MyDAW", "flags": "i", "template": "My Custom DAW"}],
+    }))
+    monkeypatch.setattr(provenance, "_USER_FILE", str(override))
+    db = provenance._load_db()
+    sigs = provenance._build_signatures(db["chunk_signatures"])
+    canon = provenance._build_canon(db["canon"])
+    assert any(tool == "My Custom Tool" for _, tool in sigs)
+    # user canon is tried first (prepended)
+    assert canon[0][0].search("a MyDAW render")
+
+
+def test_broken_user_override_is_ignored(tmp_path, monkeypatch):
+    bad = tmp_path / "provenance_signatures.json"
+    bad.write_text("{ this is not valid json ")
+    monkeypatch.setattr(provenance, "_USER_FILE", str(bad))
+    db = provenance._load_db()          # must not raise; falls back to packaged db
+    assert db["chunk_signatures"]

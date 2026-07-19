@@ -6,6 +6,27 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Provenance writer signatures now live in a sidecar data file
+  (`core/data/provenance_signatures.json`) instead of being hardcoded in
+  `provenance.py` -- signatures are data, editable without touching code. A user
+  override at `~/.acidcat/provenance_signatures.json` is merged on top (its
+  `canon` rules win first-match, its `chunk_signatures` are appended), so
+  signatures can be added with no code change or re-release.
+
+### Added
+
+- New WAV writer signatures, validated against a 807,394-file corpus census:
+  `strc`/`str2`/`SyLp` (Sony/Magix ACID / Sound Forge), `SNDM` (Soundminer),
+  `LGBM` (Logic, folded in with LGWV/ResU), `DIGI` (Digidesign, with DGDA),
+  `RLND` (Roland), `Cr8r` (GoPro CineForm / Adobe). `_PMX` (Adobe XMP) is
+  recorded as a deliberately-shared, corroborate-only tell, not a standalone
+  attribution.
+- ffmpeg RF64_AUTO structural fingerprint: a 28-byte `JUNK` chunk immediately
+  after `fmt ` (the ds64 placeholder) is detected positionally and attributed to
+  FFmpeg/libav at "likely" confidence.
+
 ## [0.55.1] - 2026-07-18
 
 ### Fixed
