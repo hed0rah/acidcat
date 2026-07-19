@@ -6,6 +6,8 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.55.1] - 2026-07-18
+
 ### Fixed
 
 - `acidcat info` (and bare-path `acidcat file.ext`) no longer mis-parses a
