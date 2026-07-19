@@ -200,27 +200,38 @@ def _sample_body(b, off):
 
 
 def _keymap_body(b, off, block_end):
-    """KKeymap header + up to 128 5-byte key entries: method, referenced
-    sample ids."""
+    """KKeymap header + up to 128 key entries: method, referenced sample ids.
+
+    The per-entry layout depends on `method`. 0x13 is a 5-byte entry --
+    tuning (i16), sampleID (u16), subSample (u8) -- the layout the modern
+    K2000 and the mpc2emu writer save. 0x03 is a 3-byte entry --
+    sampleID (u16), subSample (u8) -- with no tuning prefix, as real
+    Sweetwater soundset banks use. The 0x10 bit of method is what adds the
+    2-byte tuning prefix, so the sampleID sits at offset 2 with it and offset
+    0 without; `entry_size` is the authoritative stride."""
     if off + 28 > len(b):
         return "truncated", [], ["keymap body under 28 bytes"]
     method = struct.unpack_from(">H", b, off + 2)[0]
     cents = struct.unpack_from(">H", b, off + 6)[0]
     entry_size = struct.unpack_from(">H", b, off + 10)[0] or 5
-    entries_off = off + 28
+    # sampleID follows the optional 2-byte tuning prefix (method bit 0x10);
+    # a too-small entry_size can't hold a prefixed id, so fall back to offset 0
+    sid_off = 2 if (method & 0x10) and entry_size >= 4 else 0
+    end = min(block_end, len(b))
     sample_ids = set()
     keys = 0
-    p = entries_off
-    while p + 5 <= min(block_end, len(b)) and keys < 128:
-        sid = struct.unpack_from(">H", b, p + 2)[0]
-        if sid:
-            sample_ids.add(sid)
+    p = off + 28
+    while keys < 128 and p + entry_size <= end:
+        if p + sid_off + 2 <= end:                  # keep the read in bounds
+            sid = struct.unpack_from(">H", b, p + sid_off)[0]
+            if sid:
+                sample_ids.add(sid)
         keys += 1
         p += entry_size
+    layout = ("per-entry tuning|sampleID|subSample" if method == 0x13 else
+              "per-entry sampleID|subSample" if method == 0x03 else "")
     fields = [
-        _f(2, 2, "method", f"0x{method:04x}",
-           "per-entry tuning|sampleID|subSample" if method == 0x13 else "",
-           enc=">H", raw=method),
+        _f(2, 2, "method", f"0x{method:04x}", layout, enc=">H", raw=method),
         _f(6, 2, "cents_per_entry", cents),
         _f(None, 0, "sample_refs",
            ",".join(str(s) for s in sorted(sample_ids)) or "(none)",
