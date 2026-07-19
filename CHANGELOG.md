@@ -6,6 +6,8 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-07-19
+
 ### Added
 
 - **`acidcat census`** -- a scaled-up, read-only chunk-ID histogram and
@@ -21,7 +23,9 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   does not evict the page cache, and an SSD/HDD-aware reader thread pool. Fixes
   two bugs carried by the prototype: the bext version was read at payload offset
   602 instead of 346, and non-printable FOURCCs from corrupt files were emitted
-  raw (now grouped as `hex:` tokens so the JSON stays well-formed).
+  raw (now grouped as `hex:` tokens so the JSON stays well-formed). RF64/BW64
+  data-chunk sizes are resolved from the `ds64` chunk, so the walk reaches
+  trailing chunks past the `0xFFFFFFFF` sentinel instead of stopping at `data`.
 
 ## [0.56.1] - 2026-07-19
 
