@@ -6,6 +6,24 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-07-19
+
+### Added
+
+- **IFF 8SVX walker** (`core/walk/svx.py`) -- the Amiga 8-bit sampled-voice
+  format, a direct big-endian ancestor of RIFF/WAVE. Decodes the `VHDR` voice
+  header (rate, octave count, raw vs Fibonacci-delta compression, 16.16 volume),
+  the `NAME`/`AUTH`/`ANNO`/`(c) ` text set (`ANNO` is the Amiga-side `ISFT`
+  authoring-tool tell), `ATAK`/`RLSE` envelopes, `CHAN`, and `BODY` with derived
+  duration; flags the FORM-size undercount writer bug. Field-tested on 492 real
+  Amiga specimens (0 crashes). Plus a mirrored 8SVX anatomy datasheet in
+  `docs/formats/`.
+- `clm ` chunk recognized as **Xfer Serum** wavetable export (corpus-confirmed
+  against 43 files, all wavetables, none carrying an `acid` chunk -- correcting
+  the old "Sonic Foundry" web lore). Format tag **0x0039** named Roland RDAC
+  (RFC 2361), noting mmreg.h's unregistered Crystal IMA ADPCM squat at the same
+  value.
+
 ## [0.57.0] - 2026-07-19
 
 ### Added
