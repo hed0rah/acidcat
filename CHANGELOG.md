@@ -6,6 +6,30 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.56.1] - 2026-07-19
+
+### Fixed
+
+- **Kurzweil `.KRZ` keymap sample references.** The keymap decoder assumed the
+  modern 5-byte entry layout (method `0x13`: tuning, sampleID, subSample) and
+  always read the referenced sampleID at entry offset +2. Real Sweetwater
+  soundset banks use method `0x03`: a 3-byte entry with no tuning prefix, so the
+  sampleID sits at offset 0 and was misread (e.g. sample 200 reported as 256).
+  The decoder now locates the sampleID after the optional 2-byte tuning prefix,
+  keyed on the method `0x10` bit, with a bounds-guarded read; `entry_size`
+  remains the authoritative stride. Correct for every no-tuning method
+  (`0x01`-`0x0f`); tuning methods (`0x11`-`0x19`) unchanged. Swept the Sweetwater
+  corpus (0 crashes); verified against real banks (e3_bass -> sample 200,
+  angkorw -> 201/203/204).
+
+### Docs
+
+- Added the Kurzweil `.KRZ` anatomy datasheet (`docs/formats/krz-anatomy.html`):
+  a 7-tab interactive byte map (PRAM header, object framing, Sample, Keymap,
+  Program, SROM) built from real specimen bytes. Homogenized the anatomy fleet
+  onto one canonical renderer and added the color-key legend to the emu and mpc
+  sheets.
+
 ## [0.56.0] - 2026-07-19
 
 ### Docs
