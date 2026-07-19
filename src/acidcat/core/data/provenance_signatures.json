@@ -1,0 +1,67 @@
+{
+  "_about": "acidcat provenance signature database. Data, not code: edit this file to add or fix a writer signature without touching Python. A user override at ~/.acidcat/provenance_signatures.json is merged on top (its entries win / extend these). Regex backslashes are doubled per JSON; 'version_group' 1 captures the version into the \\1 slot of 'template'.",
+  "schema": 1,
+
+  "chunk_signatures": [
+    {"chunks": ["regn", "minf", "elm1"], "tool": "Avid Pro Tools", "note": "Pro Tools region/element bookkeeping chunks (before/after data)."},
+    {"chunks": ["DGDA", "DIGI"], "tool": "Avid Pro Tools (Digidesign)", "note": "Digidesign proprietary chunks. census: DGDA 14609, DIGI 1953 files."},
+    {"chunks": ["LGWV", "ResU", "LGBM"], "tool": "Apple Logic Pro", "note": "Logic-specific chunks; ResU is a ZIP+JSON of tempo/timesig. corpus: ResU is Logic (288/303), not Steinberg. census: LGWV 36602, ResU 16027, LGBM 3191."},
+    {"chunks": ["dprn", "dpte", "dpas", "dpam"], "tool": "MOTU Digital Performer", "note": "dp* family; 100% co-occur, 0 FP in 2345 files. census corpus-confirmed 31/31/29/2."},
+    {"chunks": ["BWBM"], "tool": "Bitwig Studio", "note": "the only handle on a string-stripped Bitwig render. census 1976 files (web research could not corroborate; corpus did)."},
+    {"chunks": ["SMED"], "tool": "Steinberg (Cubase/Nuendo/WaveLab)", "note": "census 18873 files (web research could not corroborate externally; corpus strongly confirms)."},
+    {"chunks": ["strc", "str2"], "tool": "Sony/Magix ACID / Sound Forge", "note": "ACID stretch-marker chunks. census: strc 25288, str2 6054 files."},
+    {"chunks": ["SyLp"], "tool": "Sony/Magix ACID / Sound Forge", "note": "Sony loop chunk. census 7564 files."},
+    {"chunks": ["SNDM"], "tool": "Soundminer", "note": "Soundminer post-production metadata. census 10721 files."},
+    {"chunks": ["RLND"], "tool": "Roland", "note": "Roland-specific chunk. census 12 files; rare but a unique 4CC."},
+    {"chunks": ["Cr8r"], "tool": "GoPro CineForm / Adobe (Cr8r metadata)", "note": "CineForm 'Creator' metadata, written by GoPro Studio and Adobe CineForm-codec tools. census 32 files; specific but shared across those two lineages."},
+    {"chunks": ["AFsp"], "tool": "AFsp audio library (SoX / afconvert lineage)", "note": "AFsp/CoreAudio library marker."},
+    {"chunks": ["umid"], "tool": "a broadcast/production tool (SMPTE UMID)", "note": "generic UMID; corroborates a broadcast workflow, not a single app."}
+  ],
+
+  "not_signatures": {
+    "AFAn": "shared macOS CoreAudio (Logic AND Digital Performer AND generic Mac renders) -- too ambiguous to attribute to one app; corroborate only.",
+    "AFmd": "shared macOS CoreAudio metadata -- same as AFAn.",
+    "FLLR": "padding shared between Pro Tools and Apple ExtAudioFile/CoreAudio -- not exclusive; corroborate only.",
+    "_PMX": "Adobe XMP metadata packet, written by many Adobe tools and others (census 28214 files) -- indicates 'has XMP', not a specific writer; corroborate only.",
+    "PAD ": "generic padding.",
+    "JUNK": "generic padding/reserved. NOTE: a 28-byte JUNK immediately after fmt IS an ffmpeg RF64_AUTO tell -- handled positionally in provenance._ffmpeg_rf64_junk, not as a bare id match.",
+    "levl": "EBU Peak Envelope chunk (Tech 3285 Supp 3), written by ffmpeg and many EBU-lineage tools -- too shared to attribute alone. Disambiguator: ffmpeg writes levl, Apple/CoreAudio writes PEAK.",
+    "PEAK": "Apple/CoreAudio + libsndfile peak-envelope chunk (vs EBU levl) -- shared, corroborate-only."
+  },
+
+  "canon": [
+    {"pattern": "Lav[fc]\\s*([\\d.]+)", "flags": "i", "template": "FFmpeg (libav \\1)", "version_group": 1},
+    {"pattern": "libFLAC\\s*([\\d.]+)", "flags": "i", "template": "libFLAC \\1 (reference FLAC)", "version_group": 1},
+    {"pattern": "\\bLAME\\s*([\\d.a-z]+)", "flags": "i", "template": "LAME \\1", "version_group": 1},
+    {"pattern": "libsndfile[- ]?([\\d.]+)?", "flags": "i", "template": "libsndfile \\1 (or the app exposing it)", "version_group": 1},
+    {"pattern": "\\bqaac\\b", "flags": "i", "template": "qaac (Apple AAC)"},
+    {"pattern": "\\bafconvert\\b|CoreAudio", "flags": "i", "template": "Apple CoreAudio"},
+    {"pattern": "iTunes\\s*([\\d.]+)?", "flags": "i", "template": "iTunes \\1", "version_group": 1},
+    {"pattern": "Pro ?Tools", "flags": "i", "template": "Avid Pro Tools"},
+    {"pattern": "Adobe (Audition|Premiere|Media)", "flags": "i", "template": "Adobe \\1", "version_group": 1},
+    {"pattern": "Audacity\\s*([\\d.]+)?", "flags": "i", "template": "Audacity \\1", "version_group": 1},
+    {"pattern": "REAPER", "flags": "i", "template": "Cockos REAPER"},
+    {"pattern": "Logic Pro|GarageBand", "flags": "i", "template": "Apple Logic / GarageBand"},
+    {"pattern": "Digital Performer", "flags": "i", "template": "MOTU Digital Performer"},
+    {"pattern": "Ableton|Live \\d", "flags": "i", "template": "Ableton Live"},
+    {"pattern": "FL Studio|Image[- ]?Line|Fruity", "flags": "i", "template": "FL Studio"},
+    {"pattern": "\\bEdison\\b", "flags": "i", "template": "Image-Line Edison (FL Studio)"},
+    {"pattern": "Steinberg|Cubase|Nuendo|WaveLab", "flags": "i", "template": "Steinberg (Cubase/WaveLab)"},
+    {"pattern": "\\bNero\\b", "flags": "i", "template": "Nero"},
+    {"pattern": "WavePad|\\bNCH\\b", "flags": "i", "template": "NCH WavePad"},
+    {"pattern": "Sound Forge|SoundForge", "flags": "i", "template": "Sony/Magix Sound Forge"},
+    {"pattern": "iZotope|RX \\d", "flags": "i", "template": "iZotope RX"},
+    {"pattern": "Exact Audio Copy|\\bEAC\\b", "flags": "i", "template": "Exact Audio Copy"},
+    {"pattern": "dBpoweramp|dbpa", "flags": "i", "template": "dBpoweramp"},
+    {"pattern": "\\bXLD\\b|X Lossless", "flags": "i", "template": "XLD (X Lossless Decoder)"},
+    {"pattern": "foobar2000", "flags": "i", "template": "foobar2000"},
+    {"pattern": "fre:ac|freac", "flags": "i", "template": "fre:ac"},
+    {"pattern": "\\bMax\\b \\d|MediaHuman", "flags": "i", "template": "MediaHuman / Max"},
+    {"pattern": "\\bsox\\b", "flags": "i", "template": "SoX"},
+    {"pattern": "GoldWave", "flags": "i", "template": "GoldWave"},
+    {"pattern": "Ocenaudio", "flags": "i", "template": "Ocenaudio"},
+    {"pattern": "Twisted Wave|TwistedWave", "flags": "i", "template": "TwistedWave"},
+    {"pattern": "Serato", "flags": "i", "template": "Serato"},
+    {"pattern": "Traktor", "flags": "i", "template": "Native Instruments Traktor"}
+  ]
+}
