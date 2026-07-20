@@ -6,6 +6,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-07-20
+
+### Added
+
+- **`--sandbox` bwrap profile** (Linux + bubblewrap) -- the namespace-isolation
+  layer on top of the `limits` worker. Runs the parse inside a bubblewrap
+  namespace with **no network** and a filesystem holding only the read-only
+  Python runtime and the one input (bind-mounted); the user's home and data are
+  never mounted. Hardened with `--new-session`, `--clearenv`, and a tmpfs. The
+  `limits` resource caps ride along (inherited across exec), so `bwrap` is a
+  strict superset. `--sandbox-profile {auto,limits,bwrap}` selects it (auto =
+  strongest available), resolved up front and fail-loud; availability probes
+  that unprivileged user namespaces actually work. CI exercises the real bwrap
+  path.
+
 ## [0.60.0] - 2026-07-20
 
 ### Added
