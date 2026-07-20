@@ -78,7 +78,13 @@ def register(subparsers):
     # memory/CPU-bomb file takes down only the worker. Linux only; --sandbox
     # errors (never silently runs unsandboxed) where it cannot run.
     p.add_argument("--sandbox", action="store_true",
-                   help="Parse in a resource-limited fork (experimental, Linux only).")
+                   help="Parse untrusted input in an isolated worker (experimental, "
+                        "Linux only).")
+    p.add_argument("--sandbox-profile", choices=["auto", "limits", "bwrap"],
+                   default="auto",
+                   help="auto (strongest available, default), limits (setrlimit "
+                        "fork), or bwrap (namespace: no network, no filesystem "
+                        "beyond the runtime + input).")
     p.add_argument("--sandbox-mem", type=int, default=None, metavar="MB",
                    help="--sandbox address-space cap in MB (default 2048).")
     p.add_argument("--sandbox-timeout", type=int, default=None, metavar="S",
@@ -343,6 +349,19 @@ def run(args):
     exclude = _parse_id_list(getattr(args, "exclude", None))
     exit_code = 0
 
+    # resolve the sandbox profile once, up front: --sandbox fails loud (never
+    # silently runs unsandboxed) if the requested isolation cannot run here.
+    sandbox_profile = None
+    if getattr(args, "sandbox", False):
+        from acidcat.core import sandbox as _sb
+        try:
+            sandbox_profile = _sb.resolve_profile(getattr(args, "sandbox_profile", "auto"))
+        except _sb.SandboxUnavailable as e:
+            print(f"acidcat inspect: --sandbox: {e}", file=sys.stderr)
+            return 1
+        if not getattr(args, "quiet", False):
+            print(f"[sandbox: {sandbox_profile}]", file=sys.stderr)
+
     try:
         for filepath in targets:
             if not os.path.isfile(filepath):
@@ -350,18 +369,13 @@ def run(args):
                 exit_code = 1
                 continue
             try:
-                if getattr(args, "sandbox", False):
+                if sandbox_profile:
                     from acidcat.core import sandbox as _sb
                     try:
                         fmt_label, chunks, file_warns = _sb.run_walk(
-                            filepath, deep,
+                            filepath, deep, profile=sandbox_profile,
                             mem_mb=args.sandbox_mem or _sb.DEFAULT_MEM_MB,
                             timeout_s=args.sandbox_timeout or _sb.DEFAULT_TIMEOUT_S)
-                    except _sb.SandboxUnavailable as e:
-                        # fail loud: the user asked for isolation; do not
-                        # silently fall back to an unsandboxed parse
-                        print(f"acidcat inspect: --sandbox: {e}", file=sys.stderr)
-                        return 1
                     except _sb.SandboxError as e:
                         print(f"acidcat inspect: {filepath}: sandbox: {e}",
                               file=sys.stderr)
