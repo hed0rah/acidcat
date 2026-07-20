@@ -6,6 +6,20 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-07-20
+
+### Added
+
+- **`acidcat inspect --sandbox`** (experimental, Linux only) -- parse untrusted
+  input in a resource-limited fork so a memory- or CPU-bomb file takes down only
+  a short-lived worker, not the tool. The `limits` profile caps the worker's
+  address space, CPU time, and file-write size via `setrlimit` and returns the
+  walk result over a pipe, with a parent-side wall-clock timeout and result-size
+  cap. `--sandbox-mem MB` / `--sandbox-timeout S` tune the caps. It fails loud
+  (never silently runs unsandboxed) where it cannot run. This is the foundation
+  for stronger `bwrap` (namespace) and `strict` (seccomp) profiles on the same
+  worker plumbing.
+
 ## [0.59.0] - 2026-07-19
 
 ### Added
