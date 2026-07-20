@@ -15,9 +15,12 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install bubblewrap
-        # exercises the --sandbox bwrap profile for real; the tests skip
-        # gracefully if unprivileged user namespaces are unavailable.
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        # exercises the --sandbox bwrap profile for real. Ubuntu 24.04 blocks
+        # unprivileged user namespaces via AppArmor, so relax that sysctl for
+        # the runner; the sandbox tests skip gracefully if it still cannot run.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Install
         run: |
           python -m pip install --upgrade pip
