@@ -2,6 +2,7 @@
 run for real on Linux (incl. CI) and skip elsewhere; the availability/fail-loud
 tests run everywhere."""
 
+import json
 import struct
 
 import pytest
@@ -68,7 +69,17 @@ def test_worker_exception_becomes_sandbox_error():
 
 @linux_only
 def test_sandboxed_walk_matches_direct(tmp_path):
+    p = _minimal_wav(tmp_path)
     from acidcat.core.walk import walk_file
+    d_label, d_chunks, _ = walk_file(str(p))
+    s_label, s_chunks, _ = sandbox.run_walk(str(p), profile="limits")
+    assert d_label == s_label
+    assert [c["id"] for c in d_chunks] == [c["id"] for c in s_chunks]
+
+
+# ── bwrap profile ───────────────────────────────────────────────────────────
+
+def _minimal_wav(tmp_path):
     body = (b"WAVE"
             + b"fmt " + struct.pack("<I", 16)
             + struct.pack("<HHIIHH", 1, 2, 44100, 176400, 4, 16)
@@ -76,7 +87,68 @@ def test_sandboxed_walk_matches_direct(tmp_path):
     wav = b"RIFF" + struct.pack("<I", len(body)) + body
     p = tmp_path / "a.wav"
     p.write_bytes(wav)
+    return p
+
+
+def test_resolve_profile_fails_loud_for_unavailable():
+    # an explicit profile that cannot run must raise, never silently downgrade
+    if not sandbox.available("bwrap"):
+        with pytest.raises(sandbox.SandboxUnavailable):
+            sandbox.resolve_profile("bwrap")
+    if not sandbox.available("limits"):
+        with pytest.raises(sandbox.SandboxUnavailable):
+            sandbox.resolve_profile("limits")
+
+
+def test_bwrap_argv_isolates_input_and_runtime():
+    # pure string construction -- checkable on any platform
+    import os
+    argv = sandbox._bwrap_argv("/usr/bin/bwrap", __file__, deep=False)
+    assert "--unshare-all" in argv          # no net / ipc / pid / user ns
+    assert "--new-session" in argv          # TIOCSTI hardening
+    assert "--clearenv" in argv
+    # the input is bind-mounted read-only at the fixed sandbox path
+    i = argv.index(sandbox._SANDBOX_INPUT)
+    assert argv[i - 2] == "--ro-bind"
+    assert argv[i - 1] == os.path.realpath(__file__)
+    # the worker runs the bound input, nothing else
+    assert argv[-3:] == ["-m", "acidcat._sandbox_worker", sandbox._SANDBOX_INPUT]
+    # deep appends the flag
+    argv_deep = sandbox._bwrap_argv("/usr/bin/bwrap", __file__, deep=True)
+    assert argv_deep[-1] == "--deep"
+
+
+def test_worker_module_emits_json_result(tmp_path, capsys):
+    from acidcat import _sandbox_worker
+    p = _minimal_wav(tmp_path)
+    _sandbox_worker.main([str(p)])
+    out = capsys.readouterr().out
+    res = json.loads(out)
+    assert res["ok"] is True
+    assert res["label"].startswith("RIFF")
+    assert any(c["id"] == "fmt " for c in res["chunks"])
+
+
+bwrap_only = pytest.mark.skipif(
+    not sandbox.available("bwrap"),
+    reason="bwrap profile needs bubblewrap + unprivileged user namespaces")
+
+
+@bwrap_only
+def test_bwrap_walk_matches_direct(tmp_path):
+    p = _minimal_wav(tmp_path)
+    from acidcat.core.walk import walk_file
     d_label, d_chunks, _ = walk_file(str(p))
-    s_label, s_chunks, _ = sandbox.run_walk(str(p))
+    s_label, s_chunks, _ = sandbox.run_walk(str(p), profile="bwrap")
     assert d_label == s_label
     assert [c["id"] for c in d_chunks] == [c["id"] for c in s_chunks]
+
+
+@bwrap_only
+def test_bwrap_memory_bomb_contained(tmp_path):
+    # rlimits are inherited across exec into the bwrap'd python, so a bomb file
+    # would still be capped; here we cap tiny and confirm a clean failure, not a
+    # host crash. (Uses a normal file with an absurdly low cap.)
+    p = _minimal_wav(tmp_path)
+    with pytest.raises(sandbox.SandboxError):
+        sandbox.run_walk(str(p), profile="bwrap", mem_mb=8, timeout_s=10)

@@ -14,6 +14,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install bubblewrap
+        # exercises the --sandbox bwrap profile for real; the tests skip
+        # gracefully if unprivileged user namespaces are unavailable.
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - name: Install
         run: |
           python -m pip install --upgrade pip
