@@ -74,6 +74,15 @@ def register(subparsers):
                    help="Colorize table output: auto (default, when stdout is a "
                         "TTY), always, or never. Respects the NO_COLOR env var.")
     p.add_argument("-v", "--verbose", action="store_true")
+    # experimental: parse untrusted input in a resource-limited worker so a
+    # memory/CPU-bomb file takes down only the worker. Linux only; --sandbox
+    # errors (never silently runs unsandboxed) where it cannot run.
+    p.add_argument("--sandbox", action="store_true",
+                   help="Parse in a resource-limited fork (experimental, Linux only).")
+    p.add_argument("--sandbox-mem", type=int, default=None, metavar="MB",
+                   help="--sandbox address-space cap in MB (default 2048).")
+    p.add_argument("--sandbox-timeout", type=int, default=None, metavar="S",
+                   help="--sandbox CPU/wall-clock cap in seconds (default 60).")
     p.set_defaults(func=run)
 
 
@@ -341,7 +350,25 @@ def run(args):
                 exit_code = 1
                 continue
             try:
-                fmt_label, chunks, file_warns = walk_file(filepath, deep)
+                if getattr(args, "sandbox", False):
+                    from acidcat.core import sandbox as _sb
+                    try:
+                        fmt_label, chunks, file_warns = _sb.run_walk(
+                            filepath, deep,
+                            mem_mb=args.sandbox_mem or _sb.DEFAULT_MEM_MB,
+                            timeout_s=args.sandbox_timeout or _sb.DEFAULT_TIMEOUT_S)
+                    except _sb.SandboxUnavailable as e:
+                        # fail loud: the user asked for isolation; do not
+                        # silently fall back to an unsandboxed parse
+                        print(f"acidcat inspect: --sandbox: {e}", file=sys.stderr)
+                        return 1
+                    except _sb.SandboxError as e:
+                        print(f"acidcat inspect: {filepath}: sandbox: {e}",
+                              file=sys.stderr)
+                        exit_code = 1
+                        continue
+                else:
+                    fmt_label, chunks, file_warns = walk_file(filepath, deep)
             except Unsupported as e:
                 print(f"acidcat inspect: {filepath}: {e}", file=sys.stderr)
                 exit_code = 1
