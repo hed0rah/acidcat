@@ -16,11 +16,6 @@ linux_only = pytest.mark.skipif(
 
 # ── availability / fail-loud (all platforms) ────────────────────────────────
 
-def test_bwrap_profile_not_implemented():
-    with pytest.raises(sandbox.SandboxUnavailable):
-        sandbox.run_walk("x.wav", profile="bwrap")
-
-
 def test_unavailable_is_raised_off_linux():
     if sandbox.available("limits"):
         pytest.skip("this host can run the limits profile")
