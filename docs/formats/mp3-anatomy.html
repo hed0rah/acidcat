@@ -191,7 +191,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <details class="region">
       <summary><span class="chev">&#9656;</span><span class="rname">Xing / Info + LAME</span><span class="rspan">inside frame 0 . vbr header</span></summary>
       <div class="rbody">
-        <p class="note">VBR cannot be sized from one bitrate, so the encoder writes a header into the first frame after the side-info block. "Xing" is true VBR, "Info" is CBR by LAME. Offset from frame start: 36 (MPEG-1 stereo), 21 (MPEG-1 mono or MPEG-2 stereo), 13 (MPEG-2 mono). Add 2 when the frame is CRC-protected: the 2 CRC bytes sit between the header and the side info.</p>
+        <p class="note">VBR cannot be sized from one bitrate, so the encoder writes a header into the first frame after the side-info block. "Xing" is true VBR, "Info" is CBR by LAME. Offset from frame start: 36 (MPEG-1 stereo), 21 (MPEG-1 mono or MPEG-2 stereo), 13 (MPEG-2 mono) &mdash; that is 4 (header) + the side-info size. The tag stays at this offset even when the frame is CRC-protected: LAME holds it at the CRC-absent position so Xing/Info readers still find it, so a reader must <b>not</b> shift by the 2 CRC bytes.</p>
         <div class="kv">
           <div><span class="k">id</span><span class="v">"Xing" | "Info"</span></div>
           <div><span class="k">flags</span><span class="v">b0 frames . b1 bytes . b2 TOC . b3 quality</span></div>
