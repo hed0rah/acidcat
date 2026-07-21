@@ -131,6 +131,13 @@ footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color
 .detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
 
 footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+.callout{font-size:0.76rem;color:var(--soft);line-height:1.7;border:1px solid var(--line);border-left:2px solid var(--flag);background:var(--panel);padding:0.8rem 1rem;margin:1.2rem 0 0.4rem;max-width:74ch}
+.callout b{color:var(--ink);font-weight:500} .callout code{font-size:0.72rem;color:var(--enum)}
+.dtable{border-collapse:collapse;font-size:0.68rem;margin:0.6rem 0 1.4rem;display:block;overflow-x:auto;max-width:100%}
+.dtable th,.dtable td{border:1px solid var(--hair);padding:0.26rem 0.6rem;text-align:right;white-space:nowrap}
+.dtable th{color:var(--soft);font-weight:500;text-transform:uppercase;font-size:0.56rem;letter-spacing:0.08em}
+.dtable td:first-child,.dtable th:first-child{text-align:left;color:var(--enum);font-weight:500}
+.dtable tr:hover td{background:var(--enum-soft)}
 </style>
 </head>
 <body>
@@ -200,6 +207,10 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
           <div><span class="k">replay_gain</span><span class="v">16-bit word at LAME+15: 3-bit name . 3-bit originator . sign . 9-bit 0.1 dB</span></div>
           <div><span class="k">bitrate</span><span class="v">1 byte at LAME+20: min for VBR, target for ABR</span></div>
           <div><span class="k">gapless</span><span class="v">delay + padding, 12 bits each at LAME+21</span></div>
+          <div><span class="k">encoder_delay</span><span class="v">576 samples; the decoder adds 529 more (528+1) &mdash; 1105 total front skip</span></div>
+          <div><span class="k">misc byte</span><span class="v">at LAME+24: stereo mode, source sample rate, the "unwise settings" bit</span></div>
+          <div><span class="k">preset</span><span class="v">at LAME+29: the -V/-b preset id; dates the encode within LAME's history</span></div>
+          <div><span class="k">music_length / CRCs</span><span class="v">audio byte count, then musicCRC + tagCRC (validate before trusting delay/padding)</span></div>
         </div>
       </div>
     </details>
@@ -207,12 +218,16 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <details class="region opt">
       <summary><span class="chev">&#9656;</span><span class="rname">VBRI header</span><span class="rspan">inside frame 0 . frame start + 36</span></summary>
       <div class="rbody">
-        <p class="note">The Fraunhofer encoder's VBR header. Unlike Xing/Info it sits at a fixed offset, frame start + 36, independent of version, channel mode, and side-info size. All fields big-endian; a frame carries at most one of Xing/Info/VBRI.</p>
+        <p class="note">The Fraunhofer encoder's VBR header. Unlike Xing/Info it sits at a fixed offset, frame start + 36, independent of version, channel mode, and side-info size. All fields big-endian; a frame carries at most one of Xing/Info/VBRI. The fixed +36 is no accident: Fraunhofer wrote VBRI after the largest fixed-size header area, so it never depends on channel mode the way Xing's side-info placement does.</p>
         <div class="kv">
           <div><span class="k">id</span><span class="v">"VBRI"</span></div>
           <div><span class="k">version</span><span class="v">2 bytes at +4</span></div>
           <div><span class="k">byte_count</span><span class="v">4 bytes at +10</span></div>
           <div><span class="k">frame_count</span><span class="v">4 bytes at +14, marks the stream VBR</span></div>
+          <div><span class="k">toc_entries</span><span class="v">2 bytes at +18: seek-table entry count</span></div>
+          <div><span class="k">toc_scale</span><span class="v">2 bytes at +20: scale factor for the table values</span></div>
+          <div><span class="k">entry_size</span><span class="v">2 bytes at +22: bytes per table entry (1 / 2 / 4)</span></div>
+          <div><span class="k">frames_per_entry</span><span class="v">2 bytes at +24, then the seek table itself</span></div>
         </div>
       </div>
     </details>
@@ -231,6 +246,27 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       </div>
     </details>
   </div>
+
+  <div class="sec">bitrate &amp; sample-rate tables</div>
+  <p class="note">The 4-bit bitrate index and 2-bit sample-rate index in the header select from these, by version and layer &mdash; the first thing a decoder needs. Bitrate in kbps; index 0000 is free format (measure the length), 1111 is invalid.</p>
+  <table class="dtable"><tr><th>index</th><th>V1 L1</th><th>V1 L2</th><th>V1 L3</th><th>V2 L1</th><th>V2 L2/L3</th></tr><tr><td>0000</td><td>free</td><td>free</td><td>free</td><td>free</td><td>free</td></tr><tr><td>0001</td><td>32</td><td>32</td><td>32</td><td>32</td><td>8</td></tr><tr><td>0010</td><td>64</td><td>48</td><td>40</td><td>48</td><td>16</td></tr><tr><td>0011</td><td>96</td><td>56</td><td>48</td><td>56</td><td>24</td></tr><tr><td>0100</td><td>128</td><td>64</td><td>56</td><td>64</td><td>32</td></tr><tr><td>0101</td><td>160</td><td>80</td><td>64</td><td>80</td><td>40</td></tr><tr><td>0110</td><td>192</td><td>96</td><td>80</td><td>96</td><td>48</td></tr><tr><td>0111</td><td>224</td><td>112</td><td>96</td><td>112</td><td>56</td></tr><tr><td>1000</td><td>256</td><td>128</td><td>112</td><td>128</td><td>64</td></tr><tr><td>1001</td><td>288</td><td>160</td><td>128</td><td>144</td><td>80</td></tr><tr><td>1010</td><td>320</td><td>192</td><td>160</td><td>160</td><td>96</td></tr><tr><td>1011</td><td>352</td><td>224</td><td>192</td><td>176</td><td>112</td></tr><tr><td>1100</td><td>384</td><td>256</td><td>224</td><td>192</td><td>128</td></tr><tr><td>1101</td><td>416</td><td>320</td><td>256</td><td>224</td><td>144</td></tr><tr><td>1110</td><td>448</td><td>384</td><td>320</td><td>256</td><td>160</td></tr><tr><td>1111</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr></table>
+  <p class="note">Sample rate (Hz):</p>
+  <table class="dtable"><tr><th>index</th><th>MPEG-1</th><th>MPEG-2</th><th>MPEG-2.5</th></tr><tr><td>00</td><td>44100</td><td>22050</td><td>11025</td></tr><tr><td>01</td><td>48000</td><td>24000</td><td>12000</td></tr><tr><td>10</td><td>32000</td><td>16000</td><td>8000</td></tr><tr><td>11</td><td colspan="3">reserved</td></tr></table>
+  <div class="callout"><b>the 11-bit sync sieve.</b> Sync on <b>11 set bits</b> (<code>FF E0</code>), not 12 (<code>FF F0</code>) &mdash; MPEG-2.5's version bits are <code>00</code>, so a 12-bit sieve silently drops every 8 / 11.025 / 12&nbsp;kHz file. Then reject the impossible: version <code>01</code>, layer <code>00</code>, bitrate <code>1111</code>, sample rate <code>11</code>. acidcat's walker sniffs exactly this (<code>b0 == 0xFF and b1 &amp; 0xE0 == 0xE0</code>).</div>
+
+  <div class="sec">frame length</div>
+  <p class="note">A frame is self-describing: its byte length comes from the header alone, by integer division. Never cache it as a constant.</p>
+  <div class="callout"><b>the formula.</b> Layer III: <code>floor(144 &times; bitrate / sample_rate) + padding</code> (bitrate in bits/s). Layer I uses a 4-byte slot: <code>(floor(12 &times; bitrate / sample_rate) + padding) &times; 4</code>. <b>MPEG-2/2.5 Layer III uses 72, not 144</b> (half the samples per frame). The integer floor is why a 128&nbsp;kbps / 44.1&nbsp;kHz stream alternates <b>417 and 418 bytes</b> frame to frame: 144&times;128000/44100 = 417.9, so frames are 417 and the padding bit adds the missing byte often enough to average the true rate. Cache the first 417 as "the frame size" and you desync on the next frame.</div>
+
+  <div class="sec">the bit reservoir</div>
+  <div class="callout"><b>a frame is not a unit of audio.</b> Layer III lets a frame stash its main data in the unused tail of <i>earlier</i> frames: the 9-bit <code>main_data_begin</code> at the start of the side info says how many bytes backward (up to 511) this frame's data really begins. So "one frame = one frame of audio" is false &mdash; cutting a stream at a frame boundary corrupts audio across the cut, and a frame is self-contained only when <code>main_data_begin = 0</code>. This is why you cannot byte-splice MP3 losslessly the way you can WAV.</div>
+
+  <div class="sec">gapless</div>
+  <div class="callout"><b>samples you were never meant to hear.</b> The decoder emits filter-bank warm-up at the head and a flushed tail at the end. LAME records both in the Info/LAME tag: a 12-bit <b>encoder delay</b> and 12-bit <b>padding</b>. A default LAME file skips <code>576 + 529 = 1105</code> samples at the front (576 encoder delay + the decoder's own 529, which FFmpeg writes as start_pad = 528 + 1). iTunes stores the same thing independently in an <code>iTunSMPB</code> comment frame &mdash; and the two can disagree, so a careful player has to pick one.</div>
+
+  <div class="sec">reader traps</div>
+  <div class="callout"><b>false sync.</b> Eleven sync bits means random bytes (or the middle of an embedded JPEG cover) throw a fake sync roughly once per 2048 bytes. Never lock on a lone header: require a <b>second valid header exactly frame-length ahead</b> first. Album art is the classic false-sync source.</div>
+  <div class="callout"><b>free format &amp; a second synchsafe trap.</b> Bitrate index <code>0000</code> is legal (a constant but non-standard rate, length found by scanning to the next sync) &mdash; a walker that rejects it loses those files. And at EOF, ID3v1 is not alone: APEv2 and Lyrics3v2 also live there in a documented precedence, an accretion stack behind the last frame. Note too that the <b>ID3v2.3 extended-header size is a plain integer while v2.4's is synchsafe</b> &mdash; the mirror of the frame-size split.</div>
 
   <footer>
     <span>acidcat / mp3 anatomy</span>
