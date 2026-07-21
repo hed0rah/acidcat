@@ -402,11 +402,17 @@ def _id3v2_frames(filepath, hdr):
 
 
 def _xing_offset(hdr):
-    """Byte offset of the Xing/Info tag within the first frame, from the
-    frame start: 4-byte header, an optional 2-byte CRC when the frame is
-    protected, then the version/channel-dependent side info block."""
+    """Byte offset of the Xing/Info tag within the first frame, from the frame
+    start: the 4-byte header then the version/channel-dependent side info block
+    (side info = 32/17 MPEG-1 stereo/mono, 17/9 MPEG-2/2.5 stereo/mono).
+
+    The tag stays at this CRC-absent offset EVEN when the frame is CRC-protected:
+    LAME's VbrTag.c deliberately subtracts the two CRC bytes to hold the tag
+    where Xing/Info readers expect it, and tag frames essentially never carry a
+    CRC in practice. Adding 2 for the CRC halfword here would look past the tag
+    and miss it."""
     mono = hdr["channel_mode"] == 0b11
-    base = 4 + (2 if hdr.get("has_crc") else 0)
+    base = 4
     if hdr["version_id"] == 0b11:        # MPEG 1
         return base + (17 if mono else 32)
     return base + (9 if mono else 17)    # MPEG 2 / 2.5
