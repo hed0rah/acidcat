@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/logo2.svg" alt="acidcat logo" width="240">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-horizontal-dark.svg">
+    <img src="docs/brand/logo-horizontal-light.svg" alt="acidcat" width="400">
+  </picture>
 </p>
 
 # acidcat
