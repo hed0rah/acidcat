@@ -6,6 +6,18 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.61.1] - 2026-07-21
+
+### Fixed
+
+- **MP3 Xing/Info VBR-header location on CRC-protected frames.** The tag offset
+  is 4 (header) + side-info size (36/21/21/13); the walker wrongly added 2 more
+  when the frame carried a CRC. LAME's VbrTag.c deliberately holds the tag at the
+  CRC-absent offset (so Xing/Info readers find it), so the +2 walked past the tag
+  and missed the VBR header on a CRC-protected first frame. Now `base = 4`
+  unconditionally. Found via the acidcat-mp3 research page review, verified
+  against VbrTag.c and mp3guessenc; regression test added.
+
 ## [0.61.0] - 2026-07-20
 
 ### Added
