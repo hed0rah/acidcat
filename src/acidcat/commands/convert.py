@@ -6,6 +6,9 @@
   bit-truncation + mid/side); decode reconstructs the PCM. Compression, not
   access control -- no key, nothing bypassed, the same class of work as
   decoding FLAC.
+- IFF 8SVX (.8svx / .iff) -> a 16-bit WAV: the Amiga voice format, optionally
+  Fibonacci-delta compressed (DPCM's grandfather). Same decode-not-bypass class
+  as the NCW path.
 """
 
 import os
@@ -14,6 +17,7 @@ import sys
 from acidcat.core import bitwig as bwmod
 from acidcat.core import ncw as ncwmod
 from acidcat.core import sf2 as sf2mod
+from acidcat.core import svx as svxmod
 from acidcat.core.midi_write import notes_to_smf
 
 
@@ -27,10 +31,10 @@ def _safe_name(name, idx, ext="wav"):
 def register(subparsers):
     p = subparsers.add_parser(
         "convert",
-        help="Bitwig clip -> MIDI, NCW -> WAV, or SF2 -> a folder of WAV samples.",
+        help="Bitwig clip -> MIDI, NCW/8SVX -> WAV, or SF2 -> a folder of WAVs.",
     )
-    p.add_argument("input", help="Input file (.bwclip / .ncw / .sf2), or a "
-                                 "directory to batch-convert every .ncw within.")
+    p.add_argument("input", help="Input file (.bwclip / .ncw / .sf2 / .8svx), or "
+                                 "a directory to batch-convert every .ncw within.")
     p.add_argument("-o", "--output",
                    help="Output path (single file); ignored for a directory, "
                         "where each WAV is written beside its .ncw.")
@@ -117,6 +121,27 @@ def _run_sf2(path, data, args):
     return 0
 
 
+def _run_svx(path, data, args):
+    try:
+        info, samples = svxmod.decode(data)
+    except svxmod.SvxError as e:
+        print(f"acidcat convert: {path}: {e}", file=sys.stderr)
+        return 1
+    if not samples:
+        print(f"acidcat convert: {path}: no sample data to render", file=sys.stderr)
+        return 1
+    wav = svxmod.to_wav(info, samples)
+    out = args.output or (os.path.splitext(path)[0] + ".wav")
+    with open(out, "wb") as f:
+        f.write(wav)
+    rate = info["rate"]
+    dur = info["num_samples"] / rate if rate else 0.0
+    note = " [rate defaulted to 8000]" if info.get("rate_defaulted") else ""
+    print(f"wrote {out}: mono {rate} Hz, {info['num_samples']:,} samples "
+          f"({dur:.2f}s), {info['compression_name']}{note}")
+    return 0
+
+
 def run(args):
     path = args.input
     if os.path.isdir(path):
@@ -129,11 +154,13 @@ def run(args):
         return 1
     if data[:4] == ncwmod.MAGIC:
         return _run_ncw(path, data, args)
+    if svxmod.is_8svx(data):
+        return _run_svx(path, data, args)
     if sf2mod.is_sf2(data):
         return _run_sf2(path, data, args)
     if data[:4] != bwmod.MAGIC:
-        print(f"acidcat convert: {path}: unsupported input "
-              f"(expected a Bitwig .bwclip or an NCW .ncw)", file=sys.stderr)
+        print(f"acidcat convert: {path}: unsupported input (expected a Bitwig "
+              f".bwclip, NCW .ncw, SF2 .sf2, or IFF 8SVX)", file=sys.stderr)
         return 1
     try:
         notes = bwmod.parse_notes(data)
