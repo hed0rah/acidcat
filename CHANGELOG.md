@@ -6,6 +6,20 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-07-22
+
+### Added
+
+- **`extract` gains ScreamTracker S3M and Gravis UltraSound GF1 patch (.PAT).**
+  S3M: the walker already located every sample; wire it (unsigned PCM, stereo
+  stored as L-block then R-block, interleaved on output) -- verified on real
+  modules. GF1 patch: a **new walker** (`core/walk/gf1pat.py`, magic `GF1PATCH`;
+  fixed header -> instruments -> layers -> per-sample header with data size, rate,
+  and a modes byte for 8/16-bit + signed/unsigned) plus sniff and extraction --
+  it has no chunk grid, so it needs a dedicated walker. Verified on real GUS
+  patches. `extract` now covers MOD/XM/IT/S3M, 8SVX, NCW, SF2, multisample, KRZ,
+  and GF1 patch; `inspect` gains .PAT.
+
 ## [0.65.0] - 2026-07-22
 
 ### Added

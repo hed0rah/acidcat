@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acidcat"
-version = "0.65.0"
+version = "0.66.0"
 description = "Binary analysis and reverse-engineering for audio file formats and music-production hardware"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = {text = "MIT"}
