@@ -6,6 +6,32 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-07-22
+
+### Added
+
+- **`acidcat extract` -- pull embedded samples out of a bank/module as WAVs.**
+  One verb over every walked sample-bearing format: tracker modules (MOD raw
+  8-bit, XM 8/16-bit delta, IT PCM), 8SVX, NCW, SoundFont (SF2 PCM; SF3 = Ogg
+  verbatim). Decodes where there's a codec, copies verbatim where the samples are
+  already PCM. `-o DIR`, `--json` manifest, `-`/stdin; read-only on the source.
+  `inspect` shows the samples are in there -- `extract` gets them out. Verified on
+  real modules (a MOD gave 11 full-range 16-bit WAVs). Formats acidcat walks but
+  cannot yet extract -- Kurzweil KRZ, E-mu E4B/E5B, Akai, Bitwig multisample, S3M,
+  RX2, BFD .bfdlac, IT-compressed samples -- await specimens and/or codec work.
+
+### Changed
+
+- **`carve` gains surgical typed extraction** (the raw byte-range path is
+  unchanged; carve stays read-only). `--type u8..i64/f32/f64/Ns/cstr` (optional
+  be/le) decodes a range as a value instead of raw bytes; `--count N` reads an
+  array; `--endian both` prints each interpretation (the endian guess). `--at
+  EXPR` anchors the offset so you never hand-count: `0xNN`, `end[-N]`,
+  `find:STR|0xHEX[+N]`, or `chunk:ID[+N]` (any walked format). `--struct '@OFF
+  name:type ...'` decodes a labeled record in one shot. `--field NAME` prints a
+  walker-decoded field by name (as `inspect` shows it). `--format
+  raw|value|hex|c|py|b64` shapes the output.
+
 ## [0.63.0] - 2026-07-22
 
 ### Added
