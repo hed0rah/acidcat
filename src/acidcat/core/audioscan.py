@@ -55,10 +55,13 @@ _ENTROPY_FLOOR = 2.0              # below this the window is ~constant, not a li
 # text without touching audio recall.
 _PRINTABLE_LO = 0.35              # audio sits at/below this; factor is 1.0 here
 _PRINTABLE_HI = 0.70             # code/text is ~1.0; factor reaches 0.0 by here
+_ENTROPY_CEIL = 7.7              # above this is random/compressed -- skip the
+                                 # expensive autocorrelation (it would score 0)
 
 DEFAULT_WINDOW = 1024
 DEFAULT_STEP = 512
 DEFAULT_MIN_SCORE = 0.25          # recall-oriented: phases 2/3 supply precision
+DEFAULT_MERGE_GAP = 4             # bridge up to this many below-gate windows (~2 KiB)
 DEFAULT_READ_CAP = 256 * 1024 * 1024
 
 # signed-8-bit lookup: byte 0..255 -> -128..127
@@ -127,18 +130,22 @@ def window_features(win):
 
     Returns a dict: entropy (bits), autocorr {lag: r}, and the derived
     peak/structure terms so callers can show the evidence behind a hit."""
-    samples = [_SIGNED[b] for b in win]
-    n = len(samples)
+    n = len(win)
     counts = [0] * 256
     for b in win:
         counts[b] += 1
     entropy = _entropy_from_counts(counts, n)
     printable, hist_tv = _distribution(counts, n)
-    if n < LAGS[-1] + 1:
+    # cheap pre-filter: a window at near-maximal entropy is random / compressed /
+    # encrypted and cannot be raw audio, so skip the O(n * lags) autocorrelation
+    # AND the sample decode below (it would score 0 anyway). This is the bulk of
+    # a real disk image, so the early-out is most of the speed.
+    if n < LAGS[-1] + 1 or entropy > _ENTROPY_CEIL:
         return {"entropy": entropy, "autocorr": {L: 0.0 for L in LAGS},
                 "peak": 0.0, "structure": 0.0, "printable": printable,
                 "hist_tv": hist_tv, "n": n}
 
+    samples = [_SIGNED[b] for b in win]
     mean = sum(samples) / n
     den = 0.0
     for s in samples:
@@ -172,13 +179,16 @@ def audio_score(feat):
 
 
 def scan(data, *, window=DEFAULT_WINDOW, step=DEFAULT_STEP,
-         min_score=DEFAULT_MIN_SCORE, read_cap=DEFAULT_READ_CAP):
+         min_score=DEFAULT_MIN_SCORE, merge_gap=DEFAULT_MERGE_GAP,
+         read_cap=DEFAULT_READ_CAP):
     """Locate candidate raw-audio regions in `data` (bytes).
 
     Slides a window, scores each, and merges runs of audio-like windows into
-    regions. Returns a list of dicts, each with offset/end, a confidence (the
-    mean window score), and averaged evidence (entropy, autocorr, sample count).
-    Recall-oriented and never raises; a caller confirms hits downstream."""
+    regions. Real audio is dynamic -- quiet passages and transients dip below the
+    gate -- so a region is held open across up to `merge_gap` consecutive
+    below-gate windows (hysteresis), keeping one file as one region instead of
+    shattering it into fragments. Returns dicts with offset/end, a confidence
+    (mean of the audio windows), and averaged evidence. Never raises."""
     if read_cap and len(data) > read_cap:
         data = data[:read_cap]
     n = len(data)
@@ -195,18 +205,24 @@ def scan(data, *, window=DEFAULT_WINDOW, step=DEFAULT_STEP,
 
     regions = []
     run = None                                          # accumulating region
+    gap = 0                                             # consecutive below-gate windows
     for off, score, feat in marks:
         if score >= min_score:
             if run is None:
                 run = {"start": off, "end": off + window, "_scores": [score],
                        "_feats": [feat]}
             else:
-                run["end"] = off + window
+                run["end"] = off + window               # end tracks the last HIT only
                 run["_scores"].append(score)
                 run["_feats"].append(feat)
+            gap = 0
         elif run is not None:
-            regions.append(_finalize(run))
-            run = None
+            gap += 1
+            if gap > merge_gap:                         # sustained non-audio: close
+                regions.append(_finalize(run))
+                run = None
+                gap = 0
+            # else bridge the short dip, keeping the region open
     if run is not None:
         regions.append(_finalize(run))
     return regions

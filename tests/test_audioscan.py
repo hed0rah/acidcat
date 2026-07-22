@@ -106,6 +106,21 @@ def test_scan_degrades_on_tiny_input():
     assert audioscan.scan(b"\x01\x02\x03") == []        # shorter than a window
 
 
+def test_hysteresis_bridges_short_gap():
+    # tone | brief noise dip | tone -> ONE region, not two (real audio is dynamic)
+    blob = _tone(4096) + _noise(1024, 9) + _tone(4096)
+    regions = audioscan.scan(blob)
+    assert len(regions) == 1
+    assert regions[0]["start"] < 4096 and regions[0]["end"] > 4096 + 1024
+
+
+def test_entropy_prefilter_skips_autocorr():
+    # a near-maximal-entropy (random) window is pre-filtered: peak forced to 0
+    feat = audioscan.window_features(_noise(1024, 3))
+    assert feat["entropy"] > audioscan._ENTROPY_CEIL
+    assert feat["peak"] == 0.0 and feat["structure"] == 0.0
+
+
 def test_region_evidence_present():
     blob = _noise(2048, seed=5) + _tone(4096) + _noise(2048, seed=6)
     reg = audioscan.scan(blob)[0]

@@ -37,11 +37,14 @@ MODES = ("strict", "normal", "aggressive")
 _HEADER_BACKTRACK = 64 * 1024     # "back up a little" for a corrupt-extent header
 _NORMAL_BLOB_MIN = 0.45           # headerless blobs need this confidence in 'normal'
 _CONTAINER_CONF = 0.9             # a validated container is a strong recovery
+_COALESCE_GAP = 32 * 1024        # merge headerless blob fragments within this gap
+                                 # (a quiet passage inside a file is still one file)
 
 # container magics whose payload can be audio; each is confirmed with sniff_bytes
 # so a stray "RIFF" in noise is rejected, not trusted.
-_CONTAINER_MAGICS = (b"RIFF", b"RF64", b"FORM", b"fLaC", b"OggS")
-_AUDIO_CONTAINER_FMTS = {"wav", "rf64", "aiff", "aifc", "8svx", "flac", "ogg", "sf2"}
+_CONTAINER_MAGICS = (b"RIFF", b"RF64", b"FORM", b"fLaC", b"OggS", b"ID3")
+_AUDIO_CONTAINER_FMTS = {"wav", "rf64", "aiff", "aifc", "8svx", "flac", "ogg",
+                         "sf2", "mp3"}
 
 
 _RIFF_MIN = 12                    # a RIFF/FORM smaller than its own header is corrupt
@@ -62,6 +65,13 @@ def _confirm_container(data, off, fmt):
     if fmt == "ogg":
         # OggS page: stream-structure version 0 at +4, header_type uses 3 bits
         return off + 6 <= n and data[off + 4] == 0 and (data[off + 5] & 0xF8) == 0
+    if fmt == "mp3":
+        # ID3v2-anchored only (bare frame-sync is too noisy to sweep on): a real
+        # version byte and a synchsafe (7-bit) size are hard to hit by chance
+        if off + 10 > n or data[off:off + 3] != b"ID3":
+            return False
+        return (data[off + 3] in (2, 3, 4) and data[off + 4] != 0xFF
+                and all(data[off + 6 + k] < 0x80 for k in range(4)))
     return True                                               # riff/form: sniff did it
 
 
@@ -84,11 +94,17 @@ def _container_extent(data, off, fmt):
     return end
 
 
+# declared-size formats: an absent extent means the size field itself is corrupt
+_DECLARED_SIZE_FMTS = {"wav", "rf64", "sf2", "aiff", "aifc", "8svx"}
+_HEADER_SLACK = 4096              # audio may start this far past a container header
+_AUDIO_GAP_TOL = 4096            # bridge small non-audio gaps between audio sub-regions
+
+
 def signature_sweep(data):
     """Find every validated audio container by magic (the PhotoRec engine).
-    Returns container records sorted by offset. A container with no trustworthy
-    declared size (streaming, or a corrupt size field) gets a provisional extent
-    running to the next container start or EOF -- never a zero-length stub."""
+    Returns container records sorted by offset, each with an ``extent`` (a
+    trustworthy declared end, or None when the size is streaming/corrupt and must
+    be resolved from the audio itself)."""
     hits = {}
     for magic in _CONTAINER_MAGICS:
         idx = data.find(magic)
@@ -103,21 +119,58 @@ def signature_sweep(data):
                     "evidence": None,
                 }
             idx = data.find(magic, idx + 1)
+    return [hits[o] for o in sorted(hits)]
 
-    offsets = sorted(hits)
-    records = []
-    for i, off in enumerate(offsets):
-        rec = hits[off]
-        extent = rec.pop("extent")
+
+def _audio_chain_end(offset, upper, regions):
+    """End of the contiguous audio run that begins just after a container header,
+    or None if no audio starts near the header (a 16-bit or compressed payload
+    the statistical pass can't see). Bounds a corrupt extent to the real audio."""
+    chain_end = None
+    for r in regions:
+        s, e = r["start"], r["end"]
+        if s >= upper:
+            break
+        if chain_end is None:
+            if offset <= s <= offset + _HEADER_SLACK:
+                chain_end = min(e, upper)
+        elif s - chain_end <= _AUDIO_GAP_TOL:
+            chain_end = min(e, upper)
+        elif s > chain_end:
+            break
+    return chain_end
+
+
+def _next_region_start(lo, upper, regions):
+    """Start of the first audio region in (lo, upper), else None."""
+    for r in regions:
+        if lo < r["start"] < upper:
+            return r["start"]
+    return None
+
+
+def _resolve_container_ends(data, containers, regions):
+    """Fill each container's ``end``. A trusted declared extent is used as-is. A
+    provisional extent is bounded by the audio that follows the header; failing
+    that (undetectable payload) it is capped just before the next distinct audio
+    region so a following blob survives, else at the next container / EOF."""
+    offsets = [c["offset"] for c in containers]
+    n = len(data)
+    for i, c in enumerate(containers):
+        extent = c.pop("extent")
+        upper = offsets[i + 1] if i + 1 < len(offsets) else n
         if extent is not None:
-            rec["end"] = extent
-            rec["streaming_extent"] = False
+            c["end"], c["streaming_extent"] = extent, False
+            continue
+        chain = _audio_chain_end(c["offset"], upper, regions)
+        if chain is not None:
+            c["end"] = chain
         else:
-            # provisional: run to the next container start, or EOF
-            rec["end"] = offsets[i + 1] if i + 1 < len(offsets) else len(data)
-            rec["streaming_extent"] = True
-        records.append(rec)
-    return records
+            nxt = _next_region_start(c["offset"] + _HEADER_SLACK, upper, regions)
+            c["end"] = nxt if nxt is not None else upper
+        c["streaming_extent"] = True
+        if c["format"] in _DECLARED_SIZE_FMTS:
+            c["corrupt_extent"] = True                 # declared size was unusable
 
 
 def backtrack_header(data, start, bound=_HEADER_BACKTRACK):
@@ -162,32 +215,41 @@ def recover(data, *, mode="normal", scan_kwargs=None):
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
 
     containers = signature_sweep(data)
+    regions = audioscan.scan(data, **(scan_kwargs or {}))
+    _resolve_container_ends(data, containers, regions)
     extents = [(c["offset"], c["end"]) for c in containers if c["end"] > c["offset"]]
     records = list(containers)
 
-    for region in audioscan.scan(data, **(scan_kwargs or {})):
+    for region in regions:
         if _within(region["start"], extents):
             continue                                  # part of a container we found
-        bt = backtrack_header(data, region["start"])
-        if bt["found"] and not _within(bt["container_start"], extents):
-            # a header sits just behind this PCM but its declared extent missed it
-            # (corrupt/short size): anchor a container recovery rather than drop it
-            records.append({
-                "kind": "container", "format": bt["format"],
-                "offset": bt["container_start"], "end": region["end"],
-                "streaming_extent": True, "confidence": _CONTAINER_CONF,
-                "inspectable": True, "evidence": region["evidence"],
-                "corrupt_extent": True,
-            })
-        else:
-            records.append({
-                "kind": "blob", "format": None, "offset": region["start"],
-                "end": region["end"], "confidence": region["confidence"],
-                "inspectable": False, "evidence": region["evidence"],
-            })
+        records.append({
+            "kind": "blob", "format": None, "offset": region["start"],
+            "end": region["end"], "confidence": region["confidence"],
+            "inspectable": False, "evidence": region["evidence"],
+        })
 
     records = [r for r in records if _survives(r, mode)]
     records.sort(key=lambda r: r["offset"])
+    records = _coalesce_blobs(records)
     for r in records:
         r["length"] = r["end"] - r["offset"]
     return records
+
+
+def _coalesce_blobs(records):
+    """Merge adjacent headerless-blob records within _COALESCE_GAP. Dynamic audio
+    (a music dump with quiet passages) fragments into many below-gate windows;
+    headerless recovery is inherently coarse, so nearby blob fragments collapse
+    to one region. Containers are never merged, and a container between two blobs
+    keeps them separate."""
+    out = []
+    for r in records:
+        if r["kind"] == "blob" and out and out[-1]["kind"] == "blob" \
+                and r["offset"] - out[-1]["end"] <= _COALESCE_GAP:
+            prev = out[-1]
+            prev["end"] = max(prev["end"], r["end"])
+            prev["confidence"] = max(prev["confidence"], r["confidence"])
+            continue
+        out.append(r)
+    return out
