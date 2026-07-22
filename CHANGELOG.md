@@ -6,6 +6,38 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-07-22
+
+### Added
+
+- **`acidcat recover` -- "PhotoRec for audio."** Recover audio from an unknown
+  blob (a disk image, a chip dump, a proprietary file that embeds samples) with
+  two engines: a signature sweep for known containers (RIFF/WAVE, FORM/AIFF/8SVX,
+  fLaC, OggS, ID3-anchored MP3) and a statistical detector for signatureless raw
+  PCM. The statistical detector reads a blob as 8-bit signed PCM and scores each
+  window on entropy + the *shape* of autocorrelation across lags (audio is smooth
+  -- the same property that makes it compressible is what makes it detectable) +
+  value distribution, calibrated on a labeled corpus (real audio vs code / text /
+  random / compressed). Three forensics levels (`--mode strict|normal|aggressive`),
+  `--json`, `-`/stdin, and `-x/--extract DIR` (fuses recover -> carve). A recovery
+  record's offset/length is a `carve` range and a recovered container is an
+  `inspect`/`convert` input, so the verbs chain into a rescue pipeline. Corrupt
+  container extents are bounded to the real audio, never greedy. Known limits:
+  pure-Python scan is slow on multi-GB images; compressed and raw-16-bit
+  headerless audio are out of scope for the statistical engine (by design).
+- **BFD `.bfdlac` (BFDC) walker.** FXpansion BFD's per-hit compressed-audio
+  format: a big-endian IFF-style container (`fmt`/`BFDi`/`Indx`/`data`) wrapping
+  an undocumented lossless codec. Surfaces the audio descriptor (bit depth, rate,
+  channels, duration), the pack id, and the block seek index. Confirmed uniform
+  across 181,696 real files.
+- **Generic structural triage.** When no format-specific walker matches, acidcat
+  now recognizes an unknown *chunked container* (and guesses whether it holds
+  audio) from universal signals -- a magic that opens an IFF/RIFF-style
+  `[tag][size]` grid tiling the file, audio-indicative tags, and payload entropy
+  -- instead of a flat "unrecognized structural format." Surfaces the chunk grid
+  (which doubles as the reverse-engineering starting point for a new walker), and
+  stays conservative enough that random/non-container data still falls through.
+
 ## [0.62.0] - 2026-07-22
 
 ### Added
