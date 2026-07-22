@@ -6,6 +6,18 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.68.0] - 2026-07-22
+
+### Added
+
+- **`extract` gains E-mu Emulator X / Proteus X (`.ebl`/`.exb`).** Each E5S1
+  sample is a fixed `0xb8`-byte header (inline UTF-16LE name, rate at +0x6a) then
+  16-bit signed little-endian mono PCM; the walker locates the chunks and the
+  extractor slices past the header. `.exb` banks carry only presets + links, so
+  the samples come from the `.ebl` libraries (both sniff as `e5b`). Verified on
+  real Emulator X libraries. `extract` now covers MOD/XM/IT/S3M, 8SVX, NCW, SF2,
+  multisample, KRZ, GF1 patch, E-mu E4B, and E-mu E5B.
+
 ## [0.67.0] - 2026-07-22
 
 ### Added
