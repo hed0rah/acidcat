@@ -171,6 +171,49 @@ def test_gf1_extraction(tmp_path):
     assert struct.unpack("<1h", w.readframes(1))[0] == 0     # 128 unsigned -> 0
 
 
+def _make_e4b(tmp_path, pcm_frames, rate=44100, name="KICK"):
+    """A minimal valid FORM E4B0 bank with one E3S1 sample carrying real PCM."""
+    def iff(tag, body):
+        return tag + struct.pack(">I", len(body)) + body + (b"\x00" if len(body) & 1 else b"")
+
+    def nm16(s):
+        return s.encode("ascii")[:16].ljust(16, b" ")
+
+    def toc(tag, dsize, foff, idx, name):
+        return tag + struct.pack(">I", dsize) + struct.pack(">I", foff) + \
+            struct.pack(">H", idx) + nm16(name) + b"\x00\x00"
+
+    hdr = bytearray(94)
+    struct.pack_into(">H", hdr, 0, 1); hdr[2:18] = nm16(name)
+    struct.pack_into("<I", hdr, 54, rate); struct.pack_into("<H", hdr, 60, 0x20)
+    pcm = b"".join(struct.pack("<h", v) for v in pcm_frames)
+    e3s1 = iff(b"E3S1", bytes(hdr) + pcm)
+    e4ma = iff(b"E4Ma", b"\x00" * 256)
+    emst = iff(b"EMSt", b"\x00" * 1366)
+
+    toc1_len = 8 + 2 * 32                                # E4Ma + E3S1 entries
+    off = 12 + toc1_len
+    entries = [toc(b"E4Ma", 256, off, 0, "Multimap")]
+    off += len(e4ma)
+    entries.append(toc(b"E3S1", len(e3s1) - 8, off, 1, name))
+    toc1 = iff(b"TOC1", b"".join(entries))
+    body = b"E4B0" + toc1 + e4ma + e3s1 + emst
+    blob = b"FORM" + struct.pack(">I", len(body) - 4) + body
+    p = tmp_path / "bank.e4b"
+    p.write_bytes(blob)
+    return str(p)
+
+
+def test_e4b_extraction(tmp_path):
+    frames = [1000, -2000, 3000, -4000, 5000]
+    p = _make_e4b(tmp_path, frames, rate=32000, name="KICK")
+    recs = [r for r in smod.iter_samples(p) if r.get("wav")]
+    assert len(recs) == 1 and recs[0]["name"] == "KICK"
+    w = wave.open(io.BytesIO(recs[0]["wav"]), "rb")
+    assert w.getframerate() == 32000 and w.getnframes() == 5
+    assert struct.unpack("<5h", w.readframes(5)) == tuple(frames)  # 16-bit signed LE
+
+
 def test_extractable_set():
     assert {"mod", "xm", "it", "s3m", "gf1pat", "8svx", "ncw", "sf2",
-            "multisample", "krz"} <= smod.EXTRACTABLE
+            "multisample", "krz", "e4b"} <= smod.EXTRACTABLE
