@@ -70,5 +70,73 @@ def test_unsupported_format_raises(tmp_path):
         list(smod.iter_samples(p))
 
 
+def test_be16_to_wav_byteswaps():
+    raw = struct.pack(">hhh", 1, 2, -3)                  # big-endian 16-bit PCM
+    w = wave.open(io.BytesIO(smod._be16_to_wav(raw, 44100)), "rb")
+    assert struct.unpack("<3h", w.readframes(3)) == (1, 2, -3)
+
+
+def _zip_multisample(tmp_path):
+    import zipfile
+    def _wavbytes(n=100):
+        b = io.BytesIO()
+        with wave.open(b, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
+            w.writeframes(struct.pack(f"<{n}h", *([1000] * n)))
+        return b.getvalue()
+    p = tmp_path / "pack.multisample"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("multisample.xml", b"<multisample name='t'/>")
+        z.writestr("a - mix.wav", _wavbytes())
+        z.writestr("b - mix.wav", _wavbytes(50))
+    return str(p)
+
+
+def test_multisample_extraction(tmp_path):
+    p = _zip_multisample(tmp_path)
+    recs = [r for r in smod.iter_samples(p) if r.get("wav")]
+    assert len(recs) == 2
+    assert {r["name"] for r in recs} == {"a - mix", "b - mix"}
+    assert recs[0]["wav"][:4] == b"RIFF"
+
+
+# KRZ builders (mirrors tests/test_krz.py) --------------------------------------
+def _krz_object(type_code, oid, name, body):
+    n = len(name)
+    pad = b"\x00" if n % 2 else b"\x00\x00"
+    ofs = n + (3 if n % 2 else 4)
+    inner = struct.pack(">HHH", (type_code << 10) | oid, 0, ofs) + name.encode() + pad + body
+    total = 4 + len(inner)
+    total += (-total) % 4
+    inner += b"\x00" * (total - 4 - len(inner))
+    return struct.pack(">i", -total) + inner
+
+
+def _krz_sample_body(rate=44100):
+    period = round(1e9 / rate)
+    ksample = struct.pack(">hhhBBhh", 1, 0, 8, 0, 0, 0, 0)
+    sfh = (struct.pack(">BBBB", 60, 0x70, 0, 0) + struct.pack(">HH", 0, 0)
+           + struct.pack(">iiii", 0, 0, 100, 200)        # start=0, ..., end=200 words
+           + struct.pack(">HH", 8, 6) + struct.pack(">I", period))
+    envs = struct.pack(">hhhhhh", -1, 1, 0, 0, -1600, 0) * 2
+    return ksample + sfh + envs
+
+
+def test_krz_extraction(tmp_path):
+    obj = _krz_object(38, 200, "Snare", _krz_sample_body())
+    body = obj + struct.pack(">i", 0)
+    osize = 32 + len(body)
+    header = b"PRAM" + struct.pack(">i", osize) + struct.pack(">iii", 0, 0, 207) + b"\x00" * 12
+    pcm = struct.pack(">200h", *range(200))              # 200 words, big-endian
+    p = tmp_path / "bank.krz"
+    p.write_bytes(header + body + pcm)
+    recs = [r for r in smod.iter_samples(str(p)) if r.get("wav")]
+    assert len(recs) == 1 and recs[0]["name"] == "Snare"
+    w = wave.open(io.BytesIO(recs[0]["wav"]), "rb")
+    assert w.getnframes() == 200                          # end(200) - start(0) words
+    assert struct.unpack("<2h", w.readframes(2)) == (0, 1)   # byteswapped BE range
+
+
 def test_extractable_set():
-    assert {"mod", "xm", "it", "8svx", "ncw", "sf2"} <= smod.EXTRACTABLE
+    assert {"mod", "xm", "it", "8svx", "ncw", "sf2", "multisample",
+            "krz"} <= smod.EXTRACTABLE

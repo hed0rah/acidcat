@@ -15,8 +15,10 @@ Bitwig multisample, RX2, BFD .bfdlac -- need specimens and/or codec work; see th
 """
 
 import io
+import os
 import struct
 import wave
+import zipfile
 
 from acidcat.core import ncw as ncwmod
 from acidcat.core import sf2 as sf2mod
@@ -153,25 +155,87 @@ def _sf2_samples(data):
             yield {"name": s["name"], "wav": blob, "note": "PCM"}
 
 
+def _be16_to_wav(raw, rate):
+    """Raw 16-bit big-endian PCM -> a little-endian 16-bit WAV."""
+    import array
+    a = array.array("h")
+    a.frombytes(raw[:len(raw) & ~1])
+    if array.array("h", b"\x01\x00")[0] == 1:            # host is little-endian
+        a.byteswap()                                     # BE bytes -> correct LE values
+    return _wav(a.tobytes(), rate)
+
+
+def _krz_samples(filepath):
+    """Kurzweil KRZ: each Sample object addresses a [start, end) word range in the
+    one contiguous 16-bit big-endian PCM region (at pcm_offset). Reuse the walker
+    to locate the region and the sample objects, then slice and byteswap."""
+    from acidcat.core.walk.krz import inspect_krz
+    chunks, _warns = inspect_krz(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read()
+    pcm_off = None
+    for c in chunks:
+        for fld in c.get("fields", []):
+            if fld.get("name") == "pcm_offset":
+                pcm_off = fld.get("raw", fld.get("value"))
+    if pcm_off is None:
+        return
+    n = 0
+    for c in chunks:
+        fv = {fld.get("name"): fld for fld in c.get("fields", [])}
+        if not ({"sample_start", "sample_end", "sample_period"} <= set(fv)):
+            continue
+        start = fv["sample_start"].get("raw", fv["sample_start"]["value"])
+        end = fv["sample_end"].get("raw", fv["sample_end"]["value"])
+        period = fv["sample_period"].get("raw", fv["sample_period"]["value"])
+        rate = round(1e9 / period) if period else _TRACKER_RATE
+        b0, b1 = pcm_off + start * 2, pcm_off + end * 2
+        if not (0 <= b0 < b1 <= len(data)):
+            continue
+        n += 1
+        name = fv["sample_start"] and None
+        nm = next((f["value"] for f in c.get("fields", []) if f.get("name") == "name"), None)
+        yield {"name": (nm if isinstance(nm, str) and nm != "(unnamed)" else None)
+                       or f"sample{n:02d}",
+               "wav": _be16_to_wav(data[b0:b1], rate),
+               "note": f"{(b1 - b0) // 2:,} samples 16-bit @ {rate} Hz"}
+
+
+def _multisample_samples(filepath):
+    """A Bitwig .multisample is a zip of WAVs (+ multisample.xml). Stream each WAV
+    member out verbatim -- read from the path so a multi-hundred-MB pack is not
+    loaded into memory at once."""
+    with zipfile.ZipFile(filepath) as z:
+        for n in z.namelist():
+            if n.lower().endswith(".wav"):
+                yield {"name": os.path.splitext(os.path.basename(n))[0],
+                       "wav": z.read(n), "note": f"{z.getinfo(n).file_size:,} B"}
+
+
 _EXTRACTORS = {
     "mod": _mod_samples, "xm": _xm_samples, "it": _it_samples,
     "8svx": _svx_samples, "ncw": _ncw_samples, "sf2": _sf2_samples,
 }
+# formats whose extractor reads the path itself (walk/stream), not a bytes buffer
+_PATH_EXTRACTORS = {"multisample": _multisample_samples, "krz": _krz_samples}
 
-EXTRACTABLE = frozenset(_EXTRACTORS)
+EXTRACTABLE = frozenset(_EXTRACTORS) | frozenset(_PATH_EXTRACTORS)
 
 
 def iter_samples(filepath, fmt=None):
     """Yield {name, wav (bytes), note, ext?} for each embedded sample. Raises
     SampleError if the sniffed format has no extractor. Never modifies the file."""
     fmt = fmt or sniff(filepath)
-    fn = _EXTRACTORS.get(fmt)
-    if fn is None:
-        raise SampleError(f"no sample extractor for {fmt or 'unrecognized'} "
-                          f"(extractable: {', '.join(sorted(EXTRACTABLE))})")
-    with open(filepath, "rb") as f:
-        data = f.read()
     try:
+        if fmt in _PATH_EXTRACTORS:
+            yield from _PATH_EXTRACTORS[fmt](filepath)   # streams from the path
+            return
+        fn = _EXTRACTORS.get(fmt)
+        if fn is None:
+            raise SampleError(f"no sample extractor for {fmt or 'unrecognized'} "
+                              f"(extractable: {', '.join(sorted(EXTRACTABLE))})")
+        with open(filepath, "rb") as f:
+            data = f.read()
         yield from fn(data)
     except Unsupported as e:
         raise SampleError(str(e))
