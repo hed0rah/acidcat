@@ -1,0 +1,190 @@
+"""Statistical audio-blob detection -- the signatureless engine behind `scan`.
+
+`scan` is "PhotoRec for audio." PhotoRec carves files by *signature* (magic
+headers/footers); raw PCM has no signature, so a signature carver walks straight
+past it. This module fills that gap: it finds raw audio in an unknown blob by its
+*statistical structure* -- the same smoothness (sample[n] ~= sample[n-1]) that
+lets DPCM/Fibonacci/BRR compress audio is what makes raw audio detectable.
+Compressibility and detectability are the same coin.
+
+Phase 1 (this module) is the LOCATOR: a windowed pass that flags candidate audio
+regions. It is tuned for *recall* -- catch the audio, tolerate some false hits --
+because the precision comes downstream (back up to a container header, hand the
+range to the real walker). Its output regions are exactly what `carve` consumes.
+
+The discriminator is entropy + the *shape* of autocorrelation across lags, drawn
+from measured class profiles:
+
+    class          entropy   r1     r2     r4     r8
+    random noise   ~8.0      ~0     ~0     ~0     ~0
+    program code   ~4.8      +0.42  +0.29  +0.15  +0.05   (monotone decay, low H)
+    8-bit voice    ~7.5      +0.53  +0.56  +0.17  -0.25   (bump at r2, oscillates)
+    clean tone     ~6.8      +0.99  +0.98  +0.91  +0.67   (sustained)
+
+Noise is flat at every lag; code decays monotonically from a modest peak; audio
+either *sustains* correlation (tonal) or *oscillates* into negative autocorr
+(voiced waveform). A lone lag-1 threshold can't separate low-fi 8-bit audio
+(r1~0.5) from code (r1~0.4) -- the decay/oscillation shape is what does.
+
+v1 reads the blob as 8-bit signed PCM. 16-bit / endianness / sign is a small
+search (try the strides, keep the best autocorr) and is a later increment.
+Compressed audio blobs (BRR, ADPCM, MP3) are high-entropy and not smooth, so
+this engine does not find them; they need structural signatures -- also later.
+
+Pure-Python by design: `scan` is a base-install capability, not gated behind the
+numpy `analysis` extra.
+"""
+
+import math
+
+# ---- tunables (first-cut, derived from the class profiles above; a labeled
+# corpus pass is expected to refine these) -------------------------------------
+
+LAGS = (1, 2, 4, 8)               # autocorrelation lags that expose the decay shape
+
+_PEAK_FLOOR = 0.25                # low-lag autocorr below this reads as noise
+_PEAK_SPAN = 0.50                 # ... and saturates confidence PEAK_SPAN above the floor
+_STRUCT_SPAN = 0.30               # structure needed to clear code's monotone decay
+_ENTROPY_FLOOR = 2.0              # below this the window is ~constant, not a live blob
+
+DEFAULT_WINDOW = 1024
+DEFAULT_STEP = 512
+DEFAULT_MIN_SCORE = 0.25          # recall-oriented: phases 2/3 supply precision
+DEFAULT_READ_CAP = 256 * 1024 * 1024
+
+# signed-8-bit lookup: byte 0..255 -> -128..127
+_SIGNED = tuple(b - 256 if b > 127 else b for b in range(256))
+
+
+def _clamp01(x):
+    return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+
+
+def _entropy(win):
+    """Shannon entropy (bits/byte, 0..8) of a window's byte values."""
+    n = len(win)
+    if n == 0:
+        return 0.0
+    counts = [0] * 256
+    for b in win:
+        counts[b] += 1
+    h = 0.0
+    for c in counts:
+        if c:
+            p = c / n
+            h -= p * math.log2(p)
+    return h
+
+
+def _autocorr(samples, mean, den, lag):
+    """Pearson autocorrelation at `lag` for a signed-sample sequence, given its
+    precomputed mean and denominator (sum of squared deviations)."""
+    n = len(samples)
+    if den <= 0.0 or lag >= n:
+        return 0.0
+    num = 0.0
+    for i in range(n - lag):
+        num += (samples[i] - mean) * (samples[i + lag] - mean)
+    return num / den
+
+
+def window_features(win):
+    """Feature vector for one window of bytes, read as 8-bit signed PCM.
+
+    Returns a dict: entropy (bits), autocorr {lag: r}, and the derived
+    peak/structure terms so callers can show the evidence behind a hit."""
+    samples = [_SIGNED[b] for b in win]
+    n = len(samples)
+    entropy = _entropy(win)
+    if n < LAGS[-1] + 1:
+        return {"entropy": entropy, "autocorr": {L: 0.0 for L in LAGS},
+                "peak": 0.0, "structure": 0.0, "n": n}
+
+    mean = sum(samples) / n
+    den = 0.0
+    for s in samples:
+        d = s - mean
+        den += d * d
+    ac = {L: _autocorr(samples, mean, den, L) for L in LAGS}
+
+    r1, r2, r4, r8 = ac[1], ac[2], ac[4], ac[8]
+    peak = max(r1, r2)                                  # low-lag correlation strength
+    # structure separates a waveform from code's monotone decay:
+    oscillate = max(-r4, -r8, 0.0)                      # dips negative at higher lag (voiced)
+    sustain = max(r4, r8, 0.0)                          # stays correlated (tonal)
+    periodic = max(r2 - r1, 0.0)                        # bump at lag 2 (pitched)
+    structure = max(oscillate, sustain, periodic)
+    return {"entropy": entropy, "autocorr": ac, "peak": peak,
+            "structure": structure, "n": n}
+
+
+def audio_score(feat):
+    """Audio-likeness in [0, 1] from a feature vector. Recall-oriented: a window
+    scores only when it is both *correlated* (beats noise) and *shaped* like a
+    waveform (beats code's monotone decay), and not near-constant."""
+    if feat["entropy"] < _ENTROPY_FLOOR:
+        return 0.0
+    strength = _clamp01((feat["peak"] - _PEAK_FLOOR) / _PEAK_SPAN)
+    shape = _clamp01(feat["structure"] / _STRUCT_SPAN)
+    return strength * shape
+
+
+def scan(data, *, window=DEFAULT_WINDOW, step=DEFAULT_STEP,
+         min_score=DEFAULT_MIN_SCORE, read_cap=DEFAULT_READ_CAP):
+    """Locate candidate raw-audio regions in `data` (bytes).
+
+    Slides a window, scores each, and merges runs of audio-like windows into
+    regions. Returns a list of dicts, each with offset/end, a confidence (the
+    mean window score), and averaged evidence (entropy, autocorr, sample count).
+    Recall-oriented and never raises; a caller confirms hits downstream."""
+    if read_cap and len(data) > read_cap:
+        data = data[:read_cap]
+    n = len(data)
+    if n < window:
+        return []
+
+    marks = []                                          # (offset, score, feat)
+    off = 0
+    last = n - window
+    while off <= last:
+        feat = window_features(data[off:off + window])
+        marks.append((off, audio_score(feat), feat))
+        off += step
+
+    regions = []
+    run = None                                          # accumulating region
+    for off, score, feat in marks:
+        if score >= min_score:
+            if run is None:
+                run = {"start": off, "end": off + window, "_scores": [score],
+                       "_feats": [feat]}
+            else:
+                run["end"] = off + window
+                run["_scores"].append(score)
+                run["_feats"].append(feat)
+        elif run is not None:
+            regions.append(_finalize(run))
+            run = None
+    if run is not None:
+        regions.append(_finalize(run))
+    return regions
+
+
+def _finalize(run):
+    """Collapse an accumulated run into a reported region with mean evidence."""
+    scores = run["_scores"]
+    feats = run["_feats"]
+    k = len(feats)
+    mean_ac = {L: sum(f["autocorr"][L] for f in feats) / k for L in LAGS}
+    return {
+        "start": run["start"],
+        "end": run["end"],
+        "length": run["end"] - run["start"],
+        "confidence": sum(scores) / k,
+        "windows": k,
+        "evidence": {
+            "entropy": sum(f["entropy"] for f in feats) / k,
+            "autocorr": mean_ac,
+            "width": 1,                                 # v1: 8-bit signed PCM
+        },
+    }
