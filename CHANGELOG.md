@@ -6,6 +6,19 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-07-22
+
+### Added
+
+- **`extract` gains Bitwig `.multisample` and Kurzweil KRZ.** A `.multisample` is
+  a zip of WAVs -- each member streams out verbatim (read from the path so a
+  multi-hundred-MB pack is not held in memory; verified on a 214 MB, 258-WAV
+  Orchestral Strings pack). A KRZ Sample object addresses a word range in the
+  bank's one contiguous 16-bit big-endian PCM region; the walker locates the
+  region and objects, then each sample is sliced, byteswapped, and rendered to a
+  WAV at its rate (verified on a Sweetwater bank -- real full-range audio).
+  `extract` now covers MOD/XM/IT, 8SVX, NCW, SF2, multisample, and KRZ.
+
 ## [0.64.0] - 2026-07-22
 
 ### Added
