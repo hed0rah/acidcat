@@ -137,6 +137,40 @@ def test_krz_extraction(tmp_path):
     assert struct.unpack("<2h", w.readframes(2)) == (0, 1)   # byteswapped BE range
 
 
+def test_s3m_frames_unsigned_8bit():
+    # S3M 8-bit is unsigned: 0x80 (128) is the zero-crossing -> 0
+    raw = bytes([128, 128 + 64, 128 - 64])
+    frames = smod._s3m_frames(raw, bits16=False, stereo=False)
+    assert struct.unpack("<3h", frames) == (0, 64 * 256, -64 * 256)
+
+
+def test_s3m_frames_stereo_interleave():
+    # stereo stored as L-block then R-block -> interleaved LR in the WAV
+    raw = bytes([128 + 10, 128 + 20, 128 - 10, 128 - 20])   # L=[+10,+20], R=[-10,-20]
+    frames = smod._s3m_frames(raw, bits16=False, stereo=True)
+    assert struct.unpack("<4h", frames) == (10 * 256, -10 * 256, 20 * 256, -20 * 256)
+
+
+def _gf1_patch(pcm, rate=44100, name=b"snare"):
+    hdr = bytearray(129); hdr[0:12] = b"GF1PATCH110\x00"; hdr[82] = 1
+    inst = bytearray(63); inst[22] = 1
+    layer = bytearray(47); layer[6] = 1
+    sh = bytearray(96); sh[0:len(name)] = name
+    struct.pack_into("<I", sh, 8, len(pcm)); struct.pack_into("<H", sh, 20, rate)
+    sh[55] = 0x02                                        # 8-bit unsigned
+    return bytes(hdr + inst + layer + sh) + pcm
+
+
+def test_gf1_extraction(tmp_path):
+    p = tmp_path / "k.pat"
+    p.write_bytes(_gf1_patch(bytes([128 + i for i in range(30)]), rate=44100))
+    recs = [r for r in smod.iter_samples(str(p)) if r.get("wav")]
+    assert len(recs) == 1 and recs[0]["name"] == "snare"
+    w = wave.open(io.BytesIO(recs[0]["wav"]), "rb")
+    assert w.getframerate() == 44100 and w.getnframes() == 30
+    assert struct.unpack("<1h", w.readframes(1))[0] == 0     # 128 unsigned -> 0
+
+
 def test_extractable_set():
-    assert {"mod", "xm", "it", "8svx", "ncw", "sf2", "multisample",
-            "krz"} <= smod.EXTRACTABLE
+    assert {"mod", "xm", "it", "s3m", "gf1pat", "8svx", "ncw", "sf2",
+            "multisample", "krz"} <= smod.EXTRACTABLE
