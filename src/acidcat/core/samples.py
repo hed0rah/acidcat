@@ -106,6 +106,40 @@ def _xm_samples(data):
                    "note": f"{s['length']:,} B {'16' if s['bits16'] else '8'}-bit delta"}
 
 
+def _s3m_frames(raw, bits16, stereo):
+    """S3M PCM (unsigned; 8/16-bit; stereo stored as L-block then R-block) ->
+    signed 16-bit little-endian, interleaved for stereo."""
+    def to16(block):
+        if bits16:
+            n = len(block) // 2
+            return [struct.unpack_from("<H", block, k * 2)[0] - 32768 for k in range(n)]
+        return [(b - 128) * 256 for b in block]
+    if stereo:
+        half = len(raw) // 2
+        left, right = to16(raw[:half]), to16(raw[half:])
+        out = bytearray()
+        for lo, ro in zip(left, right):
+            out += struct.pack("<hh", lo, ro)
+        return bytes(out)
+    return b"".join(struct.pack("<h", v) for v in to16(raw))
+
+
+def _s3m_samples(data):
+    s3 = tkmod.parse_s3m(data)
+    for i, s in enumerate(s3["samples"], 1):
+        if not s.get("valid") or not s.get("is_pcm") or s.get("packing") == 1:
+            continue                                     # header-only / adlib / ADPCM
+        off, blen = s.get("pcm_off"), s.get("byte_len")
+        if not off or not blen or off + blen > len(data):
+            continue
+        rate = s.get("c2spd") or _TRACKER_RATE
+        yield {"name": s["name"] or s.get("dos_name") or f"sample{i:02d}",
+               "wav": _wav(_s3m_frames(data[off:off + blen], s["bits16"], s["stereo"]),
+                           rate, channels=2 if s["stereo"] else 1),
+               "note": f"{blen:,} B {'16' if s['bits16'] else '8'}-bit "
+                       f"{'stereo' if s['stereo'] else 'mono'} @ {rate} Hz"}
+
+
 def _it_samples(data):
     it = tkmod.parse_it(data)
     skipped = 0
@@ -130,6 +164,32 @@ def _it_samples(data):
     if skipped:
         yield {"name": None, "wav": None,
                "note": f"{skipped} IT-compressed sample(s) skipped (codec not decoded)"}
+
+
+def _gf1_frames(raw, bits16, unsigned):
+    """GUS GF1 PCM (8/16-bit, signed or unsigned) -> signed 16-bit little-endian."""
+    if bits16:
+        n = len(raw) // 2
+        if unsigned:
+            return b"".join(struct.pack("<h", struct.unpack_from("<H", raw, k * 2)[0] - 32768)
+                            for k in range(n))
+        return raw[:n * 2]                               # already signed 16-bit LE
+    if unsigned:
+        return b"".join(struct.pack("<h", (b - 128) * 256) for b in raw)
+    return b"".join(struct.pack("<h", (b - 256 if b > 127 else b) * 256) for b in raw)
+
+
+def _gf1pat_samples(data):
+    from acidcat.core.walk.gf1pat import parse_gf1
+    info = parse_gf1(data)
+    for i, s in enumerate(info["samples"], 1):
+        off, sz = s["pcm_off"], s["data_size"]
+        if not sz or off + sz > len(data):
+            continue
+        yield {"name": s["name"] or f"sample{i:02d}",
+               "wav": _wav(_gf1_frames(data[off:off + sz], s["bits16"], s["unsigned"]),
+                           s["rate"] or _TRACKER_RATE),
+               "note": f"{sz:,} B {'16' if s['bits16'] else '8'}-bit @ {s['rate']} Hz"}
 
 
 def _svx_samples(data):
@@ -214,6 +274,7 @@ def _multisample_samples(filepath):
 
 _EXTRACTORS = {
     "mod": _mod_samples, "xm": _xm_samples, "it": _it_samples,
+    "s3m": _s3m_samples, "gf1pat": _gf1pat_samples,
     "8svx": _svx_samples, "ncw": _ncw_samples, "sf2": _sf2_samples,
 }
 # formats whose extractor reads the path itself (walk/stream), not a bytes buffer

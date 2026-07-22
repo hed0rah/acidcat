@@ -13,7 +13,7 @@ import os
 
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
-    aiff, akai, amiga, bfdlac, bitwig, emu, flac, fxp, krz, labx, midi, mp3, mp4, mpc,
+    aiff, akai, amiga, bfdlac, bitwig, gf1pat, emu, flac, fxp, krz, labx, midi, mp3, mp4, mpc,
     multisample, ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, svx, tracker,
     vital, wav, wt,
 )
@@ -28,6 +28,7 @@ _WALKERS = {
     "aifc": ("IFF/AIFC", lambda path, deep: aiff.inspect_aiff(path, "AIFC")),
     "8svx": ("IFF/8SVX", lambda path, deep: svx.inspect_8svx(path)),
     "bfdlac": ("BFD compressed audio", lambda path, deep: bfdlac.inspect_bfdlac(path)),
+    "gf1pat": ("Gravis UltraSound patch", lambda path, deep: gf1pat.inspect_gf1pat(path)),
     "smus": ("IFF/SMUS (Sonix score)", lambda path, deep: amiga.inspect_smus(path)),
     "okt": ("Oktalyzer module", lambda path, deep: amiga.inspect_okt(path)),
     "med": ("MED / OctaMED module", lambda path, deep: amiga.inspect_med(path)),
