@@ -47,6 +47,15 @@ _PEAK_SPAN = 0.50                 # ... and saturates confidence PEAK_SPAN above
 _STRUCT_SPAN = 0.30               # structure needed to clear code's monotone decay
 _ENTROPY_FLOOR = 2.0              # below this the window is ~constant, not a live blob
 
+# distribution gate (calibrated on a labeled corpus: real 8SVX audio vs code/
+# text/random/binary). autocorrelation already rejects random/compressed/binary
+# cold (~0 correlation); the residual false positives are structured CODE and
+# TEXT, which are ~99% printable bytes while real audio is ~22% (p90 0.37) --
+# a clean, no-overlap separation. So a printable-fraction factor zeroes code/
+# text without touching audio recall.
+_PRINTABLE_LO = 0.35              # audio sits at/below this; factor is 1.0 here
+_PRINTABLE_HI = 0.70             # code/text is ~1.0; factor reaches 0.0 by here
+
 DEFAULT_WINDOW = 1024
 DEFAULT_STEP = 512
 DEFAULT_MIN_SCORE = 0.25          # recall-oriented: phases 2/3 supply precision
@@ -68,12 +77,37 @@ def _entropy(win):
     counts = [0] * 256
     for b in win:
         counts[b] += 1
+    return _entropy_from_counts(counts, n)
+
+
+def _entropy_from_counts(counts, n):
     h = 0.0
     for c in counts:
         if c:
             p = c / n
             h -= p * math.log2(p)
     return h
+
+
+# text/code tell: bytes in the printable ASCII band (+ tab/newline/return)
+_PRINTABLE = frozenset(range(0x20, 0x7F)) | {0x09, 0x0A, 0x0D}
+
+
+def _distribution(counts, n):
+    """Value-distribution shape from a byte histogram.
+
+    printable_frac -- share of bytes in the text range; a code/text signature.
+    hist_tv -- total variation of the normalized histogram: audio's value
+    histogram is smooth (a sampled continuous signal), code's is spiky (isolated
+    peaks at common byte values), random's is flat. So high TV reads as code."""
+    printable = sum(counts[b] for b in _PRINTABLE) / n
+    tv = 0.0
+    prev = counts[0] / n
+    for c in counts[1:]:
+        cur = c / n
+        tv += cur - prev if cur > prev else prev - cur
+        prev = cur
+    return printable, tv
 
 
 def _autocorr(samples, mean, den, lag):
@@ -95,10 +129,15 @@ def window_features(win):
     peak/structure terms so callers can show the evidence behind a hit."""
     samples = [_SIGNED[b] for b in win]
     n = len(samples)
-    entropy = _entropy(win)
+    counts = [0] * 256
+    for b in win:
+        counts[b] += 1
+    entropy = _entropy_from_counts(counts, n)
+    printable, hist_tv = _distribution(counts, n)
     if n < LAGS[-1] + 1:
         return {"entropy": entropy, "autocorr": {L: 0.0 for L in LAGS},
-                "peak": 0.0, "structure": 0.0, "n": n}
+                "peak": 0.0, "structure": 0.0, "printable": printable,
+                "hist_tv": hist_tv, "n": n}
 
     mean = sum(samples) / n
     den = 0.0
@@ -115,18 +154,21 @@ def window_features(win):
     periodic = max(r2 - r1, 0.0)                        # bump at lag 2 (pitched)
     structure = max(oscillate, sustain, periodic)
     return {"entropy": entropy, "autocorr": ac, "peak": peak,
-            "structure": structure, "n": n}
+            "structure": structure, "printable": printable,
+            "hist_tv": hist_tv, "n": n}
 
 
 def audio_score(feat):
     """Audio-likeness in [0, 1] from a feature vector. Recall-oriented: a window
-    scores only when it is both *correlated* (beats noise) and *shaped* like a
-    waveform (beats code's monotone decay), and not near-constant."""
+    scores only when it is *correlated* (beats noise), *shaped* like a waveform
+    (beats code's monotone decay), and not text/code by value distribution."""
     if feat["entropy"] < _ENTROPY_FLOOR:
         return 0.0
     strength = _clamp01((feat["peak"] - _PEAK_FLOOR) / _PEAK_SPAN)
     shape = _clamp01(feat["structure"] / _STRUCT_SPAN)
-    return strength * shape
+    dist = _clamp01((_PRINTABLE_HI - feat.get("printable", 0.0))
+                    / (_PRINTABLE_HI - _PRINTABLE_LO))
+    return strength * shape * dist
 
 
 def scan(data, *, window=DEFAULT_WINDOW, step=DEFAULT_STEP,
