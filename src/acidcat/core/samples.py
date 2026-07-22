@@ -286,6 +286,34 @@ def _emu_samples(filepath):
                "note": f"{(b1 - b0) // 2:,} frames 16-bit @ {rate} Hz"}
 
 
+def _emu5_samples(filepath):
+    """E-mu Emulator X / Proteus X (.ebl sample library, .exb bank): each E5S1
+    chunk is a fixed 0xb8-byte header (inline UTF-16LE name, sample rate at +0x6a)
+    then 16-bit signed little-endian mono PCM. .exb banks hold only presets +
+    links, so extraction lands the samples from the .ebl libraries."""
+    from acidcat.core.walk.emu import inspect_emu
+    _E5_HDR, _RATE_OFF = 0xb8, 0x6a
+    chunks, _w = inspect_emu(filepath, False)
+    with open(filepath, "rb") as f:
+        data = f.read()
+    n = 0
+    for c in chunks:
+        if not c["id"].startswith("E5S1"):
+            continue
+        body = data[c["offset"] + 8:c["offset"] + 8 + c["size"]]
+        if len(body) < _E5_HDR + 2:
+            continue
+        rate = struct.unpack_from("<I", body, _RATE_OFF)[0] or _TRACKER_RATE
+        j = 6
+        while j + 1 < min(len(body), 0x40) and body[j:j + 2] != b"\x00\x00":
+            j += 2
+        name = body[6:j].decode("utf-16-le", "replace").strip()
+        n += 1
+        yield {"name": name or f"sample{n:02d}",
+               "wav": _wav(body[_E5_HDR:], rate),
+               "note": f"{(len(body) - _E5_HDR) // 2:,} frames 16-bit @ {rate} Hz"}
+
+
 def _multisample_samples(filepath):
     """A Bitwig .multisample is a zip of WAVs (+ multisample.xml). Stream each WAV
     member out verbatim -- read from the path so a multi-hundred-MB pack is not
@@ -304,7 +332,7 @@ _EXTRACTORS = {
 }
 # formats whose extractor reads the path itself (walk/stream), not a bytes buffer
 _PATH_EXTRACTORS = {"multisample": _multisample_samples, "krz": _krz_samples,
-                    "e4b": _emu_samples}
+                    "e4b": _emu_samples, "e5b": _emu5_samples}
 
 EXTRACTABLE = frozenset(_EXTRACTORS) | frozenset(_PATH_EXTRACTORS)
 
