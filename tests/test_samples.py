@@ -243,6 +243,21 @@ def test_e5b_extraction(tmp_path):
     assert struct.unpack("<4h", w.readframes(4)) == tuple(frames)
 
 
+def test_mpc_snd_extraction(tmp_path):
+    frames = [300, -400, 500, -600, 700]
+    head = bytearray(42); head[0] = 1; head[1] = 2
+    head[2:6] = b"KICK"; head[0x15] = 0                   # mono
+    struct.pack_into("<I", head, 0x1e, len(frames))
+    pcm = b"".join(struct.pack("<h", v) for v in frames)
+    p = tmp_path / "k.snd"
+    p.write_bytes(bytes(head) + pcm)
+    recs = [r for r in smod.iter_samples(str(p)) if r.get("wav")]
+    assert len(recs) == 1 and recs[0]["name"] == "KICK"
+    w = wave.open(io.BytesIO(recs[0]["wav"]), "rb")
+    assert w.getnchannels() == 1 and w.getframerate() == 44100 and w.getnframes() == 5
+    assert struct.unpack("<5h", w.readframes(5)) == tuple(frames)
+
+
 def test_extractable_set():
     assert {"mod", "xm", "it", "s3m", "gf1pat", "8svx", "ncw", "sf2",
-            "multisample", "krz", "e4b", "e5b"} <= smod.EXTRACTABLE
+            "multisample", "krz", "e4b", "e5b", "snd"} <= smod.EXTRACTABLE

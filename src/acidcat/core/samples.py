@@ -286,6 +286,36 @@ def _emu_samples(filepath):
                "note": f"{(b1 - b0) // 2:,} frames 16-bit @ {rate} Hz"}
 
 
+def _snd_samples(filepath):
+    """Akai MPC2000 .snd: a 38/42-byte header then 16-bit signed LE PCM at 44100
+    Hz. Stereo is stored non-interleaved (L block then R block) and is interleaved
+    on output. Reuse the walker to resolve the header size + geometry."""
+    from acidcat.core.walk.mpc import inspect_snd
+    chunks, _w = inspect_snd(filepath)
+    pcm = next((c for c in chunks if c["id"] == "pcm"), None)
+    if pcm is None:
+        return
+    snd = next((c for c in chunks if c["id"] == "SND"), None)
+    fv = {fld.get("name"): fld for fld in (snd["fields"] if snd else [])}
+    name = fv.get("name", {}).get("value") or "sound"
+    channels = fv.get("channels", {}).get("value") or 1
+    with open(filepath, "rb") as f:
+        f.seek(pcm["offset"])
+        raw = f.read(pcm["size"])
+    if channels == 2:
+        half = (len(raw) // 4) * 2                        # even byte split point
+        left, right = raw[:half], raw[half:half * 2]
+        frames = bytearray()
+        for k in range(0, min(len(left), len(right)), 2):
+            frames += left[k:k + 2] + right[k:k + 2]      # interleave L/R
+        wav = _wav(bytes(frames), 44100, channels=2)
+    else:
+        wav = _wav(raw, 44100, channels=1)
+    yield {"name": name, "wav": wav,
+           "note": f"{pcm['size'] // 2 // channels:,} frames "
+                   f"{'stereo' if channels == 2 else 'mono'} @ 44100 Hz"}
+
+
 def _emu5_samples(filepath):
     """E-mu Emulator X / Proteus X (.ebl sample library, .exb bank): each E5S1
     chunk is a fixed 0xb8-byte header (inline UTF-16LE name, sample rate at +0x6a)
@@ -332,7 +362,7 @@ _EXTRACTORS = {
 }
 # formats whose extractor reads the path itself (walk/stream), not a bytes buffer
 _PATH_EXTRACTORS = {"multisample": _multisample_samples, "krz": _krz_samples,
-                    "e4b": _emu_samples, "e5b": _emu5_samples}
+                    "e4b": _emu_samples, "e5b": _emu5_samples, "snd": _snd_samples}
 
 EXTRACTABLE = frozenset(_EXTRACTORS) | frozenset(_PATH_EXTRACTORS)
 
