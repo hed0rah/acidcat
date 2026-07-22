@@ -261,6 +261,31 @@ def _krz_samples(filepath):
                "note": f"{(b1 - b0) // 2:,} samples 16-bit @ {rate} Hz"}
 
 
+def _emu_samples(filepath):
+    """E-mu Emulator 4 / EOS (.e4b): each E3S1 chunk is a 94-byte header then
+    16-bit signed little-endian mono PCM. Reuse the walker to find the chunks
+    (E5B/.exb keep their PCM in sibling .ebl files -- not handled here)."""
+    from acidcat.core.walk.emu import inspect_emu, _SAMP_HDR
+    chunks, _w = inspect_emu(filepath, False)
+    with open(filepath, "rb") as f:
+        data = f.read()
+    n = 0
+    for c in chunks:
+        if not c["id"].startswith("E3S1"):
+            continue
+        fv = {fld.get("name"): fld for fld in c.get("fields", [])}
+        rate = fv.get("sample_rate", {}).get("raw") or _TRACKER_RATE
+        b0 = c["offset"] + 8 + _SAMP_HDR                 # skip IFF tag+size, then header
+        b1 = c["offset"] + 8 + c["size"]
+        if b1 - b0 < 2 or b1 > len(data):
+            continue
+        n += 1
+        name = fv.get("name", {}).get("value")
+        yield {"name": name if isinstance(name, str) and name else f"sample{n:02d}",
+               "wav": _wav(data[b0:b1], rate),
+               "note": f"{(b1 - b0) // 2:,} frames 16-bit @ {rate} Hz"}
+
+
 def _multisample_samples(filepath):
     """A Bitwig .multisample is a zip of WAVs (+ multisample.xml). Stream each WAV
     member out verbatim -- read from the path so a multi-hundred-MB pack is not
@@ -278,7 +303,8 @@ _EXTRACTORS = {
     "8svx": _svx_samples, "ncw": _ncw_samples, "sf2": _sf2_samples,
 }
 # formats whose extractor reads the path itself (walk/stream), not a bytes buffer
-_PATH_EXTRACTORS = {"multisample": _multisample_samples, "krz": _krz_samples}
+_PATH_EXTRACTORS = {"multisample": _multisample_samples, "krz": _krz_samples,
+                    "e4b": _emu_samples}
 
 EXTRACTABLE = frozenset(_EXTRACTORS) | frozenset(_PATH_EXTRACTORS)
 
