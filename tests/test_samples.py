@@ -214,6 +214,35 @@ def test_e4b_extraction(tmp_path):
     assert struct.unpack("<5h", w.readframes(5)) == tuple(frames)  # 16-bit signed LE
 
 
+def _make_ebl(tmp_path, pcm_frames, rate=44100, name="SPRING"):
+    """A minimal FORM E5B0 sample library with one E5S1 (real 0xb8 header)."""
+    def iff(tag, body):
+        return tag + struct.pack(">I", len(body)) + body + (b"\x00" if len(body) & 1 else b"")
+    wname = name.encode("utf-16-le")
+    hdr = bytearray(0xb8); hdr[4] = 1
+    hdr[6:6 + len(wname)] = wname
+    struct.pack_into("<I", hdr, 0x6a, rate)
+    pcm = b"".join(struct.pack("<h", v) for v in pcm_frames)
+    e5s1 = iff(b"E5S1", bytes(hdr) + pcm)
+    off = 12 + (8 + 78)                                  # FORM+E5B0 + TOC2(1 entry)
+    entry = (b"E5S1" + struct.pack(">I", len(e5s1) - 8) + struct.pack(">I", off)
+             + struct.pack(">H", 0) + wname.ljust(64, b"\x00"))
+    body = b"E5B0" + iff(b"TOC2", entry) + e5s1
+    p = tmp_path / (name + ".ebl")
+    p.write_bytes(b"FORM" + struct.pack(">I", len(body)) + body)
+    return str(p)
+
+
+def test_e5b_extraction(tmp_path):
+    frames = [500, -600, 700, -800]
+    p = _make_ebl(tmp_path, frames, rate=44100, name="SPRING")
+    recs = [r for r in smod.iter_samples(p) if r.get("wav")]
+    assert len(recs) == 1 and recs[0]["name"] == "SPRING"
+    w = wave.open(io.BytesIO(recs[0]["wav"]), "rb")
+    assert w.getframerate() == 44100 and w.getnframes() == 4
+    assert struct.unpack("<4h", w.readframes(4)) == tuple(frames)
+
+
 def test_extractable_set():
     assert {"mod", "xm", "it", "s3m", "gf1pat", "8svx", "ncw", "sf2",
-            "multisample", "krz", "e4b"} <= smod.EXTRACTABLE
+            "multisample", "krz", "e4b", "e5b"} <= smod.EXTRACTABLE
