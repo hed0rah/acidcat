@@ -13,7 +13,7 @@ import os
 
 from acidcat.core import sniff as sniffmod
 from acidcat.core.walk import (
-    aiff, akai, amiga, bitwig, emu, flac, fxp, krz, labx, midi, mp3, mp4, mpc,
+    aiff, akai, amiga, bfdlac, bitwig, emu, flac, fxp, krz, labx, midi, mp3, mp4, mpc,
     multisample, ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, svx, tracker,
     vital, wav, wt,
 )
@@ -27,6 +27,7 @@ _WALKERS = {
     "aiff": ("IFF/AIFF", lambda path, deep: aiff.inspect_aiff(path, "AIFF")),
     "aifc": ("IFF/AIFC", lambda path, deep: aiff.inspect_aiff(path, "AIFC")),
     "8svx": ("IFF/8SVX", lambda path, deep: svx.inspect_8svx(path)),
+    "bfdlac": ("BFD compressed audio", lambda path, deep: bfdlac.inspect_bfdlac(path)),
     "smus": ("IFF/SMUS (Sonix score)", lambda path, deep: amiga.inspect_smus(path)),
     "okt": ("Oktalyzer module", lambda path, deep: amiga.inspect_okt(path)),
     "med": ("MED / OctaMED module", lambda path, deep: amiga.inspect_med(path)),
@@ -94,6 +95,17 @@ def walk_file(filepath, deep=False):
         raise Unsupported("ID3 tag wraps a non-MP3 container; not supported")
     entry = _WALKERS.get(fmt)
     if entry is None:
+        # no specific walker: try generic structural triage before giving up, so
+        # an unknown-but-chunked container (e.g. a proprietary audio format we
+        # have not written a walker for) is still recognized and its chunk grid
+        # surfaced, instead of a flat rejection.
+        try:
+            from acidcat.core import triage
+            generic = triage.generic_walk(filepath)
+        except Exception:
+            generic = None
+        if generic is not None:
+            return generic
         raise Unsupported("not a recognized audio/preset file (WAV, RF64, AIFF, "
                           "MIDI, Serum, Bitwig, Vital, NCW, SF2, MP4/M4A, Ogg, "
                           "Native Instruments, MP3, FLAC, a MOD/S3M/XM/IT "

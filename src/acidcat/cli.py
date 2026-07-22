@@ -27,14 +27,14 @@ from acidcat import __version__
 from acidcat.commands import (
     info, scan, shape, od, chunks, survey, detect, features, similar, dump,
     index, query, inspect, convert, write, cover, explore, tui, carve, repair, validate, audit, probe,
-    census,
+    census, recover,
 )
 from acidcat.util.stdin import is_stdin_target
 
 SUBCOMMANDS = {
     "info", "scan", "shape", "od", "chunks", "survey", "detect", "features",
     "similar", "dump", "index", "query", "inspect", "convert", "write", "cover",
-    "explore", "tui", "carve", "repair", "validate", "audit", "probe",
+    "explore", "tui", "carve", "repair", "validate", "audit", "probe", "recover",
 }
 
 
@@ -71,6 +71,7 @@ def _build_parser():
     audit.register(subparsers)
     probe.register(subparsers)
     census.register(subparsers)
+    recover.register(subparsers)
 
     # keep a handle to the subparser table so unrecognized arguments can be
     # reported against the chosen subcommand's usage, not the top-level one.
