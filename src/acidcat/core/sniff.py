@@ -64,6 +64,8 @@ def sniff_bytes(head):
         return "krz"                                   # Kurzweil K2000/K2500/K2600
     if head[:4] == b"BFDC":
         return "bfdlac"                                # FXpansion BFD compressed audio
+    if head[:8] == b"GF1PATCH":
+        return "gf1pat"                                # Gravis UltraSound GF1 patch
     if len(head) >= 14 and head[:4] == b"MThd":
         return "midi"
     if len(head) >= 12 and head[:4] == b"RF64" and head[8:12] == b"WAVE":
