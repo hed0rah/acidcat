@@ -6,6 +6,15 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.69.0] - 2026-07-22
+
+### Added
+
+- **`extract` gains Akai MPC2000 `.snd`.** A 38/42-byte header then 16-bit signed
+  LE PCM at 44100 Hz (stereo stored non-interleaved, interleaved on output).
+  `extract` now covers 13 formats: MOD/XM/IT/S3M, 8SVX, NCW, SF2, multisample,
+  KRZ, GF1 patch, E-mu E4B, E-mu E5B, and MPC2000 `.snd`.
+
 ## [0.68.0] - 2026-07-22
 
 ### Added
