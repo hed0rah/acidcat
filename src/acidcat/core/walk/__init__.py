@@ -95,6 +95,17 @@ def walk_file(filepath, deep=False):
         raise Unsupported("ID3 tag wraps a non-MP3 container; not supported")
     entry = _WALKERS.get(fmt)
     if entry is None:
+        # no specific walker: try generic structural triage before giving up, so
+        # an unknown-but-chunked container (e.g. a proprietary audio format we
+        # have not written a walker for) is still recognized and its chunk grid
+        # surfaced, instead of a flat rejection.
+        try:
+            from acidcat.core import triage
+            generic = triage.generic_walk(filepath)
+        except Exception:
+            generic = None
+        if generic is not None:
+            return generic
         raise Unsupported("not a recognized audio/preset file (WAV, RF64, AIFF, "
                           "MIDI, Serum, Bitwig, Vital, NCW, SF2, MP4/M4A, Ogg, "
                           "Native Instruments, MP3, FLAC, a MOD/S3M/XM/IT "
