@@ -6,6 +6,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-07-22
+
+### Added
+
+- **`convert` learns IFF 8SVX -> 16-bit WAV.** The Amiga sampled-voice format,
+  alongside the existing NCW -> WAV and SF2 -> WAVs paths. An 8SVX BODY is 8-bit
+  signed PCM, optionally Fibonacci-delta compressed (VHDR.sCompression == 1): two
+  4-bit codes per byte, each indexing a fixed delta table added to a running
+  accumulator (DPCM's grandfather, the same lineage as the NCW codec). `core/svx.py`
+  reconstructs the samples and renders a standard 16-bit mono WAV so a 1988 voice
+  plays in any modern tool; multi-octave voices keep the high octave (oneShot +
+  repeat). Decode, not access control -- the walker describes the bytes, this turns
+  them into audio. Field-tested byte-identical to a standalone reference decoder on
+  raw and Fibonacci-delta specimens from the Amiga corpus.
+
 ## [0.61.1] - 2026-07-21
 
 ### Fixed
