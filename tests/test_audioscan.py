@@ -62,6 +62,23 @@ def test_code_scores_below_tone():
     assert code < audioscan.DEFAULT_MIN_SCORE           # rejected at the default gate
 
 
+def test_features_include_distribution():
+    feat = audioscan.window_features(_tone(1024))
+    assert "printable" in feat and "hist_tv" in feat
+    assert 0.0 <= feat["printable"] <= 1.0
+
+
+def test_distribution_gate_rejects_printable_ramp():
+    # a smooth (high-autocorr) but fully-printable ASCII ramp -- structurally
+    # "waveform-like" yet obviously text. The distribution gate must veto it,
+    # the calibrated defense against the code/text false positives.
+    win = bytes(0x41 + (i % 30) for i in range(1024))   # sawtooth in 'A'.. range
+    feat = audioscan.window_features(win)
+    assert feat["printable"] > 0.95                     # all printable
+    assert feat["peak"] > 0.4                            # and highly correlated
+    assert audioscan.audio_score(feat) == 0.0           # ... still rejected
+
+
 def test_buried_tone_is_located():
     # noise | TONE | noise -> exactly one region, overlapping the planted tone
     a0, a1 = 4096, 8192
