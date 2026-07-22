@@ -112,6 +112,45 @@ def test_missing_header_downgrades_not_discards():
     assert recs and all(r["kind"] == "blob" for r in recs)
 
 
+def _wav8(n=6000, rate=9016):
+    """An 8-bit WAV (statistically visible: the detector can see its PCM)."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1); w.setsampwidth(1); w.setframerate(rate)
+        w.writeframes(bytes((int(90 * math.sin(2 * math.pi * i / 41)) + 128) & 0xFF
+                            for i in range(n)))
+    return buf.getvalue()
+
+
+def test_corrupt_extent_is_audio_bounded_not_greedy():
+    # an 8-bit WAV with its size smashed, then a gap, then a separate tone blob.
+    # the corrupt WAV must bound to its own audio, NOT swallow the trailing blob.
+    wav = bytearray(_wav8()); wav[4:8] = b"\x00\x00\x00\x00"
+    blob = _noise(2048, 1) + bytes(wav) + _noise(6000, 2) + _tone_u8(6000) + _noise(2048, 3)
+    recs = recover.recover(blob, mode="aggressive")
+    cont = [r for r in recs if r["kind"] == "container"]
+    blobs = [r for r in recs if r["kind"] == "blob"]
+    assert cont and cont[0].get("corrupt_extent")
+    assert blobs, "the trailing headerless tone must survive as its own blob"
+    # the corrupt container ends before the trailing blob begins (no swallow)
+    assert cont[0]["end"] <= blobs[-1]["offset"]
+
+
+def test_mp3_id3_is_swept():
+    # an ID3v2-tagged blob is recovered as an mp3 container
+    id3 = b"ID3\x03\x00\x00" + bytes([0, 0, 0x20, 0]) + b"\x00" * 4000
+    blob = _noise(2048, 5) + id3 + _noise(2048, 6)
+    recs = recover.recover(blob, mode="strict")
+    assert any(r["format"] == "mp3" and r["offset"] == 2048 for r in recs)
+
+
+def test_nearby_blobs_coalesce():
+    # two tone fragments a small gap apart collapse to a single blob region
+    blob = _noise(1024, 7) + _tone_u8(5000) + _noise(3000, 8) + _tone_u8(5000) + _noise(1024, 9)
+    blobs = [r for r in recover.recover(blob, mode="aggressive") if r["kind"] == "blob"]
+    assert len(blobs) == 1
+
+
 def test_invalid_mode_raises():
     try:
         recover.recover(b"", mode="paranoid")
