@@ -6,6 +6,18 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.67.0] - 2026-07-22
+
+### Added
+
+- **`extract` gains E-mu Emulator 4 / EOS (`.e4b`).** Each E3S1 chunk is a
+  94-byte header then 16-bit signed little-endian mono PCM; the walker locates the
+  chunks and rate, and each sample renders to a WAV. Verified on a real bank
+  (1,283 samples). (E5B/`.exb` keeps its PCM in sibling `.ebl` files, and Akai's
+  `.akp` references external `.wav` samples, so neither is an embedded-extract
+  case.) `extract` now covers MOD/XM/IT/S3M, 8SVX, NCW, SF2, multisample, KRZ,
+  GF1 patch, and E-mu E4B.
+
 ## [0.66.0] - 2026-07-22
 
 ### Added
