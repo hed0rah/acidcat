@@ -140,30 +140,105 @@ def _s3m_samples(data):
                        f"{'stereo' if s['stereo'] else 'mono'} @ {rate} Hz"}
 
 
+class _ITBits:
+    """LSB-first bit reader over the IT sample bitstream."""
+    def __init__(self, data):
+        self.d, self.pos, self.buf, self.n = data, 0, 0, 0
+
+    def read(self, k):
+        while self.n < k:
+            b = self.d[self.pos] if self.pos < len(self.d) else 0
+            self.pos += 1
+            self.buf |= b << self.n
+            self.n += 8
+        v = self.buf & ((1 << k) - 1)
+        self.buf >>= k
+        self.n -= k
+        return v
+
+
+def _it_decompress(data, off, count, bits16, it215):
+    """Decompress an IT214/215 sample. Returns signed PCM (16-bit LE if bits16,
+    else 8-bit signed). Mirrors Schism Tracker's itsex.c; verified against real
+    IT modules (exact lengths, smooth output) for both delta variants."""
+    out = bytearray()
+    src = off
+    top = 16 if bits16 else 8
+    startw = 17 if bits16 else 9
+    blockmax = 0x4000 if bits16 else 0x8000
+    span = 16 if bits16 else 8
+    done = 0
+    while done < count:
+        blocklen = min(blockmax, count - done)
+        if src + 2 > len(data):
+            break
+        clen = struct.unpack_from("<H", data, src)[0]
+        src += 2
+        br = _ITBits(data[src:src + clen])
+        src += clen
+        width, d1, d2, pos = startw, 0, 0, 0
+        while pos < blocklen:
+            v = br.read(width)
+            if width < 7:
+                if v == (1 << (width - 1)):
+                    nw = br.read(4 if bits16 else 3) + 1
+                    width = nw if nw < width else nw + 1
+                    continue
+            elif width < startw:
+                mask = 0xFFFF if bits16 else 0xFF
+                border = (mask >> (startw - width)) - span // 2
+                if border < v <= border + span:
+                    v -= border
+                    width = v if v < width else v + 1
+                    continue
+            elif width == startw:
+                if v & (0x10000 if bits16 else 0x100):
+                    width = (v + 1) & 0xFF
+                    continue
+            else:
+                return bytes(out)                        # corrupt width
+            # sign-extend v (width bits) to `top` bits
+            if width < top:
+                sh = top - width
+                vv = (v << sh) & (0xFFFF if bits16 else 0xFF)
+                sv = (vv - (1 << top) if vv >= (1 << (top - 1)) else vv) >> sh
+            else:
+                sv = v - (1 << top) if v >= (1 << (top - 1)) else v
+            d1 += sv
+            d2 += d1
+            sample = d2 if it215 else d1
+            if bits16:
+                out += struct.pack("<h", ((sample + 32768) & 0xFFFF) - 32768)
+            else:
+                out.append(sample & 0xFF)
+            pos += 1
+        done += blocklen
+    return bytes(out)
+
+
 def _it_samples(data):
     it = tkmod.parse_it(data)
-    skipped = 0
+    it215 = (struct.unpack_from("<H", data, 0x2a)[0] >= 0x215) if len(data) > 0x2c else False
     for i, s in enumerate(it["samples"], 1):
-        if not s.get("valid") or not s.get("is_pcm", True):
+        if not s.get("valid") or not s.get("has_sample") or not s.get("length"):
+            continue
+        bits16, rate = s["bits16"], s.get("c5_speed") or _TRACKER_RATE
+        off, length = s.get("data_off"), s["length"]
+        if not off:
             continue
         if s.get("compressed"):
-            skipped += 1
-            continue                                     # IT compression not decoded yet
-        off, blen = s.get("pcm_off"), s.get("byte_len")
-        if not off or not blen:
-            continue
-        raw = data[off:off + blen]
-        if s["bits16"]:
-            frames = raw                                 # signed 16-bit LE PCM
+            pcm = _it_decompress(data, off, length, bits16, it215)
+        else:
+            pcm = data[off:off + length * (2 if bits16 else 1)]
+        if bits16:
+            frames = pcm[:(len(pcm) // 2) * 2]           # signed 16-bit LE already
         else:
             frames = b"".join(struct.pack("<h", (b - 256 if b > 127 else b) * 256)
-                              for b in raw)
-        yield {"name": s["name"] or f"sample{i:02d}",
-               "wav": _wav(frames, s.get("rate") or _TRACKER_RATE),
-               "note": f"{blen:,} B {'16' if s['bits16'] else '8'}-bit PCM"}
-    if skipped:
-        yield {"name": None, "wav": None,
-               "note": f"{skipped} IT-compressed sample(s) skipped (codec not decoded)"}
+                              for b in pcm)
+        yield {"name": s["name"] or s.get("dos_name") or f"sample{i:02d}",
+               "wav": _wav(frames, rate),
+               "note": f"{length:,} {'16' if bits16 else '8'}-bit "
+                       f"{'IT-compressed' if s.get('compressed') else 'PCM'} @ {rate} Hz"}
 
 
 def _gf1_frames(raw, bits16, unsigned):
