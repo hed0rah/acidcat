@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / akai program anatomy</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSItNDUgLTcwIDIyNTAgMjI1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBzdHlsZT0ic3Ryb2tlLWxpbmVqb2luOnJvdW5kIj48c3R5bGU+LmJ7ZmlsbDojMTQxNDE0fUBtZWRpYShwcmVmZXJzLWNvbG9yLXNjaGVtZTpkYXJrKXsuYntmaWxsOiNmMmVmZTh9fTwvc3R5bGU+Cgo8bWFzayBpZD0iYyI+PHJlY3QgeD0iLTQ1IiB5PSItNzAiIHdpZHRoPSIyMjUwIiBoZWlnaHQ9IjIyNTAiIGZpbGw9IiMwMDAiPjwvcmVjdD48Y2lyY2xlIGN4PSIxMDc4Ljk3IiBjeT0iMTI0Ni40MSIgcj0iODQ3Ljk1OCIgZmlsbD0iI2ZmZiI+PC9jaXJjbGU+PHBhdGggZD0iTTgyMy43OCw0MzYuNjUzYy0yNDUsODQgLTM2MCwyMTUgLTM5My43OCwyNjMuOTVjLTM0LDcwIC0zMywtMTM1IDI1LC0zNDAuNmMzNywtMTM1IDExOCwtMzAwIDE1MS43OCwtMzU5LjM1YzYwLC01NSA2MCwzMCAyMTcsNDM2LjA1WiIgZmlsbD0iI2ZmZiI+PC9wYXRoPjxwYXRoIGQ9Ik0xMzM0LjE2LDQzNi42NTNjMjQ1LDg0IDM2MCwyMTUgMzkzLjc4LDI2My45NWMzNCw3MCAzMywtMTM1IC0yNSwtMzQwLjZjLTM3LC0xMzUgLTExOCwtMzAwIC0xNTEuNzgsLTM1OS4zNWMtNjAsLTU1IC02MCwzMCAtMjE3LDQzNi4wNVoiIGZpbGw9IiNmZmYiPjwvcGF0aD48cGF0aCBkPSJNMzcyLDExNjggTDY0LDExMTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2MCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48L3BhdGg+PHBhdGggZD0iTTM3MiwxMzAwIEw2NCwxMzYwIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iNjAiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+PC9wYXRoPjxwYXRoIGQ9Ik0xNzg2LDExNjggTDIwOTQsMTExMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjYwIiBzdHJva2UtbGluZWNhcD0icm91bmQiPjwvcGF0aD48cGF0aCBkPSJNMTc4NiwxMzAwIEwyMDk0LDEzNjAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2MCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48L3BhdGg+PHBhdGggZD0iTTg1Ny4wMyw5NzUuMjAyYy0wLDgyLjg5OSAtMzcuOTU0LDE1MC4yMDIgLTg0LjcwNCwxNTAuMjAyYy00Ni43NDcsLTAgLTg0LjcwMSwtNjcuMzAzIC04NC43MDEsLTE1MC4yMDJjLTAsLTgyLjg5OCAzNy45NTQsLTE1MC4yMDEgODQuNzAxLC0xNTAuMjAxYzQ2Ljc1LC0wIDg0LjcwNCw2Ny4zMDMgODQuNzA0LDE1MC4yMDFaIiBmaWxsPSIjMDAwIj48L3BhdGg+PHBhdGggZD0iTTE0NzkuNzEsOTc1LjIwMmMtMCw4Mi44OTkgLTM3Ljk1NCwxNTAuMjAyIC04NC43MDIsMTUwLjIwMmMtNDYuNzUsLTAgLTg0LjcwNCwtNjcuMzAzIC04NC43MDQsLTE1MC4yMDJjMCwtODIuODk4IDM3Ljk1NCwtMTUwLjIwMSA4NC43MDQsLTE1MC4yMDFjNDYuNzQ4LC0wIDg0LjcwMiw2Ny4zMDMgODQuNzAyLDE1MC4yMDFaIiBmaWxsPSIjMDAwIj48L3BhdGg+PHBhdGggZD0iTTUyMC4xMTYsMTUwNS4yNGMzNTAuMzMxLDQxNC43NDQgNzIyLjAzOSw0MjEuOTY4IDExMTcuNzIsMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjkwIiBzdHJva2UtbGluZWNhcD0icm91bmQiPjwvcGF0aD48L21hc2s+CjxyZWN0IGNsYXNzPSJiIiB4PSItNDUiIHk9Ii03MCIgd2lkdGg9IjIyNTAiIGhlaWdodD0iMjI1MCIgbWFzaz0idXJsKCNjKSI+PC9yZWN0Pjwvc3ZnPg==" type="image/svg+xml">
+<script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* akai palette: burnt-orange value, indigo flag, slate structural */
+  --enum:#A85A2A;  --enum-soft:#EEDDCB;
+  --flag:#4C4E8A;  --flag-soft:#DADAEA;
+  --rsv:#9C9889;   --rsv-soft:rgba(32,31,27,0.03);
+  --sync:#565A62;  --sync-soft:#DBDCDF;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+:root[data-theme="dark"]{--paper:#181a18;--panel:#20221f;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#363a34;--hair:#292d27;--enum:#d19a6f;--enum-soft:#291d13;--flag:#9092c9;--flag-soft:#1c1c2b;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#a4a6ac;--sync-soft:#222329;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.9rem 1.1rem}
+.head .title acidcat-toggle{--acidcat-size:64px;color:var(--soft);flex:0 0 auto;transition:color .15s}
+.head .title acidcat-toggle:hover{color:var(--enum)}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+.tree .kf{color:var(--enum)} .tree .kr{color:var(--flag)}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+.callout{font-size:0.76rem;color:var(--soft);line-height:1.7;border:1px solid var(--line);border-left:2px solid var(--flag);background:var(--panel);padding:0.8rem 1rem;margin:1.2rem 0 0.4rem;max-width:74ch}
+.callout b{color:var(--ink);font-weight:500}
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.7rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500} .region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region .rbody{padding:0.6rem 1rem 1.1rem 3rem;border-top:1px solid var(--hair)}
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.3rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+/* variant tabs */
+.tabs{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-bottom:none;margin-bottom:0}
+.tab{padding:0.55rem 0.9rem;font-size:0.64rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--soft);cursor:pointer;border-right:1px solid var(--hair);background:none;font-family:var(--ff);border-top:none;border-left:none;border-bottom:2px solid transparent;text-align:left}
+.tab:last-child{border-right:none}
+.tab:hover{color:var(--enum)}
+.tab.on{color:var(--ink);border-bottom-color:var(--enum);background:var(--panel)}
+.tab small{display:block;font-size:0.5rem;color:var(--faint);letter-spacing:0.08em;margin-top:1px;text-transform:none}
+.panelwrap{border:1px solid var(--line);border-top:none;padding:1.6rem clamp(1rem,3vw,1.8rem) 2rem;margin-bottom:2rem}
+.panel{display:none}
+.panel.on{display:block}
+.panel .plede{color:var(--soft);max-width:76ch;font-size:0.82rem;line-height:1.75;margin-bottom:0.3rem}
+.panel .plede b{color:var(--ink);font-weight:500}
+.panel .pfacts{display:flex;flex-wrap:wrap;gap:0 1.8rem;font-size:0.64rem;letter-spacing:0.06em;color:var(--soft);text-transform:uppercase;margin-bottom:1.1rem;border-bottom:1px solid var(--hair);padding-bottom:0.7rem}
+.panel .pfacts b{color:var(--enum);font-weight:500;margin-left:0.4rem;text-transform:none;letter-spacing:0.02em}
+
+/* bit diagram */
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+
+/* byte diagram */
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px;letter-spacing:0.02em}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.bcell.k-sync{background:var(--sync-soft)} .bcell.k-enum{background:var(--enum-soft)}
+.bcell.k-flag{background:var(--flag-soft)} .bcell.k-rsv{background:var(--rsv-soft)}
+.bcell.fstart{border-left:2px solid var(--line)}
+.bcell.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bcell.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bcell.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bcell.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.bit.k-sync{background:var(--sync-soft)} .bit.k-enum{background:var(--enum-soft)}
+.bit.k-flag{background:var(--flag-soft)} .bit.k-rsv{background:var(--rsv-soft)}
+.bit.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bit.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bit.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bit.hi.k-rsv{background:var(--faint);color:var(--paper)}
+
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:26rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+.timeline{font-size:0.76rem;color:var(--soft);line-height:1.9;margin:1rem 0 0.4rem}
+.timeline div{display:grid;grid-template-columns:5.5rem 1fr;gap:1rem;padding:0.15rem 0}
+.timeline .y{color:var(--enum);font-weight:500} .timeline b{color:var(--ink);font-weight:500}
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>Akai Program Anatomy</h1></div><acidcat-toggle aria-label="Toggle light and dark theme"></acidcat-toggle></div>
+      <div class="stamp"><b>Akai S5000 / S6000</b>RIFF/APRG . little-endian<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>RIFF "APRG"</b></div><div>endian <b>little</b></div>
+      <div>container <b>nested IFF</b></div><div>lineage <b>S5000 1998</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="plede lede">An <b>.akp</b> is a <b>keygroup program</b> for the Akai S5000/S6000 samplers &mdash; the map that tells the sampler which sample to play for each key and velocity. It is a <b>RIFF file</b> (form type <code>APRG</code>) of little-endian IFF chunks: a <b>prg</b> header, then <b>out</b>, <b>tune</b>, <b>lfo</b>, <b>mods</b>, and one <b>kgrp</b> per keygroup. Each <code>kgrp</code> is itself <b>nested IFF</b> &mdash; <b>kloc</b> (key range), three <b>env</b>, a <b>filt</b>, and up to four <b>zone</b> chunks, each naming the sample it plays. The audio itself lives in sibling <code>.wav</code> files, so the program holds <i>references</i>, not samples. The tabs open each structure, drawn byte by byte from a real S6000 program. <b>Hover</b> a field to light its bytes, <b>click</b> a field with a <span class="k-en">+</span> for its table. Color marks kind (see the key).</p>
+  <aside class="sig" aria-label="color key">
+    <div class="legrows">
+    <div class="row"><span class="sw dark k-enum">orange</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-flag">indigo</span><span class="swsep">&#8594;</span><span class="sw light k-flag">flag</span></div>
+    <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
+    </div>
+    <div class="siglabel">color key</div>
+  </aside>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-p="overview">Overview<small>APRG + keygroups</small></button>
+    <button class="tab" data-p="header">RIFF + prg<small>the header</small></button>
+    <button class="tab" data-p="frame">kgrp + kloc<small>a keygroup</small></button>
+    <button class="tab" data-p="sample">zone<small>sample reference</small></button>
+  </div>
+  <div class="panelwrap">
+
+    <!-- ===================== OVERVIEW ===================== -->
+    <div class="panel on" data-panel="overview">
+      <p class="plede">The Akai program is pure <b>mapping</b>: it carries no audio, only the rules that turn a MIDI note into a sample. The file is a <b>RIFF</b> of form type <code>APRG</code>, and the interesting part is that it nests &mdash; the top level lists program-wide chunks (<b>prg</b>, <b>out</b>, <b>tune</b>, <b>lfo</b>, <b>mods</b>), and then a <b>kgrp</b> chunk per keygroup that contains its <i>own</i> chunk stream (<b>kloc</b>, <b>env</b>, <b>filt</b>, <b>zone</b>). Each <code>zone</code> names an external <code>.wav</code>. The program below is a real S6000 acoustic-guitar patch.</p>
+
+      <div class="sec">a real program, laid out</div>
+      <div class="tree">
+<b>RIFF</b> "APRG"   <span class="kr">— note: RIFF size = 0 (Akai quirk)</span>
+&#9500;&#9472; <b>prg </b>  <span class="kf">midi program 4, 9 keygroups</span>
+&#9500;&#9472; <b>out / tune / lfo / lfo / mods</b>   <span class="kr">— program-wide settings</span>
+&#9492;&#9472; <b>kgrp</b> &times;9   <span class="kf">each a nested IFF stream</span>
+   &#9500;&#9472; <b>kloc</b>  <span class="kf">keys 88-127</span>
+   &#9500;&#9472; <b>env</b> &times;3, <b>filt</b>
+   &#9492;&#9472; <b>zone</b> &times;4   <span class="kf">-&gt; "12 STRING G5" (external .wav)</span>
+      </div>
+
+      <div class="sec">the S-series, dated</div>
+      <div class="timeline">
+        <div><span class="y">1988</span><span><b>Akai S1000</b> &mdash; the studio-standard hardware sampler of its era. Its program/keygroup model (a key map of velocity-split zones) is the ancestor of the <code>.akp</code> layout.</span></div>
+        <div><span class="y">1998</span><span><b>S5000 / S6000</b> &mdash; the generation that saved programs to disk as <code>.akp</code> (RIFF/APRG), samples as <code>.wav</code>, and multis as <code>.akm</code>. A three-file split: mapping, audio, and arrangement.</span></div>
+        <div><span class="y">keygroup</span><span><b>the unit of an Akai program.</b> A keygroup owns a key range and up to four velocity <b>zones</b>; the sampler picks the zone by how hard the key is struck. Layering four sampled velocities per key is how the S-series got its realism.</span></div>
+        <div><span class="y">now</span><span><b>read by converters.</b> Chicken Systems Translator, Extreme Sample Converter and others still parse <code>.akp</code> to migrate S-series libraries into soft samplers. acidcat surfaces the map and the referenced sample names.</span></div>
+      </div>
+
+      <div class="callout"><b>nested IFF, not flat.</b> Most RIFF files are one level deep. An Akai program is two: a <code>kgrp</code> chunk's payload is <i>itself</i> a stream of IFF chunks (<code>kloc</code>, <code>env</code>, <code>filt</code>, <code>zone</code>). acidcat walks the outer chunks, then re-enters each <code>kgrp</code> to walk its inner ones &mdash; the same IFF reader, recursed one level.</div>
+      <div class="callout"><b>RIFF size is zero.</b> Akai writes <code>0x00000000</code> for the RIFF size field rather than the real body length &mdash; a firmware quirk. A strict RIFF reader that trusts the size reads nothing; acidcat falls back to the actual file length and walks the chunks regardless. It is one of those places a real specimen corrects a spec.</div>
+      <div class="callout"><b>the samples are elsewhere.</b> A <code>zone</code> stores a sample <i>name</i>, not audio &mdash; the S6000 loads the matching <code>.wav</code> from the same volume. So acidcat treats the zones as references: it lists which samples a program needs (here <code>"12 STRING G5"</code>), and a missing sibling <code>.wav</code> is a broken program, not a broken file.</div>
+    </div>
+
+    <!-- ===================== RIFF + PRG ===================== -->
+    <div class="panel" data-panel="header">
+      <div class="pfacts"><span>form<b>RIFF "APRG"</b></span><span>riff size<b>0 (quirk)</b></span><span>prg<b>program header</b></span><span>counts<b>keygroups</b></span></div>
+      <p class="plede">The file opens like any RIFF &mdash; a <b>RIFF</b> magic, a size, a form type &mdash; but the form type is <b>APRG</b> (Akai program) and the size field is left <b>zero</b>. The first chunk, <b>prg</b>, is the program header: its bytes carry the MIDI program number and the declared <b>keygroup count</b>, which acidcat cross-checks against the number of <code>kgrp</code> chunks it actually finds. Both maps are from a real S6000 program.</p>
+      <div class="sec">RIFF header (12 bytes)</div>
+      <p class="note">Hover <span class="k-en">riff_size</span> &mdash; zero, not the body length.</p>
+      <div id="akai-riff" data-build></div>
+      <div class="sec">prg chunk (id + size + 6-byte body)</div>
+      <p class="note">The program header. Hover <span class="k-en">keygroups</span> &mdash; declared 9, matching the 9 kgrp chunks.</p>
+      <div id="akai-prg" data-build></div>
+      <div class="callout"><b>trust the file, not the size.</b> Because <code>riff_size</code> is 0, acidcat sizes the walk from the actual file length and reads chunks until it runs out &mdash; the same degrade-gracefully rule the WAV walker uses for a stale RIFF size. Every Akai program does this, so it is expected, not an error.</div>
+      <div class="callout"><b>prg declares, kgrp confirms.</b> The <code>prg</code> body's third byte is the <b>keygroup count</b> (9 here). acidcat compares it to the number of <code>kgrp</code> chunks it walks; a mismatch is warned, catching a truncated or hand-edited program. The second byte is the MIDI program number the sampler assigns.</div>
+    </div>
+
+    <!-- ===================== KGRP + KLOC ===================== -->
+    <div class="panel" data-panel="frame">
+      <div class="pfacts"><span>kgrp<b>a keygroup</b></span><span>payload<b>nested IFF</b></span><span>kloc<b>key range</b></span><span>then<b>env / filt / zone</b></span></div>
+      <p class="plede">A <b>kgrp</b> chunk is one keygroup, and its payload is a whole IFF stream of its own. The first inner chunk is <b>kloc</b> &mdash; the key location: the low and high MIDI notes this keygroup answers to. After it come three <b>env</b> (amplitude/filter/aux envelopes), a <b>filt</b>, and the <b>zone</b> chunks. The map is the start of a real <code>kgrp</code>, showing its first inner chunk, <code>kloc</code>.</p>
+      <div class="sec">kgrp payload, opening kloc chunk (16 bytes)</div>
+      <p class="note">Hover <span class="k-en">low_key</span> / <span class="k-en">high_key</span> &mdash; this keygroup covers MIDI notes 88-127.</p>
+      <div id="akai-kloc" data-build></div>
+      <div class="callout"><b>a keygroup is a key window plus velocity layers.</b> <code>kloc</code> sets the window (low..high MIDI note); the four <code>zone</code> chunks that follow are the velocity layers within it. A program spreads keygroups across the keyboard, each a slice of the range &mdash; nine of them here, covering the guitar top to bottom.</div>
+      <div class="callout"><b>the same walker, one level down.</b> There is nothing special about the inner chunks: they are ordinary IFF (4-byte id, little-endian u32 size, payload, word-padded). acidcat re-enters the <code>kgrp</code> body with the same chunk iterator it used at the top level &mdash; recursion, not a second parser.</div>
+    </div>
+
+    <!-- ===================== ZONE ===================== -->
+    <div class="panel" data-panel="sample">
+      <div class="pfacts"><span>zone<b>a velocity layer</b></span><span>names<b>the sample</b></span><span>layout<b>flag + len + name</b></span><span>audio<b>external .wav</b></span></div>
+      <p class="plede">A <b>zone</b> is one velocity layer of a keygroup, and its most important content is a <b>sample name</b>: the <code>.wav</code> the sampler plays when a key in this group is struck in this zone's velocity band. The name is stored length-prefixed &mdash; a flag byte, a length, then the ASCII &mdash; followed by the zone's tuning and level parameters. Up to four zones stack per keygroup; unused ones carry an empty name. The map is a real zone naming <code>"12 STRING G5"</code>.</p>
+      <div class="sec">zone chunk (id + size + flag + name)</div>
+      <p class="note">Hover <span class="k-en">sample_name</span> &mdash; the external <code>.wav</code> this zone references.</p>
+      <div id="akai-zone" data-build></div>
+      <div class="callout"><b>length-prefixed, not null-terminated.</b> The zone names its sample as <code>[flag][length][bytes]</code> &mdash; byte 1 is the name length, and exactly that many ASCII bytes follow. A length of <b>0</b> means an empty zone (no sample for that velocity band); acidcat skips those and lists only the real references.</div>
+      <div class="callout"><b>this is the reference graph edge.</b> The zone is where an Akai program points outward: <code>"12 STRING G5"</code> is a filename the S6000 resolves on the same volume. acidcat collects every distinct zone name as the program's sample dependency list &mdash; the set of <code>.wav</code>s you need alongside the <code>.akp</code> for it to make sound.</div>
+    </div>
+
+  </div>
+
+  <footer><span>acidcat / akai program anatomy</span><span>akai s5000/s6000 . RIFF APRG . keygroup program</span><span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // byte-map specs, built lazily the first time a tab is shown. every byte value
+  // below is copied verbatim from a real S6000 program (12 STRING 4.AKP).
+  var SPECS={
+    "akai-riff":["byte",
+      [0x52,0x49,0x46,0x46, 0x00,0x00,0x00,0x00, 0x41,0x50,0x52,0x47],
+      [
+        {label:"magic",k:"sync",r:[0,3],val:"\"RIFF\"",body:"The RIFF container signature, little-endian family. acidcat routes on RIFF + the APRG form type."},
+        {label:"riff_size",k:"flag",r:[4,7],val:"0",body:"little-endian u32: the RIFF body size -- but Akai writes 0 here rather than the real length, a firmware quirk. acidcat falls back to the actual file size and walks the chunks anyway.",note:"0x00000000; a strict reader trusting this would read nothing."},
+        {label:"form_type",k:"sync",r:[8,11],val:"\"APRG\"",body:"The RIFF form type: APRG = Akai program. This is what distinguishes an .akp from any other RIFF file."}
+      ]],
+    "akai-prg":["byte",
+      [0x70,0x72,0x67,0x20, 0x06,0x00,0x00,0x00, 0x01, 0x04, 0x09, 0x00,0x02,0x00],
+      [
+        {label:"chunk_id",k:"sync",r:[0,3],val:"\"prg \"",body:"The program-header chunk id (trailing space). First chunk after the RIFF header."},
+        {label:"chunk_size",k:"sync",r:[4,7],val:"6",body:"little-endian u32: the prg payload size, 6 bytes.",note:"0x00000006 = 6."},
+        {label:"version",k:"rsv",r:[8,8],val:"1",body:"prg byte 0: a structure/version constant, 1 in S5000/S6000 programs."},
+        {label:"midi_program",k:"enum",r:[9,9],val:"4",body:"prg byte 1: the MIDI program number the sampler assigns to this program.",note:"acidcat surfaces it as midi_program."},
+        {label:"keygroups",k:"enum",r:[10,10],val:"9",body:"prg byte 2: the DECLARED number of keygroups. acidcat compares it to the count of kgrp chunks it actually walks and warns on a mismatch.",note:"9 here, matching the 9 kgrp chunks."},
+        {label:"reserved",k:"rsv",r:[11,13],val:"00 02 00",body:"The remaining prg bytes -- program-wide flags, not decoded field by field."}
+      ]],
+    "akai-kloc":["byte",
+      [0x6B,0x6C,0x6F,0x63, 0x10,0x00,0x00,0x00, 0x01,0x03,0x01,0x04, 0x58, 0x7F, 0x00,0x00],
+      [
+        {label:"chunk_id",k:"sync",r:[0,3],val:"\"kloc\"",body:"The key-location chunk id: the first inner chunk of a kgrp's nested IFF stream."},
+        {label:"chunk_size",k:"sync",r:[4,7],val:"16",body:"little-endian u32: the kloc payload size, 16 bytes.",note:"0x00000010 = 16."},
+        {label:"params",k:"rsv",r:[8,11],val:"01 03 01 04",body:"kloc leading bytes: keygroup flags (mono/poly, mute group, ...). Surfaced, not split field by field."},
+        {label:"low_key",k:"enum",r:[12,12],val:"88",body:"The lowest MIDI note this keygroup answers to. 0x58 = 88.",note:"paired with high_key to form the keygroup's key window."},
+        {label:"high_key",k:"enum",r:[13,13],val:"127",body:"The highest MIDI note this keygroup answers to. 0x7F = 127. So this keygroup covers notes 88-127.",note:"the sampler picks a keygroup by which window contains the played note."},
+        {label:"pad",k:"rsv",r:[14,15],val:"00 00",body:"Trailing kloc bytes, zero here."}
+      ]],
+    "akai-zone":["byte",
+      [0x7A,0x6F,0x6E,0x65, 0x2E,0x00,0x00,0x00, 0x01, 0x0C, 0x31,0x32,0x20,0x53,0x54,0x52,0x49,0x4E,0x47,0x20,0x47,0x35],
+      [
+        {label:"chunk_id",k:"sync",r:[0,3],val:"\"zone\"",body:"A velocity-zone chunk id. Up to four per keygroup."},
+        {label:"chunk_size",k:"sync",r:[4,7],val:"46",body:"little-endian u32: the zone payload size, 46 bytes (the name plus tuning/level params).",note:"0x0000002E = 46."},
+        {label:"flag",k:"rsv",r:[8,8],val:"1",body:"zone byte 0: a presence/mode flag. 1 = an active zone."},
+        {label:"name_len",k:"enum",r:[9,9],val:"12",body:"zone byte 1: the length of the sample name that follows. 0x0C = 12. A length of 0 marks an empty zone, which acidcat skips.",note:"length-prefixed, not null-terminated."},
+        {label:"sample_name",k:"flag",r:[10,21],val:"\"12 STRING G5\"",body:"The name of the external .wav this zone plays. The program references it; the audio lives in a sibling file. acidcat collects every distinct zone name as the program's sample dependency list.",note:"12 ASCII bytes; the zone's tuning/level params follow (not drawn)."}
+      ]]
+  };
+
+  var built={};
+  function buildPanel(name){
+    var panel=document.querySelector('[data-panel="'+name+'"]'); if(!panel) return;
+    panel.querySelectorAll("[data-build]").forEach(function(m){
+      if(built[m.id]) return; built[m.id]=1;
+      var spec=SPECS[m.id]; if(spec) build(m.id, spec[0], spec[1], spec[2]);
+    });
+  }
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  var panels=[].slice.call(document.querySelectorAll(".panel"));
+  function activate(name){
+    tabs.forEach(function(t){t.classList.toggle("on",t.dataset.p===name);});
+    panels.forEach(function(p){p.classList.toggle("on",p.dataset.panel===name);});
+    buildPanel(name);
+  }
+  tabs.forEach(function(t){t.addEventListener("click",function(){
+    activate(t.dataset.p);
+    if(history.replaceState) history.replaceState(null,"","#"+t.dataset.p);
+  });});
+  var initial=(location.hash||"").replace("#","");
+  if(initial && document.querySelector('[data-panel="'+initial+'"]')) activate(initial);
+  else buildPanel("overview");
+  buildPanel(document.querySelector(".panel.on").dataset.panel);
+})();
+</script>
+<script>
+(function () {
+  if (customElements.get('acidcat-toggle')) return;
+
+  const EARL = "M823.78,436.653c-245,84 -360,215 -393.78,263.95c-34,70 -33,-135 25,-340.6c37,-135 118,-300 151.78,-359.35c60,-55 60,30 217,436.05Z";
+  const EARR = "M1334.16,436.653c245,84 360,215 393.78,263.95c34,70 33,-135 -25,-340.6c-37,-135 -118,-300 -151.78,-359.35c-60,-55 -60,30 -217,436.05Z";
+  const WHISK = [
+    "M538.204,1196.91c-92.765,-0 -91.589,-12.14 -183.656,-3.551c-17.861,1.667 -61.995,-13.903 -268.815,-19.883",
+    "M483.602,1285.68c-37.939,14.794 -397.736,49.87 -432.494,53.259",
+    "M538.204,1363.79c-26.557,37.99 -398.31,150.862 -407.023,163.327",
+    "M1660.6,1189.14c22.236,-12.966 144.035,-0.154 363.552,-15.668",
+    "M1660.6,1264.76c202.29,42.443 388.678,51.655 421.623,53.385",
+    "M1603.35,1338.36c184.004,78.804 145.528,54.451 228.58,88.766c112.208,46.36 176.212,72.644 192.215,78.111"
+  ];
+  const MOUTH = "M520.116,1505.24c350.331,414.744 722.039,421.968 1117.72,0";
+  const CURLL = "M553.633,1478.51c-30.725,26.041 -67.034,30.722 -67.034,30.722";
+  const CURLR = "M1608.86,1478.51c30.725,26.041 67.034,30.722 67.034,30.722";
+
+  const stroke = (w) => `fill:none;stroke:currentColor;stroke-width:${w}px;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5`;
+  const whiskers = WHISK.map((d) => `<path d="${d}" style="${stroke(10.27)}"/>`).join('');
+
+  const spiral = (cx, cy) => {
+    const TURNS = 2.75, MAX = 150, steps = Math.round(TURNS * 2 * Math.PI / 0.32);
+    let d = 'M' + cx.toFixed(1) + ',' + cy.toFixed(1);
+    for (let i = 1; i <= steps; i++) {
+      const th = (i / steps) * TURNS * 2 * Math.PI, r = MAX * i / steps;
+      d += ' L' + (cx + r * Math.cos(th)).toFixed(1) + ',' + (cy + r * Math.sin(th)).toFixed(1);
+    }
+    return d;
+  };
+
+  const svg = `
+  <svg viewBox="-45 -70 2250 2250" style="display:block;width:100%;height:100%;overflow:visible">
+    <circle cx="1078.97" cy="1246.41" r="847.958" style="${stroke(21.53)}"/>
+    <path class="ear" d="${EARL}" style="${stroke(21.5)}"/>
+    <path class="ear" d="${EARR}" style="${stroke(21.5)}"/>
+    ${whiskers}
+    <ellipse class="eye" cx="772" cy="975" rx="78" ry="140" fill="currentColor"/>
+    <ellipse class="eye" cx="1394" cy="975" rx="78" ry="140" fill="currentColor"/>
+    <path class="swirl" d="${spiral(772, 975)}"/>
+    <path class="swirl" d="${spiral(1394, 975)}"/>
+    <path class="tongue" d="M1004,1735 h150 v215 a75,75 0 0 1 -150,0 z" fill="currentColor"/>
+    <path d="${MOUTH}" style="${stroke(28.33)}"/>
+    <path d="${CURLR}" style="${stroke(25.96)}"/>
+    <path d="${CURLL}" style="${stroke(25.96)}"/>
+  </svg>`;
+
+  const css = `
+    :host{display:inline-block;line-height:0}
+    button{
+      -webkit-appearance:none;appearance:none;background:none;border:0;padding:6px;margin:0;
+      cursor:pointer;color:inherit;border-radius:999px;line-height:0;display:inline-flex;
+    }
+    button:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+    .box{width:var(--acidcat-size,40px);height:var(--acidcat-size,40px)}
+    .eye{transition:opacity .28s ease}
+    .swirl{fill:none;stroke:currentColor;stroke-width:70;stroke-linecap:round;opacity:0;transition:opacity .32s ease;transform-box:fill-box;transform-origin:center}
+    .tongue{transform-box:fill-box;transform-origin:center top;transform:scaleY(0);transition:transform .4s cubic-bezier(.34,1.45,.5,1) .05s}
+    :host([data-on]) .eye{opacity:0}
+    :host([data-on]) .swirl{opacity:1;animation:acid-spin 2.6s linear infinite}
+    :host([data-on]) .swirl:last-of-type{animation-direction:reverse}
+    :host([data-on]) .tongue{transform:scaleY(1)}
+    @keyframes acid-spin{to{transform:rotate(1turn)}}
+    @media (prefers-reduced-motion:reduce){.eye,.tongue,.swirl{transition:none}.swirl{animation:none}}
+  `;
+
+  class AcidcatToggle extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>${css}</style><button type="button" aria-label="Toggle dark mode" title="Toggle dark mode"><span class="box">${svg}</span></button>`;
+      this._btn = root.querySelector('button');
+      this._btn.addEventListener('click', () => this.toggle());
+      this._sync = (e) => { if (e.target !== this && e.detail) this.toggleAttribute('data-on', e.detail.dark); };
+      document.addEventListener('acidcat-theme', this._sync);
+
+      let saved = null;
+      try { saved = localStorage.getItem('acidcat-theme'); } catch (e) {}
+      const dark = saved ? saved === 'dark'
+        : (this.hasAttribute('default-dark') || window.matchMedia('(prefers-color-scheme: dark)').matches);
+      this.apply(dark, false);
+    }
+    disconnectedCallback() { if (this._sync) document.removeEventListener('acidcat-theme', this._sync); }
+    get isDark() { return this.hasAttribute('data-on'); }
+    toggle() { this.apply(!this.isDark, true); }
+    apply(dark, persist) {
+      this.toggleAttribute('data-on', dark);
+      const theme = dark ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+      if (this._btn) this._btn.setAttribute('aria-pressed', String(dark));
+      if (persist) { try { localStorage.setItem('acidcat-theme', theme); } catch (e) {} }
+      this.dispatchEvent(new CustomEvent('acidcat-theme', { bubbles: true, composed: true, detail: { theme, dark } }));
+    }
+  }
+  customElements.define('acidcat-toggle', AcidcatToggle);
+})();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / gf1 patch anatomy</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSItNDUgLTcwIDIyNTAgMjI1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBzdHlsZT0ic3Ryb2tlLWxpbmVqb2luOnJvdW5kIj48c3R5bGU+LmJ7ZmlsbDojMTQxNDE0fUBtZWRpYShwcmVmZXJzLWNvbG9yLXNjaGVtZTpkYXJrKXsuYntmaWxsOiNmMmVmZTh9fTwvc3R5bGU+Cgo8bWFzayBpZD0iYyI+PHJlY3QgeD0iLTQ1IiB5PSItNzAiIHdpZHRoPSIyMjUwIiBoZWlnaHQ9IjIyNTAiIGZpbGw9IiMwMDAiPjwvcmVjdD48Y2lyY2xlIGN4PSIxMDc4Ljk3IiBjeT0iMTI0Ni40MSIgcj0iODQ3Ljk1OCIgZmlsbD0iI2ZmZiI+PC9jaXJjbGU+PHBhdGggZD0iTTgyMy43OCw0MzYuNjUzYy0yNDUsODQgLTM2MCwyMTUgLTM5My43OCwyNjMuOTVjLTM0LDcwIC0zMywtMTM1IDI1LC0zNDAuNmMzNywtMTM1IDExOCwtMzAwIDE1MS43OCwtMzU5LjM1YzYwLC01NSA2MCwzMCAyMTcsNDM2LjA1WiIgZmlsbD0iI2ZmZiI+PC9wYXRoPjxwYXRoIGQ9Ik0xMzM0LjE2LDQzNi42NTNjMjQ1LDg0IDM2MCwyMTUgMzkzLjc4LDI2My45NWMzNCw3MCAzMywtMTM1IC0yNSwtMzQwLjZjLTM3LC0xMzUgLTExOCwtMzAwIC0xNTEuNzgsLTM1OS4zNWMtNjAsLTU1IC02MCwzMCAtMjE3LDQzNi4wNVoiIGZpbGw9IiNmZmYiPjwvcGF0aD48cGF0aCBkPSJNMzcyLDExNjggTDY0LDExMTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2MCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48L3BhdGg+PHBhdGggZD0iTTM3MiwxMzAwIEw2NCwxMzYwIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iNjAiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+PC9wYXRoPjxwYXRoIGQ9Ik0xNzg2LDExNjggTDIwOTQsMTExMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjYwIiBzdHJva2UtbGluZWNhcD0icm91bmQiPjwvcGF0aD48cGF0aCBkPSJNMTc4NiwxMzAwIEwyMDk0LDEzNjAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2MCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48L3BhdGg+PHBhdGggZD0iTTg1Ny4wMyw5NzUuMjAyYy0wLDgyLjg5OSAtMzcuOTU0LDE1MC4yMDIgLTg0LjcwNCwxNTAuMjAyYy00Ni43NDcsLTAgLTg0LjcwMSwtNjcuMzAzIC04NC43MDEsLTE1MC4yMDJjLTAsLTgyLjg5OCAzNy45NTQsLTE1MC4yMDEgODQuNzAxLC0xNTAuMjAxYzQ2Ljc1LC0wIDg0LjcwNCw2Ny4zMDMgODQuNzA0LDE1MC4yMDFaIiBmaWxsPSIjMDAwIj48L3BhdGg+PHBhdGggZD0iTTE0NzkuNzEsOTc1LjIwMmMtMCw4Mi44OTkgLTM3Ljk1NCwxNTAuMjAyIC04NC43MDIsMTUwLjIwMmMtNDYuNzUsLTAgLTg0LjcwNCwtNjcuMzAzIC04NC43MDQsLTE1MC4yMDJjMCwtODIuODk4IDM3Ljk1NCwtMTUwLjIwMSA4NC43MDQsLTE1MC4yMDFjNDYuNzQ4LC0wIDg0LjcwMiw2Ny4zMDMgODQuNzAyLDE1MC4yMDFaIiBmaWxsPSIjMDAwIj48L3BhdGg+PHBhdGggZD0iTTUyMC4xMTYsMTUwNS4yNGMzNTAuMzMxLDQxNC43NDQgNzIyLjAzOSw0MjEuOTY4IDExMTcuNzIsMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjkwIiBzdHJva2UtbGluZWNhcD0icm91bmQiPjwvcGF0aD48L21hc2s+CjxyZWN0IGNsYXNzPSJiIiB4PSItNDUiIHk9Ii03MCIgd2lkdGg9IjIyNTAiIGhlaWdodD0iMjI1MCIgbWFzaz0idXJsKCNjKSI+PC9yZWN0Pjwvc3ZnPg==" type="image/svg+xml">
+<script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* gf1 palette: teal value, amber flag, slate structural */
+  --enum:#2E6E66;  --enum-soft:#D4E2DF;
+  --flag:#A6772F;  --flag-soft:#EADFC7;
+  --rsv:#9C9889;   --rsv-soft:rgba(32,31,27,0.03);
+  --sync:#565A62;  --sync-soft:#DBDCDF;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+:root[data-theme="dark"]{--paper:#181a18;--panel:#20221f;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#363a34;--hair:#292d27;--enum:#82b4ab;--enum-soft:#18231f;--flag:#c9ac7c;--flag-soft:#2a2519;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#a4a6ac;--sync-soft:#222329;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.9rem 1.1rem}
+.head .title acidcat-toggle{--acidcat-size:64px;color:var(--soft);flex:0 0 auto;transition:color .15s}
+.head .title acidcat-toggle:hover{color:var(--enum)}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+.tree .kf{color:var(--enum)} .tree .kr{color:var(--flag)}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+.callout{font-size:0.76rem;color:var(--soft);line-height:1.7;border:1px solid var(--line);border-left:2px solid var(--flag);background:var(--panel);padding:0.8rem 1rem;margin:1.2rem 0 0.4rem;max-width:74ch}
+.callout b{color:var(--ink);font-weight:500}
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.7rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500} .region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region .rbody{padding:0.6rem 1rem 1.1rem 3rem;border-top:1px solid var(--hair)}
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.3rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+/* variant tabs */
+.tabs{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-bottom:none;margin-bottom:0}
+.tab{padding:0.55rem 0.9rem;font-size:0.64rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--soft);cursor:pointer;border-right:1px solid var(--hair);background:none;font-family:var(--ff);border-top:none;border-left:none;border-bottom:2px solid transparent;text-align:left}
+.tab:last-child{border-right:none}
+.tab:hover{color:var(--enum)}
+.tab.on{color:var(--ink);border-bottom-color:var(--enum);background:var(--panel)}
+.tab small{display:block;font-size:0.5rem;color:var(--faint);letter-spacing:0.08em;margin-top:1px;text-transform:none}
+.panelwrap{border:1px solid var(--line);border-top:none;padding:1.6rem clamp(1rem,3vw,1.8rem) 2rem;margin-bottom:2rem}
+.panel{display:none}
+.panel.on{display:block}
+.panel .plede{color:var(--soft);max-width:76ch;font-size:0.82rem;line-height:1.75;margin-bottom:0.3rem}
+.panel .plede b{color:var(--ink);font-weight:500}
+.panel .pfacts{display:flex;flex-wrap:wrap;gap:0 1.8rem;font-size:0.64rem;letter-spacing:0.06em;color:var(--soft);text-transform:uppercase;margin-bottom:1.1rem;border-bottom:1px solid var(--hair);padding-bottom:0.7rem}
+.panel .pfacts b{color:var(--enum);font-weight:500;margin-left:0.4rem;text-transform:none;letter-spacing:0.02em}
+
+/* bit diagram */
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+
+/* byte diagram */
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px;letter-spacing:0.02em}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.bcell.k-sync{background:var(--sync-soft)} .bcell.k-enum{background:var(--enum-soft)}
+.bcell.k-flag{background:var(--flag-soft)} .bcell.k-rsv{background:var(--rsv-soft)}
+.bcell.fstart{border-left:2px solid var(--line)}
+.bcell.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bcell.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bcell.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bcell.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.bit.k-sync{background:var(--sync-soft)} .bit.k-enum{background:var(--enum-soft)}
+.bit.k-flag{background:var(--flag-soft)} .bit.k-rsv{background:var(--rsv-soft)}
+.bit.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bit.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bit.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bit.hi.k-rsv{background:var(--faint);color:var(--paper)}
+
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:26rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+.timeline{font-size:0.76rem;color:var(--soft);line-height:1.9;margin:1rem 0 0.4rem}
+.timeline div{display:grid;grid-template-columns:5.5rem 1fr;gap:1rem;padding:0.15rem 0}
+.timeline .y{color:var(--enum);font-weight:500} .timeline b{color:var(--ink);font-weight:500}
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>GF1 Patch Anatomy</h1></div><acidcat-toggle aria-label="Toggle light and dark theme"></acidcat-toggle></div>
+      <div class="stamp"><b>Gravis UltraSound</b>GF1PATCH . little-endian<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"GF1PATCH"</b></div><div>endian <b>little (x86)</b></div>
+      <div>container <b>fixed headers</b></div><div>lineage <b>UltraSound 1992</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="plede lede">A <b>.PAT</b> file is one instrument for the <b>Gravis UltraSound</b> &mdash; the first mass PC wavetable card, which streamed samples from disk into its own on-board RAM. There is no chunk grid: it is a run of <b>fixed-size headers</b> nested four deep &mdash; a 129-byte <b>patch</b> header, then <b>instrument</b> (63 B), <b>layer</b> (47 B), and <b>sample</b> (96 B) records, each header immediately followed by its children, and the raw PCM sitting right after each sample header. Everything is <b>little-endian</b> (the card lived on the ISA bus of an x86 PC) &mdash; the mirror image of Kurzweil's 68k banks. The tabs open each structure, drawn byte by byte from a real factory patch. <b>Hover</b> a field to light its bytes, <b>click</b> a field with a <span class="k-en">+</span> for its table. Color marks kind (see the key).</p>
+  <aside class="sig" aria-label="color key">
+    <div class="legrows">
+    <div class="row"><span class="sw dark k-enum">teal</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-flag">amber</span><span class="swsep">&#8594;</span><span class="sw light k-flag">flag</span></div>
+    <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
+    </div>
+    <div class="siglabel">color key</div>
+  </aside>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-p="overview">Overview<small>the nesting</small></button>
+    <button class="tab" data-p="header">Patch header<small>129 bytes</small></button>
+    <button class="tab" data-p="frame">Instrument + Layer<small>the framing</small></button>
+    <button class="tab" data-p="sample">Sample header<small>96 bytes + PCM</small></button>
+  </div>
+  <div class="panelwrap">
+
+    <!-- ===================== OVERVIEW ===================== -->
+    <div class="panel on" data-panel="overview">
+      <p class="plede">Where a SoundFont packs a whole bank into one file, a GUS patch is <b>one instrument</b> &mdash; a full General MIDI set is 100-plus separate <code>.PAT</code> files, loaded into the card's RAM one at a time as a song calls for them. Inside, the shape is a strict four-level nest: a <b>patch</b> header counts <b>instruments</b>; each instrument counts <b>layers</b> (velocity/zone splits); each layer counts <b>samples</b>; and each sample header is followed immediately by its raw PCM. No offsets, no tables &mdash; you walk it by adding fixed header sizes and the PCM length. The patch below is a real factory instrument, <code>ALTOSAX.PAT</code>.</p>
+
+      <div class="sec">a real patch, laid out</div>
+      <div class="tree">
+<b>Patch</b>  "GF1PATCH110"  <span class="kf">1 instrument, 3 waveforms</span>       <span class="kr">— 129-byte header</span>
+&#9492;&#9472; <b>Instrument</b> #0  "Alto Sax"   <span class="kf">1 layer</span>              <span class="kr">— 63-byte header</span>
+   &#9492;&#9472; <b>Layer</b> 0   <span class="kf">3 samples</span>                          <span class="kr">— 47-byte header</span>
+      &#9500;&#9472; <b>Sample</b> "NoName"  7,140 B  16-bit  22321 Hz  looped
+      &#9500;&#9472; <b>Sample</b> ...        &#8592; PCM follows each header
+      &#9492;&#9472; <b>Sample</b> ...        root ~E3, range A0..G4
+<b>PCM</b>  interleaved after each sample header    <span class="kr">— raw, little-endian</span>
+      </div>
+
+      <div class="sec">the UltraSound, dated</div>
+      <div class="timeline">
+        <div><span class="y">1992</span><span><b>Advanced Gravis UltraSound</b> &mdash; the first affordable PC card with real <b>wavetable</b> synthesis and on-board sample RAM (256 KB, up to 1 MB). Its <b>GF1</b> chip plays up to 32 voices from RAM; instruments are <code>.PAT</code> patches streamed off disk.</span></div>
+        <div><span class="y">1993</span><span><b>GF1PATCH110</b> &mdash; the patch version this reference draws (v1.10). An older <b>GF1PATCH100</b> exists; the magic's trailing three digits are the version.</span></div>
+        <div><span class="y">1994</span><span><b>DOS gaming</b> &mdash; the GUS became the audiophile's choice for demos and MOD players. Its patch set (the <code>ULTRASND</code> directory) is the canonical GM-to-PAT mapping.</span></div>
+        <div><span class="y">now</span><span><b>outlived the hardware.</b> <b>TiMidity++</b>, <b>WildMIDI</b> and <b>DOSBox</b> still render MIDI through GF1 patch sets &mdash; the format became a soft-synth patch standard long after the card was gone.</span></div>
+      </div>
+
+      <div class="callout"><b>walk by size, not by offset.</b> Every level is a fixed-width header carrying a child <i>count</i>, not a table of pointers. A reader advances by adding <code>129</code> (patch), then per instrument <code>63</code>, per layer <code>47</code>, per sample <code>96 + data_size</code>. The PCM for a sample sits in the <code>data_size</code> bytes immediately after its 96-byte header &mdash; there is no separate audio region. acidcat's walker degrades cleanly on a short or forged count and never raises.</div>
+      <div class="callout"><b>RAM streaming, not a bank.</b> The GUS had no ROM voices &mdash; to make a sound it first <i>loaded</i> the instrument's samples into card RAM. So a patch is deliberately one instrument: a game or tracker uploads only the patches a piece needs. This is the opposite trade from a SoundFont, which carries the whole orchestra in one file and never streams.</div>
+      <div class="callout"><b>little-endian throughout.</b> Sizes, counts, rates and the frequency words are all little-endian &mdash; the GUS is an ISA card in an x86 PC. Read it the way you read RIFF/WAV, and the opposite way from a Kurzweil <code>.KRZ</code> or an E-mu <code>.E4B</code>, both of which are big-endian 68k machines.</div>
+    </div>
+
+    <!-- ===================== PATCH HEADER ===================== -->
+    <div class="panel" data-panel="header">
+      <div class="pfacts"><span>size<b>129 bytes</b></span><span>magic<b>"GF1PATCH" + version</b></span><span>desc<b>60-byte ASCII</b></span><span>counts<b>instruments / waveforms</b></span></div>
+      <p class="plede">The 129-byte file header. It opens with a <b>12-byte magic</b> carrying the version, a <b>10-byte internal id</b>, then a <b>60-byte ASCII description</b> (the factory copyright line), and finally the small block of <b>counts</b> that drive the walk: how many instruments follow, and the total waveform (sample) count. The two byte maps below are the signature block and the counts block; the description between them is plain text.</p>
+      <div class="sec">signature (bytes 0x00&ndash;0x15)</div>
+      <p class="note">Example: <code>ALTOSAX.PAT</code>. Hover the <span class="k-en">magic</span> for the version split.</p>
+      <div id="gf1-sig" data-build></div>
+      <div class="sec">counts (bytes 0x52&ndash;0x5C)</div>
+      <p class="note">The header fields at offset 82&ndash;92 that the walker reads to size the nest.</p>
+      <div id="gf1-counts" data-build></div>
+      <div class="callout"><b>the version lives in the magic.</b> The trailing digits of <code>"GF1PATCH110"</code> are the format version &mdash; <b>1.10</b> here, <b>1.00</b> in the oldest patches. acidcat sniffs the first 8 bytes (<code>"GF1PATCH"</code>) to route the file, then reads the full 12 to report the exact version. The 10-byte <code>"ID#000002"</code> that follows is a fixed internal structure id, not a per-file value.</div>
+      <div class="callout"><b>waveforms is the sample total.</b> <code>instruments</code> (here 1) counts the top-level instruments; <code>waveforms</code> (here 3) is the <i>total</i> number of samples across all layers &mdash; a cross-check for the walk. The <code>data_size</code> word is the summed PCM byte total. <code>voices</code> and <code>channels</code> are card-mixing hints, not structural, and carry fixed quirk values in most factory patches.</div>
+    </div>
+
+    <!-- ===================== INSTRUMENT + LAYER ===================== -->
+    <div class="panel" data-panel="frame">
+      <div class="pfacts"><span>instrument<b>63 B</b></span><span>layer<b>47 B</b></span><span>counts<b>layers, samples</b></span><span>names<b>16 / none</b></span></div>
+      <p class="plede">Between the patch header and the sample headers sit two thin framing records. An <b>instrument</b> (63 bytes) carries a numeric id, a 16-char name, its total size, and a <b>layer count</b>. A <b>layer</b> (47 bytes) is a velocity or key split: it carries a <b>sample count</b> and little else. Both are mostly reserved padding &mdash; their job is only to carry the next count down the nest. The maps are the fronts of the Instrument and Layer records from <code>ALTOSAX.PAT</code>.</p>
+      <div class="sec">instrument header (first 23 of 63 bytes)</div>
+      <p class="note">Example: Instrument #0, "Alto Sax". The remaining 40 bytes are reserved.</p>
+      <div id="gf1-inst" data-build></div>
+      <div class="sec">layer header (first 7 of 47 bytes)</div>
+      <p class="note">Example: Layer 0. Hover <span class="k-en">samples</span> &mdash; it is what the walker loops on.</p>
+      <div id="gf1-layer" data-build></div>
+      <div class="callout"><b>layers are the split mechanism.</b> A single instrument can stack multiple <b>layers</b>, each a full set of samples, to build velocity crossfades or key splits &mdash; the GF1 mixes the active layers. Most factory patches use one layer; the field exists so a richer instrument (a multi-velocity piano) can carry several. The <code>samples</code> byte in the layer is the innermost count the walker iterates.</div>
+    </div>
+
+    <!-- ===================== SAMPLE HEADER ===================== -->
+    <div class="panel" data-panel="sample">
+      <div class="pfacts"><span>header<b>96 B</b></span><span>PCM<b>right after</b></span><span>modes<b>1 byte, 8 flags</b></span><span>tuning<b>fixed-point Hz</b></span></div>
+      <p class="plede">The sample header is where the format earns its keep: 96 bytes describing one waveform, then its raw PCM inline. It gives the <b>data size</b>, the <b>loop points</b>, the playback <b>rate</b>, three <b>frequency</b> words that set the key range and recorded pitch, an on-card <b>6-stage envelope</b>, tremolo/vibrato, and the crucial <b>modes</b> byte whose eight bits pick 16- vs 8-bit, signed vs unsigned, and the loop behaviour. The map draws the first 60 meaningful bytes (the last 36 are reserved).</p>
+      <div class="sec">sample header (bytes 0x00&ndash;0x3B)</div>
+      <p class="note">Example: sample "NoName" from <code>ALTOSAX.PAT</code> &mdash; 16-bit, looped, 22321 Hz. Hover <span class="k-en">modes</span> for the bit flags.</p>
+      <div id="gf1-sample" data-build></div>
+      <div class="callout"><b>the modes byte.</b> One byte, eight independent flags &mdash; <code>0x01</code> 16-bit, <code>0x02</code> unsigned, <code>0x04</code> loop-enable, <code>0x08</code> ping-pong (bidirectional loop), <code>0x10</code> reverse, <code>0x20</code> sustain, <code>0x40</code> envelope, <code>0x80</code> clamped-release. Here <code>0x67</code> = 16-bit + unsigned + loop + sustain + envelope. acidcat reads bits 0 and 1 to pull the PCM correctly (width and sign); getting either wrong turns the audio to noise.</div>
+      <div class="callout"><b>frequencies are milliHertz.</b> <code>low_frequency</code>, <code>high_frequency</code> and <code>root_frequency</code> are fixed-point <b>Hz &times; 1000</b>. Here root = <code>164813</code> = <b>164.813 Hz</b> (~E3, the pitch the sample was recorded at), spanning <code>26.986 Hz</code> (~A0) to <code>399.765 Hz</code> (~G4) &mdash; the key range this sample covers before the next one takes over. The GF1 pitches each key by ratio from <code>root_frequency</code>, not from a MIDI note number.</div>
+      <div class="callout"><b>loop points are byte offsets.</b> <code>loop_start</code> and <code>loop_end</code> are offsets into this sample's PCM in <i>bytes</i>, with the <code>fractions</code> byte giving a sub-byte remainder for fine loop tuning &mdash; not sample indices. For a 16-bit sample the reader rounds them to even byte boundaries. Loop is only honoured when <code>modes &amp; 0x04</code> is set; here it is, so playback loops over <code>[5998, 7082]</code>.</div>
+    </div>
+
+  </div>
+
+  <footer><span>acidcat / gf1 patch anatomy</span><span>gravis ultrasound . GF1PATCH . wavetable instrument</span><span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // byte-map specs, built lazily the first time a tab is shown. every byte value
+  // below is copied verbatim from a real factory specimen, ALTOSAX.PAT.
+  var SPECS={
+    "gf1-sig":["byte",
+      [0x47,0x46,0x31,0x50,0x41,0x54,0x43,0x48,0x31,0x31,0x30,0x00, 0x49,0x44,0x23,0x30,0x30,0x30,0x30,0x30,0x32,0x00],
+      [
+        {label:"magic",k:"sync",r:[0,11],val:"\"GF1PATCH110\"",sel:0,branch:[["GF1PATCH110","version 1.10"],["GF1PATCH100","version 1.00 (older)"]],
+          body:"The patch signature, ASCII, 12 bytes including a trailing null. The last three digits are the format version.",
+          note:"acidcat sniffs the first 8 bytes (\"GF1PATCH\") to route the file, then reads the full 12 for the exact version."},
+        {label:"gravis_id",k:"rsv",r:[12,21],val:"\"ID#000002\"",body:"A fixed 10-byte internal structure id, \"ID#000002\", the same in every patch. Not a per-file value.",note:"present so a loader could version the on-disk struct layout; constant in practice."}
+      ]],
+    "gf1-counts":["byte",
+      [0x01, 0x04, 0x0E, 0x03,0x00, 0x7F,0x00, 0xE0,0x2B,0x00,0x00],
+      [
+        {label:"instruments",k:"enum",r:[0,0],val:"1",body:"Number of top-level instrument records that follow the header. The walker loops this many times.",note:"absolute file offset 82."},
+        {label:"voices",k:"rsv",r:[1,1],val:"4",body:"A card-mixing hint (active voice count), not structural. Fixed/quirk in most factory patches.",note:"offset 83."},
+        {label:"channels",k:"rsv",r:[2,2],val:"14",body:"Another mixing hint. Carries a constant quirk value (14) across the factory set; acidcat surfaces it without interpreting.",note:"offset 84."},
+        {label:"waveforms",k:"enum",r:[3,4],val:"3",body:"little-endian u16: the TOTAL sample (waveform) count across all layers -- a cross-check for the walk. This patch has 3.",note:"0x0003; offset 85-86."},
+        {label:"master_volume",k:"flag",r:[5,6],val:"127",body:"little-endian u16: the patch master volume, 0-127.",note:"0x007F; offset 87-88."},
+        {label:"data_size",k:"enum",r:[7,10],val:"11,232",body:"little-endian u32: the summed PCM byte total across every sample in the patch.",note:"0x00002BE0 = 11232; offset 89-92."}
+      ]],
+    "gf1-inst":["byte",
+      [0x00,0x00, 0x41,0x6C,0x74,0x6F,0x20,0x53,0x61,0x78,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0xE0,0x2B,0x00,0x00, 0x01],
+      [
+        {label:"instrument_id",k:"enum",r:[0,1],val:"0",body:"little-endian u16: the instrument's numeric id within the patch. 0 for the first (and here only) instrument."},
+        {label:"instrument_name",k:"sync",r:[2,17],val:"\"Alto Sax\"",body:"16-byte ASCII instrument name, null-padded. What a librarian or MIDI mapper shows; the patch is referenced by file, not by this name."},
+        {label:"instrument_size",k:"enum",r:[18,21],val:"11,232",body:"little-endian u32: total bytes of this instrument (all its layers, sample headers, and PCM).",note:"0x00002BE0 = 11232, matching the patch data_size for a single-instrument file."},
+        {label:"layers",k:"enum",r:[22,22],val:"1",body:"The layer count. Each layer is a velocity/key split with its own set of samples. One here.",note:"the next 40 bytes of the 63-byte record are reserved padding."}
+      ]],
+    "gf1-layer":["byte",
+      [0x00, 0x00, 0xE0,0x2B,0x00,0x00, 0x03],
+      [
+        {label:"layer_duplicate",k:"rsv",r:[0,0],val:"0",body:"A flag for a duplicated layer (voice doubling). 0 in this patch."},
+        {label:"layer_id",k:"enum",r:[1,1],val:"0",body:"The layer index within the instrument. 0 = the first layer."},
+        {label:"layer_size",k:"enum",r:[2,5],val:"11,232",body:"little-endian u32: total bytes of this layer, its sample headers plus their PCM.",note:"0x00002BE0 = 11232."},
+        {label:"samples",k:"enum",r:[6,6],val:"3",body:"The number of sample records in this layer -- the innermost count the walker iterates. Each is a 96-byte header followed by its PCM.",note:"the remaining 40 bytes of the 47-byte record are reserved."}
+      ]],
+    "gf1-sample":["byte",
+      [0x4E,0x6F,0x4E,0x61,0x6D,0x65,0x00, 0x00, 0xE4,0x1B,0x00,0x00, 0x6E,0x17,0x00,0x00, 0xAA,0x1B,0x00,0x00, 0x31,0x57, 0x6A,0x69,0x00,0x00, 0x95,0x19,0x06,0x00, 0xCD,0x83,0x02,0x00, 0x00,0x02, 0x06, 0x3F,0x3F,0xC4,0x8D,0x8D,0xD6, 0xE8,0xF3,0xF6,0xC0,0xD0,0x08, 0x00,0xFF,0x32, 0x28,0xC8,0x08, 0x67, 0x3C,0x00, 0x00,0x04],
+      [
+        {label:"wave_name",k:"sync",r:[0,6],val:"\"NoName\"",body:"7-byte ASCII sample name, null-padded. Factory patches often leave it \"NoName\"."},
+        {label:"fractions",k:"rsv",r:[7,7],val:"0",body:"Sub-byte remainder for the loop points -- fine loop tuning below one byte. 0 here.",note:"the high/low nibbles refine loop_start / loop_end."},
+        {label:"data_size",k:"enum",r:[8,11],val:"7,140",body:"little-endian u32: the length of this sample's raw PCM, in bytes, sitting immediately after this 96-byte header.",note:"0x00001BE4 = 7140 bytes -> 3570 samples at 16-bit."},
+        {label:"loop_start",k:"enum",r:[12,15],val:"5,998",body:"little-endian u32: loop start as a BYTE offset into this sample's PCM (honoured only when modes & 0x04).",note:"0x0000176E = 5998."},
+        {label:"loop_end",k:"enum",r:[16,19],val:"7,082",body:"little-endian u32: loop end as a byte offset. Playback loops over [loop_start, loop_end].",note:"0x00001BAA = 7082."},
+        {label:"sample_rate",k:"enum",r:[20,21],val:"22321 Hz",body:"little-endian u16: the PCM playback sample rate.",note:"0x5731 = 22321."},
+        {label:"low_frequency",k:"flag",r:[22,25],val:"26.986 Hz",body:"little-endian u32, milliHertz (Hz x 1000): the LOW edge of the pitch range this sample covers before a neighbouring sample takes over.",note:"0x0000696A = 26986 -> 26.986 Hz (~A0)."},
+        {label:"high_frequency",k:"flag",r:[26,29],val:"399.765 Hz",body:"little-endian u32, milliHertz: the HIGH edge of this sample's pitch range.",note:"0x00061995 = 399765 -> 399.765 Hz (~G4)."},
+        {label:"root_frequency",k:"enum",r:[30,33],val:"164.813 Hz",body:"little-endian u32, milliHertz: the pitch the sample was RECORDED at. The GF1 pitches each key by ratio from this, not from a MIDI note number.",note:"0x000283CD = 164813 -> 164.813 Hz (~E3)."},
+        {label:"tune",k:"rsv",r:[34,35],val:"512",body:"little-endian i16: a fine-tune value. TiMidity and most players ignore it; surfaced, not applied.",note:"0x0200 = 512."},
+        {label:"balance",k:"rsv",r:[36,36],val:"6",body:"Pan/balance, 0-15 with 7 = center. 6 here = very slightly left."},
+        {label:"envelope_rate",k:"flag",r:[37,42],val:"6 stages",body:"Six bytes: the attack/decay/release RATES of the GF1's on-card 6-stage volume envelope, one per stage.",note:"3F 3F C4 8D 8D D6 -- the card plays this envelope in hardware."},
+        {label:"envelope_offset",k:"flag",r:[43,48],val:"6 stages",body:"Six bytes: the target LEVELS the envelope ramps to at each of the six stages.",note:"E8 F3 F6 C0 D0 08."},
+        {label:"tremolo",k:"rsv",r:[49,51],val:"sweep/rate/depth",body:"Three bytes: tremolo (amplitude LFO) sweep, rate, and depth.",note:"00 FF 32 = sweep 0, rate 255, depth 50."},
+        {label:"vibrato",k:"rsv",r:[52,54],val:"sweep/rate/depth",body:"Three bytes: vibrato (pitch LFO) sweep, rate, and depth.",note:"28 C8 08 = sweep 40, rate 200, depth 8."},
+        {label:"modes",k:"flag",r:[55,55],val:"0x67",sel:0,branch:[
+          ["0x01","16-bit  ✔"],["0x02","unsigned  ✔"],["0x04","loop  ✔"],["0x08","ping-pong"],
+          ["0x10","reverse"],["0x20","sustain  ✔"],["0x40","envelope  ✔"],["0x80","clamped"]],
+          body:"One byte, eight independent flags. 0x67 = 16-bit + unsigned + loop + sustain + envelope. Bits 0 and 1 set the PCM width and sign -- get either wrong and the audio is noise.",
+          note:"0x67 = 0110 0111."},
+        {label:"scale_frequency",k:"enum",r:[56,57],val:"60 (C4)",body:"little-endian i16: the MIDI note at which key-tracking is centred for scale_factor tuning.",note:"0x003C = 60 = C4."},
+        {label:"scale_factor",k:"enum",r:[58,59],val:"1024 (100%)",body:"little-endian u16: key-tracking amount in 1024ths. 1024 = 100% (normal chromatic tracking); 0 = fixed pitch.",note:"0x0400 = 1024. The 36 bytes after this are reserved."}
+      ]]
+  };
+
+  var built={};
+  function buildPanel(name){
+    var panel=document.querySelector('[data-panel="'+name+'"]'); if(!panel) return;
+    panel.querySelectorAll("[data-build]").forEach(function(m){
+      if(built[m.id]) return; built[m.id]=1;
+      var spec=SPECS[m.id]; if(spec) build(m.id, spec[0], spec[1], spec[2]);
+    });
+  }
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  var panels=[].slice.call(document.querySelectorAll(".panel"));
+  function activate(name){
+    tabs.forEach(function(t){t.classList.toggle("on",t.dataset.p===name);});
+    panels.forEach(function(p){p.classList.toggle("on",p.dataset.panel===name);});
+    buildPanel(name);
+  }
+  tabs.forEach(function(t){t.addEventListener("click",function(){
+    activate(t.dataset.p);
+    if(history.replaceState) history.replaceState(null,"","#"+t.dataset.p);
+  });});
+  var initial=(location.hash||"").replace("#","");
+  if(initial && document.querySelector('[data-panel="'+initial+'"]')) activate(initial);
+  else buildPanel("overview");
+  buildPanel(document.querySelector(".panel.on").dataset.panel);
+})();
+</script>
+<script>
+(function () {
+  if (customElements.get('acidcat-toggle')) return;
+
+  const EARL = "M823.78,436.653c-245,84 -360,215 -393.78,263.95c-34,70 -33,-135 25,-340.6c37,-135 118,-300 151.78,-359.35c60,-55 60,30 217,436.05Z";
+  const EARR = "M1334.16,436.653c245,84 360,215 393.78,263.95c34,70 33,-135 -25,-340.6c-37,-135 -118,-300 -151.78,-359.35c-60,-55 -60,30 -217,436.05Z";
+  const WHISK = [
+    "M538.204,1196.91c-92.765,-0 -91.589,-12.14 -183.656,-3.551c-17.861,1.667 -61.995,-13.903 -268.815,-19.883",
+    "M483.602,1285.68c-37.939,14.794 -397.736,49.87 -432.494,53.259",
+    "M538.204,1363.79c-26.557,37.99 -398.31,150.862 -407.023,163.327",
+    "M1660.6,1189.14c22.236,-12.966 144.035,-0.154 363.552,-15.668",
+    "M1660.6,1264.76c202.29,42.443 388.678,51.655 421.623,53.385",
+    "M1603.35,1338.36c184.004,78.804 145.528,54.451 228.58,88.766c112.208,46.36 176.212,72.644 192.215,78.111"
+  ];
+  const MOUTH = "M520.116,1505.24c350.331,414.744 722.039,421.968 1117.72,0";
+  const CURLL = "M553.633,1478.51c-30.725,26.041 -67.034,30.722 -67.034,30.722";
+  const CURLR = "M1608.86,1478.51c30.725,26.041 67.034,30.722 67.034,30.722";
+
+  const stroke = (w) => `fill:none;stroke:currentColor;stroke-width:${w}px;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5`;
+  const whiskers = WHISK.map((d) => `<path d="${d}" style="${stroke(10.27)}"/>`).join('');
+
+  const spiral = (cx, cy) => {
+    const TURNS = 2.75, MAX = 150, steps = Math.round(TURNS * 2 * Math.PI / 0.32);
+    let d = 'M' + cx.toFixed(1) + ',' + cy.toFixed(1);
+    for (let i = 1; i <= steps; i++) {
+      const th = (i / steps) * TURNS * 2 * Math.PI, r = MAX * i / steps;
+      d += ' L' + (cx + r * Math.cos(th)).toFixed(1) + ',' + (cy + r * Math.sin(th)).toFixed(1);
+    }
+    return d;
+  };
+
+  const svg = `
+  <svg viewBox="-45 -70 2250 2250" style="display:block;width:100%;height:100%;overflow:visible">
+    <circle cx="1078.97" cy="1246.41" r="847.958" style="${stroke(21.53)}"/>
+    <path class="ear" d="${EARL}" style="${stroke(21.5)}"/>
+    <path class="ear" d="${EARR}" style="${stroke(21.5)}"/>
+    ${whiskers}
+    <ellipse class="eye" cx="772" cy="975" rx="78" ry="140" fill="currentColor"/>
+    <ellipse class="eye" cx="1394" cy="975" rx="78" ry="140" fill="currentColor"/>
+    <path class="swirl" d="${spiral(772, 975)}"/>
+    <path class="swirl" d="${spiral(1394, 975)}"/>
+    <path class="tongue" d="M1004,1735 h150 v215 a75,75 0 0 1 -150,0 z" fill="currentColor"/>
+    <path d="${MOUTH}" style="${stroke(28.33)}"/>
+    <path d="${CURLR}" style="${stroke(25.96)}"/>
+    <path d="${CURLL}" style="${stroke(25.96)}"/>
+  </svg>`;
+
+  const css = `
+    :host{display:inline-block;line-height:0}
+    button{
+      -webkit-appearance:none;appearance:none;background:none;border:0;padding:6px;margin:0;
+      cursor:pointer;color:inherit;border-radius:999px;line-height:0;display:inline-flex;
+    }
+    button:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+    .box{width:var(--acidcat-size,40px);height:var(--acidcat-size,40px)}
+    .eye{transition:opacity .28s ease}
+    .swirl{fill:none;stroke:currentColor;stroke-width:70;stroke-linecap:round;opacity:0;transition:opacity .32s ease;transform-box:fill-box;transform-origin:center}
+    .tongue{transform-box:fill-box;transform-origin:center top;transform:scaleY(0);transition:transform .4s cubic-bezier(.34,1.45,.5,1) .05s}
+    :host([data-on]) .eye{opacity:0}
+    :host([data-on]) .swirl{opacity:1;animation:acid-spin 2.6s linear infinite}
+    :host([data-on]) .swirl:last-of-type{animation-direction:reverse}
+    :host([data-on]) .tongue{transform:scaleY(1)}
+    @keyframes acid-spin{to{transform:rotate(1turn)}}
+    @media (prefers-reduced-motion:reduce){.eye,.tongue,.swirl{transition:none}.swirl{animation:none}}
+  `;
+
+  class AcidcatToggle extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>${css}</style><button type="button" aria-label="Toggle dark mode" title="Toggle dark mode"><span class="box">${svg}</span></button>`;
+      this._btn = root.querySelector('button');
+      this._btn.addEventListener('click', () => this.toggle());
+      this._sync = (e) => { if (e.target !== this && e.detail) this.toggleAttribute('data-on', e.detail.dark); };
+      document.addEventListener('acidcat-theme', this._sync);
+
+      let saved = null;
+      try { saved = localStorage.getItem('acidcat-theme'); } catch (e) {}
+      const dark = saved ? saved === 'dark'
+        : (this.hasAttribute('default-dark') || window.matchMedia('(prefers-color-scheme: dark)').matches);
+      this.apply(dark, false);
+    }
+    disconnectedCallback() { if (this._sync) document.removeEventListener('acidcat-theme', this._sync); }
+    get isDark() { return this.hasAttribute('data-on'); }
+    toggle() { this.apply(!this.isDark, true); }
+    apply(dark, persist) {
+      this.toggleAttribute('data-on', dark);
+      const theme = dark ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+      if (this._btn) this._btn.setAttribute('aria-pressed', String(dark));
+      if (persist) { try { localStorage.setItem('acidcat-theme', theme); } catch (e) {} }
+      this.dispatchEvent(new CustomEvent('acidcat-theme', { bubbles: true, composed: true, detail: { theme, dark } }));
+    }
+  }
+  customElements.define('acidcat-toggle', AcidcatToggle);
+})();
+
+</script>
+</body>
+</html>
