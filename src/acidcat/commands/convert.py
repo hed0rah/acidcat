@@ -48,10 +48,11 @@ def register(subparsers):
                    help="Batch mode: skip an .ncw whose .wav already exists.")
     p.add_argument("--to-pcm", action="store_true",
                    help="Decode a compressed/ADPCM WAV to a plain 16-bit PCM WAV "
-                        "that plays anywhere (IMA/DVI ADPCM).")
-    p.add_argument("--codec", choices=("ima",),
-                   help="Force a decoder for a mistagged WAV (e.g. IMA ADPCM "
-                        "shipped with a wrong format tag), overriding the header.")
+                        "that plays anywhere (IMA/DVI ADPCM 0x0011, Microsoft "
+                        "ADPCM 0x0002).")
+    p.add_argument("--codec", choices=("ima", "ms"),
+                   help="Force a decoder for a mistagged WAV (ima = IMA/DVI, "
+                        "ms = Microsoft ADPCM), overriding the header.")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Batch mode: suppress the per-file line, keep the summary.")
     p.set_defaults(func=run)
@@ -173,9 +174,23 @@ def _looks_audio(pcm):
     return md < 6000
 
 
+def _ms_coefs(data, fmt_off):
+    """The Microsoft ADPCM (0x0002) coefficient table from the fmt chunk, or None
+    if the extended fields are absent (the decoder then uses the seven standard
+    pairs). Layout after WAVEFORMATEX: cbSize, samplesPerBlock, numCoef, pairs."""
+    base = fmt_off + 8 + 20                        # numCoef offset
+    if base + 2 > len(data):
+        return None
+    ncoef = struct.unpack_from("<H", data, base)[0]
+    if not 0 < ncoef <= 64 or base + 2 + ncoef * 4 > len(data):
+        return None
+    return [struct.unpack_from("<hh", data, base + 2 + n * 4) for n in range(ncoef)]
+
+
 def _run_to_pcm(path, data, args):
     """Decode a compressed/ADPCM WAV to a plain 16-bit PCM WAV. IMA/DVI ADPCM
-    (0x0011) decodes by header; a mistagged file uses --codec ima (continuous)."""
+    (0x0011) and Microsoft ADPCM (0x0002) decode by header; a mistagged file uses
+    --codec ima / ms to force one."""
     i = data.find(b"fmt ")
     di = data.find(b"data")
     if i < 0 or di < 0 or i + 24 > len(data):
@@ -188,9 +203,15 @@ def _run_to_pcm(path, data, args):
     label = None
     if args.codec == "ima":
         pcm, channels, label = adpcm.decode_ima_continuous(body), 1, "IMA (forced, continuous)"
+    elif args.codec == "ms":
+        pcm = adpcm.decode_ms_adpcm(body, block_align, channels, _ms_coefs(data, i))
+        label = "Microsoft ADPCM (forced)"
     elif tag == 0x0011:
         pcm = adpcm.decode_ima(body, block_align, channels)
         label = "IMA ADPCM"
+    elif tag == 0x0002:
+        pcm = adpcm.decode_ms_adpcm(body, block_align, channels, _ms_coefs(data, i))
+        label = "Microsoft ADPCM"
     elif tag in (0x0001, 0xFFFE):
         print(f"acidcat convert: {path}: already PCM (nothing to decode)", file=sys.stderr)
         return 1
