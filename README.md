@@ -104,10 +104,12 @@ full-text.
 | `acidcat index DIR` | Upsert DIR into the global SQLite index |
 | `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
 | `acidcat query --compatible-with FILE` | Find samples that mix with FILE: harmonic key (Camelot) + compatible tempo (incl. half/double-time) |
-| `acidcat convert FILE [-o OUT]` | Export/extract: `.bwclip` -> MIDI, NCW -> WAV (single file or a directory), SF2/SF3 -> a folder of samples |
+| `acidcat convert FILE [-o OUT]` | Export/transcode: `.bwclip` -> MIDI, NCW -> WAV (single file or a directory), SF2/SF3 -> a folder of samples, 8SVX -> WAV; `--to-pcm` decodes an ADPCM or mistagged WAV to plain playable 16-bit PCM (`--codec ima` to force it) |
+| `acidcat locate BLOB [--mode strict\|normal\|aggressive] [--analyze] [--transforms] [-v]` | "PhotoRec for audio": find the audio regions in a raw blob or disk image (containers, signatureless raw PCM, headerless MP3 streams) and report them; never writes. `--analyze` infers PCM geometry, `--transforms` finds audio hidden under XOR/rotate/nibble-swap, `-v` shows the evidence. Pipe `-f json` into `carve --batch` |
+| `acidcat extract BANK [-o DIR]` | Pull every embedded sample out of a known bank/module as its own WAV: MOD/XM/IT/S3M, Gravis `.pat`, 8SVX, NCW, SF2/SF3, Bitwig `.multisample`, Kurzweil `.krz`, E-mu `.e4b`/`.e5b`, MPC `.snd`. `--json` for a manifest |
 | `acidcat write FILE --set field=value` | Edit metadata in place, with a `_original` backup, `-o` copy, and `--dry-run`; custom frames via `txxx:NAME=value`; Bitwig/NI preset editing (experimental) |
 | `acidcat probe FILE read\|scan\|find\|strings\|hexdump\|diff\|entropy\|map ...` | Low-level byte dissection (RE-tool surface): typed read at an offset (`read fmt.sample_rate -t u32`), value scan, byte-pattern find, strings, hexdump, diff, plus `entropy` (Shannon curve + histogram) and `map` (binvis Hilbert byte-map). Addresses can be raw offsets or structural names (`chunk` / `chunk.field`) resolved through the walker |
-| `acidcat carve FILE (--chunk ID \| --trailing \| --offset N [--length N])` | Extract a structurally-identified byte region (a chunk payload, an appended blob, or an explicit range) to a file or stdout |
+| `acidcat carve FILE (--chunk ID \| --trailing \| --offset N [--length N] \| --at EXPR \| --batch SRC)` | Extract a structurally-identified byte region (a chunk payload, an appended blob, or an explicit/anchored range) to a file or stdout; `--batch` consumes `locate` records and cuts every region into a directory |
 | `acidcat repair FILE [--dry-run] [-o OUT]` | Fix stale container sizes, offset tables, table counts, and pad bytes without touching a byte of audio (WAV, RF64, AIFF, MP4, FLAC); keeps a `_original` backup |
 | `acidcat validate FILE\|DIR [-q]` | Read-only structural check with an exit code (0 = all consistent, 1 = any violation); walks a directory tree |
 | `acidcat audit FILE [--json]` | Forensic verdict in four parts: STRUCTURE (repairable inconsistencies), INTEGRITY (fake hi-res, duration mismatch), HIDDEN (concealed/appended data + a carve command), PROVENANCE (the writing tool) |
@@ -176,6 +178,27 @@ Most commands accept `table`, `json`, and `csv` (default `table`, but
 
     # extract 50+ audio features to CSV
     acidcat features ~/Samples/Loops -n 500
+
+### Recovery / rescue (PhotoRec for audio)
+
+Find audio in a raw blob, cut it out, and make odd codecs playable. Four verbs
+chain like coreutils: `locate` (find) -> `carve` (cut) -> `convert` (transcode),
+with `extract` for known banks. Full workflow in [docs/recovery.md](docs/recovery.md).
+
+    # find the audio regions in a disk image or card dump
+    acidcat locate disk.img --mode aggressive --analyze
+
+    # the pipeline: locate the regions, carve every one into a directory
+    acidcat locate disk.img -f json | acidcat carve disk.img --batch - -o recovered/
+
+    # pull every sample out of a sampler bank / tracker module
+    acidcat extract kit.sf2 -o kit_samples/
+
+    # decode an ADPCM or mistagged WAV to plain playable PCM
+    acidcat convert weird.wav --to-pcm -o plain.wav
+
+    # CTF: find audio hidden under a reversible transform (XOR / rotate / nibble-swap)
+    acidcat locate challenge.bin --transforms
 
 ### Similarity Search
 
