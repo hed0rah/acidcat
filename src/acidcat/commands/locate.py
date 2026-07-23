@@ -25,7 +25,8 @@ from acidcat.core import locate as locatemod
 from acidcat.util.stdin import is_stdin_target
 
 _PUBLIC_KEYS = ("kind", "format", "offset", "end", "length", "confidence",
-                "streaming_extent", "corrupt_extent", "inspectable", "geometry")
+                "streaming_extent", "corrupt_extent", "inspectable", "geometry",
+                "frames", "stream_info")
 
 
 def register(subparsers):
@@ -143,6 +144,7 @@ def run(args):
 
     if not args.quiet:
         nc = sum(1 for r in recs if r["kind"] == "container")
-        print(f"located {len(recs)} region(s): {nc} container(s), "
-              f"{len(recs) - nc} blob(s) [{args.mode}]", file=sys.stderr)
+        ns = sum(1 for r in recs if r["kind"] == "stream")
+        print(f"located {len(recs)} region(s): {nc} container(s), {ns} stream(s), "
+              f"{len(recs) - nc - ns} blob(s) [{args.mode}]", file=sys.stderr)
     return 0
