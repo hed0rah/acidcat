@@ -150,7 +150,7 @@ def test_unpack_signed_is_invertible():
 class _CArgs:
     def __init__(self, **kw):
         d = {"input": None, "output": None, "division": 480,
-             "skip_existing": False, "quiet": True}
+             "skip_existing": False, "quiet": True, "to_pcm": False, "codec": None}
         d.update(kw)
         for k, v in d.items():
             setattr(self, k, v)

@@ -11,9 +11,13 @@
   as the NCW path.
 """
 
+import io
 import os
+import struct
 import sys
+import wave
 
+from acidcat.core import adpcm
 from acidcat.core import bitwig as bwmod
 from acidcat.core import ncw as ncwmod
 from acidcat.core import sf2 as sf2mod
@@ -42,6 +46,12 @@ def register(subparsers):
                    help="MIDI ticks per beat for .bwclip output (default 480).")
     p.add_argument("--skip-existing", action="store_true",
                    help="Batch mode: skip an .ncw whose .wav already exists.")
+    p.add_argument("--to-pcm", action="store_true",
+                   help="Decode a compressed/ADPCM WAV to a plain 16-bit PCM WAV "
+                        "that plays anywhere (IMA/DVI ADPCM).")
+    p.add_argument("--codec", choices=("ima",),
+                   help="Force a decoder for a mistagged WAV (e.g. IMA ADPCM "
+                        "shipped with a wrong format tag), overriding the header.")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Batch mode: suppress the per-file line, keep the summary.")
     p.set_defaults(func=run)
@@ -142,6 +152,68 @@ def _run_svx(path, data, args):
     return 0
 
 
+def _pcm16_wav(frames, rate, channels):
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(channels)
+        w.setsampwidth(2)
+        w.setframerate(rate or 44100)
+        w.writeframes(frames)
+    return buf.getvalue()
+
+
+def _looks_audio(pcm):
+    """A quick sanity gate for a heuristic decode: the samples should be smooth,
+    not full-scale noise (the wrong decoder yields garbage)."""
+    n = min(len(pcm) // 2, 8000)
+    if n < 8:
+        return False
+    v = struct.unpack_from(f"<{n}h", pcm, 0)
+    md = sum(abs(v[i + 1] - v[i]) for i in range(n - 1)) / (n - 1)
+    return md < 6000
+
+
+def _run_to_pcm(path, data, args):
+    """Decode a compressed/ADPCM WAV to a plain 16-bit PCM WAV. IMA/DVI ADPCM
+    (0x0011) decodes by header; a mistagged file uses --codec ima (continuous)."""
+    i = data.find(b"fmt ")
+    di = data.find(b"data")
+    if i < 0 or di < 0 or i + 24 > len(data):
+        print(f"acidcat convert: {path}: not a parseable WAV", file=sys.stderr)
+        return 1
+    tag, channels, rate, _br, block_align, _bits = struct.unpack_from("<HHIIHH", data, i + 8)
+    dsize = struct.unpack_from("<I", data, di + 4)[0]
+    body = data[di + 8:di + 8 + dsize] if dsize else data[di + 8:]
+
+    label = None
+    if args.codec == "ima":
+        pcm, channels, label = adpcm.decode_ima_continuous(body), 1, "IMA (forced, continuous)"
+    elif tag == 0x0011:
+        pcm = adpcm.decode_ima(body, block_align, channels)
+        label = "IMA ADPCM"
+    elif tag in (0x0001, 0xFFFE):
+        print(f"acidcat convert: {path}: already PCM (nothing to decode)", file=sys.stderr)
+        return 1
+    else:
+        # unknown/mistagged tag -- try continuous IMA and keep it only if sane
+        trial = adpcm.decode_ima_continuous(body)
+        if _looks_audio(trial):
+            pcm, channels = trial, 1
+            label = f"IMA (tag 0x{tag:04x} looked wrong; decoded as IMA)"
+        else:
+            print(f"acidcat convert: {path}: codec 0x{tag:04x} not supported for "
+                  f"--to-pcm (try --codec ima)", file=sys.stderr)
+            return 1
+
+    out = args.output or (os.path.splitext(path)[0] + "_pcm.wav")
+    with open(out, "wb") as f:
+        f.write(_pcm16_wav(pcm, rate, channels))
+    frames = len(pcm) // 2 // max(channels, 1)
+    print(f"wrote {out}: {channels}ch 16-bit {rate} Hz, {frames:,} frames "
+          f"({frames / rate:.2f}s) from {label}")
+    return 0
+
+
 def run(args):
     path = args.input
     if os.path.isdir(path):
@@ -152,6 +224,8 @@ def run(args):
     except OSError as e:
         print(f"acidcat convert: {path}: {e}", file=sys.stderr)
         return 1
+    if (args.to_pcm or args.codec) and data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return _run_to_pcm(path, data, args)
     if data[:4] == ncwmod.MAGIC:
         return _run_ncw(path, data, args)
     if svxmod.is_8svx(data):
