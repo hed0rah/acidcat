@@ -6,6 +6,35 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.75.0] - 2026-07-23
+
+### Added
+
+- **`locate --transforms`: find audio hidden under a reversible byte transform.**
+  The CTF/RE obfuscation lens. XOR-with-a-key, bit-rotate and nibble-swap are byte
+  permutations -- they preserve entropy but scramble autocorrelation, which is
+  exactly how they slip PCM past the statistical detector. `--transforms`
+  un-applies each candidate to the suspicious windows and asks "is it audio now?".
+  Detection is family-level, so one stream is not fragmented across the true key's
+  low-bit neighbours; the key is then refined per region by minimum roughness and
+  validated -- the single refined key must recover audio across most of the region,
+  which yields 0 false positives on noise, repeated code, and source. The reported
+  key is a *candidate*: audio is smooth, so the true key and its bit-inverted twin
+  (`K ^ 0xFF`) leave equally smooth waveforms and the low bits are dither-level, so
+  polarity and the low bits are not recoverable from smoothness alone. Focused:
+  reads at most 16 MB. New `core/transforms.py`.
+
+### Documentation
+
+- **`docs/recovery.md`: the "PhotoRec for audio" rescue workflow.** The four
+  recovery verbs shipped without narrative coverage; the new doc walks the pipeline
+  end to end -- `locate` (signature sweep, statistical PCM detector, headerless MPEG
+  cadence) -> `carve --batch` (cut every located region to a directory) -> `extract`
+  (unpack a known sampler/tracker bank) -> `convert --to-pcm` -- with worked
+  examples, plus the `--transforms` lens. README and CHEATSHEET gain the `locate`
+  and `extract` commands, the `carve --batch` / `convert --to-pcm` additions, and a
+  recovery section pointing to the doc.
+
 ## [0.74.0] - 2026-07-23
 
 ### Added
