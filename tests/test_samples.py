@@ -258,6 +258,40 @@ def test_mpc_snd_extraction(tmp_path):
     assert struct.unpack("<5h", w.readframes(5)) == tuple(frames)
 
 
+def test_it_decompress_known_answer():
+    # a hand-built 8-bit IT214 block: two width-9 samples (deltas 10 then 5)
+    block = struct.pack("<H", 3) + bytes([0x0A, 0x0A, 0x00])
+    assert smod._it_decompress(block, 0, 2, bits16=False, it215=False) == bytes([10, 15])
+
+
+def _make_it_uncompressed():
+    """A minimal IMPM with one uncompressed 8-bit sample (mirrors test_tracker)."""
+    body = b"IMPM" + b"song".ljust(26, b"\x00") + struct.pack("<H", 0)
+    body += struct.pack("<HHHH", 2, 0, 1, 0) + struct.pack("<HH", 0x0214, 0x0200)
+    body += struct.pack("<H", 0x0009) + struct.pack("<H", 0)
+    body += bytes([128, 48, 6, 125, 128, 0])
+    body += struct.pack("<H", 0) + struct.pack("<I", 0) + b"\x00" * 4 + b"\x00" * 128
+    body += bytes([0, 0])
+    imps_off = 194 + 4
+    body += struct.pack("<I", imps_off)
+    imps = b"IMPS" + b"kick.wav".ljust(12, b"\x00") + bytes([0, 64, 0x01, 64])
+    imps += b"kick".ljust(26, b"\x00") + bytes([0, 32])
+    imps += struct.pack("<I", 20) + struct.pack("<II", 0, 0) + struct.pack("<I", 8000)
+    imps += struct.pack("<II", 0, 0) + struct.pack("<I", imps_off + 80) + bytes(4)
+    return body + imps + bytes(range(20))
+
+
+def test_it_uncompressed_extraction(tmp_path):
+    p = tmp_path / "s.it"
+    p.write_bytes(_make_it_uncompressed())
+    recs = [r for r in smod.iter_samples(str(p)) if r.get("wav")]
+    assert len(recs) == 1 and recs[0]["name"] == "kick"
+    w = wave.open(io.BytesIO(recs[0]["wav"]), "rb")
+    assert w.getframerate() == 8000 and w.getnframes() == 20
+    # signed 8-bit range(20) scaled to 16-bit
+    assert struct.unpack("<3h", w.readframes(3)) == (0, 256, 512)
+
+
 def test_extractable_set():
     assert {"mod", "xm", "it", "s3m", "gf1pat", "8svx", "ncw", "sf2",
             "multisample", "krz", "e4b", "e5b", "snd"} <= smod.EXTRACTABLE
