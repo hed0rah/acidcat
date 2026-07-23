@@ -24,8 +24,8 @@ def _tone_u8(n, period=40, amp=60):
 
 
 def _args(**kw):
-    ns = types.SimpleNamespace(input=None, mode="normal", analyze=False,
-                               format="table", quiet=True)
+    ns = types.SimpleNamespace(input=None, mode="normal", analyze=False, format="table",
+                               verbose=False, quiet=True)
     ns.__dict__.update(kw)
     return ns
 

@@ -5,6 +5,7 @@ class-separation the multi-lag experiment showed is pinned as a regression."""
 
 import math
 import random
+import struct
 
 from acidcat.core import audioscan
 
@@ -104,6 +105,39 @@ def test_two_tones_two_regions():
 def test_scan_degrades_on_tiny_input():
     assert audioscan.scan(b"") == []
     assert audioscan.scan(b"\x01\x02\x03") == []        # shorter than a window
+
+
+def _f32(n, period=40, amp=0.6):
+    return b"".join(struct.pack("<f", amp * math.sin(2 * math.pi * i / period))
+                    for i in range(n))
+
+
+def test_float32_geometry():
+    g = audioscan.analyze_geometry(_f32(2000))
+    assert g["float"] is True and g["width"] == 32 and g["confidence"] > 0.7
+
+
+def test_scan_finds_float_audio():
+    # the fundamental blind spot: float PCM has high byte-entropy, so the integer
+    # path misses it -- the float probe must catch it.
+    blob = _noise(4096, 1) + _f32(3000) + _noise(4096, 2)
+    regions = audioscan.scan(blob)
+    assert len(regions) == 1 and regions[0]["confidence"] > 0.7
+
+
+def test_random_is_not_float():
+    g = audioscan.analyze_geometry(_noise(4096, 3))
+    assert not g.get("float")                            # random bytes aren't float audio
+
+
+def test_debug_tells():
+    sil = audioscan.analyze_geometry(struct.pack("<2000h", *([0] * 2000)))
+    assert sil["silence"] is True
+    clip = audioscan.analyze_geometry(struct.pack("<2000h", *([32767, -32768] * 1000)))
+    assert clip["clipping"] > 0.4
+    dc = audioscan.analyze_geometry(struct.pack(
+        "<2000h", *[10000 + int(2000 * math.sin(2 * math.pi * i / 40)) for i in range(2000)]))
+    assert dc["dc_offset"] > 0.1
 
 
 def test_hysteresis_bridges_short_gap():

@@ -6,6 +6,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-07-23
+
+### Added
+
+- **`locate` detects float PCM.** Float audio (in-memory buffers, modern engines)
+  has high byte-entropy from its mantissa, so the integer detector missed it
+  entirely -- a fundamental blind spot. A cheap sampled in-range check gates a
+  full float32/float64 probe (random bytes read as float almost never sit in
+  `[-1,1]`), so float regions are now found and tagged.
+- **`locate --analyze` reports debug tells** per region -- silence (flat),
+  dc_offset (biased), clipping (pinned at the rails) -- plus float width/endian.
+  The "why is my audio buffer wrong" triage layer.
+- **`locate -v/--verbose`** surfaces the evidence behind each region (entropy,
+  autocorrelation lags, distribution), so false positives are debuggable.
+
 ## [0.71.0] - 2026-07-23
 
 ### Changed
