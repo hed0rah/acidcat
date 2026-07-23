@@ -6,6 +6,33 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-07-23
+
+### Changed
+
+- **BREAKING (pre-1.0): the `recover` verb is now `locate`, and it no longer
+  extracts.** This splits discovery from extraction into two honest, composable
+  verbs. `locate` *finds and reports* audio regions in a blob and never writes
+  (`recover` implied a restoration it didn't do once extraction moved out, and
+  `search` was already taken by compatible-sample search). New on `locate`:
+  `--analyze` (infer each raw blob's PCM width/channels/endianness -- sample rate
+  is not in the bytes, so it's reported null with common candidates) and
+  `-f table|json|tsv` (records to stdout, summary to stderr). `--mode strict` now
+  skips the statistical pass entirely, so a signature-only run is fast even on a
+  multi-hundred-MB image.
+
+### Added
+
+- **`carve --batch -`** reads `locate`'s JSON/TSV records and extracts each region
+  from the target into `-o DIR`. The pipeline is now two verbs composing:
+
+  ```
+  acidcat locate disk.img -f json | acidcat carve disk.img --batch - -o out/
+  ```
+
+  Verified on a real Dreamcast disc image (Doom 64 DC port, 700 MB): the pipeline
+  lifted all 92 embedded SFX WAVs in under 2 seconds.
+
 ## [0.70.0] - 2026-07-22
 
 ### Added
