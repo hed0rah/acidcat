@@ -36,6 +36,7 @@ numpy `analysis` extra.
 """
 
 import math
+import struct
 
 # ---- tunables (first-cut, derived from the class profiles above; a labeled
 # corpus pass is expected to refine these) -------------------------------------
@@ -226,6 +227,48 @@ def scan(data, *, window=DEFAULT_WINDOW, step=DEFAULT_STEP,
     if run is not None:
         regions.append(_finalize(run))
     return regions
+
+
+def analyze_geometry(data, cap=16384):
+    """Infer the PCM geometry of a raw region -- bit width (8/16), channels
+    (mono/stereo), and endianness -- by which interpretation is smoothest
+    (highest lag-1 autocorrelation). Sample RATE is playback metadata that does
+    not live in the bytes, so it is reported as None with common candidates.
+    Returns a dict; never raises."""
+    b = data[:cap]
+
+    def _ac(seq):
+        n = len(seq)
+        if n < 8:
+            return -1.0
+        m = sum(seq) / n
+        den = 0.0
+        for s in seq:
+            d = s - m
+            den += d * d
+        if den <= 0:
+            return -1.0
+        num = 0.0
+        for i in range(n - 1):
+            num += (seq[i] - m) * (seq[i + 1] - m)
+        return num / den
+
+    s8 = [x - 256 if x > 127 else x for x in b]
+    n16 = len(b) // 2
+    le = [struct.unpack_from("<h", b, i * 2)[0] for i in range(n16)]
+    be = [struct.unpack_from(">h", b, i * 2)[0] for i in range(n16)]
+    cands = [(8, 1, None, _ac(s8)),
+             (16, 1, "le", _ac(le)),
+             (16, 1, "be", _ac(be))]
+    if n16 >= 16:
+        cands.append((16, 2, "le", (_ac(le[0::2]) + _ac(le[1::2])) / 2))
+        cands.append((16, 2, "be", (_ac(be[0::2]) + _ac(be[1::2])) / 2))
+    if len(s8) >= 16:
+        cands.append((8, 2, None, (_ac(s8[0::2]) + _ac(s8[1::2])) / 2))
+    width, channels, endian, score = max(cands, key=lambda c: c[3])
+    return {"width": width, "channels": channels, "endian": endian,
+            "confidence": round(max(score, 0.0), 3),
+            "rate": None, "rate_candidates": [8000, 11025, 22050, 44100, 48000]}
 
 
 def _finalize(run):
