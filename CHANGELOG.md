@@ -6,6 +6,23 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-07-23
+
+### Added
+
+- **`locate` gains a third engine: headerless compressed-stream detection.**
+  Compressed audio with no container is invisible to the signature sweep (no
+  magic) and the statistical detector (high entropy) -- but a codec stream is a
+  chain of self-describing frames. The new `core/framescan.py` finds MPEG audio
+  (MP1/2/3) by frame-sync **cadence**: an 11-bit sync, a computable frame length
+  (reusing `core/mp3.py`), the next valid frame exactly that far ahead, repeated.
+  A run of >=12 consecutive valid frames with a stable version/layer/sample-rate
+  is a stream (`kind='stream'`); random data almost never chains that far. Runs in
+  every mode (fast -- 0.22s on 1 MB of pure sync bytes), so `--mode strict` finds
+  headerless streams too. Verified on a real MP3 with its ID3 stripped and buried
+  in noise (found at conf 0.99, correctly read as MPEG-1 Layer III 44100), with
+  zero false positives on noise. The CTF / asset-dump case `strings` can't touch.
+
 ## [0.72.0] - 2026-07-23
 
 ### Added
