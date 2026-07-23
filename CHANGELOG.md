@@ -6,6 +6,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.74.0] - 2026-07-23
+
+### Added
+
+- **`convert --to-pcm` decodes ADPCM WAVs to plain, playable 16-bit PCM.** Games
+  and old software ship WAVs in ADPCM that many players reject -- and sometimes
+  mistag them (the Doom 64 DC port tags IMA ADPCM as G.726, so ffmpeg/VLC try
+  G.726 and fail). New `core/adpcm.py` gives a native IMA/DVI ADPCM decoder
+  (`0x0011`, block mono + stereo, plus a continuous variant for block-less /
+  mistagged streams). `--to-pcm` decodes a `0x0011` WAV by its header; for an
+  unknown/mistagged tag it tries continuous IMA and keeps it only if the result
+  is smooth audio, and `--codec ima` forces it. Verified: the mistagged Doom 64
+  SFX now decodes to `pcm_s16le` that plays anywhere. (Microsoft ADPCM `0x0002`
+  is a planned follow-up.)
+
 ## [0.73.0] - 2026-07-23
 
 ### Added
