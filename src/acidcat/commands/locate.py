@@ -26,7 +26,7 @@ from acidcat.util.stdin import is_stdin_target
 
 _PUBLIC_KEYS = ("kind", "format", "offset", "end", "length", "confidence",
                 "streaming_extent", "corrupt_extent", "inspectable", "geometry",
-                "frames", "stream_info")
+                "frames", "stream_info", "transform")
 
 
 def register(subparsers):
@@ -41,6 +41,11 @@ def register(subparsers):
     p.add_argument("--analyze", action="store_true",
                    help="Infer PCM geometry (width/channels/endian) of each raw "
                         "blob. Sample rate is not in the bytes; reported as null.")
+    p.add_argument("--transforms", action="store_true",
+                   help="Also hunt for audio hidden under a reversible transform "
+                        "(XOR-byte / bit-rotate / nibble-swap) -- the CTF "
+                        "obfuscation lens. The reported key is a candidate "
+                        "(polarity/low-bits are ambiguous). Reads at most 16 MB.")
     p.add_argument("-f", "--format", choices=("table", "json", "tsv"),
                    default="table", help="Output shape (default: table).")
     p.add_argument("-v", "--verbose", action="store_true",
@@ -93,7 +98,7 @@ def _print_table(recs, verbose=False):
         head += "  geometry"
     print(head)
     for r in recs:
-        fmt = r["format"] or "raw-pcm"
+        fmt = r.get("transform") or r["format"] or "raw-pcm"
         note = "  corrupt-extent" if r.get("corrupt_extent") else (
             "  approx-extent" if r.get("streaming_extent") else "")
         line = (f"0x{r['offset']:08x}  0x{r['end']:08x}  {r['kind']:9}  {fmt:7}  "
@@ -113,7 +118,7 @@ def _print_table(recs, verbose=False):
 def _print_tsv(recs):
     for r in recs:
         row = [f"0x{r['offset']:08x}", str(r["length"]), r["kind"],
-               r["format"] or "raw-pcm", f"{r['confidence']:.2f}"]
+               r.get("transform") or r["format"] or "raw-pcm", f"{r['confidence']:.2f}"]
         g = r.get("geometry")
         if g:
             row += [str(g["width"]), str(g["channels"]), g["endian"] or ""]
@@ -131,6 +136,10 @@ def run(args):
         return 1
 
     recs = locatemod.locate(data, mode=args.mode)
+    if args.transforms:
+        from acidcat.core import transforms
+        recs = sorted(recs + transforms.find_transformed_audio(data),
+                      key=lambda r: r["offset"])
     if args.analyze:
         _analyze(data, recs)
 
@@ -145,6 +154,8 @@ def run(args):
     if not args.quiet:
         nc = sum(1 for r in recs if r["kind"] == "container")
         ns = sum(1 for r in recs if r["kind"] == "stream")
+        nt = sum(1 for r in recs if r["kind"] == "transformed")
+        tail = f", {nt} transformed" if nt else ""
         print(f"located {len(recs)} region(s): {nc} container(s), {ns} stream(s), "
-              f"{len(recs) - nc - ns} blob(s) [{args.mode}]", file=sys.stderr)
+              f"{len(recs) - nc - ns - nt} blob(s){tail} [{args.mode}]", file=sys.stderr)
     return 0
