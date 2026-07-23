@@ -24,8 +24,8 @@ def _tone_u8(n, period=40, amp=60):
 
 
 def _args(**kw):
-    ns = types.SimpleNamespace(input=None, mode="normal", analyze=False, format="table",
-                               verbose=False, quiet=True)
+    ns = types.SimpleNamespace(input=None, mode="normal", analyze=False, transforms=False,
+                               format="table", verbose=False, quiet=True)
     ns.__dict__.update(kw)
     return ns
 
@@ -98,6 +98,16 @@ def test_locate_mode_aggressive_keeps_headerless(tmp_path, capsys):
     cmd.run(_args(input=p, mode="aggressive", format="json"))
     recs = json.loads(capsys.readouterr().out)
     assert any(r["kind"] == "blob" for r in recs)
+
+
+def test_locate_transforms_finds_xored_audio(tmp_path, capsys):
+    # a tone XOR'd with 0x33 -- invisible to the plain scan, found by --transforms
+    xored = bytes(b ^ 0x33 for b in _tone_u8(12000))
+    p = _img(tmp_path, bytes(4096) + xored + bytes(4096))
+    cmd.run(_args(input=p, transforms=True, format="json"))
+    recs = json.loads(capsys.readouterr().out)
+    assert any(r["kind"] == "transformed" and r["transform"].startswith("xor:")
+               for r in recs)
 
 
 def test_locate_empty_input(tmp_path, capsys):
