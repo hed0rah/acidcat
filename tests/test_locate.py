@@ -1,4 +1,4 @@
-"""Tests for the forensic recovery orchestrator (core/recover.py) -- phases 2/3.
+"""Tests for the forensic recovery orchestrator (core/locate.py) -- phases 2/3.
 
 Covers the backtrack-to-container anchor, the three forensics levels, and the
 governing rule that a missing header downgrades (never discards) a hit."""
@@ -9,7 +9,7 @@ import random
 import struct
 import wave
 
-from acidcat.core import recover
+from acidcat.core import locate
 
 
 def _noise(n, seed=1):
@@ -44,7 +44,7 @@ def test_backtrack_finds_riff_before_region():
     blob = _noise(4096, 2) + wav + _noise(2048, 3)
     # a region somewhere inside the WAV payload
     start = 4096 + 100
-    bt = recover.backtrack_header(blob, start)
+    bt = locate.backtrack_header(blob, start)
     assert bt["found"]
     assert bt["format"] == "wav"
     assert bt["container_start"] == 4096              # exactly at the RIFF magic
@@ -55,12 +55,12 @@ def test_backtrack_rejects_stray_magic_in_noise():
     # sniff_bytes rejects it, so backtrack reports not-found
     blob = bytearray(_noise(8192, 4))
     blob[2000:2004] = b"RIFF"                          # stray magic, no WAVE tag
-    bt = recover.backtrack_header(bytes(blob), 4000)
+    bt = locate.backtrack_header(bytes(blob), 4000)
     assert bt["found"] is False
 
 
 def test_backtrack_none_before_region():
-    assert recover.backtrack_header(_noise(4096, 5), 4000)["found"] is False
+    assert locate.backtrack_header(_noise(4096, 5), 4000)["found"] is False
 
 
 # ---- classify + extent ------------------------------------------------------
@@ -68,7 +68,7 @@ def test_backtrack_none_before_region():
 def test_container_extent_from_riff_size():
     wav = _wav()
     blob = _noise(1024, 6) + wav + _noise(1024, 7)
-    recs = recover.recover(blob, mode="strict")
+    recs = locate.locate(blob, mode="strict")
     assert len(recs) == 1
     rec = recs[0]
     assert rec["kind"] == "container" and rec["format"] == "wav"
@@ -82,12 +82,12 @@ def test_container_extent_from_riff_size():
 
 def test_strict_drops_headerless_blobs():
     blob = _noise(4096, 8) + _tone_u8(6000) + _noise(4096, 9)   # no container
-    assert recover.recover(blob, mode="strict") == []
+    assert locate.locate(blob, mode="strict") == []
 
 
 def test_aggressive_keeps_headerless_blob():
     blob = _noise(4096, 10) + _tone_u8(6000) + _noise(4096, 11)
-    recs = recover.recover(blob, mode="aggressive")
+    recs = locate.locate(blob, mode="aggressive")
     assert any(r["kind"] == "blob" for r in recs)
     blob_rec = next(r for r in recs if r["kind"] == "blob")
     assert blob_rec["offset"] >= 4096 - audioscan_window()
@@ -97,7 +97,7 @@ def test_aggressive_keeps_headerless_blob():
 def test_normal_keeps_container_and_confident_blob():
     wav = _wav()
     blob = _noise(2048, 12) + wav + _noise(2048, 13) + _tone_u8(6000) + _noise(2048, 14)
-    recs = recover.recover(blob, mode="normal")
+    recs = locate.locate(blob, mode="normal")
     kinds = {r["kind"] for r in recs}
     assert "container" in kinds                       # the WAV is recovered
     # the strong headerless tone survives 'normal' too (high confidence)
@@ -108,7 +108,7 @@ def test_missing_header_downgrades_not_discards():
     # same tone, once with a WAV wrapper and once bare: aggressive recovers both,
     # the bare one as a blob (downgrade), proving backtrack-miss != drop
     bare = _noise(1024, 15) + _tone_u8(6000) + _noise(1024, 16)
-    recs = recover.recover(bare, mode="aggressive")
+    recs = locate.locate(bare, mode="aggressive")
     assert recs and all(r["kind"] == "blob" for r in recs)
 
 
@@ -127,7 +127,7 @@ def test_corrupt_extent_is_audio_bounded_not_greedy():
     # the corrupt WAV must bound to its own audio, NOT swallow the trailing blob.
     wav = bytearray(_wav8()); wav[4:8] = b"\x00\x00\x00\x00"
     blob = _noise(2048, 1) + bytes(wav) + _noise(6000, 2) + _tone_u8(6000) + _noise(2048, 3)
-    recs = recover.recover(blob, mode="aggressive")
+    recs = locate.locate(blob, mode="aggressive")
     cont = [r for r in recs if r["kind"] == "container"]
     blobs = [r for r in recs if r["kind"] == "blob"]
     assert cont and cont[0].get("corrupt_extent")
@@ -140,20 +140,20 @@ def test_mp3_id3_is_swept():
     # an ID3v2-tagged blob is recovered as an mp3 container
     id3 = b"ID3\x03\x00\x00" + bytes([0, 0, 0x20, 0]) + b"\x00" * 4000
     blob = _noise(2048, 5) + id3 + _noise(2048, 6)
-    recs = recover.recover(blob, mode="strict")
+    recs = locate.locate(blob, mode="strict")
     assert any(r["format"] == "mp3" and r["offset"] == 2048 for r in recs)
 
 
 def test_nearby_blobs_coalesce():
     # two tone fragments a small gap apart collapse to a single blob region
     blob = _noise(1024, 7) + _tone_u8(5000) + _noise(3000, 8) + _tone_u8(5000) + _noise(1024, 9)
-    blobs = [r for r in recover.recover(blob, mode="aggressive") if r["kind"] == "blob"]
+    blobs = [r for r in locate.locate(blob, mode="aggressive") if r["kind"] == "blob"]
     assert len(blobs) == 1
 
 
 def test_invalid_mode_raises():
     try:
-        recover.recover(b"", mode="paranoid")
+        locate.locate(b"", mode="paranoid")
     except ValueError as e:
         assert "mode" in str(e)
     else:

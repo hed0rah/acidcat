@@ -207,15 +207,17 @@ def _survives(rec, mode):
     return rec["kind"] == "container" or rec["confidence"] >= _NORMAL_BLOB_MIN
 
 
-def recover(data, *, mode="normal", scan_kwargs=None):
-    """Locate, anchor, and classify audio recoveries at a forensics level.
+def locate(data, *, mode="normal", scan_kwargs=None):
+    """Locate, anchor, and classify audio regions at a forensics level.
     Returns records (offset/end/length + kind + confidence + evidence) sorted by
     offset, each ready to hand to `carve`. Never raises on content."""
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
 
     containers = signature_sweep(data)
-    regions = audioscan.scan(data, **(scan_kwargs or {}))
+    # strict = validated containers only, so skip the (slow) statistical pass
+    # entirely -- a signature-only run is fast even on a multi-hundred-MB image.
+    regions = [] if mode == "strict" else audioscan.scan(data, **(scan_kwargs or {}))
     _resolve_container_ends(data, containers, regions)
     extents = [(c["offset"], c["end"]) for c in containers if c["end"] > c["offset"]]
     records = list(containers)

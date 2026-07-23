@@ -10,7 +10,7 @@ class _Args:
         d = {"target": None, "offset": None, "length": None, "end": None,
              "trailing": False, "chunk": None, "raw": False, "output": None,
              "quiet": True, "at": None, "type": None, "count": 1,
-             "endian": "be", "struct": None, "field": None, "format": None}
+             "endian": "be", "struct": None, "field": None, "format": None, "batch": None}
         d.update(kw)
         for k, v in d.items():
             setattr(self, k, v)
