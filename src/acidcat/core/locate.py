@@ -30,6 +30,7 @@ bytes or walks a container -- that is the next stage in the pipe.
 import struct
 
 from acidcat.core import audioscan
+from acidcat.core import framescan
 from acidcat.core.sniff import sniff_bytes
 
 MODES = ("strict", "normal", "aggressive")
@@ -200,6 +201,8 @@ def _within(offset, extents):
 
 
 def _survives(rec, mode):
+    if rec["kind"] == "stream":                          # structural, like a container
+        return True
     if mode == "aggressive":
         return True
     if mode == "strict":
@@ -215,16 +218,24 @@ def locate(data, *, mode="normal", scan_kwargs=None):
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
 
     containers = signature_sweep(data)
-    # strict = validated containers only, so skip the (slow) statistical pass
+    # third engine: headerless compressed streams by frame-sync cadence (fast +
+    # structural, so it runs in every mode, like the signature sweep).
+    streams = framescan.find_mpeg_streams(data)
+    # strict = validated structure only, so skip the (slow) statistical pass
     # entirely -- a signature-only run is fast even on a multi-hundred-MB image.
     regions = [] if mode == "strict" else audioscan.scan(data, **(scan_kwargs or {}))
     _resolve_container_ends(data, containers, regions)
     extents = [(c["offset"], c["end"]) for c in containers if c["end"] > c["offset"]]
-    records = list(containers)
+    # a stream inside a container we already found is that file's payload, not new
+    extents += [(s["offset"], s["end"]) for s in streams]
+    records = list(containers) + [s for s in streams
+                                  if not _within(s["offset"], [(c["offset"], c["end"])
+                                                               for c in containers
+                                                               if c["end"] > c["offset"]])]
 
     for region in regions:
         if _within(region["start"], extents):
-            continue                                  # part of a container we found
+            continue                                  # part of a container/stream we found
         records.append({
             "kind": "blob", "format": None, "offset": region["start"],
             "end": region["end"], "confidence": region["confidence"],
