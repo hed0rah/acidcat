@@ -126,17 +126,78 @@ def _autocorr(samples, mean, den, lag):
     return num / den
 
 
-def window_features(win):
-    """Feature vector for one window of bytes, read as 8-bit signed PCM.
+_FLOAT_RANGE = 1.5               # audio floats live in [-1,1]; allow headroom
+_FLOAT_MIN_FRAC = 0.85          # this share of samples must be in range to be float
+_FLOAT_MIN_SCORE = 0.30
 
-    Returns a dict: entropy (bits), autocorr {lag: r}, and the derived
-    peak/structure terms so callers can show the evidence behind a hit."""
+
+def _looks_float(win):
+    """Cheap float32 pre-check: sample ~32 floats across the window; float PCM
+    keeps them in the audio range, random bytes almost never do. Gates the full
+    probe so the common (non-float) case stays fast."""
+    n = len(win) // 4
+    if n < 16:
+        return False
+    step = max(1, n // 32)
+    hits = tot = 0
+    for i in range(0, n, step):
+        v = struct.unpack_from("<f", win, i * 4)[0]
+        tot += 1
+        if v == v and -_FLOAT_RANGE <= v <= _FLOAT_RANGE:      # finite + in range
+            hits += 1
+    return tot and hits / tot >= _FLOAT_MIN_FRAC
+
+
+def _float_probe(win):
+    """Confirm float PCM and return (score, width, endian) or None. Real float
+    audio is both in-range AND smooth; random-in-range constants are not."""
+    best = None
+    for width, code, size in ((32, "f", 4), (64, "d", 8)):
+        n = len(win) // size
+        if n < 16:
+            continue
+        for endian in ("<", ">"):
+            try:
+                vals = struct.unpack_from(f"{endian}{n}{code}", win, 0)
+            except struct.error:
+                continue
+            inrange = sum(1 for v in vals
+                          if v == v and -_FLOAT_RANGE <= v <= _FLOAT_RANGE) / n
+            if inrange < _FLOAT_MIN_FRAC:
+                continue
+            m = sum(vals) / n
+            den = sum((v - m) * (v - m) for v in vals)
+            if den <= 0:
+                continue
+            num = sum((vals[i] - m) * (vals[i + 1] - m) for i in range(n - 1))
+            score = inrange * _clamp01(num / den)
+            if score >= _FLOAT_MIN_SCORE and (best is None or score > best[0]):
+                best = (round(score, 3), width, endian)
+    return best
+
+
+def window_features(win):
+    """Feature vector for one window of bytes. Read as 8-bit signed PCM, unless
+    it is float PCM (checked first -- float mantissa bytes look random to the
+    integer path, so float audio would otherwise be missed).
+
+    Returns a dict: entropy, autocorr {lag: r}, the derived peak/structure terms,
+    and (for float regions) a `float` = (width, endian) tag."""
     n = len(win)
     counts = [0] * 256
     for b in win:
         counts[b] += 1
     entropy = _entropy_from_counts(counts, n)
     printable, hist_tv = _distribution(counts, n)
+
+    # float PCM: high byte-entropy (mantissa) hides it from the integer path
+    if _looks_float(win):
+        fp = _float_probe(win)
+        if fp:
+            score, width, endian = fp
+            return {"entropy": entropy, "autocorr": {L: 0.0 for L in LAGS},
+                    "peak": score, "structure": score, "printable": printable,
+                    "hist_tv": hist_tv, "float": (width, endian), "n": n}
     # cheap pre-filter: a window at near-maximal entropy is random / compressed /
     # encrypted and cannot be raw audio, so skip the O(n * lags) autocorrelation
     # AND the sample decode below (it would score 0 anyway). This is the bulk of
@@ -172,6 +233,8 @@ def audio_score(feat):
     (beats code's monotone decay), and not text/code by value distribution."""
     if feat["entropy"] < _ENTROPY_FLOOR:
         return 0.0
+    if feat.get("float"):
+        return feat["peak"]                             # float score is self-gated
     strength = _clamp01((feat["peak"] - _PEAK_FLOOR) / _PEAK_SPAN)
     shape = _clamp01(feat["structure"] / _STRUCT_SPAN)
     dist = _clamp01((_PRINTABLE_HI - feat.get("printable", 0.0))
@@ -257,18 +320,55 @@ def analyze_geometry(data, cap=16384):
     n16 = len(b) // 2
     le = [struct.unpack_from("<h", b, i * 2)[0] for i in range(n16)]
     be = [struct.unpack_from(">h", b, i * 2)[0] for i in range(n16)]
-    cands = [(8, 1, None, _ac(s8)),
-             (16, 1, "le", _ac(le)),
-             (16, 1, "be", _ac(be))]
+    cands = [(8, 1, None, False, _ac(s8)),
+             (16, 1, "le", False, _ac(le)),
+             (16, 1, "be", False, _ac(be))]
     if n16 >= 16:
-        cands.append((16, 2, "le", (_ac(le[0::2]) + _ac(le[1::2])) / 2))
-        cands.append((16, 2, "be", (_ac(be[0::2]) + _ac(be[1::2])) / 2))
+        cands.append((16, 2, "le", False, (_ac(le[0::2]) + _ac(le[1::2])) / 2))
+        cands.append((16, 2, "be", False, (_ac(be[0::2]) + _ac(be[1::2])) / 2))
     if len(s8) >= 16:
-        cands.append((8, 2, None, (_ac(s8[0::2]) + _ac(s8[1::2])) / 2))
-    width, channels, endian, score = max(cands, key=lambda c: c[3])
-    return {"width": width, "channels": channels, "endian": endian,
-            "confidence": round(max(score, 0.0), 3),
-            "rate": None, "rate_candidates": [8000, 11025, 22050, 44100, 48000]}
+        cands.append((8, 2, None, False, (_ac(s8[0::2]) + _ac(s8[1::2])) / 2))
+    fp = _float_probe(b)                                 # float32/64 hypotheses
+    if fp:
+        cands.append((fp[1], 1, fp[2], True, fp[0]))
+    width, channels, endian, is_float, score = max(cands, key=lambda c: c[4])
+
+    # decode the winning interpretation for debug tells
+    if is_float:
+        code = "f" if width == 32 else "d"
+        nf = len(b) // (width // 8)
+        vals = list(struct.unpack_from(f"{endian}{nf}{code}", b, 0))
+        peak_ref, full = 1.0, 1.0
+    else:
+        vals = {(8, None): s8, (16, "le"): le, (16, "be"): be}[(width, endian)]
+        if channels == 2:
+            vals = vals[0::2]
+        full = (1 << (width - 1)) - 1
+        peak_ref = full
+    tells = _debug_tells(vals, peak_ref, full)
+
+    return {"width": width, "channels": channels,
+            "endian": {"<": "le", ">": "be"}.get(endian, endian),
+            "float": is_float, "confidence": round(max(score, 0.0), 3),
+            "rate": None, "rate_candidates": [8000, 11025, 22050, 44100, 48000],
+            **tells}
+
+
+def _debug_tells(vals, peak_ref, full):
+    """Signal-health flags for a decoded region: silence (flat), DC offset (mean
+    far off centre), clipping (pinned at the rails). The 'why is my audio broken'
+    triage layer."""
+    n = len(vals)
+    if n < 8:
+        return {}
+    mean = sum(vals) / n
+    amp = max((abs(v) for v in vals), default=0)
+    clip = sum(1 for v in vals if abs(v) >= full * 0.999) / n
+    return {
+        "silence": amp <= peak_ref * 0.01,
+        "dc_offset": round(mean / peak_ref, 3) if abs(mean) > peak_ref * 0.05 else 0.0,
+        "clipping": round(clip, 3) if clip > 0.005 else 0.0,
+    }
 
 
 def _finalize(run):
