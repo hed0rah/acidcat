@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / bfdlac anatomy</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSItNDUgLTcwIDIyNTAgMjI1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiBzdHlsZT0ic3Ryb2tlLWxpbmVqb2luOnJvdW5kIj48c3R5bGU+LmJ7ZmlsbDojMTQxNDE0fUBtZWRpYShwcmVmZXJzLWNvbG9yLXNjaGVtZTpkYXJrKXsuYntmaWxsOiNmMmVmZTh9fTwvc3R5bGU+Cgo8bWFzayBpZD0iYyI+PHJlY3QgeD0iLTQ1IiB5PSItNzAiIHdpZHRoPSIyMjUwIiBoZWlnaHQ9IjIyNTAiIGZpbGw9IiMwMDAiPjwvcmVjdD48Y2lyY2xlIGN4PSIxMDc4Ljk3IiBjeT0iMTI0Ni40MSIgcj0iODQ3Ljk1OCIgZmlsbD0iI2ZmZiI+PC9jaXJjbGU+PHBhdGggZD0iTTgyMy43OCw0MzYuNjUzYy0yNDUsODQgLTM2MCwyMTUgLTM5My43OCwyNjMuOTVjLTM0LDcwIC0zMywtMTM1IDI1LC0zNDAuNmMzNywtMTM1IDExOCwtMzAwIDE1MS43OCwtMzU5LjM1YzYwLC01NSA2MCwzMCAyMTcsNDM2LjA1WiIgZmlsbD0iI2ZmZiI+PC9wYXRoPjxwYXRoIGQ9Ik0xMzM0LjE2LDQzNi42NTNjMjQ1LDg0IDM2MCwyMTUgMzkzLjc4LDI2My45NWMzNCw3MCAzMywtMTM1IC0yNSwtMzQwLjZjLTM3LC0xMzUgLTExOCwtMzAwIC0xNTEuNzgsLTM1OS4zNWMtNjAsLTU1IC02MCwzMCAtMjE3LDQzNi4wNVoiIGZpbGw9IiNmZmYiPjwvcGF0aD48cGF0aCBkPSJNMzcyLDExNjggTDY0LDExMTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2MCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48L3BhdGg+PHBhdGggZD0iTTM3MiwxMzAwIEw2NCwxMzYwIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iNjAiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+PC9wYXRoPjxwYXRoIGQ9Ik0xNzg2LDExNjggTDIwOTQsMTExMiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjYwIiBzdHJva2UtbGluZWNhcD0icm91bmQiPjwvcGF0aD48cGF0aCBkPSJNMTc4NiwxMzAwIEwyMDk0LDEzNjAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSI2MCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48L3BhdGg+PHBhdGggZD0iTTg1Ny4wMyw5NzUuMjAyYy0wLDgyLjg5OSAtMzcuOTU0LDE1MC4yMDIgLTg0LjcwNCwxNTAuMjAyYy00Ni43NDcsLTAgLTg0LjcwMSwtNjcuMzAzIC04NC43MDEsLTE1MC4yMDJjLTAsLTgyLjg5OCAzNy45NTQsLTE1MC4yMDEgODQuNzAxLC0xNTAuMjAxYzQ2Ljc1LC0wIDg0LjcwNCw2Ny4zMDMgODQuNzA0LDE1MC4yMDFaIiBmaWxsPSIjMDAwIj48L3BhdGg+PHBhdGggZD0iTTE0NzkuNzEsOTc1LjIwMmMtMCw4Mi44OTkgLTM3Ljk1NCwxNTAuMjAyIC04NC43MDIsMTUwLjIwMmMtNDYuNzUsLTAgLTg0LjcwNCwtNjcuMzAzIC04NC43MDQsLTE1MC4yMDJjMCwtODIuODk4IDM3Ljk1NCwtMTUwLjIwMSA4NC43MDQsLTE1MC4yMDFjNDYuNzQ4LC0wIDg0LjcwMiw2Ny4zMDMgODQuNzAyLDE1MC4yMDFaIiBmaWxsPSIjMDAwIj48L3BhdGg+PHBhdGggZD0iTTUyMC4xMTYsMTUwNS4yNGMzNTAuMzMxLDQxNC43NDQgNzIyLjAzOSw0MjEuOTY4IDExMTcuNzIsMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utd2lkdGg9IjkwIiBzdHJva2UtbGluZWNhcD0icm91bmQiPjwvcGF0aD48L21hc2s+CjxyZWN0IGNsYXNzPSJiIiB4PSItNDUiIHk9Ii03MCIgd2lkdGg9IjIyNTAiIGhlaWdodD0iMjI1MCIgbWFzaz0idXJsKCNjKSI+PC9yZWN0Pjwvc3ZnPg==" type="image/svg+xml">
+<script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* bfd palette: brick value, steel flag, slate structural */
+  --enum:#9C4A3C;  --enum-soft:#EAD8D2;
+  --flag:#4E6B84;  --flag-soft:#D5DFE7;
+  --rsv:#9C9889;   --rsv-soft:rgba(32,31,27,0.03);
+  --sync:#565A62;  --sync-soft:#DBDCDF;
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+:root[data-theme="dark"]{--paper:#181a18;--panel:#20221f;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#363a34;--hair:#292d27;--enum:#cf8f82;--enum-soft:#271b18;--flag:#8fa9c0;--flag-soft:#19202a;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#a4a6ac;--sync-soft:#222329;}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.9rem 1.1rem}
+.head .title acidcat-toggle{--acidcat-size:64px;color:var(--soft);flex:0 0 auto;transition:color .15s}
+.head .title acidcat-toggle:hover{color:var(--enum)}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.2rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+.tree .kf{color:var(--enum)} .tree .kr{color:var(--flag)}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}.sig{display:none}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+.callout{font-size:0.76rem;color:var(--soft);line-height:1.7;border:1px solid var(--line);border-left:2px solid var(--flag);background:var(--panel);padding:0.8rem 1rem;margin:1.2rem 0 0.4rem;max-width:74ch}
+.callout b{color:var(--ink);font-weight:500}
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.7rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500} .region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region .rbody{padding:0.6rem 1rem 1.1rem 3rem;border-top:1px solid var(--hair)}
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.3rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+/* variant tabs */
+.tabs{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-bottom:none;margin-bottom:0}
+.tab{padding:0.55rem 0.9rem;font-size:0.64rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--soft);cursor:pointer;border-right:1px solid var(--hair);background:none;font-family:var(--ff);border-top:none;border-left:none;border-bottom:2px solid transparent;text-align:left}
+.tab:last-child{border-right:none}
+.tab:hover{color:var(--enum)}
+.tab.on{color:var(--ink);border-bottom-color:var(--enum);background:var(--panel)}
+.tab small{display:block;font-size:0.5rem;color:var(--faint);letter-spacing:0.08em;margin-top:1px;text-transform:none}
+.panelwrap{border:1px solid var(--line);border-top:none;padding:1.6rem clamp(1rem,3vw,1.8rem) 2rem;margin-bottom:2rem}
+.panel{display:none}
+.panel.on{display:block}
+.panel .plede{color:var(--soft);max-width:76ch;font-size:0.82rem;line-height:1.75;margin-bottom:0.3rem}
+.panel .plede b{color:var(--ink);font-weight:500}
+.panel .pfacts{display:flex;flex-wrap:wrap;gap:0 1.8rem;font-size:0.64rem;letter-spacing:0.06em;color:var(--soft);text-transform:uppercase;margin-bottom:1.1rem;border-bottom:1px solid var(--hair);padding-bottom:0.7rem}
+.panel .pfacts b{color:var(--enum);font-weight:500;margin-left:0.4rem;text-transform:none;letter-spacing:0.02em}
+
+/* bit diagram */
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+
+/* byte diagram */
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px;letter-spacing:0.02em}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.bcell.k-sync{background:var(--sync-soft)} .bcell.k-enum{background:var(--enum-soft)}
+.bcell.k-flag{background:var(--flag-soft)} .bcell.k-rsv{background:var(--rsv-soft)}
+.bcell.fstart{border-left:2px solid var(--line)}
+.bcell.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bcell.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bcell.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bcell.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.bit.k-sync{background:var(--sync-soft)} .bit.k-enum{background:var(--enum-soft)}
+.bit.k-flag{background:var(--flag-soft)} .bit.k-rsv{background:var(--rsv-soft)}
+.bit.hi.k-sync{background:var(--sync);color:var(--paper)}
+.bit.hi.k-enum{background:var(--enum);color:var(--paper)}
+.bit.hi.k-flag{background:var(--flag);color:var(--paper)}
+.bit.hi.k-rsv{background:var(--faint);color:var(--paper)}
+
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:26rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem} .detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+.timeline{font-size:0.76rem;color:var(--soft);line-height:1.9;margin:1rem 0 0.4rem}
+.timeline div{display:grid;grid-template-columns:5.5rem 1fr;gap:1rem;padding:0.15rem 0}
+.timeline .y{color:var(--enum);font-weight:500} .timeline b{color:var(--ink);font-weight:500}
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="head">
+    <div class="row">
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>BFD .bfdlac Anatomy</h1></div><acidcat-toggle aria-label="Toggle light and dark theme"></acidcat-toggle></div>
+      <div class="stamp"><b>FXpansion BFD</b>BFDC . big-endian<br>rev 2026.07</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>"BFDC"</b></div><div>endian <b>big</b></div>
+      <div>container <b>IFF chunks</b></div><div>lineage <b>BFD 2003</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+  <p class="plede lede">A <b>.bfdlac</b> is one drum hit for <b>FXpansion BFD</b>, the sampled acoustic-drum engine. The name is <b>BFD</b> + <b>lac</b> (a lossless audio codec), and the container is an <b>IFF chunk grid</b> &mdash; but a <b>big-endian</b> one, unusual for a Windows/Mac plugin. A <code>BFDC</code> magic and outer size, then four chunks: <b>fmt</b> (the audio descriptor), <b>BFDi</b> (a pack id), <b>Indx</b> (a block seek index for random access into the stream), and <b>data</b> (the compressed audio). Across 181,696 BFD Horsepower files every one is identical in shape: 24-bit, 44100 Hz, stereo. acidcat surfaces the structure and the format; the <b>lac</b> codec itself is undocumented, so the audio stays opaque. The tabs open each chunk, drawn byte by byte from a real hit. <b>Hover</b> a field to light its bytes, <b>click</b> a field with a <span class="k-en">+</span> for its table. Color marks kind (see the key).</p>
+  <aside class="sig" aria-label="color key">
+    <div class="legrows">
+    <div class="row"><span class="sw dark k-enum">brick</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+    <div class="row"><span class="sw dark k-flag">steel</span><span class="swsep">&#8594;</span><span class="sw light k-flag">flag</span></div>
+    <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+    <div class="row"><span class="sw dark k-rsv">faint</span><span class="swsep">&#8594;</span><span class="sw light k-rsv">reserved</span></div>
+    </div>
+    <div class="siglabel">color key</div>
+  </aside>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-p="overview">Overview<small>the BFDC container</small></button>
+    <button class="tab" data-p="header">BFDC + fmt<small>header + descriptor</small></button>
+    <button class="tab" data-p="frame">Indx<small>block seek index</small></button>
+    <button class="tab" data-p="sample">data<small>the lac codec</small></button>
+  </div>
+  <div class="panelwrap">
+
+    <!-- ===================== OVERVIEW ===================== -->
+    <div class="panel on" data-panel="overview">
+      <p class="plede">BFD's sound library is enormous &mdash; thousands of hits per kit, every velocity and articulation captured &mdash; so each hit is its own small file, and it is compressed. A <code>.bfdlac</code> is an <b>IFF container</b> (magic <code>BFDC</code>, an outer size = file length &minus; 8) holding four chunks in a fixed order: <b>fmt</b> describes the audio, <b>BFDi</b> tags the pack, <b>Indx</b> is a seek index into the compressed stream, and <b>data</b> is the lossless-coded audio. The hit below is a real one from BFD Crush.</p>
+
+      <div class="sec">a real hit, laid out</div>
+      <div class="tree">
+<b>BFDC</b>  outer_size 906,302                    <span class="kr">— magic + (file - 8)</span>
+&#9500;&#9472; <b>fmt </b>  <span class="kf">24-bit, 44100 Hz, stereo, 220,577 frames (5.00s)</span>
+&#9500;&#9472; <b>BFDi</b>  "BFCRU-..."   <span class="kf">pack / kit identifier</span>
+&#9500;&#9472; <b>Indx</b>  <span class="kf">1024-sample blocks, 216 frames, u32 offset table</span>   <span class="kr">— random access</span>
+&#9492;&#9472; <b>data</b>  905,342 bytes   <span class="kf">lac codec (undocumented)</span>       <span class="kr">— the compressed audio</span>
+      </div>
+
+      <div class="sec">BFD, dated</div>
+      <div class="timeline">
+        <div><span class="y">2003</span><span><b>FXpansion BFD</b> &mdash; a deeply multisampled acoustic-drum instrument: many mics, many velocity layers, round-robin hits. The sheer sample count made per-hit compression a necessity.</span></div>
+        <div><span class="y">2008</span><span><b>BFD2</b> &mdash; the engine that popularised the modern <code>.bfdlac</code> library layout: one compressed file per hit, indexed for random-access streaming.</span></div>
+        <div><span class="y">2013</span><span><b>BFD3</b> &mdash; the current generation; expansion packs (Horsepower, Crush, ...) all ship as <code>BFDC</code> files, uniform in structure.</span></div>
+        <div><span class="y">lac</span><span><b>a lossless codec.</b> The <code>data</code> chunk holds losslessly-compressed PCM at roughly <b>7 bits/byte</b> &mdash; enough entropy to be clearly compressed audio, but the codec is undocumented. acidcat reports the region and its geometry, not the samples.</span></div>
+      </div>
+
+      <div class="callout"><b>big-endian, on an x86 plugin.</b> BFD is a Windows/Mac VST, yet <code>BFDC</code> chunk sizes and the fmt/Indx integers are all <b>big-endian</b> &mdash; the reverse of RIFF/WAV. It is an IFF-family container in the Amiga/Kurzweil tradition, a design choice, not a platform constraint. Read every multi-byte field high byte first.</div>
+      <div class="callout"><b>the Indx is why it streams.</b> A drum engine has to start a hit the instant a note lands and may layer dozens at once, so it cannot afford to decode a file from the top. <code>Indx</code> stores the byte offset of every <b>1024-sample block</b> into the <code>data</code> chunk, so the player seeks straight to the block it needs. The frame count (216) is <code>ceil(num_samples / block_size)</code> &mdash; acidcat cross-checks it.</div>
+      <div class="callout"><b>uniform across 181,696 files.</b> Every BFD Horsepower hit acidcat's walker saw is <code>BFDC</code> with exactly <code>fmt</code>/<code>BFDi</code>/<code>Indx</code>/<code>data</code>, 24-bit / 44100 Hz / stereo. That uniformity is what lets the walker trust the layout and flag any file that deviates &mdash; a truncated <code>data</code>, a wrong outer size &mdash; rather than guess.</div>
+    </div>
+
+    <!-- ===================== BFDC + FMT ===================== -->
+    <div class="panel" data-panel="header">
+      <div class="pfacts"><span>magic<b>"BFDC"</b></span><span>outer<b>file - 8</b></span><span>fmt<b>5 big-endian u32</b></span><span>audio<b>24-bit / 44100 / 2ch</b></span></div>
+      <p class="plede">The file opens with the <b>BFDC</b> magic and a big-endian <b>outer size</b> = file length &minus; 8, the IFF convention. The first chunk, <b>fmt</b>, is the audio descriptor: five big-endian u32s giving bit depth, an encoding tag, the frame count, the sample rate, and the channel count. Everything a decoder needs to interpret the <code>data</code> stream, minus the codec itself. Both maps are from a real BFD Crush hit.</p>
+      <div class="sec">BFDC header (8 bytes)</div>
+      <p class="note">Hover <span class="k-en">outer_size</span> &mdash; 906,302, exactly the file length minus 8.</p>
+      <div id="bfdc-hdr" data-build></div>
+      <div class="sec">fmt chunk (id + size + 20-byte body)</div>
+      <p class="note">The descriptor, big-endian throughout. Hover any field to light its four bytes.</p>
+      <div id="bfdc-fmt" data-build></div>
+      <div class="callout"><b>outer size is IFF, not RIFF.</b> Like an IFF <code>FORM</code>, <code>outer_size</code> counts everything after the 8-byte magic+size pair, so it equals file length &minus; 8. acidcat checks it against the real file length and flags a mismatch &mdash; a fast integrity tell for a truncated or appended file.</div>
+      <div class="callout"><b>the encoding tag is a constant.</b> The second fmt word is <code>10</code> in every file the walker has seen &mdash; a codec/encoding id for the lac stream, not a variable. The values that <i>do</i> vary between packs would be the frame count and rate, yet across the corpus even those are pinned: <b>24-bit, 44100 Hz, stereo</b>. A file that reports anything else is worth a second look.</div>
+    </div>
+
+    <!-- ===================== INDX ===================== -->
+    <div class="panel" data-panel="frame">
+      <div class="pfacts"><span>block_size<b>1024 samples</b></span><span>frames<b>216</b></span><span>table<b>u32 per block</b></span><span>purpose<b>random access</b></span></div>
+      <p class="plede">The <b>Indx</b> chunk is a seek table over the compressed stream. It gives the <b>block size</b> (how many samples one compressed block decodes to) and the <b>frame count</b> (how many blocks), then a <b>u32 offset</b> for each block: the byte position of that block inside the <code>data</code> chunk. With it, the engine jumps straight to any point in the hit without decoding from the start. The map is the chunk header plus its first two table entries.</p>
+      <div class="sec">Indx chunk (id + size + block/frame + first offsets)</div>
+      <p class="note">Hover <span class="k-en">frame_count</span> &mdash; 216 = ceil(220,577 / 1024).</p>
+      <div id="bfdc-indx" data-build></div>
+      <div class="callout"><b>compression breaks random access, so the index restores it.</b> A raw PCM file lets you seek by arithmetic: byte = frame &times; bytesPerFrame. A compressed stream does not &mdash; block <i>N</i> starts wherever block <i>N</i>&minus;1 happened to end. <code>Indx</code> stores those unpredictable boundaries so the decoder can start at any block. The first offset is always <code>0</code> (block 0 opens the <code>data</code> payload); each next entry is larger.</div>
+      <div class="callout"><b>frame_count is a checkable invariant.</b> With <code>block_size</code> and the fmt's <code>num_samples</code>, the frame count must be <code>ceil(num_samples / block_size)</code> &mdash; here <code>ceil(220577 / 1024) = 216</code>. acidcat computes it and warns if the stored count is off by more than one, catching a corrupt or mis-sized index before you trust its offsets.</div>
+    </div>
+
+    <!-- ===================== DATA ===================== -->
+    <div class="panel" data-panel="sample">
+      <div class="pfacts"><span>content<b>lac-coded PCM</b></span><span>size<b>905,342 bytes</b></span><span>ratio<b>~7 bits/byte</b></span><span>acidcat<b>region, not decoded</b></span></div>
+      <p class="plede">The <b>data</b> chunk is the hit itself &mdash; the 24-bit stereo audio, losslessly compressed by BFD's <b>lac</b> codec. It is the last and by far the largest chunk (905,342 of the file's 906,310 bytes here), which is why the walker stops at it. There is no public specification for the codec, so acidcat treats the payload as opaque: it reports where it is and how big, and leaves the samples alone. The map is the chunk header and the first bytes of the stream.</p>
+      <div class="sec">data chunk (id + size + first stream bytes)</div>
+      <p class="note">The payload past the 8-byte header is the compressed stream &mdash; high-entropy, no readable structure.</p>
+      <div id="bfdc-data" data-build></div>
+      <div class="callout"><b>~7 bits of entropy per byte.</b> The stream is clearly compressed audio: its entropy sits near <b>7 bits/byte</b>, well above readable structure but below the ~8 of encryption or random data &mdash; the signature of a lossless audio coder. It is enough for acidcat's statistical detector to recognise the region as coded audio without knowing the codec.</div>
+      <div class="callout"><b>opaque on purpose.</b> Reversing the lac codec is out of scope: acidcat is a structural tool, so it names the region, checks the outer size and the index, and stops. A <code>carve</code> of the <code>data</code> chunk yields the literal compressed stream, byte-for-byte &mdash; useful for archival or for feeding a real BFD engine, not for turning back into WAV here.</div>
+    </div>
+
+  </div>
+
+  <footer><span>acidcat / bfdlac anatomy</span><span>fxpansion bfd . BFDC . lossless drum hit</span><span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("click",function(){pin(fi);});
+      rows.push(row); list.appendChild(row);
+    });
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+  // byte-map specs, built lazily the first time a tab is shown. every byte value
+  // below is copied verbatim from a real BFD Crush hit (master01.bfdlac).
+  var SPECS={
+    "bfdc-hdr":["byte",
+      [0x42,0x46,0x44,0x43, 0x00,0x0D,0xD4,0x3E],
+      [
+        {label:"magic",k:"sync",r:[0,3],val:"\"BFDC\"",body:"The BFD-compressed signature, ASCII. acidcat sniffs these four bytes to route the file to the bfdlac walker."},
+        {label:"outer_size",k:"enum",r:[4,7],val:"906,302",body:"BIG-endian u32: the IFF outer size, everything after this 8-byte magic+size pair = file length - 8. acidcat checks it against the real length and flags a mismatch.",note:"0x000DD43E = 906302; file is 906310 bytes."}
+      ]],
+    "bfdc-fmt":["byte",
+      [0x66,0x6D,0x74,0x20, 0x00,0x00,0x00,0x14, 0x00,0x00,0x00,0x18, 0x00,0x00,0x00,0x0A, 0x00,0x03,0x5D,0xA1, 0x00,0x00,0xAC,0x44, 0x00,0x00,0x00,0x02],
+      [
+        {label:"chunk_id",k:"sync",r:[0,3],val:"\"fmt \"",body:"The audio-descriptor chunk id (note the trailing space). IFF chunk framing: a 4-byte id, a big-endian u32 size, then the payload."},
+        {label:"chunk_size",k:"sync",r:[4,7],val:"20",body:"BIG-endian u32: the fmt payload size, 20 bytes (five u32 fields).",note:"0x00000014 = 20."},
+        {label:"bits_per_sample",k:"enum",r:[8,11],val:"24",body:"BIG-endian u32: the audio bit depth. 24-bit across the entire BFD corpus.",note:"0x00000018 = 24."},
+        {label:"encoding",k:"flag",r:[12,15],val:"10",body:"BIG-endian u32: a codec/encoding tag. Constant 10 in every file the walker has seen -- an id for the lac stream, not a variable.",note:"0x0000000A = 10."},
+        {label:"num_samples",k:"enum",r:[16,19],val:"220,577",body:"BIG-endian u32: frames per channel. At 44100 Hz that is 5.00 seconds.",note:"0x00035DA1 = 220577."},
+        {label:"sample_rate",k:"enum",r:[20,23],val:"44100 Hz",body:"BIG-endian u32: the sample rate. 44100 across the corpus.",note:"0x0000AC44 = 44100."},
+        {label:"channels",k:"enum",r:[24,27],val:"2 (stereo)",body:"BIG-endian u32: the channel count. Stereo across the corpus.",note:"0x00000002 = 2."}
+      ]],
+    "bfdc-indx":["byte",
+      [0x49,0x6E,0x64,0x78, 0x00,0x00,0x03,0x68, 0x00,0x00,0x04,0x00, 0x00,0x00,0x00,0xD8, 0x00,0x00,0x00,0x00, 0x00,0x00,0x24,0x70],
+      [
+        {label:"chunk_id",k:"sync",r:[0,3],val:"\"Indx\"",body:"The seek-index chunk id."},
+        {label:"chunk_size",k:"sync",r:[4,7],val:"872",body:"BIG-endian u32: the Indx payload size. After the 8-byte block/frame header, the rest is the u32 offset table -- (872 - 8) / 4 = 216 entries.",note:"0x00000368 = 872."},
+        {label:"block_size",k:"enum",r:[8,11],val:"1024",body:"BIG-endian u32: samples per compressed block. Each Indx entry points at one such block in the data chunk.",note:"0x00000400 = 1024."},
+        {label:"frame_count",k:"enum",r:[12,15],val:"216",body:"BIG-endian u32: the number of blocks. Must equal ceil(num_samples / block_size) = ceil(220577 / 1024) = 216; acidcat cross-checks it.",note:"0x000000D8 = 216."},
+        {label:"offset[0]",k:"flag",r:[16,19],val:"0",body:"BIG-endian u32: byte offset of block 0 into the data chunk. Always 0 -- the first block opens the payload."},
+        {label:"offset[1]",k:"flag",r:[20,23],val:"9,328",body:"BIG-endian u32: byte offset of block 1. Compression makes block boundaries unpredictable, which is exactly why they are tabulated.",note:"0x00002470 = 9328; the table continues for all 216 blocks."}
+      ]],
+    "bfdc-data":["byte",
+      [0x64,0x61,0x74,0x61, 0x00,0x0D,0xD0,0x7E, 0x0A,0x76,0x2D,0xEF, 0xFF,0x98,0x95,0x4D],
+      [
+        {label:"chunk_id",k:"sync",r:[0,3],val:"\"data\"",body:"The audio chunk id -- the last and largest chunk, so the walker stops here."},
+        {label:"chunk_size",k:"enum",r:[4,7],val:"905,342",body:"BIG-endian u32: the compressed-stream size. 905,342 of the file's 906,310 bytes -- the audio is essentially the whole file.",note:"0x000DD07E = 905342."},
+        {label:"lac_stream",k:"rsv",r:[8,15],val:"compressed",body:"The lossless (lac) codec stream begins here. High-entropy (~7 bits/byte), no readable structure; acidcat surfaces the region but does not decode it -- the codec is undocumented.",note:"0A 76 2D EF FF 98 95 4D ... the compressed payload."}
+      ]]
+  };
+
+  var built={};
+  function buildPanel(name){
+    var panel=document.querySelector('[data-panel="'+name+'"]'); if(!panel) return;
+    panel.querySelectorAll("[data-build]").forEach(function(m){
+      if(built[m.id]) return; built[m.id]=1;
+      var spec=SPECS[m.id]; if(spec) build(m.id, spec[0], spec[1], spec[2]);
+    });
+  }
+  var tabs=[].slice.call(document.querySelectorAll(".tab"));
+  var panels=[].slice.call(document.querySelectorAll(".panel"));
+  function activate(name){
+    tabs.forEach(function(t){t.classList.toggle("on",t.dataset.p===name);});
+    panels.forEach(function(p){p.classList.toggle("on",p.dataset.panel===name);});
+    buildPanel(name);
+  }
+  tabs.forEach(function(t){t.addEventListener("click",function(){
+    activate(t.dataset.p);
+    if(history.replaceState) history.replaceState(null,"","#"+t.dataset.p);
+  });});
+  var initial=(location.hash||"").replace("#","");
+  if(initial && document.querySelector('[data-panel="'+initial+'"]')) activate(initial);
+  else buildPanel("overview");
+  buildPanel(document.querySelector(".panel.on").dataset.panel);
+})();
+</script>
+<script>
+(function () {
+  if (customElements.get('acidcat-toggle')) return;
+
+  const EARL = "M823.78,436.653c-245,84 -360,215 -393.78,263.95c-34,70 -33,-135 25,-340.6c37,-135 118,-300 151.78,-359.35c60,-55 60,30 217,436.05Z";
+  const EARR = "M1334.16,436.653c245,84 360,215 393.78,263.95c34,70 33,-135 -25,-340.6c-37,-135 -118,-300 -151.78,-359.35c-60,-55 -60,30 -217,436.05Z";
+  const WHISK = [
+    "M538.204,1196.91c-92.765,-0 -91.589,-12.14 -183.656,-3.551c-17.861,1.667 -61.995,-13.903 -268.815,-19.883",
+    "M483.602,1285.68c-37.939,14.794 -397.736,49.87 -432.494,53.259",
+    "M538.204,1363.79c-26.557,37.99 -398.31,150.862 -407.023,163.327",
+    "M1660.6,1189.14c22.236,-12.966 144.035,-0.154 363.552,-15.668",
+    "M1660.6,1264.76c202.29,42.443 388.678,51.655 421.623,53.385",
+    "M1603.35,1338.36c184.004,78.804 145.528,54.451 228.58,88.766c112.208,46.36 176.212,72.644 192.215,78.111"
+  ];
+  const MOUTH = "M520.116,1505.24c350.331,414.744 722.039,421.968 1117.72,0";
+  const CURLL = "M553.633,1478.51c-30.725,26.041 -67.034,30.722 -67.034,30.722";
+  const CURLR = "M1608.86,1478.51c30.725,26.041 67.034,30.722 67.034,30.722";
+
+  const stroke = (w) => `fill:none;stroke:currentColor;stroke-width:${w}px;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5`;
+  const whiskers = WHISK.map((d) => `<path d="${d}" style="${stroke(10.27)}"/>`).join('');
+
+  const spiral = (cx, cy) => {
+    const TURNS = 2.75, MAX = 150, steps = Math.round(TURNS * 2 * Math.PI / 0.32);
+    let d = 'M' + cx.toFixed(1) + ',' + cy.toFixed(1);
+    for (let i = 1; i <= steps; i++) {
+      const th = (i / steps) * TURNS * 2 * Math.PI, r = MAX * i / steps;
+      d += ' L' + (cx + r * Math.cos(th)).toFixed(1) + ',' + (cy + r * Math.sin(th)).toFixed(1);
+    }
+    return d;
+  };
+
+  const svg = `
+  <svg viewBox="-45 -70 2250 2250" style="display:block;width:100%;height:100%;overflow:visible">
+    <circle cx="1078.97" cy="1246.41" r="847.958" style="${stroke(21.53)}"/>
+    <path class="ear" d="${EARL}" style="${stroke(21.5)}"/>
+    <path class="ear" d="${EARR}" style="${stroke(21.5)}"/>
+    ${whiskers}
+    <ellipse class="eye" cx="772" cy="975" rx="78" ry="140" fill="currentColor"/>
+    <ellipse class="eye" cx="1394" cy="975" rx="78" ry="140" fill="currentColor"/>
+    <path class="swirl" d="${spiral(772, 975)}"/>
+    <path class="swirl" d="${spiral(1394, 975)}"/>
+    <path class="tongue" d="M1004,1735 h150 v215 a75,75 0 0 1 -150,0 z" fill="currentColor"/>
+    <path d="${MOUTH}" style="${stroke(28.33)}"/>
+    <path d="${CURLR}" style="${stroke(25.96)}"/>
+    <path d="${CURLL}" style="${stroke(25.96)}"/>
+  </svg>`;
+
+  const css = `
+    :host{display:inline-block;line-height:0}
+    button{
+      -webkit-appearance:none;appearance:none;background:none;border:0;padding:6px;margin:0;
+      cursor:pointer;color:inherit;border-radius:999px;line-height:0;display:inline-flex;
+    }
+    button:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+    .box{width:var(--acidcat-size,40px);height:var(--acidcat-size,40px)}
+    .eye{transition:opacity .28s ease}
+    .swirl{fill:none;stroke:currentColor;stroke-width:70;stroke-linecap:round;opacity:0;transition:opacity .32s ease;transform-box:fill-box;transform-origin:center}
+    .tongue{transform-box:fill-box;transform-origin:center top;transform:scaleY(0);transition:transform .4s cubic-bezier(.34,1.45,.5,1) .05s}
+    :host([data-on]) .eye{opacity:0}
+    :host([data-on]) .swirl{opacity:1;animation:acid-spin 2.6s linear infinite}
+    :host([data-on]) .swirl:last-of-type{animation-direction:reverse}
+    :host([data-on]) .tongue{transform:scaleY(1)}
+    @keyframes acid-spin{to{transform:rotate(1turn)}}
+    @media (prefers-reduced-motion:reduce){.eye,.tongue,.swirl{transition:none}.swirl{animation:none}}
+  `;
+
+  class AcidcatToggle extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>${css}</style><button type="button" aria-label="Toggle dark mode" title="Toggle dark mode"><span class="box">${svg}</span></button>`;
+      this._btn = root.querySelector('button');
+      this._btn.addEventListener('click', () => this.toggle());
+      this._sync = (e) => { if (e.target !== this && e.detail) this.toggleAttribute('data-on', e.detail.dark); };
+      document.addEventListener('acidcat-theme', this._sync);
+
+      let saved = null;
+      try { saved = localStorage.getItem('acidcat-theme'); } catch (e) {}
+      const dark = saved ? saved === 'dark'
+        : (this.hasAttribute('default-dark') || window.matchMedia('(prefers-color-scheme: dark)').matches);
+      this.apply(dark, false);
+    }
+    disconnectedCallback() { if (this._sync) document.removeEventListener('acidcat-theme', this._sync); }
+    get isDark() { return this.hasAttribute('data-on'); }
+    toggle() { this.apply(!this.isDark, true); }
+    apply(dark, persist) {
+      this.toggleAttribute('data-on', dark);
+      const theme = dark ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+      if (this._btn) this._btn.setAttribute('aria-pressed', String(dark));
+      if (persist) { try { localStorage.setItem('acidcat-theme', theme); } catch (e) {} }
+      this.dispatchEvent(new CustomEvent('acidcat-theme', { bubbles: true, composed: true, detail: { theme, dark } }));
+    }
+  }
+  customElements.define('acidcat-toggle', AcidcatToggle);
+})();
+
+</script>
+</body>
+</html>
