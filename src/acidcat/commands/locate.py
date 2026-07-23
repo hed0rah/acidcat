@@ -42,6 +42,10 @@ def register(subparsers):
                         "blob. Sample rate is not in the bytes; reported as null.")
     p.add_argument("-f", "--format", choices=("table", "json", "tsv"),
                    default="table", help="Output shape (default: table).")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="Show the evidence behind each region (entropy, "
+                        "autocorrelation, distribution) and any debug tells "
+                        "(silence / DC-offset / clipping).")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Suppress the summary line (kept on stderr otherwise).")
     p.set_defaults(func=run)
@@ -61,11 +65,24 @@ def _analyze(data, recs):
                 data[r["offset"]:min(r["end"], r["offset"] + 16384)])
 
 
-def _public(rec):
-    return {k: rec[k] for k in _PUBLIC_KEYS if k in rec}
+def _public(rec, verbose=False):
+    keys = _PUBLIC_KEYS + ("evidence",) if verbose else _PUBLIC_KEYS
+    return {k: rec[k] for k in keys if k in rec}
 
 
-def _print_table(recs):
+def _geo_str(g):
+    ch = "stereo" if g["channels"] == 2 else "mono"
+    kind = f"float{g['width']}" if g.get("float") else f"{g['endian']}-{g['width']}bit"
+    tells = [t for t, on in (("silence", g.get("silence")),
+                             (f"dc {g.get('dc_offset')}", g.get("dc_offset")),
+                             (f"clip {g.get('clipping')}", g.get("clipping"))) if on]
+    s = f"{kind} {ch} @ ?Hz"
+    if tells:
+        s += "  [" + ", ".join(tells) + "]"
+    return s
+
+
+def _print_table(recs, verbose=False):
     if not recs:
         print("(no audio located)")
         return
@@ -80,12 +97,16 @@ def _print_table(recs):
             "  approx-extent" if r.get("streaming_extent") else "")
         line = (f"0x{r['offset']:08x}  0x{r['end']:08x}  {r['kind']:9}  {fmt:7}  "
                 f"{r['confidence']:.2f}  {r['length']:>12,}{note}")
-        g = r.get("geometry")
-        if g:
-            ch = "stereo" if g["channels"] == 2 else "mono"
-            en = f"{g['endian']}-" if g["endian"] else ""
-            line += f"  {en}{g['width']}bit {ch} @ ?Hz"
+        if r.get("geometry"):
+            line += "  " + _geo_str(r["geometry"])
         print(line)
+        if verbose:
+            ev = r.get("evidence")
+            if ev:
+                ac = ev.get("autocorr", {})
+                print(f"           evidence: entropy {ev['entropy']:.2f}  "
+                      f"r1 {ac.get(1, 0):+.2f} r2 {ac.get(2, 0):+.2f} "
+                      f"r8 {ac.get(8, 0):+.2f}  width {ev.get('width', '?')}")
 
 
 def _print_tsv(recs):
@@ -113,12 +134,12 @@ def run(args):
         _analyze(data, recs)
 
     if args.format == "json":
-        json.dump([_public(r) for r in recs], sys.stdout, indent=2)
+        json.dump([_public(r, args.verbose) for r in recs], sys.stdout, indent=2)
         sys.stdout.write("\n")
     elif args.format == "tsv":
         _print_tsv(recs)
     else:
-        _print_table(recs)
+        _print_table(recs, args.verbose)
 
     if not args.quiet:
         nc = sum(1 for r in recs if r["kind"] == "container")
