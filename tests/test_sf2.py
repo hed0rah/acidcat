@@ -109,6 +109,7 @@ def test_convert_extracts_samples(tmp_path):
         def __init__(self, inp, out):
             self.input, self.output, self.division = inp, out, 480
             self.skip_existing = self.quiet = False
+            self.to_pcm = False; self.codec = None
     data = _make_sf2([("Kick", 0, 100, 0, 0, 44100),
                       ("Snare/Rim", 100, 300, 0, 0, 22050)], 400)  # name has a /
     p = tmp_path / "f.sf2"
