@@ -6,6 +6,17 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **`convert --to-pcm` now decodes Microsoft ADPCM (`0x0002`).** The other common
+  "won't play everywhere" WAV codec alongside IMA. A block predicts each sample
+  from the two previous ones (one of seven coefficient pairs per block, read from
+  the fmt chunk) plus a per-nibble adaptive delta; mono and stereo (interleaved
+  nibbles) both handled. Decodes automatically by format tag, or `--codec ms`
+  forces it on a mistagged file. Verified **bit-exact against ffmpeg** on real
+  mono and stereo specimens (186,762 / 291,456 samples, zero diff). New
+  `core/adpcm.py` MS decoder.
+
 ## [0.75.0] - 2026-07-23
 
 ### Added
