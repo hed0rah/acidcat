@@ -6,6 +6,22 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.70.0] - 2026-07-22
+
+### Added
+
+- **`extract` decodes IT-compressed samples (IT214/215).** Implements Impulse
+  Tracker's LSB-first variable-bit-width delta compression (8- and 16-bit,
+  single- and double-delta, chosen by the file's `cmwt`), so compressed `.it`
+  samples now extract instead of being skipped. Verified against real IT214 and
+  IT215 modules -- every sample decodes to its exact declared length.
+
+### Fixed
+
+- **IT sample extraction read the wrong (S3M) field names** (`pcm_off`/`is_pcm`),
+  so it silently extracted nothing; now uses the IT sample's `data_off` /
+  `length` / `bits16` / `c5_speed`.
+
 ## [0.69.0] - 2026-07-22
 
 ### Added
