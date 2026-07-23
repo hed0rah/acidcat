@@ -11,7 +11,7 @@ class _Args:
         d = {"target": None, "offset": None, "length": None, "end": None,
              "trailing": False, "chunk": None, "raw": False, "output": None,
              "quiet": True, "at": None, "type": None, "count": 1,
-             "endian": "be", "struct": None, "field": None, "format": None}
+             "endian": "be", "struct": None, "field": None, "format": None, "batch": None}
         d.update(kw)
         for k, v in d.items():
             setattr(self, k, v)
@@ -35,6 +35,27 @@ def _write(tmp_path, name, data):
     p = tmp_path / name
     p.write_bytes(data)
     return str(p)
+
+
+def test_carve_batch_from_records(tmp_path):
+    import os
+    target = tmp_path / "t.bin"
+    target.write_bytes(b"AAAABBBBBBBBCCCC")            # B's at offset 4, length 8
+    recs = tmp_path / "r.tsv"
+    recs.write_text("0x4\t8\tblob\traw-pcm\n")
+    outdir = tmp_path / "out"
+    rc = carve.run(_Args(target=str(target), batch=str(recs), output=str(outdir)))
+    assert rc == 0
+    files = os.listdir(str(outdir))
+    assert len(files) == 1
+    with open(os.path.join(str(outdir), files[0]), "rb") as f:
+        assert f.read() == b"BBBBBBBB"
+
+
+def test_carve_batch_needs_output(tmp_path):
+    target = tmp_path / "t.bin"; target.write_bytes(b"XXXX")
+    recs = tmp_path / "r.tsv"; recs.write_text("0\t4\tblob\traw-pcm\n")
+    assert carve.run(_Args(target=str(target), batch=str(recs))) == 2   # no -o
 
 
 def test_carve_explicit_offset_length(tmp_path):

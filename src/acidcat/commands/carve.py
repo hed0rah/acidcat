@@ -70,10 +70,78 @@ def register(subparsers):
                    help="Print a walker-decoded field by name (as shown by inspect).")
     p.add_argument("--format", choices=("raw", "value", "hex", "c", "py", "b64"),
                    help="Output shape (default: raw for ranges, value when typed).")
-    p.add_argument("-o", "--output", help="Write here (default: stdout).")
+    p.add_argument("--batch", metavar="SRC",
+                   help="Extract many regions: read `locate` records (JSON or TSV) "
+                        "from SRC ('-' = stdin) and carve each from TARGET into -o DIR.")
+    p.add_argument("-o", "--output", help="Write here (default: stdout; a DIR for --batch).")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Suppress the summary line on stderr.")
     p.set_defaults(func=run)
+
+
+# natural file extension for a carved region, by detected container format
+_EXT = {"wav": "wav", "rf64": "wav", "aiff": "aiff", "aifc": "aiff", "8svx": "8svx",
+        "flac": "flac", "ogg": "ogg", "sf2": "sf2", "mp3": "mp3"}
+
+
+def _parse_records(text):
+    """Parse `locate` output -- a JSON array, or TSV lines (offset, length, kind,
+    format, ...) -- into [{offset, length, kind, format}]."""
+    text = text.strip()
+    if not text:
+        return []
+    if text[0] in "[{":
+        import json
+        d = json.loads(text)
+        recs = d if isinstance(d, list) else d.get("regions", [])
+        return [{"offset": r["offset"], "length": r.get("length", r["end"] - r["offset"]),
+                 "kind": r.get("kind", "region"), "format": r.get("format")} for r in recs]
+    out = []
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        try:
+            off, length = int(parts[0], 0), int(parts[1])
+        except ValueError:
+            continue
+        fmt = parts[3] if len(parts) >= 4 else None
+        out.append({"offset": off, "length": length,
+                    "kind": parts[2] if len(parts) >= 3 else "region",
+                    "format": None if fmt in (None, "raw-pcm", "") else fmt})
+    return out
+
+
+def _run_batch(args, filepath, size):
+    if not args.output:
+        print("acidcat carve --batch: needs -o DIR to write regions", file=sys.stderr)
+        return 2
+    try:
+        text = sys.stdin.read() if args.batch == "-" else open(args.batch).read()
+        recs = _parse_records(text)
+    except (OSError, ValueError) as e:
+        print(f"acidcat carve --batch: {e}", file=sys.stderr)
+        return 2
+    os.makedirs(args.output, exist_ok=True)
+    done = skipped = 0
+    with open(filepath, "rb") as f:
+        for i, r in enumerate(recs):
+            off, length = r["offset"], r["length"]
+            if off < 0 or length <= 0 or off + length > size:
+                skipped += 1
+                continue
+            f.seek(off)
+            blob = f.read(length)
+            ext = _EXT.get(r.get("format")) or "raw"
+            name = f"{i:04d}_0x{off:08x}_{r.get('kind', 'region')}.{ext}"
+            with open(os.path.join(args.output, name), "wb") as g:
+                g.write(blob)
+            done += 1
+    if not args.quiet:
+        print(f"carved {done} region(s) -> {args.output}"
+              + (f" ({skipped} out-of-range skipped)" if skipped else ""),
+              file=sys.stderr)
+    return 0
 
 
 def _int(text, what):
@@ -252,6 +320,9 @@ def run(args):
         print(f"acidcat carve: {filepath}: No such file", file=sys.stderr)
         return 1
     size = os.path.getsize(filepath)
+
+    if args.batch is not None:
+        return _run_batch(args, filepath, size)
 
     try:
         if args.field is not None:
