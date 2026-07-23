@@ -20,9 +20,11 @@ A low-level audio and preset metadata tool. readelf/exiftool for audio.
 | `acidcat query [flags]` | filter the index by bpm/key/tag/text |
 | `acidcat query --compatible-with FILE` | samples that mix with FILE (key + tempo, `--same-key` `--bpm-tolerance` `--kind`) |
 | `acidcat similar FILE` | sounds like FILE over the index (`index --features` first); `-n` `--kind` `--no-kind-filter` `--paths-only` |
-| `acidcat convert FILE` | export/extract: bwclip -> MIDI, NCW -> WAV, SF2/SF3 -> a folder of samples |
+| `acidcat convert FILE` | export/transcode: bwclip -> MIDI, NCW/8SVX -> WAV, SF2/SF3 -> samples; `--to-pcm` decodes ADPCM/mistagged WAV to plain PCM (`--codec ima` forces it) |
 | `acidcat probe FILE read AT\|scan V\|find HEX\|strings\|hexdump AT\|diff F2` | byte dissection (RE surface): typed read, value scan, pattern find, strings, hexdump, diff; AT can be an offset or `chunk`/`chunk.field` |
-| `acidcat carve FILE --chunk ID\|--trailing\|--offset N` | extract a byte region (chunk / appended blob / range) to a file |
+| `acidcat locate BLOB` | "PhotoRec for audio": find audio regions in a blob/disk image (containers + raw PCM + headerless MP3); `--mode`, `--analyze`, `--transforms`, `-v`. Pipe `-f json` to `carve --batch` |
+| `acidcat extract BANK` | pull every embedded sample out of a bank/module as WAVs (MOD/XM/IT/S3M, `.pat`, 8SVX, NCW, SF2/SF3, `.multisample`, `.krz`, `.e4b`/`.e5b`, `.snd`) |
+| `acidcat carve FILE --chunk ID\|--trailing\|--offset N\|--batch SRC` | extract a byte region (chunk / appended blob / range) to a file; `--batch` cuts every `locate` region into a dir |
 | `acidcat repair FILE` | fix stale sizes, offset tables, counts, pad bytes (audio untouched, keeps a backup) |
 | `acidcat validate FILE\|DIR` | read-only structural check, exit 0 clean / 1 broken |
 | `acidcat audit FILE` | forensic verdict: structure, integrity (fake hi-res, duration), hidden data, provenance |
@@ -106,6 +108,31 @@ acidcat query --bpm 120:130 --key Am
 acidcat convert MyClip.bwclip -o MyClip.mid
 acidcat query --device Polysynth --category Reverb   # search preset metadata
 acidcat query --product Vital --creator someone
+```
+
+## recovery / rescue (PhotoRec for audio)
+
+`locate` finds audio in a raw blob; `carve` cuts it out; `extract` unpacks a known
+bank; `convert --to-pcm` makes odd codecs playable. Full workflow in
+[docs/recovery.md](docs/recovery.md).
+
+```
+# find audio regions in a disk image / card dump (never writes)
+acidcat locate disk.img --mode aggressive --analyze
+dd if=/dev/sdcard | acidcat locate -                 # straight off a device
+
+# the pipeline: locate every region, carve each into a directory
+acidcat locate disk.img -f json | acidcat carve disk.img --batch - -o recovered/
+
+# pull every sample out of a sampler bank / tracker module
+acidcat extract kit.sf2 -o kit_samples/
+
+# make an ADPCM / mistagged WAV play anywhere
+acidcat convert weird.wav --to-pcm -o plain.wav
+acidcat convert mistagged.wav --to-pcm --codec ima   # force IMA on a wrong tag
+
+# CTF: audio hidden under a reversible transform (XOR / rotate / nibble-swap)
+acidcat locate challenge.bin --transforms
 ```
 
 ## install / upgrade
