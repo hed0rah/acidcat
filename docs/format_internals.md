@@ -3,7 +3,7 @@
 Reverse-engineering notes and metadata extraction reference for audio-related
 file formats. Each format has a dedicated deep-dive document in `formats/`.
 
-Last updated: 2026-07-06
+Last updated: 2026-07-23
 
 ---
 
@@ -66,19 +66,42 @@ files through mutagen.
 | Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index + write | Preset metadata, NKS tags, FastLZ subtree (hsin); write is experimental |
 | NCW ([anatomy](formats/ncw-anatomy.html)) | `.ncw` | inspect + convert | NI Compressed Wave header, channel/block info; convert decodes to WAV |
 | SoundFont ([anatomy](formats/sf2-anatomy.html)) | `.sf2`, `.sf3` | inspect + convert | sfbk RIFF: INFO metadata, every named sample with its byte offset (rate/loop). SF2 = 16-bit PCM, SF3 = Ogg-Vorbis; convert extracts samples |
-| Tracker ([anatomy](formats/tracker-anatomy.html)) | `.mod`, `.xm`, `.it` | inspect | ProTracker/FastTracker II/Impulse Tracker: header, pattern order, every embedded sample at its byte offset; IT offset tables as followable pointers |
+| Tracker ([anatomy](formats/tracker-anatomy.html)) | `.mod`, `.xm`, `.s3m`, `.it` | inspect + extract | ProTracker/FastTracker II/ScreamTracker 3/Impulse Tracker: header, pattern order, every embedded sample at its byte offset; IT absolute offset tables and S3M parapointers as followable pointers |
 | [Bitwig WT](formats/bitwig-wt.md) | `.wt` | inspect only | vawt header: frame count, samples/frame, 16-bit sample block |
+
+### Samplers, trackers, and hardware banks (inspect walks these natively)
+
+Added since the last index refresh; each has an interactive anatomy datasheet
+under `formats/`.
+
+| Format | File | Path | What acidcat extracts |
+|--------|------|------|-----------------------|
+| Kurzweil | `.krz` | inspect + extract | K2000/2500/2600 object bank: PRAM header, negative-length object blocks (Sample/Keymap/Program), shared PCM blob; SROM effects header |
+| E-mu | `.e4b`, `.exb`, `.ebl` | inspect + extract | EOS and Emulator X banks (FORM E4B0/E5B0): TOC, nested presets, voices, samples |
+| Akai MPC | `.snd`, `.pgm`, `.xpm` | inspect + extract | vintage MPC sounds/programs and the modern XML programs |
+| Akai S5000/S6000 | `.akp` | inspect | RIFF/APRG nested IFF: prg, keygroups (kloc + envelopes + zones); zones name external `.wav`s |
+| Gravis UltraSound | `.pat` | inspect + extract | GF1PATCH patch: fixed-header nest (patch/instrument/layer/sample) + inline PCM |
+| IFF 8SVX | `.8svx`, `.iff` | inspect + extract + convert | Amiga voice: VHDR/BODY, optional Fibonacci-delta compression; convert to WAV |
+| Amiga music | (SMUS/OKT/MMDx/FC) | inspect | Sonix score, Oktalyzer, MED/OctaMED, Future Composer (header-level) |
+| BFD | `.bfdlac` | inspect | FXpansion BFD hit: big-endian IFF (BFDC) fmt/BFDi/Indx/data; lac codec opaque |
+| Arturia Analog Lab | `.labx` | inspect | STORED zip of Boost text-serialization preset archives; bank census + per-preset metadata |
+| SigMF | `.sigmf-meta` + `.sigmf-data` | inspect | JSON sidecar (datatype, sample rate, captures) over a headerless IQ stream |
+
+### Codecs (convert decodes to plain PCM)
+
+| Codec | Where | Doc |
+|-------|-------|-----|
+| IMA/DVI ADPCM (`0x0011`) + MS ADPCM (`0x0002`) | WAV, via `convert --to-pcm` | [adpcm.md](formats/adpcm.md) |
+| NI Compressed Wave | `.ncw`, via `convert` | [ncw anatomy](formats/ncw-anatomy.html) |
+| IT214/215 sample compression | `.it`, via `extract` | [tracker anatomy](formats/tracker-anatomy.html) |
 
 ### Not yet implemented
 
 | Format | File | Notes |
 |--------|------|-------|
-| Arturia Banks | `.labx` | ZIP + text serialization; research done, ~60 lines to implement |
 | Ableton Live Pack | `.alp` | gzip + custom `pl-a` container, embedded FLAC |
-| Kontakt (deep) | `.nki`, `.nkc`, `.nkr` | partial RE: instrument name, version, @tempo, KSP scripts |
-| SoundFont | `.sf2` | RIFF-based, could reuse the chunk parser |
-| DLS | `.dls` | RIFF-based, MIDI instrument definition |
-| Tracker modules | `.mod`, `.xm`, `.s3m`, `.it` | embedded samples, patterns, BPM |
+| Kontakt (deep) | `.nki`, `.nkc`, `.nkr` | partial RE beyond the hsin walker: instrument name, version, @tempo, KSP scripts |
+| DLS | `.dls` | RIFF-based MIDI instrument definition; could reuse the chunk parser |
 
 ---
 
@@ -134,16 +157,19 @@ for every format it supports and prints the structure with byte offsets:
 - **Format dispatch** -- `core/sniff.py` (inspect) and `_sniff_format` in
   `core/indexing.py` (index) both read 16 bytes and trust magic over extension.
 
-### Tier 2: Documented, ready to implement
-- **Arturia LABX** -- ZIP + text serialization, ~60 lines
+### Tier 2: Samplers, trackers, and hardware banks (native walkers)
+
+- **Kurzweil .krz, E-mu .e4b/.exb/.ebl, Akai .snd/.pgm/.xpm + .akp, Gravis .pat,
+  IFF 8SVX, Amiga SMUS/OKT/MED/FC, BFD .bfdlac, Arturia .labx, SigMF** -- walked
+  by `inspect`; most also feed `extract` (embedded samples out to WAV).
+- **ADPCM (IMA 0x0011, MS 0x0002)** -- decoded to plain PCM by `convert --to-pcm`.
 
 ### Tier 3: Research in progress
 - **Kontakt NKI (deep)** -- marker scanning + string extraction beyond the hsin walker
 - **Ableton ALP** -- undocumented `pl-a` container
 
 ### Tier 4: Future exploration
-- **SoundFont SF2 / DLS** -- RIFF-based, could reuse the chunk parser
-- **Tracker modules** -- well-documented, embedded BPM/samples
+- **DLS** -- RIFF-based MIDI instrument definition, could reuse the chunk parser
 
 ---
 
