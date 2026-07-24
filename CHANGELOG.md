@@ -6,6 +6,30 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [0.76.0] - 2026-07-23
+
+### Added
+
+- **`convert --to-pcm` now decodes Microsoft ADPCM (`0x0002`).** The other common
+  "won't play everywhere" WAV codec alongside IMA. A block predicts each sample
+  from the two previous ones (one of seven coefficient pairs per block, read from
+  the fmt chunk) plus a per-nibble adaptive delta; mono and stereo (interleaved
+  nibbles) both handled. Decodes automatically by format tag, or `--codec ms`
+  forces it on a mistagged file. Verified **bit-exact against ffmpeg** on real
+  mono and stereo specimens (186,762 / 291,456 samples, zero diff). New
+  `core/adpcm.py` MS decoder.
+
+### Documentation
+
+- **`docs/formats/adpcm.md`: an ADPCM deep-dive.** History (DPCM to adaptive
+  quantization to G.721/726 to IMA/DVI and Microsoft), the predict/correct/adapt
+  loop, both codecs' step and coefficient tables and block layouts, and the reader
+  traps (nibble order, truncate-toward-zero division, priming-sample order).
+- **`docs/format_internals.md`: index refresh.** Arturia `.labx`, SoundFont, and
+  tracker modules were still listed "not yet implemented" long after shipping; add
+  the sampler and hardware-bank walkers (Kurzweil, E-mu, Akai, Gravis, 8SVX, Amiga,
+  BFD, Analog Lab, SigMF), a codecs table, and S3M in the tracker row.
+
 ## [0.75.0] - 2026-07-23
 
 ### Added

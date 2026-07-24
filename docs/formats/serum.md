@@ -32,13 +32,16 @@ modulation data. Serum 2 uses this format; Serum 1 used FXP (VST preset).
 ```
 offset  size  field
 0       8     "XferJson"          magic bytes
-8       1     0x00                null terminator
-9       2     unknown             possibly version/format flags
-11+     ...   JSON starts at first '{' byte
+8       1     0x00                flag byte (0 in observed presets)
+9       4     json_length         uint32 LE: byte length of the JSON block
+13      4     reserved            uint32 LE (0 in observed presets)
+17+     ...   JSON block, starting at '{'
 ```
 
-The JSON doesn't start at a fixed offset. Scan forward from the header
-to find the first `{` character.
+`json_length` cross-checks the metadata size (for one Serum 2 preset it read
+`0x0000014F` = 335, exactly the JSON length). It is a hint, not the source of
+truth: scan forward for the first `{` to locate the JSON regardless of any
+preamble change between versions.
 
 ---
 
@@ -188,15 +191,26 @@ warning rather than crashing the walk.
 
 ---
 
+## Binary blob
+
+Everything after the JSON is the patch: the wavetables, the modulation matrix,
+oscillator and effect state, and (when the preset is tagged `Embedded-Data`) the
+sample content. There is no public format for the interior, so acidcat reports
+the region by size and leaves it alone.
+
+Serum 2 does leave one structural tell. The blob opens with a small preamble, then
+a **Zstandard frame**: bytes 8-11 of the blob are `28 B5 2F FD`, the little-endian
+zstd magic `0xFD2FB528`, and the `uint32` before it is the uncompressed size (one
+preset read `0x0001A95C` = 108,892). Serum 1 wrote the blob raw, so the absence of
+that frame separates the two generations independent of the `product` string.
+
+---
+
 ## Notes
 
-- the JSON portion is **not** length-prefixed -- `raw_decode`'s
-  returned end index is what marks where the metadata stops and the
-  binary blob begins
-- all Serum 2 presets use this format regardless of content complexity
-- the `tags` field is particularly useful for batch categorization
-  of preset libraries
-- `presetDescription` often contains performance notes ("use mod wheel",
-  "automate macro 1") which could be searchable
-- `product` field distinguishes Serum 2 presets from potential future
-  Xfer products using the same container format
+- the binary preamble carries a `json_length`, but the walker finds the
+  json/blob boundary from `raw_decode`'s end index, not by trusting that field
+- `product` ("Serum2") and `productVersion` name the generation; the `version`
+  field is the JSON schema version, a different number kept separate
+- `tags` and `presetDescription` are plain text, so acidcat indexes them directly;
+  an `Embedded-Data` tag means the preset carries its own sample content
