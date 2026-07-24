@@ -34,7 +34,7 @@ All multi-byte fields in the MPEG frame header are big-endian bitfields.
 - Untagged files start with a frame sync: first byte `0xFF`, second byte
   with the top three bits set (`0xE0` mask).
 
-A robust parser checks for `ID3`, and otherwise scans forward for the
+A parser checks for `ID3` first, and otherwise scans forward for the
 first valid frame sync (some files carry leading junk or an APE tag).
 
 ---
