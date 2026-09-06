@@ -148,6 +148,12 @@ def register(subparsers):
     mp.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
+    lb = sub.add_parser("lsb",
+                        help="Sample-LSB entropy of a PCM WAV (spot LSB stego).")
+    lb.add_argument("--width", "-w", type=int, default=64, help="Plot width in cells.")
+    lb.add_argument("files", nargs="+", metavar="FILE",
+                     help="File(s) to dissect, or '-' for stdin.")
+
     p.set_defaults(func=run)
 
 
@@ -493,6 +499,38 @@ def _dispatch(args, verb, path, data):
                 cells.append(fg(BYTE_CLASS[cls], "█") if color else glyph)
             print("  " + "".join(cells))
         print("  legend:  . null   o ascii   - control   + high   # 0xFF")
+        return 0
+    if verb == "lsb":
+        from acidcat.core.forensics import lsb as lsbmod
+        res = lsbmod.analyze(path, label, _chunks)
+        if res is None:
+            print(f"acidcat probe: {display_name(path)}: not a PCM WAV with an "
+                  f"analyzable sample region", file=sys.stderr)
+            return 2
+        if _emit(args, {"verb": "lsb", "file": display_name(path), **res}):
+            return 0
+        w = res["windows"]
+        signal = sum(1 for x in w if x > 0.1)
+        print(f"lsb  {display_name(path)}  sample LSB entropy across {len(w)} "
+              f"windows  (0 = flat .. 1 = random)")
+        for line in viz.braille_line(w, width=args.width, height=6, vmin=0, vmax=1):
+            print("  " + line)
+        print(f"  min {res['min']:.3f}  max {res['max']:.3f}  mean {res['mean']:.3f}"
+              f"   {signal}/{len(w)} window(s) carry signal")
+        # A reading, never a verdict: a high LSB floor is consistent with an
+        # encrypted payload AND with dithered or field-recorded audio, and
+        # entropy alone cannot separate them (see forensics/lsb.py).
+        if res["uniform_high"]:
+            print("  uniformly high: consistent with an encrypted embedded "
+                  "payload, but dithered and field-recorded audio look the same. "
+                  "A heuristic, not proof.")
+        elif res["mean"] >= 0.3:
+            print("  a band of high-entropy LSBs over a quiet floor: consistent "
+                  "with a raw payload written into the low bits.")
+        else:
+            print("  low and flat: no LSB-entropy signature of a hidden payload.")
+        if res["capped"]:
+            print("  (capped: only the leading PCM was read)")
         return 0
 
     return 2
