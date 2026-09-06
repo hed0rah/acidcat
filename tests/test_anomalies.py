@@ -548,3 +548,29 @@ def test_detection_does_not_depend_on_the_display_label(tmp_path, name, specimen
         assert [f["rule"] for f in got] == [f["rule"] for f in real], (
             f"{name}: findings changed when the label became {bogus!r} -- "
             f"dispatch is still keyed on the display string")
+
+
+# ── the one-argument facade form (walks internally) ─────────────────
+
+def test_scan_walks_internally_when_given_only_a_path(tmp_path):
+    # a JUNK chunk carrying >1 KB of non-zero bytes is a reported cavity
+    junk = _chunk(b"JUNK", b"payload!" * 200)
+    path = _write(tmp_path, "cav.wav", _wav(_FMT, junk, _chunk(b"data", b"\x00" * 32)))
+    one = anomalies.scan(path)                       # no fmt/chunks/warns
+    four = _scan(path)                               # the pre-walked form
+    assert one == four
+    assert any(f["rule"] == "cavity_content" for f in one)
+
+
+def test_scan_of_an_unparseable_file_does_not_raise(tmp_path):
+    # walk_file raises Unsupported here; the one-arg form must still scan the
+    # bytes rather than propagate, so a forensic caller can point it anywhere
+    path = _write(tmp_path, "blob.bin", b"nothing acidcat recognizes" * 40)
+    findings = anomalies.scan(path)                  # must not raise
+    assert isinstance(findings, list)
+
+
+def test_the_four_argument_form_is_unchanged(tmp_path):
+    path = _write(tmp_path, "c.wav", _wav(_FMT, _chunk(b"data", b"\x00" * 32)))
+    fmt, chunks, warns = walk_file(path, deep=False)
+    assert anomalies.scan(path, fmt, chunks, warns) == anomalies.scan(path)
