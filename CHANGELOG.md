@@ -4,6 +4,21 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Added
+
+- **`probe lsb`.** A CLI verb for the sample-LSB entropy of a PCM WAV, to spot
+  LSB steganography. The analysis already existed in the forensics layer but had
+  no command surface: `audit` does not report it, so nothing short of calling the
+  library exposed it. `probe lsb` draws the per-window entropy as a braille curve
+  and reports the mean and how many windows carry signal, with `--json` for the
+  full window array. It states a reading, never a verdict: a uniformly high LSB
+  floor is consistent with an encrypted payload and equally with dithered or
+  field-recorded audio, and entropy alone cannot separate them. A clean payload
+  written into silence lights up; whitened stego in real noise is called out as
+  indistinguishable, on purpose.
+
 ## [1.4.1] - 2026-09-05
 
 ### Fixed
