@@ -136,7 +136,10 @@ def inspect_dmx(filepath):
             _f(None, 0, "encoding", "8-bit unsigned PCM",
                "unsigned, centred on 0x80"),
         ] + ([_f(None, 0, "duration", f"{secs:.3f} s")] if secs else []),
-        "warnings": warns,
+        # payload_base 0: the 8-byte header has no RIFF-style prefix and its
+        # field offsets are file-absolute, so the default (offset + 8) would
+        # claim eight bytes the pcm chunk owns.
+        "warnings": warns, "payload_base": 0,
     }, {
         "id": "pcm", "offset": _HDR, "size": info["count"],
         "summary": (f"{info['count']:,} B of samples"

@@ -59,7 +59,10 @@ def inspect_rmid(filepath, deep=False):
         warns.append("no data chunk (the wrapped MIDI is missing)")
         return chunks, warns
 
-    chunks.append({"id": "data", "offset": midi_off - 8, "size": midi_len + 8,
+    # size is the payload length (the SMF); payload_base already skips the
+    # 8-byte data-chunk header, so adding it here counted the header twice and
+    # the extent ran eight bytes past the file.
+    chunks.append({"id": "data", "offset": midi_off - 8, "size": midi_len,
                    "summary": f"wrapped SMF, {midi_len:,} bytes",
                    "fields": [_f(0x00, 4, "chunk", "data"),
                               _f(0x04, 4, "size", f"{midi_len:,}")],

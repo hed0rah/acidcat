@@ -293,3 +293,100 @@ def hps(channels=2, rate=32000, blocks=2):
         struct.pack_into(">III", b, 0, blk * channels, blk * 14, nxt & 0xFFFFFFFF)
         out += b + bytes(blk * channels)
     return bytes(out)
+
+
+# ── batch 2: minimal RIFF/IFF and no-magic formats ──────────────────
+#
+# Lifted from tests/make_format_corpus.py, which built and verified each of
+# these (named, walked, swept) but wrote them to a gitignored directory, so a
+# contract test in a clone never saw them. Registering them here is what lets
+# the fuzz sweep and the geometry invariants reach these formats where they
+# actually gate.
+
+_SEED = 0x5EED
+
+
+def _noise(n, seed=_SEED):
+    """Deterministic filler. Not random: a corpus that changes between runs
+    turns a reproducible failure into a flake."""
+    out = bytearray(n)
+    x = seed
+    for i in range(n):
+        x = (x * 1103515245 + 12345) & 0x7FFFFFFF
+        out[i] = (x >> 16) & 0xFF
+    return bytes(out)
+
+
+@seed("dmx", ".dmx")
+def dmx():
+    """Doom DS* lump: u16 format=3, u16 rate, u32 count, then unsigned 8-bit.
+    No magic -- the count must equal the bytes after the header exactly, and
+    that arithmetic is the identification."""
+    pcm = bytes((0x80 + (i % 40) - 20) & 0xFF for i in range(2000))
+    return struct.pack("<HHI", 3, 11025, len(pcm)) + pcm
+
+
+@seed("voc", ".voc")
+def voc():
+    """Creative Voice: 20-byte magic, u16 header size, u16 version, u16 check,
+    then blocks. Block 01 carries a time constant; the terminator is ONE byte."""
+    hdr = b"Creative Voice File\x1a" + struct.pack("<HHH", 0x1A, 0x010A, 0x1129)
+    pcm = _noise(1500)
+    body = struct.pack("<B", 1) + struct.pack("<I", len(pcm) + 2)[:3]
+    body += bytes([256 - 1000000 // 11025 & 0xFF, 0]) + pcm
+    return hdr + body + b"\x00"
+
+
+@seed("rf64", ".rf64")
+def rf64():
+    """RF64: RIFF with a 64-bit size escape. riff_size is -1 and the real sizes
+    live in ds64, which is the whole point of the format."""
+    pcm = _noise(2000)
+    fmt = struct.pack("<HHIIHH", 1, 2, 48000, 48000 * 4, 4, 16)
+    ds64 = struct.pack("<QQQI", 0, len(pcm), len(pcm) // 4, 0)
+    body = (b"WAVE" + _riff_chunk(b"ds64", ds64) + _riff_chunk(b"fmt ", fmt)
+            + b"data" + struct.pack("<I", 0xFFFFFFFF) + pcm)
+    return b"RF64" + struct.pack("<I", 0xFFFFFFFF) + body
+
+
+@seed("smus", ".smus")
+def smus():
+    """EA IFF SMUS score: FORM..SMUS with SHDR and one TRAK of note events. The
+    TRAK carries the file over the sweep's 64-byte floor."""
+    shdr = struct.pack(">HBB", 120, 1, 0)
+    trak = b"".join(bytes([n, 0x40, 0x10]) for n in range(60, 72)) + b"\x81\x00\x00"
+    body = (b"SMUS" + _iff_chunk(b"SHDR", shdr) + _iff_chunk(b"NAME", b"synthetic\x00")
+            + _iff_chunk(b"TRAK", trak))
+    return b"FORM" + struct.pack(">I", len(body)) + body
+
+
+@seed("sf2", ".sf2")
+def sf2():
+    """SoundFont 2: RIFF..sfbk with the three required LISTs (INFO, sdta, pdta).
+    Minimal, but the chunk skeleton is what a walker reads."""
+    ifil = _riff_chunk(b"ifil", struct.pack("<HH", 2, 1))
+    isng = _riff_chunk(b"isng", b"EMU8000\x00")
+    inam = _riff_chunk(b"INAM", b"synthetic\x00")
+    info = _riff_chunk(b"LIST", b"INFO" + ifil + isng + inam)
+    sdta = _riff_chunk(b"LIST", b"sdta" + _riff_chunk(b"smpl", _noise(2000)))
+    pdta = _riff_chunk(b"LIST", b"pdta"
+                       + _riff_chunk(b"phdr", b"\x00" * 38 * 2)
+                       + _riff_chunk(b"shdr", b"\x00" * 46 * 2))
+    body = b"sfbk" + info + sdta + pdta
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+@seed("rmid", ".rmid")
+def rmid():
+    """RIFF-wrapped MIDI: RIFF..RMID with the whole SMF in one data chunk. The
+    reason a RIFF reader must check the form type rather than assume WAVE. The
+    inner SMF carries a tempo and notes so the wrapped file clears the sweep's
+    64-byte floor -- the shared `midi` seed is smaller."""
+    thd = b"MThd" + struct.pack(">IHHH", 6, 0, 1, 96)
+    tempo = b"\x00\xff\x51\x03\x07\xa1\x20"          # 500000 us/qn = 120 bpm
+    notes = b"".join(b"\x00\x90" + bytes([n, 0x40]) + b"\x30\x80" + bytes([n, 0x40])
+                     for n in range(60, 72))
+    ev = tempo + notes + b"\x00\xff\x2f\x00"
+    smf = thd + b"MTrk" + struct.pack(">I", len(ev)) + ev
+    return b"RIFF" + struct.pack("<I", 4 + 8 + len(smf)) + b"RMID" \
+        + _riff_chunk(b"data", smf)
