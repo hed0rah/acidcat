@@ -103,6 +103,28 @@ def test_stego_round_trips(tmp_path, wav):
     assert open(back, "rb").read() == b"hi there"
 
 
+@pytest.mark.parametrize("method", ["replace", "match", "adaptive"])
+def test_stego_method_round_trips_via_cli(tmp_path, method):
+    # a carrier with real variance, so adaptive has noisy blocks to hide in
+    import random
+    import wave as _wave
+    rng = random.Random(7)
+    frames = ([(i % 6) * 4 for i in range(4000)]
+              + [rng.randint(-6000, 6000) for _ in range(12000)])
+    car = str(tmp_path / "car.wav")
+    with _wave.open(car, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(44100)
+        w.writeframes(__import__("array").array("h", frames).tobytes())
+    out = str(tmp_path / "st.wav")
+    assert cli.main(["stego", "embed", car, "--payload-text", "into the noise",
+                     "-o", out, "--method", method]) == 0
+    back = str(tmp_path / "back.bin")
+    assert cli.main(["stego", "extract", out, "-o", back, "--method", method]) == 0
+    assert open(back, "rb").read() == b"into the noise"
+
+
 def test_stego_reports_capacity_and_refuses_an_overlarge_payload(tmp_path):
     small = _write(tmp_path / "small.wav", seeds.wav(frames=64))
     assert cli.main(["stego", "capacity", small]) == 0

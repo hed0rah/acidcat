@@ -172,14 +172,17 @@ def _stego_embed(args):
     wav = _read(args.input)
     payload = _payload_bytes(args)
     try:
-        out_bytes = stego.embed(wav, payload, key=args.key, raw=args.raw)
+        out_bytes = stego.embed(wav, payload, key=args.key, raw=args.raw,
+                                method=args.method)
     except ValueError as e:
         print(f"acidcat-lab stego: {args.input}: {e}", file=sys.stderr)
         return 1
     out = args.output or _default_out(args.input, "stego")
     rc = _write(out_bytes, out, args.input, force=args.force, verb="stego")
     if rc == 0:
-        print(f"hid {len(payload):,} B in the sample LSBs -> {out}"
+        how = {"replace": "sample LSBs", "match": "sample LSBs (matching)",
+               "adaptive": "the noisy sample LSBs"}[args.method]
+        print(f"hid {len(payload):,} B in {how} -> {out}"
               + ("" if args.raw else " (whitened)"))
     return rc
 
@@ -187,7 +190,7 @@ def _stego_embed(args):
 def _stego_extract(args):
     wav = _read(args.input)
     try:
-        payload = stego.extract(wav, key=args.key, raw=args.raw)
+        payload = stego.extract(wav, key=args.key, raw=args.raw, method=args.method)
     except ValueError as e:
         print(f"acidcat-lab stego: {args.input}: {e}", file=sys.stderr)
         return 1
@@ -201,7 +204,16 @@ def _stego_extract(args):
 
 
 def _stego_capacity(args):
-    print(f"{stego.capacity(_read(args.input)):,} bytes")
+    wav = _read(args.input)
+    if args.method == "adaptive":
+        try:
+            cap = stego.adaptive_capacity(wav)
+        except ValueError as e:
+            print(f"acidcat-lab stego: {args.input}: {e}", file=sys.stderr)
+            return 1
+        print(f"{cap:,} bytes  (adaptive: noisy blocks only)")
+    else:
+        print(f"{stego.capacity(wav):,} bytes")
     return 0
 
 
@@ -273,6 +285,12 @@ def build_parser():
     se.add_argument("--key", type=int, default=1337, help="whitening key (default 1337)")
     se.add_argument("--raw", action="store_true",
                     help="do not whiten (leaves a detectable LSB anomaly)")
+    se.add_argument("--method", choices=("replace", "match", "adaptive"),
+                    default="replace",
+                    help="replace: overwrite the low bit (any depth). "
+                         "match: +/-1 to set it (16-bit, defeats value-histogram "
+                         "attacks). adaptive: only in already-noisy blocks "
+                         "(16-bit, keeps the LSB-entropy profile unchanged)")
     se.set_defaults(func=_stego_embed)
     sx = st_s.add_parser("extract", help="recover a hidden payload to -o or stdout")
     sx.add_argument("input")
@@ -280,9 +298,16 @@ def build_parser():
     sx.add_argument("--force", action="store_true")
     sx.add_argument("--key", type=int, default=1337)
     sx.add_argument("--raw", action="store_true")
+    sx.add_argument("--method", choices=("replace", "match", "adaptive"),
+                    default="replace",
+                    help="must match how it was embedded (replace and match read "
+                         "the same way; adaptive differs)")
     sx.set_defaults(func=_stego_extract)
     sc = st_s.add_parser("capacity", help="how many payload bytes a WAV can hold")
     sc.add_argument("input")
+    sc.add_argument("--method", choices=("replace", "match", "adaptive"),
+                    default="replace",
+                    help="adaptive reports the noisy-block capacity only")
     sc.set_defaults(func=_stego_capacity)
 
     return ap
