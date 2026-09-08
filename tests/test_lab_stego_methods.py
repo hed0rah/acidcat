@@ -128,6 +128,15 @@ def test_match_clamps_at_the_full_scale_edges():
 # ── adaptive: evades the entropy detector; naive does not ───────────
 
 def test_adaptive_leaves_the_entropy_profile_alone_and_naive_lights_it_up(tmp_path):
+    """The mechanism, not the field rate. This carrier's quiet head is LSB-clean
+    BY CONSTRUCTION (low bit forced to 0). Real quiet audio is usually dithered,
+    so its low bits are already random; on such a carrier the detector reads
+    uniformly high on the clean file (see the module docstring: it fires on six
+    of six clean WAVs), and a naive fill is not catchable there either. Adaptive
+    beats naive only where the carrier has genuinely clean quiet stretches that a
+    sequential fill would light up. How often real files have that is empirical
+    and this test does not answer it -- scratchpad/stego_generalize.py measures
+    the hit rate against a real corpus."""
     carrier = _mixed_carrier()
     payload = _payload(min(stego.adaptive_capacity(carrier), 1500))
 
