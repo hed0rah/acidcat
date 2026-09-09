@@ -25,6 +25,17 @@ from acidcat.core.walk.base import Unsupported
 
 # format id (from core/sniff.py) -> (display label, walker). walkers are
 # normalized to (filepath, deep); formats without a deep mode ignore it.
+# Formats `sniff` names that no walker reads, ON PURPOSE. A ROM or a disc image
+# is not a chunk tree; what acidcat recovers from one is its samples, which is
+# `extract`'s job. They are listed rather than inferred so the gap reads as a
+# decision instead of an oversight, and a test asserts the list stays exactly
+# the set of sniffable formats with no walker.
+_EXTRACT_ONLY = {
+    "n64rom": "an N64 ROM",
+    "snesrom": "a SNES ROM",
+    "wii": "a Wii disc image",
+}
+
 _WALKERS = {
     "wav": ("RIFF/WAVE", lambda path, deep: wav.inspect_wav(path)),
     "rf64": ("RF64/WAVE", lambda path, deep: rf64.inspect_rf64(path)),
@@ -174,6 +185,21 @@ def walk_file(filepath, deep=False, fmt_override=None):
             generic = None
         if generic is not None:
             return _normalized(filepath, generic)
+        # A format the sniffer NAMED has already been recognized, so saying it
+        # was not is false about the tool's own state. Three of these exist on
+        # purpose -- the ROM and disc images are extract-side, since what is
+        # recoverable from them is samples rather than a chunk tree -- and
+        # telling their owner the file is unrecognized sends them away from the
+        # verb that would have worked.
+        if fmt in _EXTRACT_ONLY:
+            raise Unsupported(
+                "%s is recognized but has no chunk structure to walk; "
+                "run `acidcat extract` to recover its samples" % _EXTRACT_ONLY[fmt])
+        if fmt:
+            raise Unsupported(
+                "recognized as %r, but no walker reads it; "
+                "run `acidcat formats` for the %d that are read"
+                % (fmt, len(_WALKERS)))
         # Naming the formats here was a list that could only go stale, and had:
         # it named fifteen while the tool walked fifty-seven, so it told anyone
         # who read it that half the supported formats were not supported.
