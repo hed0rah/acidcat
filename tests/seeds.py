@@ -858,6 +858,15 @@ def sigmf():
     }).encode()
 
 
+@seed("w64", ".w64")
+def w64():
+    """Sony Wave64: GUID chunk ids, u64 sizes that count their own 24-byte
+    header, and 8-byte alignment. Carries a `fact` chunk so the seed has an
+    INTERIOR chunk to pad -- the final chunk is unpadded, so a seed of only
+    fmt+data would never exercise the alignment the format turns on."""
+    return _call("test_wave64", "_make_w64", 64, 1, 16, 44100, b"\x01\x02\x03")
+
+
 @seed("iq", ".cu8")
 def iq():
     """A bare IQ capture: no header at all, interleaved unsigned 8-bit I/Q. The

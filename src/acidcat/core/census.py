@@ -52,7 +52,9 @@ _EXTS = frozenset({
 })
 
 # Wave64 RIFF GUID (little-endian on disk): 'riff' + fixed v1-UUID suffix.
-_W64_RIFF_GUID = bytes.fromhex("726966662e91cf11a5d628db04c10000")
+# One definition, in core.formats.wave64, which the sniffer and the walker also
+# read. This module carried its own copy of the same 16 bytes.
+from acidcat.core.formats.wave64 import RIFF_GUID as _W64_RIFF_GUID
 
 # pseudo-filesystems that are never worth (and sometimes dangerous to) walking.
 _SKIP_DIRS = frozenset({"/proc", "/sys", "/dev", "/run"})

@@ -25,6 +25,7 @@ from acidcat.core.codecs import ncw as ncwmod
 from acidcat.core.formats import ableton as abletonmod
 from acidcat.core.formats import mdx as mdxmod
 from acidcat.core.formats import sid as sidmod
+from acidcat.core.formats import wave64 as wave64mod
 
 # containers an ID3v2 tag is known to wrap; the tag then does not make
 # the file an MP3.
@@ -42,7 +43,7 @@ KNOWN_FORMATS = frozenset({
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
     "okt", "pgm", "rf64", "rmid", "rx2", "s3m", "sap", "serum", "sf2", "sigmf", "smus",
-    "dmx", "sid", "snd", "snesrom", "vag", "vital", "voc", "wav", "wii", "wt", "xm", "xpm",
+    "dmx", "sid", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
 
@@ -55,6 +56,11 @@ KNOWN_FORMATS = frozenset({
 AUDIO_CONTAINERS = {
     "wav":  (b"RIFF", "wav"),
     "rf64": (b"RF64", "wav"),
+    # a 16-byte GUID is the strongest scan pattern in this table -- four-byte
+    # magics carry a real false-positive rate inside a disc image and this one
+    # does not. Wave64 exists to hold files past 4 GB, so it is exactly the
+    # container worth finding embedded in something larger.
+    "w64":  (wave64mod.RIFF_GUID, "w64"),
     "aiff": (b"FORM", "aiff"),
     "aifc": (b"FORM", "aiff"),
     "8svx": (b"FORM", "8svx"),
@@ -165,6 +171,10 @@ def sniff_bytes(head):
         return "midi"
     if len(head) >= 12 and head[:4] == b"RF64" and head[8:12] == b"WAVE":
         return "rf64"
+    # Wave64's container id is a 16-byte GUID whose first four bytes are 'riff'
+    # in LOWERCASE, so it never collides with the RIFF test below.
+    if wave64mod.is_wave64(head):
+        return "w64"
     if head[:8] == b"XferJson":
         return "serum"
     if head[:4] == b"vawt":

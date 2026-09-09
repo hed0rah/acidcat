@@ -374,6 +374,24 @@ def _svx_many_chunks(tmp_path, n):
     return str(p)
 
 
+def _w64_many_chunks(tmp_path, n):
+    """A Wave64 with n tiny chunks, to cross the walker's chunk cap.
+
+    Built through the test module's own builder rather than a second hand-rolled
+    Wave64: the 24-byte-inclusive size and the 8-byte padding are exactly the
+    arithmetic a second copy would get wrong.
+    """
+    import test_wave64
+    body = b"".join(test_wave64._chunk(b"fmt ", test_wave64._fmt())
+                    for _ in range(n))
+    body += test_wave64._chunk(b"data", b"\x00" * 32, pad=False)
+    data = (test_wave64._RIFF + struct.pack("<Q", 40 + len(body))
+            + test_wave64._WAVE + body)
+    p = tmp_path / "many.w64"
+    p.write_bytes(data)
+    return str(p)
+
+
 def _smus_many_chunks(tmp_path, n):
     """FORM/SMUS, which is what routes to the amiga walker. A generic FORM/ILBM
     falls through to structural triage instead, which has its own bounds and
@@ -513,6 +531,8 @@ SWEPT = [
     ("acidcat.core.walk.chiptune", "_NSF_READ_CAP", 256, _nsf_over_cap,
      "read the first"),
     ("acidcat.core.walk.chiptune", "_NSFE_CHUNK_MAX", 4, _nsfe_over_cap,
+     "stopped after"),
+    ("acidcat.core.walk.wave64", "_MAX_CHUNKS", 4, _w64_many_chunks,
      "stopped after"),
 ]
 

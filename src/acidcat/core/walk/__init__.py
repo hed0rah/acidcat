@@ -19,7 +19,7 @@ from acidcat.core.walk import (
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
     mp4, mpc, multisample, ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, svx, tracker,
-    sid, streams, vital, wav, wt,
+    sid, streams, vital, wav, wave64, wt,
 )
 from acidcat.core.walk.base import Unsupported
 
@@ -28,6 +28,7 @@ from acidcat.core.walk.base import Unsupported
 _WALKERS = {
     "wav": ("RIFF/WAVE", lambda path, deep: wav.inspect_wav(path)),
     "rf64": ("RF64/WAVE", lambda path, deep: rf64.inspect_rf64(path)),
+    "w64": ("Wave64", lambda path, deep: wave64.inspect_wave64(path)),
     "aiff": ("IFF/AIFF", lambda path, deep: aiff.inspect_aiff(path, "AIFF")),
     "aifc": ("IFF/AIFC", lambda path, deep: aiff.inspect_aiff(path, "AIFC")),
     "8svx": ("IFF/8SVX", lambda path, deep: svx.inspect_8svx(path)),
