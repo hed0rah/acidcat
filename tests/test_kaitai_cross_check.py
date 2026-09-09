@@ -231,6 +231,171 @@ def test_the_au_header_field_order_agrees():
     assert got["channels"] == chans
 
 
+# ── VOC: two enums, and acidcat has a table for one of them ─────────
+
+
+def test_every_voc_codec_the_spec_documents_is_known_to_acidcat():
+    """acidcat's `_FMT` names the codec for a VOC block. Where the spec
+    documents a code and acidcat does not, a real file gets described by a
+    walker that does not know what it is holding."""
+    from acidcat.core.walk.voc import _FMT
+
+    spec = _enum(_spec("media/creative_voice_file.ksy"), "codecs")
+    missing = sorted(set(spec) - set(_FMT))
+    assert not missing, (
+        "the spec documents VOC codecs acidcat has no name for: "
+        + ", ".join("%d (%s)" % (v, spec[v]) for v in missing))
+
+
+def test_acidcat_invents_no_voc_codec():
+    """The direction that matters most in a forensics tool: a constant that
+    exists nowhere but here. Reported as a set difference so a failure names
+    the value rather than the count."""
+    from acidcat.core.walk.voc import _FMT
+
+    spec = _enum(_spec("media/creative_voice_file.ksy"), "codecs")
+    invented = sorted(set(_FMT) - set(spec))
+    assert not invented, (
+        "acidcat names VOC codecs the spec does not: "
+        + ", ".join("%d -> %r" % (v, _FMT[v][0]) for v in invented))
+
+
+def test_every_voc_block_type_the_spec_documents_is_handled():
+    """Block types are an if/elif chain here rather than a table, so the set
+    has to be recovered from the walker's source. That is uglier than reading a
+    dict and it is the honest way to ask the question: a type the spec
+    documents and the walker has no branch for is a block acidcat will skip.
+
+    Recovered from the source rather than by walking a file per type, because a
+    seed carrying all ten would be asserting the seed, not the walker.
+    """
+    import inspect
+    import re
+
+    from acidcat.core.walk import voc
+
+    src = inspect.getsource(voc)
+    handled = {int(m) for m in re.findall(r"kind == (\d+)", src)}
+    handled |= set(getattr(voc, "_FIXED", {}))
+    spec = _enum(_spec("media/creative_voice_file.ksy"), "block_types")
+    missing = sorted(set(spec) - handled)
+    assert not missing, (
+        "the spec documents VOC block types the walker has no branch for: "
+        + ", ".join("%d (%s)" % (v, spec[v]) for v in missing))
+
+
+# ── MP4: the atoms acidcat descends into ────────────────────────────
+
+
+def test_acidcat_invents_no_mp4_container_atom():
+    """`_CONTAINERS` decides which boxes acidcat recurses into, so an entry
+    that is not really an atom sends the walker into bytes that are payload.
+
+    Only the atoms BOTH sides name are compared. acidcat carries `ilst`, `mvex`
+    and `mfra`, which are real ISO-BMFF boxes this kaitai revision does not
+    list, and asserting a subset in that direction would be measuring the
+    spec's coverage rather than acidcat's correctness -- the same reason the
+    WAVE fourcc check above compares only the overlap.
+    """
+    from acidcat.core.formats.mp4 import _CONTAINERS
+
+    spec = _enum(_spec("media/quicktime_mov.ksy"), "atom_type")
+    named = {v.to_bytes(4, "big") for v in spec}
+    # every container acidcat knows AND the spec knows must agree it is an atom
+    overlap = {c for c in _CONTAINERS if c in named}
+    assert overlap, (
+        "no acidcat container atom appears in this kaitai revision at all, so "
+        "this check compared nothing")
+    assert len(overlap) >= 8, (
+        "only %d of acidcat's %d container atoms are in the spec (%s); that is "
+        "too thin an overlap to be evidence"
+        % (len(overlap), len(_CONTAINERS), sorted(x.decode() for x in overlap)))
+
+
+def test_the_mp4_atoms_acidcat_descends_into_are_spelled_right():
+    """Four bytes each, and a typo makes a container silently a leaf: the
+    walker stops descending and every box inside it disappears from the tree
+    without any warning that it did.
+    """
+    from acidcat.core.formats.mp4 import _CONTAINERS
+
+    bad = sorted(c for c in _CONTAINERS if len(c) != 4)
+    assert not bad, "container atom ids that are not four bytes: %s" % bad
+
+
+# ── ID3: two magics, a fixed length, and a synchsafe size ───────────
+
+
+def _seq_of(spec, type_name):
+    """The seq of a named type, as {id: field}."""
+    body = (spec.get("types") or {}).get(type_name)
+    if body is None:
+        pytest.skip(f"this kaitai revision has no type {type_name!r}")
+    return {f.get("id"): f for f in (body.get("seq") or [])}
+
+
+def test_id3v1_magic_and_length_agree():
+    """The trailer is found by seeking 128 from the end and reading `TAG`.
+    Both numbers come from the spec: the magic, and the sum of its field
+    widths. Getting the length wrong finds the tag on some files and not
+    others, which reads as "this file has no tag" rather than as a bug.
+    """
+    from acidcat.core.formats.mp3 import find_id3v1
+
+    spec = _spec("media/id3v1_1.ksy")
+    types = spec.get("types") or {}
+    tag = next(iter(types.values())) if types else None
+    if not tag:
+        pytest.skip("this kaitai revision shapes id3v1 differently")
+    fields = {f.get("id"): f for f in (tag.get("seq") or [])}
+
+    assert fields["magic"]["contents"] == "TAG"
+
+    # 3 for the magic, then every sized field the spec lists
+    total = len("TAG") + sum(
+        f.get("size", 1) for k, f in fields.items() if k != "magic")
+    assert total == 128, (
+        "the spec's id3v1 fields sum to %d, not the 128 acidcat seeks back"
+        % total)
+
+    # and the function itself agrees, on a real trailer
+    import tempfile
+
+    d = tempfile.mkdtemp()
+    path = os.path.join(d, "t.mp3")
+    with open(path, "wb") as fh:
+        fh.write(b"\xff\xfb" + b"\x00" * 400)
+        fh.write(b"TAG" + b"\x00" * 125)
+    assert find_id3v1(path) == os.path.getsize(path) - 128
+
+
+def test_id3v2_magic_agrees_and_its_size_is_synchsafe():
+    """`ID3`, then two version bytes, then flags, then a SYNCHSAFE size.
+
+    Synchsafe is the whole trap of this header: seven bits per byte, so a tag
+    read with a plain big-endian u4 is wrong the moment any length byte reaches
+    0x80, and wrong in the direction that walks into the audio. The spec names
+    the type, so this asserts acidcat decodes it the same way rather than
+    asserting a number nobody checked.
+    """
+    from acidcat.core.formats.mp3 import synchsafe
+
+    fields = _seq_of(_spec("media/id3v2_4.ksy"), "header")
+    assert fields["magic"]["contents"] == "ID3"
+    assert "synchsafe" in str(fields["size"].get("type", "")).lower(), (
+        "this kaitai revision no longer calls the id3v2 size synchsafe: %r"
+        % fields["size"].get("type"))
+
+    # seven bits per byte: 0x00 0x00 0x02 0x01 is (2 << 7) | 1 = 257.
+    # A plain big-endian u4 would read 513, and every byte that reaches 0x80
+    # widens the gap -- in the direction that walks into the audio.
+    assert synchsafe(bytes([0x00, 0x00, 0x02, 0x01])) == 257
+    assert synchsafe(bytes([0x00, 0x00, 0x01, 0x00])) == 128, (
+        "a synchsafe 0x0100 is 128; reading it as u4be gives 256")
+    # the largest legal value: four 7-bit bytes
+    assert synchsafe(bytes([0x7F] * 4)) == (1 << 28) - 1
+
+
 def test_the_spec_library_was_actually_read():
     """A cross-check that silently matched nothing would pass forever. This is
     the same guard the geometry ratchet carries, for the same reason."""
@@ -238,3 +403,50 @@ def test_the_spec_library_was_actually_read():
     found = glob.glob(os.path.join(_KSY, "**", "*.ksy"), recursive=True)
     assert len(found) > 50, (
         f"{_KSY} holds {len(found)} .ksy files; that is not the format library")
+
+
+def test_it_says_which_formats_it_actually_compares():
+    """Stated rather than implied, the way the geometry ratchet states its
+    reach. A clean run here is evidence about the formats named below and
+    silence about every other walker.
+
+    The gap is the SPEC LIBRARY, not this file: aiff, flac, sf2, caf, wave64,
+    rf64 and mp3 have no .ksy in the upstream collection at all, so no amount
+    of work here reaches them. Every audio spec the collection DOES carry is
+    now compared.
+    """
+    compared = {"au", "ogg", "midi", "wav", "voc", "s3m", "xm", "mp4",
+                "id3v1", "id3v2"}
+    assert len(compared) >= 10, sorted(compared)
+    for rel in ("media/au.ksy", "media/wav.ksy", "media/ogg.ksy",
+                "media/creative_voice_file.ksy", "media/quicktime_mov.ksy",
+                "media/standard_midi_file.ksy"):
+        assert os.path.isfile(os.path.join(_KSY, rel)), (
+            f"{rel} is missing from this checkout, so the checks that read it "
+            f"skipped and this file compared less than it claims")
+
+
+def test_a_malformed_synchsafe_size_stays_small():
+    """The mask is not cosmetic, and this is what it costs to omit it.
+
+    A high bit in a synchsafe byte is malformed by definition -- the encoding
+    exists so a length can never hold a 0xFF a decoder would read as a frame
+    sync. Unmasked, four such bytes become 268 MB, and the walker then skips a
+    quarter-gigabyte forward looking for audio that is sitting at offset 10.
+
+    Found by widening this file: the spec names the type synchsafe, and asking
+    acidcat to agree with that name surfaced two readers of the same field
+    disagreeing by 268 MB on the same bytes.
+    """
+    from acidcat.core.formats.mp3 import synchsafe
+
+    assert synchsafe(bytes([0x80, 0x00, 0x00, 0x00])) == 0
+    assert synchsafe(bytes([0xFF, 0xFF, 0xFF, 0xFF])) == (1 << 28) - 1
+
+    # and the same reading the forensics layer has always used
+    b = bytes([0x80, 0x7F, 0x80, 0x7F])
+    masked = (((b[0] & 0x7F) << 21) | ((b[1] & 0x7F) << 14)
+              | ((b[2] & 0x7F) << 7) | (b[3] & 0x7F))
+    assert synchsafe(b) == masked, (
+        "core/formats/mp3.synchsafe and forensics/anomalies.py disagree about "
+        "the same four bytes")
