@@ -13,15 +13,55 @@ table id and a fieldcodec bitsmap MAPID cannot then drift apart.
 
 # ── value->label tables (referenced by name by grammar Enum + the walkers) ──
 
+# The `fmt ` chunk's format tag, and the sub-format inside a
+# WAVEFORMATEXTENSIBLE GUID -- one table, both readers.
+#
+# NOT the whole registry. Microsoft's is 265 entries deep and most of it is
+# codecs for hardware nobody has owned since 1998; naming those would be bulk,
+# not knowledge. What is here is what a real audio corpus actually contains,
+# because for a tool whose subject is telling you what bytes ARE, answering
+# "unknown 0xf1ac" about a FLAC stream is the wrong answer.
+#
+# Every value is cross-checked against the Kaitai Struct wav spec by
+# tests/test_kaitai_cross_check.py, which asserts acidcat names no tag the
+# registry does not. That check is why a tag is added by looking it up rather
+# than by remembering it.
 WAVE_FORMAT_TAGS = {
     0x0001: "PCM",
     0x0002: "MS ADPCM",
     0x0003: "IEEE float",
     0x0006: "A-law",
     0x0007: "mu-law",
+    0x0010: "OKI ADPCM",
     0x0011: "IMA ADPCM",
+    0x0020: "Yamaha ADPCM",
+    0x0031: "GSM 6.10",
+    0x0032: "MSN Audio",
     0x0039: "Roland RDAC (RFC 2361; mmreg.h squats Crystal IMA ADPCM here)",
+    0x0040: "G.721 ADPCM",
+    0x0050: "MPEG Layer I/II",
     0x0055: "MPEG Layer III",
+    0x0064: "G.726 ADPCM",
+    0x0065: "G.722 ADPCM",
+    0x0092: "Dolby AC-3 over S/PDIF",
+    0x00FF: "raw AAC",
+    0x0161: "WMA v2",
+    0x0162: "WMA Pro",
+    0x0163: "WMA Lossless",
+    0x0164: "WMA over S/PDIF",
+    # mmreg.h assigns 0x2000 to Fast Multimedia AG's DVM, but AC-3 muxed into
+    # RIFF is written with it in practice (ffmpeg maps AC-3 here). Both names
+    # are true of the same two bytes, so both are printed -- the same call the
+    # 0x0039 entry above makes.
+    0x2000: "DVM, or Dolby AC-3 (mmreg.h says DVM; AC-3-in-WAV uses this tag)",
+    0x674F: "Ogg Vorbis mode 1",
+    0x6750: "Ogg Vorbis mode 2",
+    0x6751: "Ogg Vorbis mode 3",
+    0x676F: "Ogg Vorbis mode 1+",
+    0x6770: "Ogg Vorbis mode 2+",
+    0x6771: "Ogg Vorbis mode 3+",
+    0xA106: "MPEG-4 AAC",
+    0xF1AC: "FLAC",
     0xFFFE: "extensible",
 }
 

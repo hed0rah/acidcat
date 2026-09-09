@@ -129,16 +129,45 @@ struct fmt_chunk {
 
 ### Format Tags
 
-| Tag      | Codec             | Notes                           |
-|----------|-------------------|---------------------------------|
-| `0x0001` | PCM (LPCM)        | uncompressed, the default       |
-| `0x0003` | IEEE Float        | 32-bit or 64-bit float samples  |
-| `0x0006` | A-law             | telephony codec                 |
-| `0x0007` | mu-law            | telephony codec                 |
-| `0x0011` | IMA ADPCM         | compressed, 4:1 ratio           |
-| `0x0002` | MS ADPCM          | Microsoft ADPCM variant         |
-| `0x0055` | MPEG Layer III     | MP3 in WAV container            |
-| `0xFFFE` | Extensible        | sub-format GUID follows         |
+Microsoft's registry runs to 265 entries, nearly all of them codecs for
+hardware that has not shipped since the 1990s. The tags below are the ones
+acidcat names -- what a real audio corpus actually contains -- and anything
+outside them is reported as `unknown 0x....` rather than guessed at.
+
+| Tag      | Codec              | Notes                              |
+|----------|--------------------|------------------------------------|
+| `0x0001` | PCM (LPCM)         | uncompressed, the default          |
+| `0x0002` | MS ADPCM           | Microsoft ADPCM variant            |
+| `0x0003` | IEEE Float         | 32-bit or 64-bit float samples     |
+| `0x0006` | A-law              | telephony codec                    |
+| `0x0007` | mu-law             | telephony codec                    |
+| `0x0010` | OKI ADPCM          |                                    |
+| `0x0011` | IMA ADPCM          | compressed, 4:1 ratio              |
+| `0x0020` | Yamaha ADPCM       |                                    |
+| `0x0031` | GSM 6.10           | voice material                     |
+| `0x0032` | MSN Audio          |                                    |
+| `0x0039` | Roland RDAC        | RFC 2361; mmreg.h squats Crystal IMA ADPCM here |
+| `0x0040` | G.721 ADPCM        |                                    |
+| `0x0050` | MPEG Layer I/II    |                                    |
+| `0x0055` | MPEG Layer III     | MP3 in WAV container               |
+| `0x0064` | G.726 ADPCM        |                                    |
+| `0x0065` | G.722 ADPCM        |                                    |
+| `0x0092` | Dolby AC-3 (S/PDIF)|                                    |
+| `0x00FF` | raw AAC            |                                    |
+| `0x0161` | WMA v2             |                                    |
+| `0x0162` | WMA Pro            |                                    |
+| `0x0163` | WMA Lossless       |                                    |
+| `0x0164` | WMA over S/PDIF    |                                    |
+| `0x2000` | DVM, or Dolby AC-3 | mmreg.h assigns this to Fast Multimedia's DVM; AC-3 muxed into RIFF is written with it in practice |
+| `0x674F` | Ogg Vorbis mode 1  | `0x6750`/`0x6751` are modes 2 and 3 |
+| `0x676F` | Ogg Vorbis mode 1+ | `0x6770`/`0x6771` are modes 2+ and 3+ |
+| `0xA106` | MPEG-4 AAC         |                                    |
+| `0xF1AC` | FLAC               | a FLAC stream inside a RIFF container |
+| `0xFFFE` | Extensible         | sub-format GUID follows            |
+
+Two of these are collisions rather than clean assignments -- `0x0039` and
+`0x2000` each mean two different things depending on who wrote the file --
+and acidcat prints both readings rather than picking a side.
 
 For extensible format (0xFFFE), the fmt chunk extends with:
 

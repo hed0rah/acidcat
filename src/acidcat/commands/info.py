@@ -15,6 +15,7 @@ from acidcat.core.formats.riff import (
 )
 from acidcat.core.formats.aiff import is_aiff
 from acidcat.core.formats.midi import is_midi
+from acidcat.core.infra.vocab import WAVE_FORMAT_TAGS
 from acidcat.core.formats.serum import is_serum_preset
 from acidcat.core.tagged import is_tagged_format
 from acidcat.core.analysis.detect import estimate_librosa_metadata
@@ -121,7 +122,10 @@ def _info_wav(filepath, args):
 
     if ctx.get("format_tag") is not None:
         tag = ctx["format_tag"]
-        codec = "PCM" if tag == 1 else f"tag={tag}"
+        # The same table `inspect` reads. This spelled its own answer -- "PCM"
+        # or a bare `tag=61868` -- so the two verbs disagreed about the same
+        # two bytes, and the one a person runs first said the less.
+        codec = WAVE_FORMAT_TAGS.get(tag, f"tag=0x{tag:04x}")
         ch = ctx.get("channels")
         ch_label = "mono" if ch == 1 else "stereo" if ch == 2 else f"{ch}ch"
         rec["Format"] = (f"WAV {codec} {ctx.get('sample_rate')}Hz "
