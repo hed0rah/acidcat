@@ -83,8 +83,20 @@ def is_mp3(filepath):
 
 
 def synchsafe(b4):
-    """Decode a 4-byte ID3v2 synchsafe integer (7 bits per byte)."""
-    return (b4[0] << 21) | (b4[1] << 14) | (b4[2] << 7) | b4[3]
+    """Decode a 4-byte ID3v2 synchsafe integer (7 bits per byte).
+
+    The mask is the point. Synchsafe exists so a length can never contain a
+    0xFF byte that a decoder would mistake for a frame sync, which means the
+    high bit of every byte is defined to be zero. A file with one set is
+    malformed, and reading it unmasked turns four bytes into a quarter-gigabyte:
+    a 414-byte file was reporting a 268 MB tag and skipping past the MPEG frame
+    at offset 10 to look for audio that far away.
+
+    `forensics/anomalies.py` masked from the start. This did not, so the two
+    readers of the same field disagreed by 268 MB on the same bytes.
+    """
+    return (((b4[0] & 0x7F) << 21) | ((b4[1] & 0x7F) << 14)
+            | ((b4[2] & 0x7F) << 7) | (b4[3] & 0x7F))
 
 
 def read_id3v2(filepath):
