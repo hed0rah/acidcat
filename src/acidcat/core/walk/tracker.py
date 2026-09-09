@@ -67,13 +67,22 @@ def inspect_mod(filepath):
             "id": f"smp[{i + 1}]", "offset": s["offset"], "size": s["length"],
             "summary": f"{s['name'] or '(unnamed)'}  {s['length']:,} bytes 8-bit PCM, "
                        f"vol {s['volume']}, {looped}",
+            # These describe the sample HEADER, which sits in the 1084-byte file
+            # header, not beside the PCM this chunk covers. Positioned with an
+            # absolute offset while the chunk declares payload_base at the PCM,
+            # they were added to that base and every one pointed past the file
+            # (the XM walker carried the identical bug, fixed the same way).
+            # Unpositioned with an xref is what the contract offers for a value
+            # that lives somewhere else.
             "fields": [
-                _f(s["hdr_off"], 22, "name", s["name"]),
-                _f(s["hdr_off"] + 22, 2, "length", f"{s['length']:,}", "bytes"),
-                _f(s["hdr_off"] + 24, 1, "finetune", s["finetune"]),
-                _f(s["hdr_off"] + 25, 1, "volume", s["volume"]),
-                _f(s["hdr_off"] + 26, 2, "loop_start", s["loop_start"]),
-                _f(s["hdr_off"] + 28, 2, "loop_len", s["loop_len"]),
+                _f(None, 22, "name", s["name"],
+                   f"header @ 0x{s['hdr_off']:08x}", xref=s["hdr_off"]),
+                _f(None, 2, "length", f"{s['length']:,}", "bytes",
+                   xref=s["hdr_off"] + 22),
+                _f(None, 1, "finetune", s["finetune"], xref=s["hdr_off"] + 24),
+                _f(None, 1, "volume", s["volume"], xref=s["hdr_off"] + 25),
+                _f(None, 2, "loop_start", s["loop_start"], xref=s["hdr_off"] + 26),
+                _f(None, 2, "loop_len", s["loop_len"], xref=s["hdr_off"] + 28),
             ],
             "warnings": [], "payload_base": s["offset"],
         })

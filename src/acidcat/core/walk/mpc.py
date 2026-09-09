@@ -226,7 +226,13 @@ def inspect_xpn(filepath):
         # each .xpm program is a real on-disk byte region; a STORED entry carves
         # to the literal .xpm, a DEFLATED one to its raw deflate stream.
         for zi in programs[:_XPN_ENTRY_CAP]:
-            doff = _data_offset(z, zi)
+            try:
+                doff = _data_offset(z, zi)
+            except ValueError:
+                # a corrupt/mutated entry whose local header the central
+                # directory points at wrongly: skip it, keep the rest
+                warns.append(f"{zi.filename}: unreadable local header, skipped")
+                continue
             stored = zi.compress_type == zipfile.ZIP_STORED
             comp = "stored (carveable .xpm)" if stored else "deflated (raw stream)"
             chunks.append({"id": "program", "offset": doff, "size": zi.compress_size,

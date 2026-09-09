@@ -390,3 +390,148 @@ def rmid():
     smf = thd + b"MTrk" + struct.pack(">I", len(ev)) + ev
     return b"RIFF" + struct.pack("<I", 4 + 8 + len(smf)) + b"RMID" \
         + _riff_chunk(b"data", smf)
+
+
+# ── borrowed builders ───────────────────────────────────────────────
+#
+# These formats already have a faithful minimal builder in their walker's test
+# module. The batch above LIFTED builders that make_format_corpus.py defined
+# itself; these have no such inline copy to lift, so the only alternative to
+# borrowing is a THIRD hand-written definition of a fiddly format (a tracker
+# header, an MPC slot table), which is precisely the drift the seed registry
+# exists to end. make_format_corpus._borrowed() makes the same call for the same
+# reason and against the same builders. Imported lazily inside each seed, so
+# seeds.py stays importable even where a test module cannot be, and the coupling
+# is paid only when a seed is actually built.
+
+
+def _call(module, fn, *args, **kwargs):
+    import importlib
+    return getattr(importlib.import_module(module), fn)(*args, **kwargs)
+
+
+def _call_path(module, fn, *args, **kwargs):
+    """For builders that write a file and hand back its path rather than bytes."""
+    import pathlib
+    import shutil
+    import tempfile
+    d = tempfile.mkdtemp(prefix="acidcat-seed-")
+    try:
+        made = _call(module, fn, pathlib.Path(d), *args, **kwargs)
+        with open(str(made), "rb") as fh:
+            return fh.read()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@seed("mod", ".mod")
+def mod():
+    """Amiga ProTracker: 20-byte title, 31 sample headers, order table, then the
+    `M.K.` tag that a signature sweep keys on, one pattern, one sample."""
+    return _call("test_tracker", "_make_mod")
+
+
+@seed("xm", ".xm")
+def xm():
+    """FastTracker II: `Extended Module: ` magic, a header whose declared size is
+    the offset to the pattern data, one pattern and one 8-bit sample."""
+    return _call("test_tracker", "_make_xm")
+
+
+@seed("it", ".it")
+def it():
+    """Impulse Tracker: `IMPM`, sample/instrument offset tables that the walker
+    follows. The builder returns (bytes, off, off) for its xref test; the seed
+    wants only the bytes."""
+    return _call("test_tracker", "_make_it")[0]
+
+
+@seed("s3m", ".s3m")
+def s3m():
+    """ScreamTracker 3: the `SCRM` tag at offset 44, parapointer tables, the
+    0x1A end-of-header marker."""
+    return _call("test_s3m", "_make_s3m")
+
+
+@seed("ncw", ".ncw")
+def ncw():
+    """Native Instruments compressed wave: header, per-channel block table, then
+    the compressed blocks. One mono 8-bit block of 512 samples."""
+    return _call("test_ncw", "make_ncw", 1, 16, 44100, [[0] * 512], bits=8)
+
+
+@seed("albank", ".ctl")
+def albank():
+    """N64 libultra ALBank (.ctl): the instrument-bank half of the ctl/tbl pair,
+    a tree of bank -> instrument -> sound offsets."""
+    return _call("test_albank", "_make_ctl")
+
+
+@seed("bfdlac", ".bfdlac")
+def bfdlac():
+    """BFD3 compressed audio (`BFDC`): a chunked container, here the `fmt ` and
+    `indx` chunks a walker needs to describe it."""
+    return _call("test_bfdlac", "_bfdc",
+                 [_call("test_bfdlac", "_fmt"), _call("test_bfdlac", "_indx")])
+
+
+@seed("krz", ".krz")
+def krz():
+    """Kurzweil K2000 bank: RIFF-like object tree plus a trailing headerless PCM
+    region. One sample object over 200 bytes of PCM."""
+    obj = _call("test_krz", "_object", 1, 1, "Samp", _call("test_krz", "_sample_body"))
+    return _call("test_krz", "_bank", [obj], pcm=b"\x00\x00" * 100)
+
+
+@seed("asd", ".asd")
+def asd():
+    """Ableton analysis sidecar: the 0x06 magic and TIFF byte-order mark, then a
+    warp/loop grid. Built from a 2-second grid at 44100."""
+    return _call("test_ableton", "build_asd", _call("test_ableton", "grid_for", 44100, 2.0))
+
+
+@seed("akp", ".akp")
+def akp():
+    """Akai MPC/S-series program: RIFF-like `RIFF`/`APRG` with keygroup chunks."""
+    return _call_path("test_akai", "_make_akp")
+
+
+@seed("e4b", ".e4b")
+def e4b():
+    """E-mu E4 bank (`FORM`/`E4B0`): the Emulator IV preset/sample container."""
+    return _call_path("test_emu", "_make_e4b")
+
+
+@seed("e5b", ".exb")
+def e5b():
+    """E-mu E5000 bank (`FORM`/`E5B0`): the later variant of the E4 container."""
+    return _call_path("test_emu", "_make_e5b")
+
+
+@seed("xpn", ".xpn")
+def xpn():
+    """Akai MPC program (XPM/XPN family): the pad-and-sample layout an MPC saves
+    alongside a kit."""
+    return _call_path("test_mpc", "_make_xpn")
+
+
+@seed("xtd", ".xtd")
+def xtd():
+    """Akai MPC expansion metadata: the kit-description sidecar."""
+    return _call_path("test_mpc", "_make_xtd")
+
+
+@seed("snd", ".snd")
+def snd():
+    """Akai MPC1000 sample (`.snd`): a headered PCM one-shot. Distinct from the
+    Sun/NeXT `.au`, which shares the extension and is why sniff cannot go on the
+    extension alone."""
+    return _call_path("test_mpc", "_make_snd")
+
+
+@seed("pgm", ".pgm")
+def pgm():
+    """Akai MPC1000 program: the pad-map with its slot table. The MPC1000 variant
+    on purpose -- the MPC2000 builder makes a 36-byte file, under the sweep's
+    mutation floor, and this covers the same walker."""
+    return _call_path("test_mpc", "_make_pgm_mpc1000", ["Kick", "Snare"])

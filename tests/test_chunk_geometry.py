@@ -304,8 +304,8 @@ class TestTheRatchetSaysWhatItCovers:
         a moved fixture, a walker that starts raising -- fails here instead of
         turning every assertion above into a no-op."""
         chunks = sum(len(c) for _p, _l, c, _w in walked)
-        assert len(walked) >= 33, f"only {len(walked)} files walked"
-        assert chunks >= 110, f"only {chunks} chunks examined"
+        assert len(walked) >= 46, f"only {len(walked)} files walked"
+        assert chunks >= 155, f"only {chunks} chunks examined"
 
     def test_it_says_how_far_it_reaches(self, walked):
         """Stated rather than implied. A clone's data/ exercises five formats;
@@ -319,7 +319,7 @@ class TestTheRatchetSaysWhatItCovers:
         # fixtures, plus one per seeded format. It rises when a specimen is
         # COMMITTED or a seed is ADDED, and both are things someone did on
         # purpose -- never when a gitignored directory happens to be present.
-        assert len(labels) >= 26, sorted(labels)
+        assert len(labels) >= 38, sorted(labels)
         assert {"RIFF/WAVE", "FLAC"} <= labels, sorted(labels)
 
 
