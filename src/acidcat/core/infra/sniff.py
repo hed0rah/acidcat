@@ -38,7 +38,7 @@ KNOWN_FORMATS = frozenset({
     "8svx", "adg", "adv", "adx", "agr", "aifc", "aiff", "akp", "albank", "alc", "als", "amxd",
     "au",
     "asd", "bfdlac", "bitwig", "brstm",
-    "cdxa", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gcm", "gf1pat", "hps",
+    "caf", "cdxa", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gcm", "gf1pat", "hps",
     "id3-wrapped", "iq", "it", "krz", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
@@ -61,6 +61,7 @@ AUDIO_CONTAINERS = {
     # does not. Wave64 exists to hold files past 4 GB, so it is exactly the
     # container worth finding embedded in something larger.
     "w64":  (wave64mod.RIFF_GUID, "w64"),
+    "caf":  (b"caff", "caf"),
     "aiff": (b"FORM", "aiff"),
     "aifc": (b"FORM", "aiff"),
     "8svx": (b"FORM", "8svx"),
@@ -163,6 +164,8 @@ def sniff_bytes(head):
         return "hps"                                   # HAL PCM Stream (GameCube DSP-ADPCM)
     if head[:4] == b"RSTM":
         return "brstm"                                 # Nintendo streamed audio (GameCube/Wii DSP-ADPCM)
+    if head[:4] == b"caff":
+        return "caf"                                   # Apple Core Audio Format
     if head[:6] == b'FILE "':
         return "cue"                                   # CUE sheet (CD-DA track layout)
     if head[:8] == b"SMF2CLIP":

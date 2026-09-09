@@ -858,6 +858,17 @@ def sigmf():
     }).encode()
 
 
+@seed("caf", ".caf")
+def caf():
+    """Apple Core Audio Format: big-endian, SIGNED 64-bit payload-only sizes,
+    and no alignment at all. Carries an `info` chunk as well as desc and data,
+    so a mutation has a string table to land in and not only fixed fields."""
+    import struct as _s
+    info = _call("test_caf", "_chunk", b"info",
+                 _s.pack(">I", 2) + b"artist\x00seed\x00tempo\x00120\x00")
+    return _call("test_caf", "_make_caf", None, info)
+
+
 @seed("w64", ".w64")
 def w64():
     """Sony Wave64: GUID chunk ids, u64 sizes that count their own 24-byte

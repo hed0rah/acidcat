@@ -374,6 +374,28 @@ def _svx_many_chunks(tmp_path, n):
     return str(p)
 
 
+def _caf_many_chunks(tmp_path, n):
+    """A CAF with n tiny chunks, to cross the walker's chunk cap."""
+    import test_caf
+    body = test_caf._chunk(b"desc", test_caf._desc())
+    body += b"".join(test_caf._chunk(b"free", b"\x00" * 4) for _ in range(n))
+    body += test_caf._data()
+    p = tmp_path / "many.caf"
+    p.write_bytes(b"caff" + struct.pack(">HH", 1, 0) + body)
+    return str(p)
+
+
+def _caf_many_info(tmp_path, n):
+    """A CAF whose info chunk carries n key/value pairs, to cross the string
+    cap that decides how many are listed."""
+    import test_caf
+    pairs = b"".join(b"k%d\x00v%d\x00" % (i, i) for i in range(n))
+    info = test_caf._chunk(b"info", struct.pack(">I", n) + pairs)
+    p = tmp_path / "info.caf"
+    p.write_bytes(test_caf._make_caf(extra=info))
+    return str(p)
+
+
 def _w64_many_chunks(tmp_path, n):
     """A Wave64 with n tiny chunks, to cross the walker's chunk cap.
 
@@ -534,6 +556,10 @@ SWEPT = [
      "stopped after"),
     ("acidcat.core.walk.wave64", "_MAX_CHUNKS", 4, _w64_many_chunks,
      "stopped after"),
+    ("acidcat.core.walk.caf", "_MAX_CHUNKS", 4, _caf_many_chunks,
+     "stopped after"),
+    ("acidcat.core.walk.caf", "_STRING_CAP", 4, _caf_many_info,
+     "listing the first"),
 ]
 
 

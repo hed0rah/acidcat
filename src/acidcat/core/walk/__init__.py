@@ -15,7 +15,7 @@ import tempfile
 from acidcat.core.infra import geometry
 from acidcat.core.infra import sniff as sniffmod
 from acidcat.core.walk import (
-    ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, chiptune, containers, dmx,
+    ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, caf, chiptune, containers, dmx,
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
     mp4, mpc, multisample, ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, svx, tracker,
@@ -29,6 +29,7 @@ _WALKERS = {
     "wav": ("RIFF/WAVE", lambda path, deep: wav.inspect_wav(path)),
     "rf64": ("RF64/WAVE", lambda path, deep: rf64.inspect_rf64(path)),
     "w64": ("Wave64", lambda path, deep: wave64.inspect_wave64(path)),
+    "caf": ("Apple Core Audio Format", lambda path, deep: caf.inspect_caf(path)),
     "aiff": ("IFF/AIFF", lambda path, deep: aiff.inspect_aiff(path, "AIFF")),
     "aifc": ("IFF/AIFC", lambda path, deep: aiff.inspect_aiff(path, "AIFC")),
     "8svx": ("IFF/8SVX", lambda path, deep: svx.inspect_8svx(path)),
