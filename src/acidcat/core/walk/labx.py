@@ -213,7 +213,11 @@ def inspect_labx(filepath):
                        "fields": [_f(None, 0, "entries", len(assets))],
                        "warnings": warns}]
             for zi, _ in assets[:_PRESET_CAP]:
-                doff = _data_offset(z, zi)
+                try:
+                    doff = _data_offset(z, zi)
+                except ValueError:
+                    warns.append(f"{zi.filename}: unreadable local header, skipped")
+                    continue
                 chunks.append({"id": "asset", "offset": doff,
                                "size": zi.compress_size, "summary": zi.filename,
                                "fields": [_f(None, 0, "size", f"{zi.file_size:,} bytes")],
@@ -244,7 +248,13 @@ def inspect_labx(filepath):
         for zi, parts in presets[:_PRESET_CAP]:
             engine, name = parts[0], parts[-1]
             bank = parts[2] if len(parts) >= 4 else parts[-2]
-            doff, head = _read_head(z, zi)
+            try:
+                doff, head = _read_head(z, zi)
+            except ValueError:
+                # the central directory points this entry's local header
+                # somewhere the file does not go: skip the entry, keep the bank
+                warns.append(f"{zi.filename}: unreadable local header, skipped")
+                continue
             pwarn = []
             if _ARCHIVE_MAGIC in head[:64]:
                 fields, suffix = _preset_fields(head, engine, name, bank)

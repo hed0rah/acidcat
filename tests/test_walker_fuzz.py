@@ -121,19 +121,36 @@ class TestMutationsDegradeRatherThanCrash:
 
 
 class TestWhatWeCanFuzzIsStated:
-    """The sweep covers what it can seed, which is not everything. A number
-    that goes unstated reads as complete."""
+    """The sweep covers what it can seed, which used to be one walker in 52.
 
-    def test_the_gap_between_seeded_and_registered_is_named(self):
+    This class asked for years only that the gap be NAMED, on the grounds that
+    an unstated number reads as complete. It said in as many words that if the
+    gap ever closed it should say so differently. It has closed, so it does.
+    """
+
+    def test_every_registered_walker_is_reachable_from_a_seed(self, tmp_path):
+        """The gap is zero, and this is what keeps it there.
+
+        A walker with no seed is a walker no mutation ever reaches: it was
+        registered, it was covered by whatever its own test module asserted,
+        and it was absent from every contract test in this file. That is how
+        the sweep spent its first life covering exactly one of 52 formats.
+
+        Adding a walker now means adding a seed, and this is where forgetting
+        is caught. It is deliberately stated as a set difference rather than a
+        count, so the failure names the format instead of a number.
+        """
         from acidcat.core.walk import _WALKERS
         registered = {label for label, _fn in _WALKERS.values()}
-        assert len(FORMATS) >= 7, FORMATS
-        # Not an assertion that the gap is small -- an assertion that it is
-        # known. Every seed added closes part of it, and this number is how
-        # anyone can see how much is left.
-        assert len(registered) > len(FORMATS), (
-            "if this fails the gap has closed and this test should say so "
-            "differently")
+        reached = set()
+        for fmt in FORMATS:
+            try:
+                reached.add(walk_file(_write(tmp_path, fmt, seeds.build(fmt)))[0])
+            except Unsupported:
+                continue
+        assert registered <= reached, (
+            "registered walkers no seed reaches, so nothing in this file "
+            "fuzzes them: " + ", ".join(sorted(registered - reached)))
 
     def test_every_seed_is_reachable_through_the_public_boundary(self, tmp_path):
         """A seed only the sniffer likes is not a fuzzing target."""
@@ -188,8 +205,9 @@ class TestWalkBytesIsTheHarnessEntryPoint:
 
 def test_every_walker_survives_tiny_forced_input():
     """fmt_override's docstring promises a forced walker "degrades to warnings
-    like any other walk" -- with no seed required, so this covers all 67
-    registered labels, not just the seedable ones. The audit found four
+    like any other walk". No seed required, so this reaches a walker through
+    the forced path rather than through its magic -- which is a different entry
+    point, not a wider one, now that every walker has a seed. The audit found four
     walkers that broke the promise on sub-header input: voc (reachable from
     the natural sniff: a file that is exactly the 20-byte magic), rf64 and
     aiff (12-byte header unpacked unguarded), and asd (domain AbletonError

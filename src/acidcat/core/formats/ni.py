@@ -316,6 +316,14 @@ def _mp_map(b, pos, count, depth):
     for _ in range(count):
         k, pos = _mp_decode(b, pos, depth + 1)
         v, pos = _mp_decode(b, pos, depth + 1)
+        # MessagePack lets a key be any type, including a map or an array;
+        # Python dict keys must be hashable, so `out[k] = v` raised TypeError
+        # straight out of the walker on one flipped byte. NKS metadata is
+        # string-keyed, so a document with a composite key is not NKS -- reject
+        # it the way every other malformed shape here is rejected, which
+        # parse_nksf already turns into a clean None.
+        if not isinstance(k, (str, bytes, int, float, bool, type(None))):
+            raise ValueError(f"mp map key is {type(k).__name__}, not a scalar")
         out[k] = v
     return out, pos
 

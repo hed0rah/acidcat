@@ -122,8 +122,36 @@ def inspect_midi2(filepath, deep=False):
     return [header, clip], file_warns
 
 
+def _detail_midi1(m):
+    """One MIDI 1.0 Channel Voice message, in its own two 7-bit data bytes."""
+    k, ch = m["kind"], m["channel"] + 1
+    d1, d2 = m["data1"], m["data2"]
+    if k in ("note_on", "note_off"):
+        return f"note {d1} vel {d2} ch{ch} grp{m['group'] + 1} (MIDI 1.0)"
+    if k == "control_change":
+        return f"cc{d1}={d2} ch{ch} (MIDI 1.0)"
+    if k == "program_change":
+        return f"program {d1} ch{ch} (MIDI 1.0)"
+    if k == "pitch_bend":
+        return f"{(d2 << 7) | d1} ch{ch} (MIDI 1.0)"
+    if k == "poly_pressure":
+        return f"note {d1} pressure {d2} ch{ch} (MIDI 1.0)"
+    if k == "channel_pressure":
+        # one data byte in MIDI 1.0; data2 is not part of the message
+        return f"{d1} ch{ch} (MIDI 1.0)"
+    return f"{k} ch{ch} (MIDI 1.0)"
+
+
 def _detail(m):
     k = m["kind"]
+    if m.get("mt") == 0x2:
+        # MIDI 1.0 Channel Voice. It shares every `kind` below with the MIDI 2.0
+        # family and none of their fields: the resolution is the whole
+        # difference between the two, so a 1.0 message carries data1/data2
+        # where a 2.0 one carries note/velocity/program/bank. Rendering it
+        # through the 2.0 branches raised KeyError on five of the six statuses,
+        # and mt 0x2 is legal in a clip file, so a valid document reached it.
+        return _detail_midi1(m)
     if k in ("note_on", "note_off"):
         return (f"note {m['note']} vel {m['velocity']} ch{m['channel'] + 1} grp{m['group'] + 1}"
                 + (f" attr {m['attr_type']:#04x}" if m.get("attr_type") else ""))

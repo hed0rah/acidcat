@@ -33,8 +33,9 @@ own reach is asserted rather than implied, because a test that quietly stops
 examining anything passes forever.
 
 Those 47 files are `data/` on a development machine, where `data/test_formats/`
-holds 48 specimens that are gitignored. A clone has 7 walkable files and 56
-chunks, so the floor below is the CLONE's corpus, not the measurement above.
+holds 48 specimens that are gitignored. A clone has 12 walkable files under
+`data/` and, with the seed registry, 81 files and 248 chunks in total, so the
+floor below is the CLONE's corpus, not the measurement above.
 The first version of this file asserted the development numbers and passed on
 the machine it was written on while failing on all five CI platforms -- the
 ratchet reporting a local reading as a fact about the repo, which is the exact
@@ -304,22 +305,28 @@ class TestTheRatchetSaysWhatItCovers:
         a moved fixture, a walker that starts raising -- fails here instead of
         turning every assertion above into a no-op."""
         chunks = sum(len(c) for _p, _l, c, _w in walked)
-        assert len(walked) >= 46, f"only {len(walked)} files walked"
-        assert chunks >= 155, f"only {chunks} chunks examined"
+        # MEASURED, not estimated: 12 tracked files under data/ plus 69 seeds
+        # is 81 files and 248 chunks in a clone. The previous floor was derived
+        # by arithmetic from the batch before it and had drifted well under
+        # what the corpus actually reached, which makes a ratchet decorative.
+        # Re-measure by walking `git ls-files data` plus every seed; the margin
+        # below is for a seed that cannot build on some platform, nothing more.
+        assert len(walked) >= 78, f"only {len(walked)} files walked"
+        assert chunks >= 240, f"only {chunks} chunks examined"
 
     def test_it_says_how_far_it_reaches(self, walked):
-        """Stated rather than implied. A clone's data/ exercises five formats;
-        the repo has roughly thirty walkers, so a clean run here is evidence
-        about those five and silence about the rest. The gap is corpus, not
-        method: every format COMMITTED to data/ widens this automatically, and
-        a development machine carrying data/test_formats/ already covers more
-        than this asserts."""
+        """Stated rather than implied. A clone's data/ exercises nine formats;
+        the seed registry carries the rest, and between them a clone now
+        reaches all 67 registered walker labels. That number is the
+        argument for seeds: it was five when the fixtures were the whole
+        committed corpus, and every format added since arrived as code rather
+        than as a file nobody could distribute."""
         labels = {lab for _p, lab, _c, _w in walked}
-        # The floor is what a CLONE reaches: five formats from the committed
-        # fixtures, plus one per seeded format. It rises when a specimen is
-        # COMMITTED or a seed is ADDED, and both are things someone did on
-        # purpose -- never when a gitignored directory happens to be present.
-        assert len(labels) >= 38, sorted(labels)
+        # The floor is what a CLONE reaches: the committed fixtures, plus one
+        # per seeded format. It rises when a specimen is COMMITTED or a seed is
+        # ADDED, and both are things someone did on purpose -- never when a
+        # gitignored directory happens to be present.
+        assert len(labels) >= 66, sorted(labels)
         assert {"RIFF/WAVE", "FLAC"} <= labels, sorted(labels)
 
 

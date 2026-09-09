@@ -29,6 +29,25 @@ def _data_offset(z, zi):
     return zip_data_offset(z, zi)
 
 
+def _safe_offset(z, zi, warns):
+    """`_data_offset`, or None for an entry whose local header is unreadable.
+
+    The central directory can point at an offset the file does not have --
+    negative, or past the end -- and the primitive says so with a ValueError.
+    None rather than 0: a corrupt entry has no byte position, and 0 is a
+    position, which a carve would then follow to the front of the archive.
+    The third walker on this primitive to need the guard, after xpn and labx.
+    """
+    if zi is None:
+        return None
+    try:
+        return _data_offset(z, zi)
+    except ValueError:
+        warns.append(f"{zi.filename}: unreadable local header, "
+                     "reported without a byte range")
+        return None
+
+
 # bypassing ZipFile.read (below, for the bad CRCs) also bypassed its implicit
 # bound; deflate packs ~1032:1, so an unbounded inflate let a 79 KB archive
 # demand hundreds of MB. multisample.xml is metadata measured in KB.
@@ -100,7 +119,7 @@ def inspect_multisample(filepath):
         mfields.append(_f(None, 0, "sample_zones", len(samples)))
         mfields.append(_f(None, 0, "member_files", len(wavs)))
         mx = infos.get("multisample.xml")
-        mx_off = _data_offset(z, mx) if mx else 0
+        mx_off = _safe_offset(z, mx, warns) if mx else 0
         chunks = [{"id": "multisample.xml",
                    "offset": mx_off,
                    "size": mx.compress_size if mx else 0,
@@ -127,7 +146,7 @@ def inspect_multisample(filepath):
                              f"{loop.get('mode')} {loop.get('start', '?')}-"
                              f"{loop.get('stop', '?')}"))
             zi = infos.get(fname)
-            z_off = _data_offset(z, zi) if zi else 0
+            z_off = _safe_offset(z, zi, warns) if zi else 0
             chunks.append({"id": "zone",
                            "offset": z_off,
                            "size": zi.compress_size if zi else 0,

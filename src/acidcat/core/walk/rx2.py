@@ -87,12 +87,17 @@ def inspect_rx2(filepath):
         if cid == b"CREI":
             creator = _dtext(data[cbody:cbody + clen]).strip("\x00 ").strip()
             if creator:
-                cfields.append(_f(cbody, clen, "creator", creator[:80]))
+                # 0, not cbody: a field offset is RELATIVE to its chunk's
+                # payload_base, which is already cbody. Passing the absolute
+                # offset added it twice, so the creator string was reported at
+                # 2*cbody -- outside the chunk that declares it. The same
+                # defect the mod/au/voc/krz walkers carried, found the same way.
+                cfields.append(_f(0, clen, "creator", creator[:80]))
                 summary = creator[:60]
         elif cid == b"NAME":
             name = _dtext(data[cbody:cbody + clen]).strip("\x00 ").strip()
             if name:
-                cfields.append(_f(cbody, clen, "name", name[:80]))
+                cfields.append(_f(0, clen, "name", name[:80]))
                 summary = name[:60]
         chunks.append({"id": cid_s, "offset": pos, "size": clen,
                        "summary": summary, "fields": cfields,

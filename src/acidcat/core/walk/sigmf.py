@@ -281,6 +281,13 @@ def inspect_sigmf(path, deep=False):
             if sb and off > data_size:
                 warns.append(f"capture[{i}] sample_start implies offset "
                              f"0x{off:x} past EOF")
+            elif sb and off + span * sb > data_size:
+                # The START was checked and the END was not, so a segment that
+                # begins inside the stream and runs off the end of it was
+                # reported as a byte region with no warning at all. The
+                # metadata declares this span; the data plane does not have it.
+                warns.append(f"capture[{i}] claims {span * sb:,} bytes from "
+                             f"0x{off:x}, past the {data_size:,}-byte data plane")
             chunks.append({
                 "id": f"capture[{i}]", "offset": off, "size": span * sb,
                 "summary": f"@ {(fc or 0) / 1e6:.3f} MHz, sample {s0:,}+{span:,}",
@@ -297,6 +304,12 @@ def inspect_sigmf(path, deep=False):
             if sb and off > data_size:
                 warns.append(f"annotation[{i}] sample_start implies offset "
                              f"0x{off:x} past EOF")
+            elif sb and off + cnt * sb > data_size:
+                # as for captures: sample_count was never checked against the
+                # data plane, so a label spanning more samples than exist read
+                # as an ordinary region
+                warns.append(f"annotation[{i}] claims {cnt * sb:,} bytes from "
+                             f"0x{off:x}, past the {data_size:,}-byte data plane")
             lab = a.get("core:label") or a.get("core:generator") or f"annotation {i}"
             af = [_f(None, 0, "sample_start", s0, "", xref=off),
                   _f(None, 0, "sample_count", cnt)]

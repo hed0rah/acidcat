@@ -77,7 +77,18 @@ def svx(frames=64):
 
 @seed("midi", ".mid")
 def midi(division=96):
-    track = b"\x00\xff\x2f\x00"                      # end-of-track, and nothing else
+    """MThd, then one MTrk ending in the required end-of-track meta event.
+
+    Carries a track name, a tempo and a scale rather than a bare terminator:
+    the end-of-track-only version was 26 bytes, under the sweep's 64-byte
+    floor, so it was registered and then never mutated once. Being seeded and
+    being fuzzed are two claims and only the first was true here.
+    """
+    name = b"\x00\xff\x03\x04seed"                   # track name meta
+    tempo = b"\x00\xff\x51\x03\x07\xa1\x20"          # 500000 us/qn = 120 bpm
+    notes = b"".join(b"\x00\x90" + bytes([n, 0x40]) + b"\x30\x80" + bytes([n, 0x40])
+                     for n in range(60, 72))
+    track = name + tempo + notes + b"\x00\xff\x2f\x00"
     return (b"MThd" + struct.pack(">IHHH", 6, 0, 1, division)
             + b"MTrk" + struct.pack(">I", len(track)) + track)
 
@@ -535,3 +546,320 @@ def pgm():
     on purpose -- the MPC2000 builder makes a 36-byte file, under the sweep's
     mutation floor, and this covers the same walker."""
     return _call_path("test_mpc", "_make_pgm_mpc1000", ["Kick", "Snare"])
+
+
+# ── batch 4: the gzipped-XML family, and more borrowed builders ─────
+#
+# make_format_corpus.py is itself a source of builders, not only a consumer of
+# them: `_ableton_xml` and `_aiff` are defined there and nowhere else. Calling
+# them keeps that one definition, the same way the borrowed block above calls
+# the walker test modules.
+
+
+def _call_into(module, fn, name, *args, **kwargs):
+    """For builders handed a FILE path to write, rather than a directory."""
+    import os
+    import shutil
+    import tempfile
+    d = tempfile.mkdtemp(prefix="acidcat-seed-")
+    try:
+        path = os.path.join(d, name)
+        _call(module, fn, path, *args, **kwargs)
+        with open(path, "rb") as fh:
+            return fh.read()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# Every Ableton document but .asd and .amxd is gzip around an XML file whose
+# root's FIRST CHILD names the type. There is no magic past gzip's own, so the
+# five below are one builder and differ in exactly one tag -- and .alc differs
+# from .als in nothing but the extension, which is the fragile half and the
+# reason it is worth its own seed rather than being folded into .als.
+
+@seed("adg", ".adg")
+def adg():
+    """Ableton device group / rack: root child `GroupDevicePreset`."""
+    return _call("make_format_corpus", "_ableton_xml", "GroupDevicePreset")
+
+
+@seed("adv", ".adv")
+def adv():
+    """Ableton device preset. `DeviceChainPreset` is not in the child map, so
+    this also covers the fall-through the map ends in."""
+    return _call("make_format_corpus", "_ableton_xml", "DeviceChainPreset")
+
+
+@seed("agr", ".agr")
+def agr():
+    """Ableton groove: root child `Groove`."""
+    return _call("make_format_corpus", "_ableton_xml", "Groove")
+
+
+@seed("als", ".als")
+def als():
+    """Ableton Live Set: root child `LiveSet`."""
+    return _call("make_format_corpus", "_ableton_xml", "LiveSet")
+
+
+@seed("alc", ".alc")
+def alc():
+    """Ableton Live Clip: byte-for-byte the `als` document. The EXTENSION is the
+    entire difference, so this seed is what proves the split survives mutation
+    of the bytes it does not depend on."""
+    return _call("make_format_corpus", "_ableton_xml", "LiveSet")
+
+
+@seed("aifc", ".aifc")
+def aifc():
+    """FORM..AIFC: AIFF plus the FVER chunk and a compression id in COMM. Here
+    the id is `NONE`, so the frames are ordinary PCM and only the container
+    shape differs."""
+    return _call("make_format_corpus", "_aiff", compressed=True)
+
+
+@seed("labx", ".labx")
+def labx():
+    """Arturia Analog Lab bank: a STORED zip of Boost text-archive presets. The
+    zip primitive under it is the one the `xpn` seed found raising a bare
+    OSError, so this seed puts a second walker on that path."""
+    return _call_into("test_labx", "_make_labx", "bank.labx")
+
+
+@seed("vital", ".vital")
+def vital():
+    """Vital preset: bare JSON, no envelope. The walker's whole job is reading a
+    document a tolerant JSON loader would accept without complaint."""
+    return _call("test_vital", "_preset")
+
+
+@seed("gf1pat", ".pat")
+def gf1pat():
+    """Gravis UltraSound GF1 patch: `GF1PATCH110`, then a header/instrument/
+    layer/sample-header chain that must be walked in order to find the PCM."""
+    return _call("test_gf1pat", "gf1_patch", b"\x80" * 512)
+
+
+@seed("brstm", ".brstm")
+def brstm():
+    """Nintendo BRSTM: `RSTM` with HEAD/ADPC/DATA offset table. The block chain
+    is declared in the header rather than linked, which is what makes a forged
+    block count reachable."""
+    return _call("test_brstm", "_brstm_file")
+
+
+@seed("gcm", ".iso")
+def gcm():
+    """GameCube disc image: the magic sits at 0x1C, and the file system is an
+    FST of fixed 12-byte entries plus a string table the entries index into."""
+    return _call("test_gamecube", "_gcm_image", "HELLO.HPS", b"AUDIO")
+
+
+@seed("midi2", ".midi2")
+def midi2():
+    """MIDI 2.0 clip file: `SMF2CLIP` then a self-delimiting big-endian UMP
+    stream. Word count comes from the message type nibble, so a mutated nibble
+    reframes every packet after it."""
+    return _call("test_midi2", "_clip")
+
+
+# ── batch 4, the rest: lifted rather than borrowed ──────────────────
+#
+# Everything below already had a specimen SOMEWHERE, but built inline inside a
+# test body rather than in a function, so there was nothing to call. Lifting
+# them here is the same trade batch 2 made against make_format_corpus.py: a
+# second definition is a real cost, but it is the one that makes the contract
+# tests reach the format at all, and seeds.py is the copy the rest of the suite
+# can now call instead of writing a third. Where a real function did exist --
+# `_mp3`, the mp4 box helpers, the MPC fixtures -- it is called, not copied.
+
+
+def _const(module, name):
+    """For a fixture that is a module-level CONSTANT rather than a builder."""
+    import importlib
+    return getattr(importlib.import_module(module), name)
+
+
+def _be_chunk(cid, payload):
+    """A big-endian IFF chunk, padded to even. The pad is not decoration: the
+    RX2 walker advances by `clen + (clen & 1)`, so a builder that omits it
+    produces a file that genuinely is malformed and reads as a walker bug."""
+    return (cid + struct.pack(">I", len(payload)) + payload
+            + (b"\x00" if len(payload) % 2 else b""))
+
+
+@seed("okt", ".okt")
+def okt():
+    """Oktalyzer: `OKTASONG` then big-endian chunks. CMOD's four words are
+    channel split flags, so the voice count is derived, not stored."""
+    cmod = _be_chunk(b"CMOD", struct.pack(">HHHH", 1, 0, 1, 0))
+    entry = b"kick".ljust(20, b"\x00") + b"\x00" * 12
+    samp = _be_chunk(b"SAMP", entry + b"snare".ljust(20, b"\x00") + b"\x00" * 12)
+    return b"OKTASONG" + cmod + samp
+
+
+@seed("med", ".med")
+def med():
+    """MED / OctaMED: `MMD0`-`MMD3` and a u32 modlen that must agree with the
+    file size, which is the only structural check the format offers."""
+    body = b"\x00" * 100
+    return b"MMD1" + struct.pack(">I", len(body)) + body
+
+
+@seed("fc", ".fc")
+def fc():
+    """Future Composer: `SMOD` (v1.3) or `FC14` (v1.4), then a length. The
+    magic is the version, so the two are one walker and two constants."""
+    body = b"\x00" * 100
+    return b"SMOD" + struct.pack(">I", len(body)) + body
+
+
+@seed("amxd", ".amxd")
+def amxd():
+    """Max for Live device: `ampf`, then a constant `aaaa` marker the chunk
+    chain starts AFTER. Reading that marker as a chunk id turns its next four
+    bytes into a 1.6 GB length, which is how the walker first failed on a real
+    device -- so the marker is the part of this seed that matters."""
+    return (b"ampf" + struct.pack("<I", 4) + b"aaaa"
+            + b"meta" + struct.pack("<I", 4) + struct.pack("<I", 7)
+            + b"ptch" + struct.pack("<I", 64) + b"mx@c"
+            + b'{"a":1}'.ljust(60, b" "))
+
+
+@seed("fxp", ".fxp")
+def fxp():
+    """VST2 preset: `CcnK`, then `FPCh` for the opaque-chunk form, a four-byte
+    plugin id and a 28-byte fixed-width name."""
+    name = b"Seed Preset".ljust(28, b"\x00")
+    return (b"CcnK" + struct.pack(">I", 100) + b"FPCh" + struct.pack(">I", 1)
+            + b"XfsX" + struct.pack(">I", 1) + struct.pack(">I", 1) + name
+            + struct.pack(">I", 8) + bytes(8))
+
+
+@seed("rx2", ".rx2")
+def rx2(slices=6):
+    """ReCycle RX2: a `CAT `/`REX2` IFF group whose slice markers live in a
+    NESTED `CAT `/`SLCL` group, so a flat top-level walk counts zero of them."""
+    inner = b"SLCL" + _be_chunk(b"SLCE", b"") * slices
+    slcl = b"CAT " + struct.pack(">I", len(inner)) + inner
+    body = (b"REX2" + _be_chunk(b"CREI", b"ReCycle Seed Loop")
+            + _be_chunk(b"GLOB", b"\x00" * 8) + slcl)
+    return b"CAT " + struct.pack(">I", len(body)) + body
+
+
+@seed("wt", ".wt")
+def wt(frame_samples=256, frames=3):
+    """Surge/Bitwig wavetable: `vawt`, sample count, frame count, flags. Flags
+    0x0C is int16 at full scale -- and is also decimal 12, which is why that
+    word read convincingly as a data offset for as long as it did."""
+    return (b"vawt" + struct.pack("<IHH", frame_samples, frames, 0x0C)
+            + bytes(frames * frame_samples * 2))
+
+
+@seed("multisample", ".multisample")
+def multisample():
+    """Bitwig .multisample: a zip of an XML manifest plus the member samples.
+    Third walker on the zip primitive the `xpn` seed found raising OSError."""
+    import io
+    import zipfile
+    xml = ('<?xml version="1.0"?><multisample name="Seed">'
+           '<generator>seeds</generator><category>Drums</category>'
+           '<sample file="a.wav"><key root="36" low="36" high="40"/>'
+           '<loop mode="off"/></sample>'
+           '<sample file="b.wav"><key root="48" low="41" high="52"/></sample>'
+           '</multisample>')
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        z.writestr("multisample.xml", xml)
+        z.writestr("a.wav", b"RIFF____WAVE")
+        z.writestr("b.wav", b"RIFF____WAVE")
+    return buf.getvalue()
+
+
+@seed("serum", ".fxp")
+def serum():
+    """Xfer Serum: `XferJson` then a JSON document. The extension is .fxp, which
+    the `fxp` seed also claims -- the magic is what separates them, so the pair
+    is what proves the sniffer reads bytes rather than the filename."""
+    import json
+    meta = json.dumps({"presetName": "Seed", "author": "seeds"}).encode()
+    return b"XferJson" + meta + b"\x00" * 64
+
+
+@seed("bitwig", ".bwpreset")
+def bitwig():
+    """Bitwig preset: `BtWg` and a ten-byte ASCII version, then a token stream."""
+    return b"BtWg" + b"0003000200" + b"\x00" * 8 + b"seed" * 16
+
+
+@seed("ni", ".nksf")
+def ni():
+    """Native Instruments preset: RIFF whose form is `NIKS`, with the metadata
+    in a MessagePack map inside NISI. Deliberately over the sweep floor -- the
+    obvious minimal version is 36 bytes and would never be mutated."""
+    nisi = struct.pack("<I", 1) + (b"\x83\xa4name\xa4Seed\xa7product\xa5Seeds"
+                                   b"\xa7version\xa71.0.0.0")
+    body = (b"NIKS" + b"NISI" + struct.pack("<I", len(nisi)) + nisi
+            + (b"\x00" if len(nisi) & 1 else b""))
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+@seed("xpm", ".xpm")
+def xpm():
+    """Akai MPC keygroup program: XML, and content-confirmed rather than sniffed
+    on the extension, because an X11 pixmap is also .xpm."""
+    return _const("test_mpc", "_XPM").encode()
+
+
+@seed("mpcpattern", ".mpcpattern")
+def mpcpattern():
+    """Akai MPC pattern: bare JSON, so sniff_bytes reads it as `vital` and the
+    mandated extension reroutes it -- the same demotion the SigMF pair uses."""
+    import json
+    events = [{"type": 257, "time": 0, "len": 0, "1": 131},
+              _call("test_mpc", "_mpc2_note", 38, 0.157, 268),
+              _call("test_mpc", "_mpc2_note", 42, 1.0, 100)]
+    return json.dumps({"pattern": {"length": 2 ** 63 - 1,
+                                   "events": events}}).encode()
+
+
+@seed("mp3", ".mp3")
+def mp3(frames=12):
+    """Constant-bitrate MPEG-1 Layer III, 128 kbps 44.1 kHz, no ID3. Frame
+    length comes from the header, so the stream is self-describing and a
+    mutated header desynchronizes everything after it."""
+    return _call("test_framescan_prefilter", "_mp3", frames)
+
+
+@seed("mp4", ".m4a")
+def mp4():
+    """MP4/M4A: the ftyp/moov/trak/mdia/minf/stbl/stsd spine down to one mp4a
+    sample entry with its esds. Nested length-prefixed boxes all the way down,
+    which is what makes one bad length reframe the rest of the file."""
+    box = lambda t, p: _call("test_mp4", "_box", t, p)          # noqa: E731
+    entry = _call("test_mp4", "_audio_entry", b"mp4a", esds_asc=b"\x12\x10")
+    stbl = box(b"stbl", _call("test_mp4", "_stsd", entry))
+    return box(b"ftyp", b"M4A \x00\x00\x00\x00") + box(b"moov", box(
+        b"trak", box(b"mdia", box(b"minf", stbl))))
+
+
+@seed("sigmf", ".sigmf-meta")
+def sigmf():
+    """SigMF: the JSON half of the mandated .sigmf-meta / .sigmf-data pair.
+    Also bare JSON, so like .mpcpattern it is the extension that reroutes it
+    away from `vital`. Seeded alone on purpose -- the walker meeting its
+    sidecar's absence is a case a paired specimen would never reach."""
+    import json
+    return json.dumps({
+        "global": {"core:datatype": "cf32_le", "core:sample_rate": 8000,
+                   "core:version": "1.0.0"},
+        "captures": [{"core:sample_start": 0, "core:frequency": 100000000}],
+        "annotations": [{"core:sample_start": 0, "core:sample_count": 100}],
+    }).encode()
+
+
+@seed("iq", ".cu8")
+def iq():
+    """A bare IQ capture: no header at all, interleaved unsigned 8-bit I/Q. The
+    extension carries the sample format, which is the whole identification."""
+    return bytes(range(256)) * 8

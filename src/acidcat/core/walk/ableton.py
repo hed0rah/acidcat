@@ -461,7 +461,14 @@ def inspect_amxd(filepath):
             summary = (f"Max patcher, {length:,} bytes"
                        + (f", JSON at +{brace}" if brace >= 0 else ", no JSON found"))
         chunks.append({
-            "id": name, "offset": off, "size": length + 8,
+            # `size` is the PAYLOAD, the way infra.geometry reads it and every
+            # sibling walker writes it. This said `length + 8` -- the extent --
+            # while also declaring a payload_base 8 bytes in, so the payload was
+            # measured as 8 bytes longer than the chunk: every chunk overlapped
+            # its successor, and the last one ran past EOF. Both ranges are
+            # stated explicitly here so neither has to be inferred.
+            "id": name, "offset": off, "size": length,
+            "payload_len": length, "extent_len": length + 8,
             "summary": summary, "fields": [], "warnings": [],
             "payload_base": off + 8,
         })
