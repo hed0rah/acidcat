@@ -57,21 +57,35 @@ _ENC = {
     6:  ("32-bit IEEE float", 32, True, True),
     7:  ("64-bit IEEE float", 64, True, True),
     8:  ("fragmented sampled data", 0, False, False),
+    9:  ("nested sound structures", 0, False, False),
     10: ("DSP program", 0, False, False),
     11: ("8-bit fixed point", 8, True, False),
     12: ("16-bit fixed point", 16, True, False),
     13: ("24-bit fixed point", 24, True, False),
     14: ("32-bit fixed point", 32, True, False),
+    16: ("SoundView display data (not audio)", 0, False, False),
+    17: ("8-bit mu-law, silence run-length coded", 0, False, False),
     18: ("16-bit linear, emphasis", 16, True, False),
     19: ("16-bit linear, compressed", 16, True, False),
     20: ("16-bit linear, emphasis + compressed", 16, True, False),
     21: ("Music Kit DSP commands", 0, False, False),
+    22: ("Music Kit DSP samples", 0, False, False),
     23: ("4-bit G.721 ADPCM", 4, False, False),
     24: ("G.722 ADPCM", 0, False, False),
     25: ("3-bit G.723 ADPCM", 3, False, False),
     26: ("5-bit G.723 ADPCM", 5, False, False),
     27: ("8-bit G.711 A-law", 8, False, False),
+    28: ("AES", 0, False, False),
+    29: ("8-bit delta mu-law", 0, False, False),
 }
+# 9, 16, 17, 22, 28 and 29 were absent until a cross-check against the Kaitai
+# Struct au spec found them. Their absence was not a missing nicety: the walker
+# warns that a code "is not one of the documented codes", and these six ARE
+# documented (the Kaitai enum is assembled from the NeXT soundstruct header,
+# libsndfile, sox and audiofile), so the tool was contradicting the format on
+# six legal values. They carry bits 0 and linear False on purpose -- none is
+# plain PCM and no width has been checked here against a real file, so duration
+# stays unknown rather than plausible, which is what _FIXED_WIDTH below is for.
 # codes whose on-disk width per sample is fixed, so size -> duration is exact:
 # the linear and float PCM, the companded G.711 pair (one byte per sample), the
 # fixed-point family and 16-bit emphasis. The compressed codes (19, 20) and the
