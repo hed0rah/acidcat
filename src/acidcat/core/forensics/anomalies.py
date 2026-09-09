@@ -356,9 +356,28 @@ def scan(filepath, fmt_label, chunks, warns):
         # appended bytes, which the walker reads as a giant bogus chunk).
         end = _rf64_end(filepath)
     if end is None:
-        end = max((c["offset"] + c["size"] for c in chunks
-                   if isinstance(c.get("offset"), int)
-                   and isinstance(c.get("size"), int)), default=0)
+        # The EXTENT, not offset+size. `size` is the payload, so for any walker
+        # that states a payload_base this lands short by the header of the last
+        # chunk and invents trailing data that is really the chunk's own header.
+        # Measured on a 96-byte amxd: offset+size says the container ends at 88.
+        #
+        # Read through geometry.extent_of rather than re-deriving the rule, for
+        # the reason the geometry module's own tests give: a consumer carrying
+        # its own copy keeps disagreeing after the copy it disagrees with is
+        # fixed. This module predates the extent/payload split and had never
+        # been moved onto it.
+        from acidcat.core.infra import geometry as _geom
+
+        ends = []
+        for c in chunks:
+            if not isinstance(c.get("offset"), int):
+                continue
+            eoff, elen = _geom.extent_of(c)
+            if isinstance(eoff, int) and isinstance(elen, int):
+                ends.append(eoff + elen)
+            elif isinstance(c.get("size"), int):
+                ends.append(c["offset"] + c["size"])
+        end = max(ends, default=0)
     if isinstance(end, int) and 0 < end < size:
         findings.append({"severity": "notice", "offset": end, "rule": "trailing_data",
                          "message": f"{size - end:,} bytes past the declared "

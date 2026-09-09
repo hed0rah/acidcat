@@ -4,6 +4,8 @@ import pathlib
 import struct
 import zipfile
 
+import os
+
 import pytest
 
 from acidcat.core.forensics import anomalies
@@ -548,3 +550,36 @@ def test_detection_does_not_depend_on_the_display_label(tmp_path, name, specimen
         assert [f["rule"] for f in got] == [f["rule"] for f in real], (
             f"{name}: findings changed when the label became {bogus!r} -- "
             f"dispatch is still keyed on the display string")
+
+
+def test_the_container_end_is_the_extent_not_the_payload(tmp_path):
+    """A chunk's `size` is its PAYLOAD. Reading the container end as
+    `offset + size` lands short by the last chunk's header, and the bytes it
+    misses are that header -- so the scan reports the file's own structure as
+    data appended past the end.
+
+    It went unnoticed while walkers disagreed about what `size` meant. As they
+    were corrected onto the payload reading one by one, each fix turned this
+    latent error into a visible false finding: seven of the seeded formats
+    claimed trailing data that was never there, amxd among them.
+
+    Built from the seed rather than by hand, because the first version of this
+    test hand-rolled an amxd with big-endian sizes and no `aaaa` marker, which
+    is not the format and produced a failure that said nothing about the bug.
+    """
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import seeds as _seeds
+
+    from acidcat.core.forensics import anomalies as _an
+    from acidcat.core.walk import walk_file as _walk
+
+    build, ext, _sniffs = _seeds.SEEDS["amxd"]
+    p = tmp_path / ("s" + ext)
+    p.write_bytes(build())
+
+    label, chunks, warns = _walk(str(p))
+    rules = [f.get("rule") for f in (_an.scan(str(p), label, chunks, warns) or [])]
+    assert "trailing_data" not in rules, (
+        "the scan called the last chunk's own header trailing data: %s" % rules)
