@@ -25,8 +25,7 @@ import zipfile
 import tempfile
 
 
-from acidcat.commands import inspect as I  # noqa: E402
-from acidcat.core.walk import walk_file, Unsupported  # noqa: E402
+from acidcat import Unsupported, walk_file  # noqa: E402
 
 
 def build_wav_zip(wav_bytes, payload):

@@ -136,6 +136,50 @@ def test_the_base_imports_cleanly_with_the_lab_uninstallable():
         sys.modules.update(saved)
 
 
+def _imported_modules(path):
+    """Every dotted module name this file imports, however it spells it."""
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        tree = ast.parse(fh.read(), path)
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                out.add(a.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                out.add(node.module)
+    return out
+
+
+# The engine's front ends. A library that imports one of these is depending on
+# argparse plumbing, a Textual app, or a transport, and breaks the day a flag
+# or a screen moves. The lab consumes the engine: the public facade, or the
+# core packages beneath it. Nothing above them.
+_FRONT_ENDS = ("acidcat.commands", "acidcat.cli", "acidcat.tui_app",
+               "acidcat.mcp_server")
+
+
+@pytest.mark.skipif(not os.path.isdir(LAB), reason="acidcat_lab not present")
+def test_the_lab_consumes_the_engine_not_its_front_ends():
+    """The arrow points one way, and it also points at one layer.
+
+    The one-way tests above are satisfied by a lab module that imports a
+    command module, since that is still the right direction. It is the wrong
+    layer: the first migrated module did exactly this, importing
+    `acidcat.commands.inspect` and never using it, and nothing here said so.
+    """
+    offenders = []
+    for path in _python_files(LAB):
+        for mod in sorted(_imported_modules(path)):
+            if any(mod == fe or mod.startswith(fe + ".") for fe in _FRONT_ENDS):
+                offenders.append((os.path.relpath(path, LAB), mod))
+    assert not offenders, (
+        "the lab imports a front end: " + ", ".join(
+            p + " -> " + m for p, m in offenders)
+        + ". Use the public facade (acidcat.<name>) or acidcat.core; a command "
+          "module is not a library.")
+
+
 class _Blocker:
     """Refuses acidcat_lab at the import-system level."""
 
