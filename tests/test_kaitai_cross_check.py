@@ -11,9 +11,18 @@ Kaitai Struct's format library is an independent reading of the same formats,
 maintained by other people from the same primary sources, and it is YAML, so
 the comparison is mechanical rather than a careful afternoon with two PDFs.
 
-OPT-IN, like every other external-corpus check here: point ACIDCAT_KSY_DIR at a
-checkout of https://github.com/kaitai-io/kaitai_struct_formats. Nothing is
-vendored, nothing is downloaded by the test, and CI without the variable skips.
+Point ACIDCAT_KSY_DIR at a checkout of
+https://github.com/kaitai-io/kaitai_struct_formats. Nothing is vendored and
+nothing is downloaded by the test itself, so a contributor without the specs
+gets skips rather than failures.
+
+CI IS NOT OPTIONAL ABOUT IT. `.github/workflows/test.yml` clones the specs at a
+PINNED commit and fails the job if this file skips. For a while it did not, and
+this file skipped on all five platforms -- which is how the `synchsafe` mask it
+had already found could have been reverted with the matrix still green. The
+pin is deliberate: the specs are a corpus, and a corpus that changes between
+runs turns a reproducible failure into a flake, so upstream's corrections
+arrive when someone bumps the SHA and reads what moved.
 
 WHAT IS ASSERTED, and what deliberately is not. A difference between the two is
 not automatically an acidcat bug, and treating it as one would make this file a

@@ -150,6 +150,75 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[analysis,mcp,tui,crypto]" -e ./lab pytest pytest-cov
+      - name: Fetch the Kaitai format specs
+        # The cross-check in tests/test_kaitai_cross_check.py is the only test
+        # in this repo that measures acidcat against a specification nobody
+        # here wrote. Every other test compares acidcat to a fixture encoding
+        # our own reading of a format, which cannot catch a field misread the
+        # same way twice -- and one had been: `synchsafe` decoded without its
+        # mask, so a 414-byte file reported a 268 MB ID3 tag and skipped past
+        # the audio looking for it. That test found it, and then skipped on all
+        # five platforms here because nothing set ACIDCAT_KSY_DIR. Same defect
+        # as the `ml` extra and the missing ffmpeg above: a green run that
+        # checked nothing.
+        #
+        # PINNED to a commit, not tracking the branch. The specs are a corpus,
+        # and this repo's rule for corpora is that one which changes between
+        # runs turns a reproducible failure into a flake -- someone else's
+        # commit should not be able to redden our matrix. To take upstream's
+        # corrections, bump the SHA deliberately and read what moved.
+        #
+        # Licensing checked: every spec this compares is CC0 except wav.ksy,
+        # which is BSD-3-Clause-Attribution. Nothing is vendored -- this is a
+        # clone into the runner's temp, never into the repo.
+        shell: bash
+        env:
+          KSY_SHA: e0bda4591f9adc67237b6523c25460956610939d
+        run: |
+          for attempt in 1 2 3; do
+            rm -rf "$RUNNER_TEMP/ksy"
+            mkdir -p "$RUNNER_TEMP/ksy"
+            if (cd "$RUNNER_TEMP/ksy" \
+                && git init -q . \
+                && git remote add origin https://github.com/kaitai-io/kaitai_struct_formats.git \
+                && git fetch -q --depth 1 origin "$KSY_SHA" \
+                && git checkout -q FETCH_HEAD); then
+              break
+            fi
+            echo "spec fetch attempt $attempt failed; retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          n=$(find "$RUNNER_TEMP/ksy" -name '*.ksy' | wc -l)
+          echo "fetched $n .ksy specs at $KSY_SHA"
+          # The same guard the test file carries, applied before the run rather
+          # than inside it: an empty or partial clone would make every check
+          # skip, which reads as a pass.
+          if [ "$n" -lt 50 ]; then
+            echo "::error::only $n .ksy specs fetched; the cross-check would"
+            echo "::error::skip and report a green run that compared nothing."
+            exit 1
+          fi
+          echo "ACIDCAT_KSY_DIR=$RUNNER_TEMP/ksy" >> "$GITHUB_ENV"
+      - name: The cross-check must run, not skip
+        # Fails fast and separately from the main suite, so "the specs did not
+        # arrive" is never mistaken for "acidcat disagrees with a spec". A skip
+        # here is the failure: the whole point is that this file runs.
+        shell: bash
+        run: |
+          out=$(pytest tests/test_kaitai_cross_check.py -q -rs 2>&1) || {
+            echo "$out"; exit 1;
+          }
+          echo "$out"
+          if echo "$out" | grep -qE "[0-9]+ skipped"; then
+            echo "::error::the cross-check skipped. It is the only test here"
+            echo "::error::that measures acidcat against an outside spec, so a"
+            echo "::error::skip is a green run that compared nothing."
+            exit 1
+          fi
+          echo "$out" | grep -qE "[0-9]+ passed" || {
+            echo "::error::the cross-check collected no tests at all."
+            exit 1
+          }
       - name: Run tests
         # -rs prints WHY things skipped. Without it the run reported "114
         # skipped" and gave nobody a way to find out what was not covered.

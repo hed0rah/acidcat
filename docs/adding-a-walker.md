@@ -156,6 +156,26 @@ without being required:
 session passed for the wrong reason and only CI caught them. Mutate the source,
 watch the test go red, put it back.
 
+### Check whether someone else has written the format down
+
+Everything above measures acidcat against a fixture that encodes *your* reading
+of the format, which cannot catch a field you misread the same way twice. So
+before you finish, look for the format in
+[kaitai_struct_formats](https://github.com/kaitai-io/kaitai_struct_formats) and,
+if it is there, add a comparison to `tests/test_kaitai_cross_check.py`.
+
+That file found `synchsafe` decoding without its mask -- four bytes read as
+268 MB, in a function two other readers in this repo already disagreed with.
+Nothing built from our own fixtures could have.
+
+Two rules it follows, worth keeping: assert the direction that catches an
+**invented** constant (every value acidcat names, the spec must also name),
+and do **not** assert breadth. acidcat names 32 of 265 WAVE format tags on
+purpose; a check that failed on coverage would be a machine for importing
+someone else's opinions. Where the spec is silent -- as it is on whether an MP4
+atom is a container -- say so in the test's name rather than asserting
+something weaker than the name promises.
+
 ## Anatomy pages
 
 A format earns a page in `docs/formats/` once it is walked. Generate it from an
