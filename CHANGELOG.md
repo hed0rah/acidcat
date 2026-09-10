@@ -4,9 +4,40 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
-## [Unreleased]
+## [1.5.0] - 2026-09-09
+
+Two formats the tool could name and could not open, a working `acidcat-lab`,
+and a cross-check that measures our byte facts against a specification nobody
+here wrote.
 
 ### Added
+
+- **Sony Wave64 and Apple Core Audio Format walkers.** `docs/formats` had
+  carried a full Wave64 anatomy page -- byte map, GUID arithmetic, alignment
+  rule -- for a format `census` could count and no walker could open. Both are
+  RIFF's grammar with substitutions, and every substitution is a place a RIFF
+  reader returns a plausible wrong answer rather than an error: Wave64 ids are
+  16-byte GUIDs, its sizes count the 24-byte chunk header where RIFF counts
+  payload only, and it aligns to 8 with the padding outside the declared size.
+  CAF is big-endian in the container but its samples follow a flag in `desc`,
+  its sizes are *signed* s64 where -1 is legal and means "to the end of the
+  file", and it has no alignment rule at all. Payloads are unchanged, so Wave64
+  reuses the existing WAV parsers outright. Both were verified against
+  libsndfile 1.2.2 output rather than against our own bytes.
+
+- **The `acidcat-lab` CLI is wired.** 1.4.1 shipped the binary as a 35-line stub
+  whose every path returned 0. `cavity` (embed/extract/analyze), `polyglot`
+  (build/verify) and `stego` (embed/extract/capacity) now dispatch to the
+  construction library. The carrier format is sniffed, `--into` overrides it,
+  and writes refuse to clobber the input, reusing acidcat's own outpath guard.
+
+- **`stego --method match` and `--method adaptive`.** `match` sets the low bit
+  by +/-1 rather than overwriting it, the textbook counter to value-histogram
+  attacks; `adaptive` writes only where the low bits are already noisy. Both
+  16-bit. Measured and stated plainly: on real audio `adaptive` never worsens
+  the detector reading, but a naive fill is rarely caught to begin with, so the
+  practical margin over plain replace is narrow. A research tool, not an
+  invisibility claim.
 
 - **`probe lsb`.** A CLI verb for the sample-LSB entropy of a PCM WAV, to spot
   LSB steganography. The analysis already existed in the forensics layer but had
@@ -18,6 +49,88 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   field-recorded audio, and entropy alone cannot separate them. A clean payload
   written into silence lights up; whitened stego in real noise is called out as
   indistinguishable, on purpose.
+
+- **32 WAV format tags, up from nine.** A FLAC stream muxed into RIFF came back
+  as `unknown 0xf1ac` from a tool whose whole subject is telling you what bytes
+  are. Added the ADPCM family, GSM, the G.7xx codecs, MPEG Layer I/II beside the
+  Layer III entry already there, WMA, AAC, Ogg Vorbis and FLAC. Deliberately not
+  the whole 265-entry registry: most of the rest are codecs for hardware that
+  has not shipped since the 1990s, and importing them would be bulk rather than
+  knowledge. Anything outside the table still reports `unknown 0x....`, which
+  claims nothing false. Two entries print both readings rather than picking a
+  side, because `0x0039` and `0x2000` genuinely mean two things.
+
+- **The byte facts are checked against a specification nobody here wrote.** A
+  cross-check against the Kaitai Struct spec library compares acidcat's tables
+  to upstream's in both directions, so a value we invented and a value we missed
+  each fail. Every audio spec the library carries is now compared, and the
+  formats it cannot reach (aiff, flac, sf2, caf, wave64, rf64 and mp3 have no
+  `.ksy` upstream) are named in a test rather than left for the next reader to
+  re-derive. It found six `au` encoding codes the walker was calling
+  undocumented, and the synchsafe defect below.
+
+- **Every registered walker has a seed.** Fifty-one more seeds across three
+  batches. The differential sweep that once covered one of 52 formats reaches
+  all 67 walker labels in a clone, and the "are we still only fuzzing one
+  format" question is closed. Eight walker bugs fell out, each the moment a seed
+  first reached the walker it was in.
+
+- **Opt-in real-corpus sweeps of the extract and repair seams**
+  (`ACIDCAT_HUNT_CORPUS`), so those paths are exercised on real files and not
+  only on seeds.
+
+### Fixed
+
+- **A synchsafe integer is seven bits a byte, and two of three decoders did not
+  mask.** The high bit of every byte in a synchsafe length is defined zero --
+  that is the entire reason the encoding exists, so a length can never contain a
+  `0xFF` a decoder would mistake for a frame sync. Read as a plain big-endian
+  u4, a 414-byte file declared a 268,435,466-byte ID3v2 tag and the walker
+  skipped a quarter-gigabyte forward past the MPEG frame sitting at offset 10.
+  The same four bytes had two readings inside one tool, 268 MB apart, and
+  nothing said so. The third decoder sat in the field-edit path, where it
+  returned values its own encoder refused as out of range, so decode and encode
+  were not a round trip.
+
+- **A chunk's end is its extent, not its payload.** The trailing-data check
+  measured a container's end with `offset + size`, but `size` is the payload by
+  contract, so every format whose chunks declare a header was short by that
+  header on the final chunk and reported bytes that were not there. Thirteen
+  seeded formats claimed trailing data; six actually have it.
+
+- **A recognized file is no longer called unrecognized.** `walk` answered "not a
+  recognized audio or preset file" for an N64 ROM the sniffer had just
+  identified, which is false about the tool's own state and sends the owner away
+  from `extract`, the verb that would have worked. Three formats are sniffable
+  with no walker on purpose -- a ROM or a disc image is not a chunk tree -- and
+  they are now listed rather than inferred, with a test that keeps the list
+  exactly the set of sniffable-but-unwalkable formats.
+
+- **An MP3 frame that runs past the end of the file says so.** A frame header
+  states its own length and a truncated file can state one longer than the bytes
+  that follow: 417 bytes reported in a 414-byte file, marked invalid, with no
+  warning saying why. Latent since 1.0.0 and unreachable until the synchsafe
+  mask let the walker find a frame in such a file at all.
+
+- **Eight walker bugs the new seeds surfaced.** Two geometry overshoots: the
+  RMID wrapped-SMF data chunk counted its 8-byte header twice, and the DMX
+  header chunk inherited the RIFF `offset + 8` default it does not have. A MOD
+  sample-header field-offset bug, now unpositioned with an xref as the XM walker
+  already was. A zip local-header `OSError` escaping a zip-backed walker, now a
+  clean `ValueError` the `.xpn` walker skips the corrupt entry on. `labx` and
+  `multisample` let that same `ValueError` escape at four further call sites,
+  and a corrupt entry in `multisample` is now reported unpositioned rather than
+  at offset 0, since 0 is a position a carve would follow to the front of the
+  archive. `midi2` rendered MIDI 1.0 Channel Voice messages through the MIDI 2.0
+  field names, raising `KeyError` on five of six statuses from a valid document.
+  `amxd` declared size as the extent while also declaring a `payload_base`, so
+  every chunk's payload ran 8 bytes long and the last left the file. `rx2` gave
+  two chunks absolute field offsets where the rule wants them relative to
+  `payload_base` -- the same defect `mod`, `au`, `voc` and `krz` carried. And
+  `ni` used an unhashable MessagePack key.
+
+- **`anomalies.scan` walks the file itself when given only a path**, instead of
+  requiring pre-walked chunks. The four-argument form is unchanged.
 
 ## [1.4.1] - 2026-09-05
 
