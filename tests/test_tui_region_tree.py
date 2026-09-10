@@ -658,7 +658,12 @@ class TestSelectingForExtraction:
                 s = await self._list(app, pilot)
                 assert app._region_sel == set()
                 s.action_toggle_sel()
-                await pilot.pause(0.3)
+                # A mark dismisses the list and the app reopens it, so the
+                # wait is for that round trip rather than for a duration. The
+                # assert stays: `until` returns a bool, so without it a
+                # timeout would read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: app._region_sel == {0})
                 assert app._region_sel == {0}
 
                 # The cursor ADVANCES after a mark, so the list can be walked
@@ -667,7 +672,8 @@ class TestSelectingForExtraction:
                 scr = self._screen(app)
                 scr.query_one("#regtable", DataTable).move_cursor(row=0)
                 scr.action_toggle_sel()
-                await pilot.pause(0.3)
+                await pilot.pause(0.1)
+                await until(pilot, lambda: app._region_sel == set())
                 assert app._region_sel == set()
         _run(scenario)
 
@@ -678,10 +684,12 @@ class TestSelectingForExtraction:
                 await pilot.pause(0.3)
                 s = await self._list(app, pilot)
                 s.action_select_all()
-                await pilot.pause(0.3)
+                await pilot.pause(0.1)
+                await until(pilot, lambda: app._region_sel == {0, 1, 2})
                 assert app._region_sel == {0, 1, 2}
                 self._screen(app).action_select_all()
-                await pilot.pause(0.3)
+                await pilot.pause(0.1)
+                await until(pilot, lambda: app._region_sel == set())
                 assert app._region_sel == set()
         _run(scenario)
 
@@ -810,11 +818,38 @@ class TestTheListReopensWhereYouLeftIt:
             async with app.run_test(size=(160, 44)) as pilot:
                 await pilot.pause(0.3)
                 await self._list(app, pilot)
-                for _ in range(3):
+                for n in range(3):
+                    # A mark DISMISSES the list and the app reopens it one row
+                    # down, so this loop is three dismiss/reopen cycles rather
+                    # than three keystrokes on one screen. A flat pause races
+                    # that cycle: the next toggle can land on a screen that has
+                    # not been handed the new selection yet, and because the
+                    # toggle is a symmetric difference the run then ends with
+                    # ONE region marked rather than three. Waiting for the app
+                    # to have recorded the mark is waiting for the cycle.
+                    #
+                    # Found on ubuntu 3.10 in CI, green on the other four and
+                    # green here at pause(0.0), which is why the duration was
+                    # never the thing to tune.
                     scr = [x for x in app.screen_stack
                            if isinstance(x, RegionsScreen)][-1]
                     scr.action_toggle_sel()
-                    await pilot.pause(0.4)
+                    await pilot.pause(0.1)
+                    # the cursor stops at the last row, so the third mark
+                    # leaves it where it was instead of past the end
+                    want_row = min(n + 1, 2)
+                    await until(pilot, lambda n=n, r=want_row: (
+                        len(app._region_sel) == n + 1
+                        and self._row(app) == r))
+                    # `until` returns a bool rather than raising, so the
+                    # assertions are what make a timeout a failure instead of
+                    # a silent pass -- the same mistake one layer up.
+                    assert len(app._region_sel) == n + 1, (
+                        "mark %d never reached the app: %s"
+                        % (n, app._region_sel))
+                    assert self._row(app) == want_row, (
+                        "the reopened list sits on row %d, not %d"
+                        % (self._row(app), want_row))
                 assert app._region_sel == {0, 1, 2}, app._region_sel
         _run(scenario)
 
