@@ -1,0 +1,78 @@
+name: Publish acidcat-lab
+
+# INERT ON PURPOSE. There is no `release:` trigger here, unlike publish.yml.
+#
+# `acidcat-lab` does not exist on PyPI yet, and trusted publishing has to be
+# configured against a project that does. Wiring this to `release: published`
+# before that exists would mean the first 1.5.0 release fires a job that fails
+# on authentication, which turns a clean release into a red one.
+#
+# To turn it on: register `acidcat-lab` on PyPI, add this repo and this
+# workflow filename as a trusted publisher, create the `pypi-lab` environment,
+# then decide whether it stays manual or gains a `release:` trigger. Manual is
+# defensible for a long time -- the lab moves on its own schedule now, which is
+# the whole reason it is a separate distribution.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  # Same reasoning as publish.yml: the gate on an irreversible action is the
+  # real test workflow, not a hand-written copy that drifts into being weaker.
+  # test.yml installs `-e ./lab`, so the lab's own tests are inside this gate.
+  test:
+    name: Test before publishing
+    uses: ./.github/workflows/test.yml
+
+  build:
+    name: Build lab sdist + wheel
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build distributions
+        # `lab` is its own project root, so build runs there and dist/ holds
+        # only acidcat-lab. Building at the repo root would produce the engine.
+        run: |
+          python -m pip install --upgrade build
+          python -m build lab --outdir dist
+      - name: Validate metadata
+        run: |
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+      - name: Refuse to ship the engine from this workflow
+        # A stale build/ directory once put all ten acidcat_lab modules into
+        # the engine wheel after they had been moved out of src/. The same
+        # class of mistake in this direction ships an `acidcat` distribution
+        # from the lab's pipeline, so it is checked rather than assumed.
+        run: |
+          if ls dist/ | grep -qiE '^acidcat-[0-9]'; then
+            echo "dist/ contains an acidcat engine distribution:"
+            ls -1 dist/
+            exit 1
+          fi
+          ls -1 dist/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-lab
+          path: dist/
+
+  publish-testpypi:
+    name: Publish acidcat-lab to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi-lab
+      url: https://test.pypi.org/project/acidcat-lab/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist-lab
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

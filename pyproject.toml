@@ -67,11 +67,12 @@ Changelog = "https://github.com/hed0rah/acidcat/blob/main/CHANGELOG.md"
 # such a break loudly rather than silently returning no features, but detecting
 # a break is not the same as surviving it. Raise this after testing against 1.0,
 # deliberately.
-# The adversarial half: constructs files rather than reading them. Pure
-# Python and no dependency beyond acidcat itself, so the extra costs nothing to
-# resolve -- it exists to keep construction tooling off machines that only
-# asked for a reader.
-lab = []
+# The adversarial half used to be a `lab = []` extra here. It never gated
+# anything: the extra was empty, `packages.find` shipped acidcat_lab in this
+# wheel unconditionally, and a console script cannot be gated by an extra at
+# all, so every `pip install acidcat` got the construction tooling and the
+# `acidcat-lab` binary. It is a separate distribution now, which is what the
+# comment here always claimed.
 analysis = [
     "librosa>=0.10.1,<1",
     "numpy>=1.26,<3",
@@ -99,19 +100,15 @@ all = ["acidcat[analysis,mcp-http,tui,crypto]"]
 [project.scripts]
 acidcat = "acidcat.cli:main"
 acidcat-mcp = "acidcat.mcp_server:main"
-# A separate binary rather than a subcommand. `acidcat --help` on a machine
-# without the extra should show no trace of construction tooling, and a
-# subcommand that appears and disappears with an extra is a worse interface
-# than two names.
-acidcat-lab = "acidcat_lab.cli:main"
+# `acidcat-lab` is declared by lab/pyproject.toml, not here. A machine that
+# asked for a reader shows no trace of construction tooling.
 
 [tool.setuptools.packages.find]
 where = ["src"]
-# Both packages live here. They ship as separate INSTALLS -- acidcat_lab is
-# pulled only by the `lab` extra -- but as one repo, one CI and one release, so
-# they cannot drift apart the way they did while the lab was its own checkout
-# pinned to a version of the engine that had already moved.
-include = ["acidcat*", "acidcat_lab*"]
+# The engine only. `acidcat*` would be wrong rather than merely loose: the glob
+# matches `acidcat_lab` too, so it would put the lab back in this wheel the
+# moment anything left a copy under src/.
+include = ["acidcat", "acidcat.*"]
 
 [tool.setuptools.package-data]
 "acidcat.core" = ["data/*.json"]

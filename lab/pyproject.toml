@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "acidcat-lab"
+version = "1.5.0"
+description = "Construct files that test what acidcat can see: cavities, polyglots and sample-LSB stego"
+# No `readme` yet, so the PyPI page carries the description line alone. Adding
+# one is a deliberate call rather than an oversight: this is a dual-use tool and
+# what its page says about intent matters more than the usual boilerplate.
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "hed0rah", email = "18272116+hed0rah@users.noreply.github.com"},
+]
+keywords = [
+    "steganography", "polyglot", "file-format", "forensics",
+    "binary-analysis", "audio", "wav", "test-fixtures",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+# A compatible range rather than a hard pin. `==` would force a lab release for
+# every engine patch; the lab only ever touches acidcat's public facade
+# (`sniff`, `walk_file`, `Unsupported`, `util.outpath`) and
+# `tests/test_lab_boundary.py` is the standing evidence for that, so a minor
+# engine release cannot move something the lab reaches.
+dependencies = [
+    "acidcat>=1.5.0,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/hed0rah/acidcat"
+Repository = "https://github.com/hed0rah/acidcat"
+Issues = "https://github.com/hed0rah/acidcat/issues"
+
+[project.scripts]
+acidcat-lab = "acidcat_lab.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["acidcat_lab*"]

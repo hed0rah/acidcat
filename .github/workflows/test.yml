@@ -143,9 +143,13 @@ jobs:
         # carries on, so it looked installed and never was. `tui` and `crypto`
         # were simply missing, which silently skipped the whole Textual suite
         # and the encrypted-disc tests on every run.
+        # `acidcat_lab` used to ride along in the engine's wheel, so the five
+        # lab test files ran without anyone installing anything. It is a
+        # separate distribution now: drop `-e ./lab` and they do not fail, they
+        # stop being collected, which reads as a smaller green suite.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[analysis,mcp,tui,crypto]" pytest pytest-cov
+          pip install -e ".[analysis,mcp,tui,crypto]" -e ./lab pytest pytest-cov
       - name: Run tests
         # -rs prints WHY things skipped. Without it the run reported "114
         # skipped" and gave nobody a way to find out what was not covered.

@@ -57,8 +57,26 @@ def main():
         print(f"  extracted      {tmp}")
         print(f"  running        pytest {' '.join(args.pytest_args)}\n")
 
+        # Point the interpreter at the EXTRACTED source, both packages. Two
+        # separate reasons, and the second is the one that has cost time:
+        #
+        # acidcat_lab is its own distribution now and is not covered by an
+        # editable install of the engine, so without this every lab test would
+        # `importorskip` its way out and the run would report a smaller green
+        # suite rather than a failure.
+        #
+        # And on a dev box with acidcat installed editable, a bare run resolved
+        # `import acidcat` to the canonical tree -- so this extracted the clone
+        # and then tested MAIN's walkers with it, which is worse than useless
+        # for validating a branch. PYTHONPATH precedes site-packages, so the
+        # clone's own code wins.
+        env = dict(os.environ)
+        clone_src = os.pathsep.join([os.path.join(tmp, "src"),
+                                     os.path.join(tmp, "lab", "src")])
+        env["PYTHONPATH"] = (clone_src + os.pathsep + env["PYTHONPATH"]
+                             if env.get("PYTHONPATH") else clone_src)
         r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-rs",
-                            *args.pytest_args], cwd=tmp)
+                            *args.pytest_args], cwd=tmp, env=env)
         return r.returncode
     finally:
         if args.keep:

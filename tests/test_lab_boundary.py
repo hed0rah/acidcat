@@ -21,7 +21,7 @@ import os
 import pytest
 
 BASE = os.path.join(os.path.dirname(__file__), "..", "src", "acidcat")
-LAB = os.path.join(os.path.dirname(__file__), "..", "src", "acidcat_lab")
+LAB = os.path.join(os.path.dirname(__file__), "..", "lab", "src", "acidcat_lab")
 
 
 def _python_files(root):

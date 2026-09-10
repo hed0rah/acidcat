@@ -79,6 +79,29 @@ here wrote.
   (`ACIDCAT_HUNT_CORPUS`), so those paths are exercised on real files and not
   only on seeds.
 
+### Changed
+
+- **`acidcat-lab` is a separate distribution and no longer installs with
+  acidcat.** It never was gated, whatever the packaging said: the `lab` extra
+  was an empty list, `packages.find` shipped `acidcat_lab` inside the engine's
+  wheel unconditionally, and a console script cannot be gated by an extra at
+  all. So every `pip install acidcat` since 1.4.1 has installed the
+  construction tooling and put an `acidcat-lab` binary on the PATH, for a tool
+  that appears in no README, no ARCHITECTURE section and no documentation of
+  any kind. The comments in `pyproject.toml` described the opposite arrangement
+  and had done since the extra was written.
+
+  The engine's wheel now contains the engine. `acidcat_lab` lives in `lab/`
+  with its own project file and is installed with `pip install acidcat-lab`,
+  which depends on `acidcat>=1.5.0,<2`. The dependency was always one-way -- the
+  lab reaches the engine only through its public facade and the engine never
+  imports the lab, which `tests/test_lab_boundary.py` has asserted all along --
+  so nothing had to be untangled, only unbundled. The empty `lab` extra is gone
+  rather than repointed, because nothing documented it.
+
+  **If you were using `acidcat-lab`, install it explicitly.** Upgrading acidcat
+  alone will remove it.
+
 ### Fixed
 
 - **A synchsafe integer is seven bits a byte, and two of three decoders did not
