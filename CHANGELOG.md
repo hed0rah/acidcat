@@ -99,8 +99,16 @@ here wrote.
   so nothing had to be untangled, only unbundled. The empty `lab` extra is gone
   rather than repointed, because nothing documented it.
 
-  **If you were using `acidcat-lab`, install it explicitly.** Upgrading acidcat
-  alone will remove it.
+  **If you were using `acidcat-lab`, note that it is not on PyPI yet.**
+  Upgrading acidcat alone removes the binary, and until the new project is
+  registered the way to get it back is from the repo:
+
+      pip install "acidcat-lab @ git+https://github.com/hed0rah/acidcat#subdirectory=lab"
+
+  One more thing worth knowing if you pinned the old extra: `acidcat[lab]` no
+  longer exists, and pip does not treat an unknown extra as an error. It warns
+  and installs the base package, so a requirements file asking for it will
+  succeed and quietly give you no lab.
 
 ### Fixed
 

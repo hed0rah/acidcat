@@ -96,7 +96,13 @@ src/acidcat/
   tui_app/         Textual inspector/editor
   util/            small shared helpers
   cli.py  explorer.py  tui_theme.py  __init__.py     (223 modules in total)
-tests/             ~0.59 test:source LOC
+lab/src/acidcat_lab/
+                   the adversarial half, its OWN distribution (acidcat-lab).
+                   Constructs files rather than reading them: cavities,
+                   polyglots, sample-LSB stego. Depends on acidcat through its
+                   public facade only; the arrow never points back
+                   (tests/test_lab_boundary.py)
+tests/             ~0.94 test:source LOC
 docs/              architecture.md (detailed), format anatomy pages
 internal_docs/     design + review notes (gitignored, local-only)
 ```
