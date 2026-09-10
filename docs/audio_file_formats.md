@@ -1,5 +1,15 @@
 # Audio File Formats Reference
 
+**This is a map of the territory, not a list of what acidcat reads.** It
+catalogues audio formats that exist in the world so there is one place to look
+up where a format sits in the family; a format appearing here says nothing
+about whether the tool can open it, and several listed below it cannot.
+
+For what acidcat actually reads, ask the tool -- `acidcat formats` prints the
+set with each format's capabilities, generated from the dispatch table, so it
+cannot drift the way a hand-kept list here would. Per-format byte-level
+datasheets live in [`formats/`](formats/).
+
 ## 1. Raw / Headerless Audio
 
 - PCM (.pcm, .raw)
@@ -147,6 +157,12 @@
 - VAG (PlayStation ADPCM)
 - ADX / HCA (CRI Middleware)
 - BRSTM / BCSTM (Nintendo)
+- DMX (Doom `DS*` lumps) -- 8-byte header over unsigned 8-bit mono PCM, and
+  **no magic anywhere**: `u16` format (3 in all 1,181 lumps measured), `u16`
+  rate, `u32` byte count of everything after the header. The lump's NAME is
+  the identification, so a signature sweep cannot find one and the WAD
+  directory is the only reliable route in. See `core/walk/dmx.py`, which
+  records the corpus measurements behind both of those claims.
 
 ---
 

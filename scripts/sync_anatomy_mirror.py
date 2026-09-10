@@ -37,7 +37,13 @@ MIRROR = os.path.join(os.path.dirname(os.path.dirname(HERE)),
 # slug -> (display name, tab colour, name colour, unit label, blurb)
 # Only formats whose card does not exist yet. Once a card is in index.html the
 # entry here is redundant and can go.
-NEW_CARDS = {}
+NEW_CARDS = {
+    "caf": ("CAF", "#3d6b63", "#7fd6c4", "byte map",
+            "Apple's answer to the 4 GB problem, and the third answer in a "
+            "family that already had two. Big-endian throughout, SIGNED 64-bit "
+            "sizes where -1 legally means 'to the end of the file', and no "
+            "chunk alignment at all."),
+}
 
 
 def _crlf(data):
