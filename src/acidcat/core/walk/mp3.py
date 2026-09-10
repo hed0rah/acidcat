@@ -643,10 +643,20 @@ def inspect_mp3(filepath, deep=False):
         fields.extend(xing_fields)
     kbps_txt = ("free format" if fh.get("free_format")
                 else f"{fh['bitrate']} kbps")
+    # A frame header states its own length, and a truncated file can state one
+    # longer than the bytes that follow it. Saying so is the walker's job: the
+    # geometry engine marks the chunk invalid either way, but a chunk that
+    # claims bytes past the end WITHOUT a warning reads as a fact.
+    frame0_warns = list(xing_warns or [])
+    _avail = file_size - frame_off
+    if fh["frame_length"] > _avail:
+        frame0_warns.append(
+            f"the frame header declares {fh['frame_length']:,} bytes and only "
+            f"{_avail:,} follow it; the file ends inside the first frame")
     chunks.append({"id": "frame0", "offset": frame_off, "size": fh["frame_length"],
                    "summary": (f"{fh['version']} {fh['layer']}, {kbps_txt}, "
                                f"{fh['sample_rate']} Hz, {fh['channel_mode_name']}"),
-                   "fields": fields, "warnings": xing_warns,
+                   "fields": fields, "warnings": frame0_warns,
                    "payload_base": frame_off})  # fields are frame-relative
 
     # LAME encoder delay + padding, so the reported duration is the gapless /
