@@ -287,29 +287,79 @@ def test_every_voc_block_type_the_spec_documents_is_handled():
 # ── MP4: the atoms acidcat descends into ────────────────────────────
 
 
-def test_acidcat_invents_no_mp4_container_atom():
-    """`_CONTAINERS` decides which boxes acidcat recurses into, so an entry
-    that is not really an atom sends the walker into bytes that are payload.
+def _mp4_switch_cases(spec):
+    """{atom fourcc: the type its body is parsed as} from the atom switch.
 
-    Only the atoms BOTH sides name are compared. acidcat carries `ilst`, `mvex`
-    and `mfra`, which are real ISO-BMFF boxes this kaitai revision does not
-    list, and asserting a subset in that direction would be measuring the
-    spec's coverage rather than acidcat's correctness -- the same reason the
-    WAVE fourcc check above compares only the overlap.
+    The spec models container-ness properly and the first version of this file
+    did not use it: `types/atom/seq` ends in a switch on `atom_type`, and a case
+    mapping to `atom_list` IS the statement that the atom holds other atoms.
+    Anything else is a typed leaf body.
+    """
+    atom = (spec.get("types") or {}).get("atom") or {}
+    for field in atom.get("seq") or []:
+        t = field.get("type")
+        if isinstance(t, dict) and t.get("switch-on"):
+            out = {}
+            for case, body in (t.get("cases") or {}).items():
+                name = str(case).rsplit("::", 1)[-1]
+                out[name.encode("ascii")] = body
+            return out
+    pytest.skip("this kaitai revision does not model the atom body as a switch")
+
+
+def test_every_container_the_spec_models_acidcat_also_descends_into():
+    """A case mapping to `atom_list` is the spec saying "this holds atoms". If
+    acidcat does not descend into one, every box inside it is invisible: not
+    reported wrong, absent, with no warning that anything was skipped.
     """
     from acidcat.core.formats.mp4 import _CONTAINERS
 
-    spec = _enum(_spec("media/quicktime_mov.ksy"), "atom_type")
-    named = {v.to_bytes(4, "big") for v in spec}
-    # every container acidcat knows AND the spec knows must agree it is an atom
-    overlap = {c for c in _CONTAINERS if c in named}
-    assert overlap, (
-        "no acidcat container atom appears in this kaitai revision at all, so "
-        "this check compared nothing")
-    assert len(overlap) >= 8, (
-        "only %d of acidcat's %d container atoms are in the spec (%s); that is "
-        "too thin an overlap to be evidence"
-        % (len(overlap), len(_CONTAINERS), sorted(x.decode() for x in overlap)))
+    cases = _mp4_switch_cases(_spec("media/quicktime_mov.ksy"))
+    spec_containers = {k for k, v in cases.items() if v == "atom_list"}
+    assert spec_containers, "no atom_list case in this revision; nothing compared"
+    missing = sorted(spec_containers - _CONTAINERS)
+    assert not missing, (
+        "the spec parses these as atom lists and acidcat treats them as leaves, "
+        "so their contents never appear: "
+        + ", ".join(m.decode() for m in missing))
+
+
+def test_acidcat_descends_into_no_atom_the_spec_gives_a_leaf_body():
+    """The other direction. An atom the spec parses with a typed body -- ftyp,
+    tkhd, mvhd -- is payload, and descending into payload reads field bytes as
+    box headers and invents a tree out of them.
+
+    What this CANNOT catch, stated because the test's previous name implied
+    otherwise: an atom the spec does not model at all. `stco` is a leaf (a
+    table of chunk offsets) and this revision has no case for it, so planting
+    it in _CONTAINERS passes here. That was true of the check this replaces,
+    which asserted only that a container id appears somewhere in the atom_type
+    enum -- and that enum lists leaves too, so membership proved "is an atom",
+    never "is a container".
+    """
+    from acidcat.core.formats.mp4 import _CONTAINERS
+
+    cases = _mp4_switch_cases(_spec("media/quicktime_mov.ksy"))
+    leaves = {k for k, v in cases.items() if v != "atom_list"}
+    assert leaves, "no typed-body case in this revision; nothing compared"
+    wrong = sorted(leaves & _CONTAINERS)
+    assert not wrong, (
+        "acidcat descends into atoms the spec parses as payload, so their "
+        "field bytes get read as box headers: "
+        + ", ".join(w.decode() for w in wrong))
+
+
+def test_the_mp4_container_set_is_not_silently_empty():
+    """The control the two assertions above need. Both are set differences, and
+    a set difference against an empty `_CONTAINERS` is empty too -- so gutting
+    the table would satisfy the leaf check and, without this, look clean.
+    """
+    from acidcat.core.formats.mp4 import _CONTAINERS
+
+    assert len(_CONTAINERS) >= 8, (
+        "only %d container atoms; acidcat carries thirteen and the ISO-BMFF "
+        "boxes that are not in this kaitai revision (ilst, mvex, mfra) are "
+        "real" % len(_CONTAINERS))
 
 
 def test_the_mp4_atoms_acidcat_descends_into_are_spelled_right():
