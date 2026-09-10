@@ -149,7 +149,13 @@ jobs:
         # stop being collected, which reads as a smaller green suite.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[analysis,mcp,tui,crypto]" -e ./lab pytest pytest-cov
+          # pyyaml is NOT an acidcat dependency and must not become one:
+          # it is here only so tests/test_kaitai_cross_check.py can read
+          # the .ksy specs, which are YAML. It importorskips, so a
+          # contributor without it gets a skip -- and this job got one
+          # too, on the first run after the cross-check was wired in.
+          # The guard below caught it, which is what it is for.
+          pip install -e ".[analysis,mcp,tui,crypto]" -e ./lab pytest pytest-cov pyyaml
       - name: Fetch the Kaitai format specs
         # The cross-check in tests/test_kaitai_cross_check.py is the only test
         # in this repo that measures acidcat against a specification nobody
