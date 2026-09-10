@@ -21,6 +21,7 @@ import pytest
 
 pytest.importorskip("textual")
 
+from conftest import until                  # noqa: E402
 from acidcat.tui_app.app import AcidcatTUI      # noqa: E402
 
 
@@ -137,7 +138,11 @@ class TestPanningTheTree:
                 await pilot.pause(0.3)
                 await _wide_open(app, pilot)
                 app.action_help()
-                await pilot.pause(0.2)
+                # A background round trip, waited on by its condition rather
+                # than by a duration. The assert stays: `until` returns a
+                # bool, so a timeout would otherwise read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: app.check_action("tree_pan", (8,)) is False)
                 assert app.check_action("tree_pan", (8,)) is False
         _run(scenario)
 
