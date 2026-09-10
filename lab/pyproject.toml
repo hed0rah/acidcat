@@ -6,9 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "acidcat-lab"
 version = "1.5.0"
 description = "Construct files that test what acidcat can see: cavities, polyglots and sample-LSB stego"
-# No `readme` yet, so the PyPI page carries the description line alone. Adding
-# one is a deliberate call rather than an oversight: this is a dual-use tool and
-# what its page says about intent matters more than the usual boilerplate.
+# No `readme`, and no PyPI page to carry one: this distribution is deliberately
+# not published (see .github/workflows/publish-lab.yml). It is built and
+# installed from the repo -- `pip install -e ./lab`, which is what CI does, or
+# the git URL the 1.5.0 CHANGELOG gives. `twine check` warns about the missing
+# long_description; that warning is expected and not a defect to fix.
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [

@@ -1,17 +1,26 @@
 name: Publish acidcat-lab
 
-# INERT ON PURPOSE. There is no `release:` trigger here, unlike publish.yml.
+# PARKED ON PURPOSE, and not because anything here is unfinished.
 #
-# `acidcat-lab` does not exist on PyPI yet, and trusted publishing has to be
-# configured against a project that does. Wiring this to `release: published`
-# before that exists would mean the first 1.5.0 release fires a job that fails
-# on authentication, which turns a clean release into a red one.
+# 2026-09-10: `acidcat-lab` is deliberately NOT published to PyPI. The split
+# that put it in its own distribution has already done its whole job -- a plain
+# `pip install acidcat` no longer ships construction tooling, which is the bug
+# it existed to fix. Publishing the lab is a separate question, and the answer
+# is no for now.
 #
-# To turn it on: register `acidcat-lab` on PyPI, add this repo and this
-# workflow filename as a trusted publisher, create the `pypi-lab` environment,
-# then decide whether it stays manual or gains a `release:` trigger. Manual is
-# defensible for a long time -- the lab moves on its own schedule now, which is
-# the whole reason it is a separate distribution.
+# The reasoning, so nobody re-opens it as a loose end: the lab's audience is
+# this repo's own developers and anyone writing detectors, all of whom clone.
+# `pip install -e ./lab` already works and CI already does exactly that. A PyPI
+# page buys reach we do not want for a dual-use construction tool and costs a
+# public statement of intent on a page nobody asked for. The CHANGELOG gives
+# the git install for anyone who wants it.
+#
+# This file is kept, wired and correct rather than deleted, because the day
+# that answer changes the machinery should not have to be rewritten. To arm it:
+# register `acidcat-lab` on PyPI, add this repo and this workflow filename as a
+# trusted publisher, create the `pypi-lab` environment, and point the publish
+# step at the real index. It stays `workflow_dispatch` either way -- the lab
+# moves on its own schedule, which is the whole reason it is separate.
 on:
   workflow_dispatch: {}
 
