@@ -36,7 +36,8 @@ and the acidcat-playground both build on. Import from the package root; the
     # constraints / forensics
     report = acidcat.analyze(data)                     # derived-field violations
     fixed, report = acidcat.repair(data)               # re-satisfy the constraints
-    findings = acidcat.anomalies_scan("song.wav", fmt, chunks, warns)
+    findings = acidcat.anomalies_scan("song.wav")      # walks internally
+    findings = acidcat.anomalies_scan("song.wav", fmt, chunks, warns)  # reuse a walk
 
 Importing acidcat pulls only the zero-optional-dependency core (the walkers, the
 dissection primitives, the constraint model). Tagging (mutagen), the TUI

@@ -302,13 +302,23 @@ _IFF_IDS = frozenset({"aiff", "aifc", "aif", "8svx"})
 _CHUNKED_IDS = _RIFF_IDS | _IFF_IDS
 
 
-def scan(filepath, fmt_label, chunks, warns):
-    """Return a list of forensic findings for an already-walked file.
+def scan(filepath, fmt_label=None, chunks=None, warns=None):
+    """Return a list of forensic findings for a file.
 
-    `fmt_label` is the walker's display label and is kept in the signature for
-    compatibility, but dispatch below uses the sniff id instead -- see the note
-    on the id sets above.
+    Pass just the path and the file is walked for you. Pass `chunks` (and
+    `warns`) when you have already walked it, to avoid a second walk. A file
+    acidcat cannot structurally parse is still scanned for the byte-level tells
+    (appended data, polyglot magic) against empty chunks rather than refused.
+
+    `fmt_label` is accepted for compatibility and ignored: dispatch below uses
+    the sniff id instead -- see the note on the id sets above.
     """
+    if chunks is None:
+        from acidcat.core.walk import Unsupported, walk_file
+        try:
+            _label, chunks, warns = walk_file(filepath)
+        except Unsupported:
+            chunks, warns = [], []
     from acidcat.core.infra import sniff as _sniff
     try:
         fmt_id = _sniff.sniff(filepath)
