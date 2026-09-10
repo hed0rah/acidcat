@@ -27,6 +27,7 @@ import pytest
 
 pytest.importorskip("textual")
 
+from conftest import until                      # noqa: E402
 from acidcat.tui_app.app import AcidcatTUI          # noqa: E402
 from acidcat.tui_app.render import _HEX_CAP, hex_text   # noqa: E402
 from acidcat.tui_app.screens import RegionsScreen   # noqa: E402
@@ -222,7 +223,11 @@ class TestBackReopensTheList:
                 app._descend(0)
                 await pilot.pause()
                 app.action_nav_back()
-                await pilot.pause(0.4)
+                # A background round trip, waited on by its condition rather
+                # than by a duration. The assert stays: `until` returns a
+                # bool, so a timeout would otherwise read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: [s for s in app.screen_stack if isinstance(s, RegionsScreen)])
                 assert [s for s in app.screen_stack
                         if isinstance(s, RegionsScreen)], (
                     "back left the user on a bare view with no list")
@@ -257,7 +262,11 @@ class TestBackReopensTheList:
                 app._stack.append(app._snapshot())
                 app._region_view = None
                 app.action_nav_back()
-                await pilot.pause(0.3)
+                # A background round trip, waited on by its condition rather
+                # than by a duration. The assert stays: `until` returns a
+                # bool, so a timeout would otherwise read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: not [s for s in app.screen_stack if isinstance(s, RegionsScreen)])
                 assert not [s for s in app.screen_stack
                             if isinstance(s, RegionsScreen)]
         _run(scenario)

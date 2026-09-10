@@ -45,6 +45,27 @@ import struct
 import random
 
 _MAGIC = b"ACST"  # 4-byte marker so extract can tell "no payload" from garbage
+
+
+def _not_found(method):
+    """The message for a missing magic, which has three causes and named one.
+
+    It said "wrong key or none embedded". Since `adaptive` landed there is a
+    third, and it is now the likeliest: `adaptive` selects which samples to
+    read by measuring the carrier, so it and the sequential methods look at
+    different sample sets entirely. Extract with a method the payload was not
+    embedded with and the magic is simply not where the reader is looking --
+    the same failure the tests assert must happen.
+
+    Naming only the key sent a real session hunting a round-trip bug that was
+    a default: `extract` defaults to `replace`, and the payload was adaptive.
+    """
+    return ("no acidcat-stego payload found reading as method %r "
+            "(wrong --method, wrong key, or nothing embedded). The method must "
+            "match the one used to embed: 'adaptive' reads a different set of "
+            "samples than 'replace' and 'match'." % method)
+
+
 _BLOCK = 256      # adaptive: samples per block whose noisiness is judged together
 
 
@@ -141,7 +162,7 @@ def extract(wav, key=1337, raw=False, method="replace"):
     if not raw:
         head = bytes(b ^ k for b, k in zip(head, _keystream(key, head_len)))
     if head[:4] != _MAGIC:
-        raise ValueError("no acidcat-stego payload found (wrong key or none embedded)")
+        raise ValueError(_not_found(method))
     plen = struct.unpack_from("<I", head, 4)[0]
     total = head_len + plen
     blob = _read_bits(wav, off, width, total * 8)
@@ -285,7 +306,7 @@ def _extract_adaptive(wav, key, raw):
     if not raw:
         head = bytes(b ^ k for b, k in zip(head, _keystream(key, head_len)))
     if head[:4] != _MAGIC:
-        raise ValueError("no acidcat-stego payload found (wrong key or none embedded)")
+        raise ValueError(_not_found("adaptive"))
     plen = struct.unpack_from("<I", head, 4)[0]
     total = head_len + plen
     blob = read(total * 8)

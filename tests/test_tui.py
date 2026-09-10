@@ -1192,6 +1192,7 @@ def test_tui_regions_browse_descend_ascend_extract(tmp_path):
     the browser, and extract-all writes each region out."""
     pytest.importorskip("textual")
     import asyncio
+    from conftest import until
     from acidcat.tui_app import AcidcatTUI, RegionsScreen, PromptScreen
 
     blob = tmp_path / "disk.img"
@@ -1223,7 +1224,11 @@ def test_tui_regions_browse_descend_ascend_extract(tmp_path):
             # others" -- making that a second keypress was the clunky part.
             # The list comes from the cache, so nothing is rescanned.
             app.action_nav_back()
-            await pilot.pause(0.4)
+            # A background round trip, waited on by its condition rather
+            # than by a duration. The assert stays: `until` returns a
+            # bool, so a timeout would otherwise read as a pass.
+            await pilot.pause(0.1)
+            await until(pilot, lambda: app._region_view is None)
             assert app._region_view is None, "back should leave the region behind"
             assert any(isinstance(s, RegionsScreen) for s in app.screen_stack)
             assert not app._scanning, "back rescanned instead of using the cache"
@@ -1247,6 +1252,7 @@ def test_tui_regions_re_tools(tmp_path):
     raw-byte search -- each descends or re-scans without crashing."""
     pytest.importorskip("textual")
     import asyncio
+    from conftest import until
     from acidcat.tui_app import AcidcatTUI, RegionsScreen, PromptScreen
 
     blob = tmp_path / "disk.img"
@@ -1296,7 +1302,11 @@ def test_tui_regions_re_tools(tmp_path):
             # `u` is back-to-the-parent-view now, not "re-open the region
             # list"; `l` shows the list, instantly, from the cache on the view.
             app.action_nav_back()
-            await pilot.pause(0.4)
+            # A background round trip, waited on by its condition rather
+            # than by a duration. The assert stays: `until` returns a
+            # bool, so a timeout would otherwise read as a pass.
+            await pilot.pause(0.1)
+            await until(pilot, lambda: browser())
             assert browser(), "back did not bring the region list back with it"
             # raw-byte search for the RIFF magic -> lands on it
             browser()[0].dismiss({"action": "search"})

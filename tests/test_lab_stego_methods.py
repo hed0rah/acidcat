@@ -95,8 +95,15 @@ def test_a_wrong_method_does_not_recover_the_payload():
     # method fails the magic check rather than returning garbage.
     carrier = _mixed_carrier()
     hidden = stego.embed(carrier, _payload(400), method="adaptive")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as e:
         stego.extract(hidden, method="replace")
+    # and it has to SAY so. The message named only the key, so this failure --
+    # which `extract` walks into by default, since its default method is
+    # `replace` -- read as "wrong key or nothing embedded" and cost a session
+    # hunting a round-trip bug that was a default.
+    msg = str(e.value)
+    assert "--method" in msg, msg
+    assert "replace" in msg and "adaptive" in msg, msg
 
 
 # ── match: +/-1 only, and it survives the full-scale edge ───────────

@@ -161,7 +161,11 @@ class TestAScanAnnouncesItself:
                 notes = []
                 app.notify = lambda m, **kw: notes.append(str(m))
                 app.action_locate_regions()
-                await pilot.pause(0.2)
+                # A background round trip, waited on by its condition
+                # rather than by a duration. The assert stays: `until`
+                # returns a bool, so a timeout would read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: any('scanning' in n for n in notes))
                 assert any("scanning" in n for n in notes), notes
         _run(scenario)
 
@@ -193,7 +197,11 @@ class TestAScanAnnouncesItself:
                 notes = []
                 app.notify = lambda m, **kw: notes.append(str(m))
                 app.action_locate_regions()
-                await pilot.pause(0.3)
+                # A background round trip, waited on by its condition
+                # rather than by a duration. The assert stays: `until`
+                # returns a bool, so a timeout would read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: not [n for n in notes if 'scanning' in n])
                 assert not [n for n in notes if "scanning" in n], notes
         _run(scenario)
 
@@ -231,7 +239,11 @@ class TestRegionsAreTreeNodes:
                 await _scan(app, pilot)
                 cached = app._regions
                 app.action_locate_regions()
-                await pilot.pause(0.4)
+                # A background round trip, waited on by its condition
+                # rather than by a duration. The assert stays: `until`
+                # returns a bool, so a timeout would read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: [s for s in app.screen_stack if isinstance(s, RegionsScreen)])
                 assert [s for s in app.screen_stack
                         if isinstance(s, RegionsScreen)]
                 assert app._regions is cached, "l rescanned instead of reusing"
@@ -706,7 +718,11 @@ class TestSelectingForExtraction:
                 app._show_regions(app._regions)
                 await pilot.pause(0.3)
                 self._screen(app).action_extract()
-                await pilot.pause(0.3)
+                # A background round trip, waited on by its condition
+                # rather than by a duration. The assert stays: `until`
+                # returns a bool, so a timeout would read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: got.get('offsets') is not None)
                 assert got["offsets"] == [app._regions[0]["offset"],
                                           app._regions[2]["offset"]]
         _run(scenario)
@@ -721,7 +737,11 @@ class TestSelectingForExtraction:
                 got = {}
                 app._extract = lambda regs: got.__setitem__("n", len(regs))
                 self._screen(app).action_extract()
-                await pilot.pause(0.3)
+                # A background round trip, waited on by its condition
+                # rather than by a duration. The assert stays: `until`
+                # returns a bool, so a timeout would read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: got.get('n') == 1)
                 assert got["n"] == 1
         _run(scenario)
 
@@ -737,7 +757,11 @@ class TestSelectingForExtraction:
                 app._show_regions(app._regions)
                 await pilot.pause(0.3)
                 self._screen(app).action_extract_all()
-                await pilot.pause(0.3)
+                # A background round trip, waited on by its condition
+                # rather than by a duration. The assert stays: `until`
+                # returns a bool, so a timeout would read as a pass.
+                await pilot.pause(0.1)
+                await until(pilot, lambda: got.get('n') == 3)
                 assert got["n"] == 3
         _run(scenario)
 

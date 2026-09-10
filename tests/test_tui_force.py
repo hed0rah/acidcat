@@ -138,7 +138,11 @@ class TestForcedParse:
                 notes = []
                 app.notify = lambda m, **kw: notes.append(str(m))
                 app.action_force_parse()
-                await pilot.pause(0.3)
+                # A background round trip, waited on by its condition rather
+                # than by a duration. The assert stays: `until` returns a
+                # bool, so a timeout would otherwise read as a pass.
+                await pilot.pause(0.1)
+                await _until(pilot, lambda: not [s for s in app.screen_stack if isinstance(s, ForcedScreen)])
                 assert not [s for s in app.screen_stack
                             if isinstance(s, ForcedScreen)]
                 assert any("forces a walker only" in n for n in notes), notes
