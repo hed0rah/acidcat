@@ -80,7 +80,13 @@ def _synchsafe_encode(text):
 
 
 def _synchsafe_decode(b):
-    return (b[0] << 21) | (b[1] << 14) | (b[2] << 7) | b[3]
+    # Seven bits a byte, so mask them. `_synchsafe_encode` above already
+    # refuses anything that will not fit in 28 bits; without the mask here the
+    # pair is not a round trip, because this returns values that one rejects.
+    # A malformed 80 00 00 00 decoded to 268,435,456 and then could not be
+    # written back.
+    return (((b[0] & 0x7F) << 21) | ((b[1] & 0x7F) << 14)
+            | ((b[2] & 0x7F) << 7) | (b[3] & 0x7F))
 
 
 def _float80_encode(text):
