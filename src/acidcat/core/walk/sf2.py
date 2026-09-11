@@ -9,6 +9,11 @@ from acidcat.core.formats import sf2 as sf2mod
 from acidcat.core.walk.base import Unsupported, _PAYLOAD_CAP, _f
 
 _SAMPLE_LIST_CAP = 400          # named samples to list in inspect
+# Same reasoning as the sample cap: a soundfont can carry hundreds of each,
+# and a listing that silently stops is worse than one that says it did.
+_PRESET_LIST_CAP = 200
+_INSTRUMENT_LIST_CAP = 200
+_ZONE_LIST_CAP = 24         # zones listed per instrument
 _SF2_CAP = 512 * 1024 * 1024    # cap the whole-file read; a forged sfbk must not OOM
 
 
@@ -40,13 +45,17 @@ def inspect_sf2(filepath):
                 "copyright", "date", "sound_engine"):
         if info["info"].get(key):
             meta.append(_f(None, 0, key, info["info"][key][:200]))
+    meta.append(_f(None, 0, "presets", len(info.get("presets") or [])))
+    meta.append(_f(None, 0, "instruments", len(info.get("instruments") or [])))
     meta.append(_f(None, 0, "samples", info["sample_count"]))
     if sf3:
         meta.append(_f(None, 0, "compression", "Ogg Vorbis (SF3)"))
     title = info["info"].get("name", "")
     chunks.append({"id": "sfbk", "offset": 0, "size": file_size,
                    "summary": f"{ver_label}{' ' + info['version'] if info['version'] else ''}"
-                              f", {info['sample_count']} samples"
+                              f", {len(info.get('presets') or [])} presets, "
+                              f"{len(info.get('instruments') or [])} instruments, "
+                              f"{info['sample_count']} samples"
                               + (f" -- '{title}'" if title else ""),
                    "fields": meta, "warnings": [], "payload_base": 0})
 
@@ -61,7 +70,72 @@ def inspect_sf2(filepath):
                    "fields": smpl_fields,
                    "warnings": [], "payload_base": info["smpl_offset"]})
 
+    # The structure ABOVE the samples. A soundfont is a tree -- preset ->
+    # preset zone -> instrument -> instrument zone -> sample -- and the walk
+    # used to report only its leaves, which answers "what audio is in here" and
+    # not "what does it play", the question anyone opening one asks first.
+    #
+    # Unpositioned on purpose: a preset is a row in phdr and a set of
+    # cross-references into four other tables, so it is real and it is not one
+    # byte range. Inventing an offset would be the geometry defect the chunk
+    # contract exists to stop.
+    presets = info.get("presets") or []
+    instruments = info.get("instruments") or []
     warns = []
+    truncated_zones = 0
+
+    for i, p in enumerate(presets[:_PRESET_LIST_CAP]):
+        # bank 128 is the percussion bank: `program` selects a drum kit there,
+        # not an instrument, so naming it a program number would mislead
+        where = (f"drum kit {p['program']}" if p["percussion"]
+                 else f"bank {p['bank']} program {p['program']}")
+        named = [instruments[x]["name"] for x in p["instruments"]
+                 if 0 <= x < len(instruments)]
+        fields = [_f(None, 0, "name", p["name"]),
+                  _f(None, 0, "bank", p["bank"],
+                     "128 is the percussion bank" if p["percussion"] else ""),
+                  _f(None, 0, "program", p["program"], "MIDI program number"),
+                  _f(None, 0, "zones", p["zones"])]
+        if named:
+            fields.append(_f(None, 0, "instruments", ", ".join(named[:8])
+                             + (f" (+{len(named) - 8} more)" if len(named) > 8 else "")))
+        chunks.append({"id": f"preset[{i}]", "offset": None, "size": None,
+                       "summary": f"{p['name']}  {where}, {p['zones']} zone(s)",
+                       "fields": fields, "warnings": []})
+    if len(presets) > _PRESET_LIST_CAP:
+        warns.append(coverage(f"listing the first {_PRESET_LIST_CAP} of "
+                     f"{len(presets):,} presets"))
+
+    for i, inst in enumerate(instruments[:_INSTRUMENT_LIST_CAP]):
+        zones = inst["zones"]
+        keys = [z["key_lo"] for z in zones if z["key_lo"] is not None]
+        keys_hi = [z["key_hi"] for z in zones if z["key_hi"] is not None]
+        span = (f", keys {min(keys)}-{max(keys_hi)}" if keys and keys_hi else "")
+        fields = [_f(None, 0, "name", inst["name"]),
+                  _f(None, 0, "zones", len(zones))]
+        for z in zones[:_ZONE_LIST_CAP]:
+            rng = (f"{z['key_lo']}-{z['key_hi']}"
+                   if z["key_lo"] is not None else "all keys")
+            fields.append(_f(None, 0, f"keys {rng}", z["sample"] or
+                             f"sample #{z['sample_id']} (out of range)"))
+        if len(zones) > _ZONE_LIST_CAP:
+            fields.append(_f(None, 0, "...", f"{len(zones) - _ZONE_LIST_CAP} more zone(s)"))
+            # A shortened key map is a statement about the WALK, so it belongs
+            # in the warnings a caller reads and not only in a field the eye
+            # may not reach. Counted rather than repeated: a font of 200
+            # instruments would otherwise emit 200 identical notes.
+            truncated_zones += 1
+        chunks.append({"id": f"inst[{i}]", "offset": None, "size": None,
+                       "summary": f"{inst['name']}  {len(zones)} zone(s){span}",
+                       "fields": fields, "warnings": []})
+    if len(instruments) > _INSTRUMENT_LIST_CAP:
+        warns.append(coverage(f"listing the first {_INSTRUMENT_LIST_CAP} of "
+                     f"{len(instruments):,} instruments"))
+    if truncated_zones:
+        warns.append(coverage(
+            f"{truncated_zones} instrument(s) list only their first "
+            f"{_ZONE_LIST_CAP} zones; more zone(s) are present"))
+
     if file_size > _SF2_CAP:
         warns.append(coverage(f"file exceeds {_SF2_CAP >> 20} MB; parsed the first "
                      f"{_SF2_CAP >> 20} MB (samples near the end may be missing)"))

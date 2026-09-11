@@ -121,6 +121,14 @@ class Reason(enum.Enum):
 # covered, if anywhere. An exemption pointing at another test is a redirect; one
 # pointing at nothing is a hole.
 EXEMPT = {
+    ("acidcat.core.formats.sf2", "_MAX_RECORDS"):
+        (Reason.FIELD_SANITY, "a ceiling on a record count derived from a "
+                              "declared chunk size, used to refuse a forged "
+                              "pdta table rather than to shorten a listing. "
+                              "The three list caps in walk/sf2.py are the "
+                              "coverage bounds and they are in SWEPT; a real "
+                              "General MIDI font carries 137 presets against "
+                              "this 65,536"),
     ("acidcat.core.walk.multisample", "_ENTRY_CAP"):
         (Reason.RESOURCE_LIMIT, "a manifest inflating past 16 MB raises "
                                 "BadZipFile, which the walker reports as a "
@@ -374,6 +382,42 @@ def _svx_many_chunks(tmp_path, n):
     return str(p)
 
 
+def _sf2_tree(tmp_path, name, presets, instruments, zones_per_inst=1):
+    """A soundfont with a real phdr/pbag/pgen/inst/ibag/igen chain.
+
+    Built through the sf2 test module's own builder rather than a second
+    hand-rolled one: the bag spans are cross-references between five tables and
+    a second copy would get them subtly wrong, which is the failure this whole
+    file exists to make visible.
+    """
+    import test_sf2
+
+    samples = [("S%d" % i, i * 10, i * 10 + 8, 0, 0, 44100) for i in range(4)]
+    data = test_sf2._make_tree_sf2(
+        presets=[("P%d" % i, 0, i % 128, [i % max(1, instruments)])
+                 for i in range(presets)],
+        instruments=[("I%d" % i,
+                      [(0, 127, j % len(samples)) for j in range(zones_per_inst)])
+                     for i in range(instruments)],
+        samples=samples)
+    p = tmp_path / name
+    p.write_bytes(data)
+    return str(p)
+
+
+def _sf2_many_presets(tmp_path, n):
+    return _sf2_tree(tmp_path, "presets.sf2", presets=n, instruments=2)
+
+
+def _sf2_many_instruments(tmp_path, n):
+    return _sf2_tree(tmp_path, "insts.sf2", presets=2, instruments=n)
+
+
+def _sf2_many_zones(tmp_path, n):
+    return _sf2_tree(tmp_path, "zones.sf2", presets=1, instruments=1,
+                     zones_per_inst=n)
+
+
 def _caf_many_chunks(tmp_path, n):
     """A CAF with n tiny chunks, to cross the walker's chunk cap."""
     import test_caf
@@ -560,6 +604,12 @@ SWEPT = [
      "stopped after"),
     ("acidcat.core.walk.caf", "_STRING_CAP", 4, _caf_many_info,
      "listing the first"),
+    ("acidcat.core.walk.sf2", "_PRESET_LIST_CAP", 4, _sf2_many_presets,
+     "listing the first"),
+    ("acidcat.core.walk.sf2", "_INSTRUMENT_LIST_CAP", 4, _sf2_many_instruments,
+     "listing the first"),
+    ("acidcat.core.walk.sf2", "_ZONE_LIST_CAP", 4, _sf2_many_zones,
+     "more zone(s)"),
 ]
 
 

@@ -155,7 +155,11 @@ class TestTheWalkersActuallyUseIt:
         expected = {
             "ableton.py": 2, "bfdlac.py": 1, "flac.py": 1, "krz.py": 1,
             "midi2.py": 1, "mpc.py": 2, "rmid.py": 1, "rx2.py": 1,
-            "sf2.py": 2, "sigmf.py": 2,
+            # 5 since the preset/instrument tree landed: the sample list had one
+            # cap and the file cap made two, and the preset, instrument and
+            # per-instrument zone listings each added one. A number that
+            # rises because a walker reads MORE is the ratchet working.
+            "sf2.py": 5, "sigmf.py": 2,
         }
         for fn, n in expected.items():
             src = (root / fn).read_text(encoding="utf-8")

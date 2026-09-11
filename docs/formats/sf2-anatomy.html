@@ -230,6 +230,32 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     </details>
 
     <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">LIST pdta / phdr</span><span class="rspan">38-byte records . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">The presets: what a MIDI program change actually selects. Each record is 38 bytes -- a 20-byte name, the <b>program</b> and <b>bank</b> it answers to, an index into <code>pbag</code>, and three fields the spec reserves and every writer leaves zero. A terminal record named <b>EOP</b> ends the table, and it exists to close the last real preset's zone span rather than to describe a preset.</p>
+        <p class="note"><b>Bank 128 is percussion.</b> There the program number selects a drum kit rather than an instrument, so the same two bytes mean different things depending on the bank beside them.</p>
+        <div id="block-phdr"></div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">LIST pdta / inst</span><span class="rspan">22-byte records . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">The instruments, which are what presets actually play. Twenty bytes of name and one index into <code>ibag</code> -- the shortest record in the format, because an instrument is almost entirely defined by the zones hanging off it. A terminal <b>EOI</b> record closes the last one.</p>
+        <div id="block-inst"></div>
+      </div>
+    </details>
+
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">LIST pdta / igen</span><span class="rspan">4-byte records . drawn below</span></summary>
+      <div class="rbody">
+        <p class="note">Generators are how a zone says anything at all. Each is <b>four bytes</b>: a 16-bit operator naming the parameter, and a 16-bit amount whose meaning depends entirely on that operator. Two of them decide what a zone plays -- <b>43</b> is the key range and <b>53</b> is the sample index -- and by the spec's rule a zone's sampleID must be its LAST generator.</p>
+        <p class="note">The key range packs two values into one 16-bit amount: <b>low key in the low byte, high key in the high byte</b>. Read it as a single number and a zone covering notes 0 to 60 becomes a zone at key 15,360, which is not a key.</p>
+        <div id="block-igen"></div>
+      </div>
+    </details>
+
+    <details class="region" open>
       <summary><span class="chev">&#9656;</span><span class="rname">LIST pdta / shdr</span><span class="rspan">46-byte records . drawn below</span></summary>
       <div class="rbody">
         <p class="note">The sample headers. Each record is exactly 46 bytes: a 20-byte name, five u32 indices into smpl (start, end, loop start, loop end, sample rate), then the original pitch, a correction, a stereo link, and a type. A terminal record named "EOS" marks the end of the table. The record below is the real first entry of a library SF2.</p>
@@ -245,7 +271,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   </div>
 
   <div class="sec">what the header yields</div>
-  <p class="note">The INFO metadata, the smpl blob size, and every shdr record -- each turned into a chunk carrying its real byte offset, so samples are carveable and hex-viewable, and convert lifts them all out.</p>
+  <p class="note">The INFO metadata, the smpl blob size, and every shdr record -- each turned into a chunk carrying its real byte offset, so samples are carveable and hex-viewable, and convert lifts them all out. Above those, the preset and instrument tables resolve into the tree they describe: which bank and program each preset answers to, the instruments its zones reach, and the key range each instrument zone maps to a sample. Those are rows and cross-references rather than byte ranges, so they carry no offset.</p>
   <div>
     <details class="region" open>
       <summary><span class="chev">&#9656;</span><span class="rname">reading a bank</span><span class="rspan">soundfont</span></summary>
@@ -380,6 +406,79 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     det.n.textContent="";
     dcol.style.minHeight=(maxH+6)+"px";
   }
+
+
+  // real phdr record: preset "Flute TB" from a General MIDI SF2
+  build("block-phdr", 'byte',
+    [0x46,0x6C,0x75,0x74,0x65,0x20,0x54,0x42,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+     0x00,0x00,0x00,0x00, 0x49,0x00, 0x00,0x00, 0x00,0x00,
+     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00],
+    [
+     {label:"presetName",k:"enum",r:[0,19],val:"Flute TB",
+      body:"Twenty bytes, NUL-padded rather than NUL-terminated: a name of exactly twenty characters has no terminator at all, so reading to the first NUL must be bounded by the field rather than by the byte.",
+      note:"46 6C 75 74 65 20 54 42 + padding."},
+     {label:"preset",k:"enum",r:[20,21],val:"73",
+      body:"The MIDI program number. 73 is Flute in General MIDI, and this field is what a program change selects.",
+      note:"49 00 = 73."},
+     {label:"bank",k:"enum",r:[22,23],val:"0",
+      body:"The bank. 0 is the melodic bank; 128 is percussion, where the program number above selects a DRUM KIT instead of an instrument. The same two bytes therefore mean different things depending on this field.",
+      note:"00 00 = melodic."},
+     {label:"presetBagNdx",k:"sync",r:[24,25],val:"0",
+      body:"The index of this preset's FIRST zone in pbag. Its last is wherever the NEXT preset's index starts, which is why the table needs a terminal EOP record: without it the final preset has no end.",
+      note:"a span, not a count."},
+     {label:"library",k:"rsv",r:[26,29],val:"0",
+      body:"Reserved by the specification for a sound library id. Written zero by every writer this has been read against.",
+      note:"unused in practice."},
+     {label:"genre",k:"rsv",r:[30,33],val:"0",
+      body:"Reserved, and unused in the same way.",
+      note:"unused in practice."},
+     {label:"morphology",k:"rsv",r:[34,37],val:"0",
+      body:"Reserved, and unused in the same way. Three fields the format kept room for and nothing ever filled.",
+      note:"unused in practice."}
+    ]);
+
+  // real inst record: the instrument the preset above plays
+  build("block-inst", 'byte',
+    [0x46,0x6C,0x75,0x74,0x65,0x20,0x54,0x42,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+     0x00,0x00,0x00,0x00, 0x00,0x00],
+    [
+     {label:"instName",k:"enum",r:[0,19],val:"Flute TB",
+      body:"Twenty bytes as in phdr. An instrument often shares its preset's name and is a different object: the preset is what MIDI selects, the instrument is what actually holds the key map.",
+      note:"the same padding rule."},
+     {label:"instBagNdx",k:"sync",r:[20,21],val:"0",
+      body:"The index of this instrument's first zone in ibag, ending where the next instrument's begins. The whole record is a name and a pointer -- everything that makes an instrument sound like one lives in the zones.",
+      note:"closed by the EOI record."}
+    ]);
+
+  // real igen records: the first zone of that instrument
+  build("block-igen", 'byte',
+    [0x2B,0x00,0x00,0x3C, 0x10,0x00,0xC8,0x00, 0x36,0x00,0x01,0x00, 0x16,0x00,0x96,0xFB],
+    [
+     {label:"oper 43",k:"sync",r:[0,1],val:"keyRange",
+      body:"The operator: which parameter this generator sets. 43 is the key range, and it is conventionally first in a zone.",
+      note:"2B 00 = 43."},
+     {label:"amount",k:"enum",r:[2,3],val:"0-60",
+      body:"TWO values in one 16-bit field: low key in the LOW byte, high key in the high byte. 00 3C is keys 0 through 60. Read as a single little-endian number it is 15,360, which is not a key and not a range.",
+      note:"00 = lo, 3C = 60 = hi."},
+     {label:"oper 16",k:"rsv",r:[4,5],val:"reverbEffectsSend",
+      body:"A zone carries many generators beyond the two that decide what it plays. This one sets reverb send in tenths of a percent.",
+      note:"10 00 = 16."},
+     {label:"amount",k:"rsv",r:[6,7],val:"200",
+      body:"20.0% reverb send. Its units are this operator's own; nothing in the record says what they are.",
+      note:"C8 00 = 200."},
+     {label:"oper 54",k:"rsv",r:[8,9],val:"sampleModes",
+      body:"Whether the sample loops. 1 is continuous looping, which is what a sustained flute needs.",
+      note:"36 00 = 54."},
+     {label:"amount",k:"rsv",r:[10,11],val:"1",
+      body:"Loop continuously.",
+      note:"01 00 = 1."},
+     {label:"oper 22",k:"rsv",r:[12,13],val:"vibLfoToPitch",
+      body:"Vibrato depth in cents. The point of showing four generators rather than one is that a zone is a LIST of these, terminated by the sampleID that says what it plays.",
+      note:"16 00 = 22."},
+     {label:"amount",k:"rsv",r:[14,15],val:"-1130",
+      body:"SIGNED, unlike most amounts: FB 96 little-endian is -1,130 cents. Whether a generator's amount is signed depends on which operator it is, and nothing in the record itself says so.",
+      note:"96 FB = -1130."}
+    ]);
 
   // real shdr record: sample "tu 13" from a library SF2 (airfont)
   build("block-shdr", 'byte',
