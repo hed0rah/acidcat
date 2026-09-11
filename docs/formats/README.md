@@ -58,3 +58,29 @@ disagreed with its own specimen at three bytes, the serum page described a
 capability (`zstd` frame identification) that does not exist in the code, and
 the midi page stated MIDI 2.0 velocity as 256x MIDI 1.0's when 7 bits to 16
 bits is 512x -- in a sentence that named both widths.
+
+## Which walkers do NOT get a page, and why
+
+`docs/adding-a-walker.md` says a format earns a page here once it is walked.
+Nine walkers do not have one, and eight of those are a deliberate grouping
+rather than a backlog:
+
+    adx  albank  brstm  cdxa  gcm  hps  vag  cue
+
+They are the console and disc-image family, and they are documented together in
+`../console_audio_formats.md`, which maps the whole landscape by generation and
+says what is shipped, reachable and out of scope. Splitting them into eight
+pages would lose the thing that makes them legible, which is where each sits
+relative to the others -- the same argument that puts `.asd`, `.adg` and their
+siblings on tabs of one Ableton page instead of six.
+
+The ninth is `dmx`, the Doom `DS*` lump: eight bytes of header over unsigned
+8-bit PCM, with no magic anywhere. It is described in
+`../audio_file_formats.md` under Game / Interactive Audio. A page would be one
+byte map of four fields, and the walker's own docstring already records what
+the corpus settled and what it could not.
+
+If that reasoning stops holding -- a console format grows enough structure to
+need a map of its own -- the rule in `adding-a-walker.md` wins and it gets a
+page. This section exists so the gap reads as a decision that can be revisited
+rather than as nine pages nobody got round to.

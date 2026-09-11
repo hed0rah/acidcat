@@ -38,6 +38,11 @@ MIRROR = os.path.join(os.path.dirname(os.path.dirname(HERE)),
 # Only formats whose card does not exist yet. Once a card is in index.html the
 # entry here is redundant and can go.
 NEW_CARDS = {
+    "voc": ("VOC", "#6b5a3d", "#d6bd7f", "byte map",
+            "The sample format of the DOS era, inside almost every Build-engine "
+            "archive. A chain of typed blocks whose terminator is one byte with "
+            "no length field, and whose continuation block carries no format "
+            "bytes of its own."),
     "caf": ("CAF", "#3d6b63", "#7fd6c4", "byte map",
             "Apple's answer to the 4 GB problem, and the third answer in a "
             "family that already had two. Big-endian throughout, SIGNED 64-bit "

@@ -55,14 +55,13 @@ BODY = """<div class="sheet">
   an <code>s64</code> rather than a <code>u64</code>. A writer streaming to a pipe does not know how
   long the audio will be, and CAF lets it say so: a <code>data</code> chunk whose size is
   <b>-1</b> runs to the end of the file. Read as unsigned, that same chunk claims
-  <b>18,446,744,073,709,551,615</b> bytes -- sixteen exabytes -- which is the failure mode the
-  signedness exists to prevent, and the one a reader ported from RIFF will hit first.</p>
+  <b>18,446,744,073,709,551,615</b> bytes, which is the failure mode the signedness exists to
+  prevent and the one a reader ported from RIFF hits first.</p>
   <p class="note"><b>The container is big-endian; the samples are not necessarily.</b> Every
   structural field -- the version, every chunk id, every size -- is big-endian throughout. The
   <b>sample data is whatever <code>desc</code> says it is</b>, in a flags word that is independent of
-  the container's own byte order. A reader that infers one from the other is right on half the files
-  in the world and wrong on the rest, silently, because wrong-endian PCM decodes to noise rather
-  than to an error.</p>
+  the container's own byte order. A reader that infers one from the other is right only by luck, and wrong
+  silently, because wrong-endian PCM decodes to noise rather than to an error.</p>
   <p class="note"><b>There is no alignment rule.</b> A chunk ends where its payload ends and the
   next id begins on the very next byte. No pad, no rounding, no exceptions -- so a three-byte
   payload is followed immediately by a chunk id at an odd offset.</p>
@@ -155,7 +154,7 @@ EXTRA_BODY = """
   the audio.</p>
   <div class="map" id="caf-data" data-build></div>
 
-  <div class="sec">chunks acidcat reads</div>
+  <div class="sec">the chunks</div>
   <table class="tbl">
     <thead><tr><th>id</th><th>what it carries</th><th>notes</th></tr></thead>
     <tbody>
@@ -165,7 +164,7 @@ EXTRA_BODY = """
       <tr><td><code>chan</code></td><td>channel layout tag, bitmap, per-channel descriptions</td><td>which speaker, not how many</td></tr>
       <tr><td><code>info</code></td><td>a u32 count then NUL-terminated key/value strings</td><td>free-form metadata</td></tr>
       <tr><td><code>peak</code></td><td>per-channel peak amplitude and the frame it lands on</td><td>a float and a u64 per channel</td></tr>
-      <tr><td><code>free</code></td><td>reserved space</td><td>libsndfile writes 4,016 bytes of it</td></tr>
+      <tr><td><code>free</code></td><td>reserved space</td><td>room to grow the metadata without rewriting</td></tr>
       <tr><td><code>kuki</code></td><td>codec magic cookie</td><td>opaque decoder configuration</td></tr>
     </tbody>
   </table>
