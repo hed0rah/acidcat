@@ -7,8 +7,9 @@ from acidcat.core.formats.riff import iter_chunks
 from acidcat.core.infra.vocab import (WAVE_FORMAT_TAGS as _FORMAT_TAGS,
                                 WAV_SPEAKER_POSITIONS as _SPEAKER_POSITIONS,
                                 KSDATAFORMAT_TAIL as _KSDATAFORMAT_TAIL)
+from acidcat.core.primitives.notes import coverage, is_coverage
 from acidcat.core.walk.base import (
-    _PAYLOAD_CAP, _f, _u16, _u32, _cstr, _flag_names,
+    _PAYLOAD_CAP, _dtext, _f, _u16, _u32, _cstr, _flag_names,
 )
 from acidcat.util.midi import midi_note_to_name
 
@@ -529,6 +530,195 @@ def _parse_ixml(b, ctx):
     return summary, fields, []
 
 
+def _parse_clm(b, ctx):
+    """Steinberg/Xfer wavetable marker: ASCII, and the frame size is the point.
+
+    A Serum wavetable is a plain WAV whose samples are N frames of a fixed
+    length laid end to end. Nothing in fmt or data says so -- without this
+    chunk the file is one long single-cycle-looking waveform, and with it the
+    frame size is stated, so the frame COUNT is arithmetic rather than a guess.
+
+    The payload is text: "<!>" then the frame size, then eight hex digits of
+    flags, then a vendor string. Parsed by splitting rather than by a fixed
+    layout, because the only part with a documented position is the "<!>".
+    """
+    fields, warns = [], []
+    text = _dtext(b).strip("\x00").strip()
+    if not text:
+        return "empty", fields, ["clm chunk carries no text"]
+    fields.append(_f(0x00, len(b), "marker", text[:160]))
+    frame = None
+    if text.startswith("<!>"):
+        parts = text[3:].split()
+        if parts and parts[0].isdigit():
+            frame = int(parts[0])
+            fields.append(_f(None, 0, "frame_size", f"{frame:,}",
+                             "samples per wavetable frame"))
+        if len(parts) > 1 and len(parts[1]) == 8:
+            # eight hex digits whose meaning is not documented anywhere
+            # available here. Reported as the bytes they are rather than
+            # decoded into flags nobody has verified.
+            fields.append(_f(None, 0, "flags", parts[1], "undecoded"))
+    else:
+        warns.append("clm text does not open with the '<!>' marker")
+
+    # the frame COUNT, which is what a reader actually wants, and only
+    # derivable once the data chunk's length is known
+    frames = ctx.get("frames")
+    summary = "wavetable marker"
+    if frame and frames:
+        n, rem = divmod(frames, frame)
+        summary = f"wavetable, {n:,} frames of {frame:,} samples"
+        fields.append(_f(None, 0, "frames", f"{n:,}",
+                         "data length divided by the frame size"))
+        if rem:
+            warns.append(f"{frames:,} sample frames is not a whole number of "
+                         f"{frame:,}-sample wavetable frames ({rem:,} trail)")
+    elif frame:
+        summary = f"wavetable, {frame:,}-sample frames"
+    if "xfer" in text.lower():
+        fields.append(_f(None, 0, "writer", "Xfer Records (Serum)"))
+    return summary, fields, warns
+
+
+# strc: the ACID/Sony slice table. A 28-byte header then fixed-width records,
+# and the stride is DERIVED rather than assumed: sixteen of seventeen real
+# files measured use 32-byte records and one older writer does not, so a
+# hardcoded stride reports the odd one out as garbage.
+_STRC_HEADER = 28
+_STRC_POS_OFF = 8          # the ascending sample position inside a record
+
+
+def _parse_strc(b, ctx):
+    """ACID stretch/slice markers: where the beats are.
+
+    Verified against a 126 BPM loop: sixteen markers 21,000 samples apart at
+    44.1 kHz is 0.4762 s, which is 126.00 BPM exactly, and 16 x 21,000 is the
+    whole data chunk. They are beat positions, not arbitrary offsets.
+
+    Only the header and the position column are decoded. The rest of each
+    record is left as bytes: nothing available here documents it, and a walker
+    that names a field it has not confirmed is the more expensive kind of
+    wrong.
+    """
+    fields, warns = [], []
+    if len(b) < _STRC_HEADER:
+        return "truncated", fields, [
+            f"strc payload is {len(b)} bytes, the header alone is {_STRC_HEADER}"]
+    hdr_size, count = struct.unpack_from("<II", b, 0)
+    fields.append(_f(0x00, 4, "header_size", hdr_size))
+    fields.append(_f(0x04, 4, "slices", count))
+    if hdr_size != _STRC_HEADER:
+        warns.append(f"strc header declares {hdr_size} bytes, not the "
+                     f"{_STRC_HEADER} every measured file uses")
+
+    body = len(b) - _STRC_HEADER
+    if count <= 0:
+        return "no slices", fields, warns
+    stride, rem = divmod(body, count)
+    if rem or stride < 12:
+        warns.append(f"{body:,} bytes of slice records does not divide into "
+                     f"{count} whole records; positions not read")
+        return f"{count} slice(s), record layout unreadable", fields, warns
+    fields.append(_f(None, 0, "record_size", stride, "derived, not assumed"))
+
+    positions = []
+    for i in range(count):
+        o = _STRC_HEADER + i * stride
+        if o + _STRC_POS_OFF + 4 > len(b):
+            break
+        positions.append(struct.unpack_from("<I", b, o + _STRC_POS_OFF)[0])
+    if positions and positions != sorted(positions):
+        warns.append("slice positions are not ascending; the record layout "
+                     "may differ in this file and they are reported as read")
+
+    for i, pos in enumerate(positions[:_STRC_SLICE_CAP]):
+        fields.append(_f(_STRC_HEADER + i * stride + _STRC_POS_OFF, 4,
+                         f"slice[{i}]", f"{pos:,}", "sample position"))
+    if len(positions) > _STRC_SLICE_CAP:
+        warns.append(coverage(f"listing the first {_STRC_SLICE_CAP} of "
+                     f"{len(positions):,} slice positions"))
+
+    # the implied tempo, when the markers are evenly spaced. Stated only when
+    # they ARE even: an uneven set is a transient map rather than a beat grid,
+    # and a tempo derived from it would be a number that means nothing.
+    summary = f"{count} slice marker(s)"
+    rate = ctx.get("sample_rate")
+    if len(positions) > 2 and rate:
+        gaps = {b - a for a, b in zip(positions, positions[1:])}
+        if len(gaps) == 1:
+            gap = gaps.pop()
+            if gap > 0:
+                bpm = 60.0 / (gap / float(rate))
+                fields.append(_f(None, 0, "implied_tempo", f"{bpm:.2f} BPM",
+                                 f"{gap:,} samples between evenly spaced markers"))
+                summary += f", evenly spaced -- {bpm:.2f} BPM"
+    return summary, fields, warns
+
+
+def _parse_riff_id3(b, ctx):
+    """An ID3v2 tag inside a RIFF chunk.
+
+    The same tag acidcat reads at the front of an MP3, in a container where it
+    was not being read at all: one parser, two callers, and only one of them
+    was calling it.
+    """
+    fields, warns = [], []
+    from acidcat.core.formats import mp3 as mp3mod
+    if len(b) < 10 or b[:3] != b"ID3":
+        return "not an ID3v2 tag", fields, ["id3 chunk does not open with 'ID3'"]
+    major, revision, flags = b[3], b[4], b[5]
+    size = mp3mod.synchsafe(b[6:10])
+    fields.append(_f(0x00, 3, "magic", "ID3"))
+    fields.append(_f(0x03, 2, "version", f"2.{major}.{revision}"))
+    fields.append(_f(0x05, 1, "flags", f"0x{flags:02x}"))
+    fields.append(_f(0x06, 4, "tag_size", f"{size:,}", "synchsafe",
+                     enc="synchsafe", raw=size))
+    if 10 + size > len(b):
+        warns.append(f"the tag declares {size:,} bytes but the chunk holds "
+                     f"{len(b) - 10:,} after its header")
+    # list_id3v2_frames reads a PATH; this tag is a slice of an already-open
+    # RIFF. The frame walk is short, and the text decoder is the same one, so
+    # the decoding rule has one definition either way.
+    frames = []
+    pos, end = 10, min(10 + size, len(b))
+    idlen = 3 if major == 2 else 4
+    while pos + idlen + (3 if major == 2 else 4) <= end:
+        fid = b[pos:pos + idlen].decode("latin-1", "replace")
+        if not fid.strip("\x00"):
+            break
+        if major == 2:
+            fsize = int.from_bytes(b[pos + 3:pos + 6], "big")
+            head = 6
+        else:
+            raw = b[pos + 4:pos + 8]
+            fsize = (mp3mod.synchsafe(raw) if major >= 4
+                     else int.from_bytes(raw, "big"))
+            head = 10
+        if fsize <= 0 or pos + head + fsize > end:
+            break
+        text = mp3mod._id3_frame_text(fid, b[pos + head:pos + head + fsize])
+        if text:
+            frames.append((fid, text))
+        pos += head + fsize
+
+    for fid, text in frames[:_ID3_FRAME_CAP]:
+        fields.append(_f(None, 0, fid, str(text)[:160]))
+    if len(frames) > _ID3_FRAME_CAP:
+        warns.append(coverage(f"listing the first {_ID3_FRAME_CAP} of "
+                     f"{len(frames)} ID3 frames"))
+    n = len(frames)
+    return (f"ID3v2.{major} tag, {size:,} bytes"
+            + (f", {n} frame(s)" if n else "")), fields, warns
+
+
+# Listing bounds. A slice table can be hundreds of markers and an ID3 tag
+# dozens of frames; a listing that silently stops is worse than one that
+# says it did.
+_STRC_SLICE_CAP = 64
+_ID3_FRAME_CAP = 40
+
+
 _PARSERS = {
     "fmt ": _parse_fmt,
     "fact": _parse_fact,
@@ -541,6 +731,12 @@ _PARSERS = {
     "BWBM": _parse_bwbm,
     "cart": _parse_cart,
     "iXML": _parse_ixml,
+    # measured on a real library before being written: clm in 43 files,
+    # strc in the loop material, id3 in 8 -- all three previously walked
+    # as "unparsed, first bytes: ..."
+    "clm ": _parse_clm,
+    "strc": _parse_strc,
+    "id3 ": _parse_riff_id3,
 }
 
 
@@ -611,6 +807,12 @@ def inspect_wav(filepath, ctx=None):
             else:
                 preview = payload[:16].hex(" ")
                 entry["summary"] = f"unparsed, first bytes: {preview}"
+            # "we stopped listing" is a fact about the WALK, not about this
+            # chunk, so it belongs where a caller reads walk-level caveats too.
+            # Promoted by the note's KIND, never by matching its text: that
+            # wording being load-bearing across a module boundary is the defect
+            # primitives.notes exists to prevent.
+            file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
             chunks.append(entry)
 
     if "fmt " not in seen:
@@ -619,5 +821,31 @@ def inspect_wav(filepath, ctx=None):
         file_warns.append("no data chunk: no audio payload")
     if "fmt " in seen and "data" in seen and seen.index("fmt ") > seen.index("data"):
         file_warns.append("fmt appears after data, violating the one RIFF ordering rule")
+
+    # The wavetable FRAME COUNT needs both the frame size and the data length,
+    # and clm is written before data in every file measured -- so at the moment
+    # clm is parsed the count cannot be known. Filled in here, where ctx is
+    # complete, rather than by making the chunk loop two passes for one field.
+    frames = ctx.get("frames")
+    if frames:
+        for entry in chunks:
+            if entry.get("id") != "clm ":
+                continue
+            size = next((f["value"] for f in entry.get("fields") or []
+                         if f["name"] == "frame_size"), None)
+            try:
+                size = int(str(size).replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            if size <= 0:
+                continue
+            n, rem = divmod(frames, size)
+            entry["fields"].append(_f(None, 0, "frames", f"{n:,}",
+                                      "data length divided by the frame size"))
+            entry["summary"] = f"wavetable, {n:,} frames of {size:,} samples"
+            if rem:
+                entry["warnings"].append(
+                    f"{frames:,} sample frames is not a whole number of "
+                    f"{size:,}-sample wavetable frames ({rem:,} trail)")
 
     return chunks, file_warns

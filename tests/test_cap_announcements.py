@@ -382,6 +382,36 @@ def _svx_many_chunks(tmp_path, n):
     return str(p)
 
 
+def _wav_many_slices(tmp_path, n):
+    """A WAV whose ACID slice table carries n markers, to cross the listing cap.
+
+    Built through test_riff's own builder: the record stride is DERIVED from
+    the body length, so a second hand-rolled table would be testing this
+    file's arithmetic rather than the walker's.
+    """
+    import test_riff
+
+    data = test_riff._wav_with(
+        test_riff._strc([i * 1000 for i in range(n)]), frames=n * 1000 + 1000)
+    p = tmp_path / "slices.wav"
+    p.write_bytes(data)
+    return str(p)
+
+
+def _wav_many_id3_frames(tmp_path, n):
+    """A WAV carrying an in-RIFF ID3 tag of n text frames."""
+    import test_riff
+
+    frames = [("TXX%d" % (i % 10), "value %d" % i) for i in range(n)]
+    # every frame needs a distinct id or the tag is not what a reader meets;
+    # T-prefixed ids decode as text, which is what the listing shows
+    frames = [("T%03d" % i, "value %d" % i) for i in range(n)]
+    data = test_riff._wav_with(test_riff._id3_chunk(frames))
+    p = tmp_path / "tagged.wav"
+    p.write_bytes(data)
+    return str(p)
+
+
 def _sf2_tree(tmp_path, name, presets, instruments, zones_per_inst=1):
     """A soundfont with a real phdr/pbag/pgen/inst/ibag/igen chain.
 
@@ -610,6 +640,10 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.sf2", "_ZONE_LIST_CAP", 4, _sf2_many_zones,
      "more zone(s)"),
+    ("acidcat.core.walk.wav", "_STRC_SLICE_CAP", 4, _wav_many_slices,
+     "listing the first"),
+    ("acidcat.core.walk.wav", "_ID3_FRAME_CAP", 4, _wav_many_id3_frames,
+     "listing the first"),
 ]
 
 
