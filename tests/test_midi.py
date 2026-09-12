@@ -311,3 +311,67 @@ def test_a_defined_meta_type_is_not_reported_as_undefined(tmp_path):
     chunks, _ = inspect_midi(str(p))
     trk = _mtrk(chunks)
     assert not [x for x in trk["fields"] if x["name"].startswith("meta 0x")]
+
+
+def _build_smf_fmt(tracks, fmt, division=480):
+    """An SMF of a given format. _build_smf is format 1 by definition."""
+    out = b"MThd" + struct.pack(">IHHH", 6, fmt, len(tracks), division)
+    for body in tracks:
+        out += b"MTrk" + struct.pack(">I", len(body)) + body
+    return out
+
+
+def _ticks(quarters, division=480):
+    """A track holding one note, ending `quarters` quarter-notes in."""
+    delta = quarters * division
+    vlq = b""
+    v = delta
+    stack = [v & 0x7F]
+    v >>= 7
+    while v:
+        stack.append((v & 0x7F) | 0x80)
+        v >>= 7
+    vlq = bytes(reversed(stack))
+    return (b"\x00\x90\x3c\x40" + vlq + b"\x80\x3c\x40"
+            + bytes([0x00, 0xFF, 0x2F, 0x00]))
+
+
+class TestFormatTwoIsNotAMax:
+    """Format 0 and 1 tracks are SIMULTANEOUS, so the file lasts as long as its
+    longest track. Format 2 is "sequentially independent single-track
+    patterns" -- they share no timeline at all, so a max is not a shortened
+    answer, it is the wrong question.
+
+    Six format-2 files exist in a 26,681-file MIDI corpus and nothing had ever
+    tested one. On a real 3-pattern file acidcat reported 128 s for 176 s of
+    music, because two of the patterns were simply not counted.
+    """
+
+    TRACKS = [_ticks(8), _ticks(2), _ticks(2)]        # 8 + 2 + 2 quarters
+
+    def test_format_2_sums_its_patterns(self, tmp_path):
+        p = tmp_path / "patterns.mid"
+        p.write_bytes(_build_smf_fmt(self.TRACKS, 2))
+        chunks, warns = inspect_midi(str(p))
+        dur = _field(chunks[0], "duration")
+        # 12 quarters at the default 120 bpm = 6.000 s; a max would give 4.000
+        assert dur["value"] == "6.000 s", dur
+        assert "independent" in dur["note"]
+        assert any("share no timeline" in w for w in warns), warns
+
+    def test_format_1_still_takes_the_longest_track(self, tmp_path):
+        """The control. Simultaneous tracks must not start summing."""
+        p = tmp_path / "sync.mid"
+        p.write_bytes(_build_smf_fmt(self.TRACKS, 1))
+        chunks, warns = inspect_midi(str(p))
+        assert _field(chunks[0], "duration")["value"] == "4.000 s"
+        assert not any("share no timeline" in w for w in warns)
+
+    def test_a_single_pattern_file_says_nothing_about_sequencing(self, tmp_path):
+        """One pattern cannot be out of order with itself, so the caveat would
+        be noise."""
+        p = tmp_path / "one.mid"
+        p.write_bytes(_build_smf_fmt([_ticks(8)], 2))
+        chunks, warns = inspect_midi(str(p))
+        assert _field(chunks[0], "duration")["value"] == "4.000 s"
+        assert not any("share no timeline" in w for w in warns)

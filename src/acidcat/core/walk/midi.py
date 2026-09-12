@@ -286,6 +286,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
     first_tempo = None
     tempo_lists = []
     max_ticks = 0
+    track_ticks = []
     while offset + 8 <= file_size and found < ntrks:
         if data[offset:offset + 4] != b"MTrk":
             file_warns.append(
@@ -362,6 +363,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
                        "on it" if reserved else f"oversized ({slen:,} bytes)")
                 entry["warnings"].append(f"SysEx {why}: possible payload cavity")
         max_ticks = max(max_ticks, st["ticks"])
+        track_ticks.append(st["ticks"])
         tempo_lists.append(st["tempos"])
 
         bits = []
@@ -381,6 +383,22 @@ def inspect_midi(filepath, deep=False, ctx=None):
     if not (division & 0x8000) and first_tempo is None and found:
         file_warns.append("no tempo event in any track; players assume 120 bpm")
 
+    # How long the file is depends on what the format says its tracks ARE.
+    #
+    # Format 0 has one track and format 1's tracks are SIMULTANEOUS -- they
+    # share a timeline, so the file lasts as long as its longest track and the
+    # duration is a max.
+    #
+    # Format 2 is a set of "sequentially independent single-track patterns".
+    # They do not share a timeline at all, so a max is not a shortened answer,
+    # it is the wrong question: on a real 3-pattern file it reported 128 s for
+    # 176 s of music, because two of the patterns were simply not counted.
+    # Summing them is the closest thing to a total the format admits, and it
+    # is reported as exactly that -- a total if played end to end, which is a
+    # convention rather than something the file states.
+    span = sum(track_ticks) if fmt == 2 else max_ticks
+    seq = fmt == 2 and len(track_ticks) > 1
+
     # wall-clock duration on the MThd chunk (matches core/midi.py): SMPTE
     # division is tempo-independent; PPQ uses the first tempo (the SMF
     # default 120 when none), noted as approximate if the tempo changes.
@@ -388,17 +406,25 @@ def inspect_midi(filepath, deep=False, ctx=None):
     n_tempos = sum(len(c) for c in tempo_lists)
     if division & 0x8000:
         tps = ctx.get("ticks_per_sec")
-        if tps and max_ticks:
-            dur = max_ticks / tps
+        if tps and span:
+            dur = span / tps
             note = "SMPTE timing, tempo-independent"
-    elif division and max_ticks:
+    elif division and span:
         bpm = first_tempo or 120.0
-        dur = (max_ticks / division) * 60.0 / bpm
+        dur = (span / division) * 60.0 / bpm
         note = f"at {bpm:g} bpm"
         if first_tempo is None:
             note = "at the SMF default 120 bpm (no tempo event)"
         elif n_tempos > 1:
             note += f"; {n_tempos} tempo events make this approximate"
+    if seq:
+        note = ((note + "; ") if note else "") + (
+            f"the {len(track_ticks)} patterns are independent, so this is "
+            f"their total played end to end")
+        file_warns.append(
+            f"format 2: {len(track_ticks)} sequentially independent patterns, "
+            f"which share no timeline. The duration is their sum, not a single "
+            f"performance")
     if dur is not None:
         chunks[0]["fields"].append(
             _f(None, 0, "duration", f"{dur:.3f} s", note))
@@ -411,7 +437,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
         if (division & 0x8000) or first_tempo is not None:
             scan["duration"] = round(dur, 2)     # 2 dp matches legacy
     scan["tempo_bpm"] = first_tempo
-    scan["duration_ticks"] = max_ticks
+    scan["duration_ticks"] = span
     scan["channels_used"] = sorted(_channels)
 
     # a bound that was crossed is a fact about the whole answer, not about one
