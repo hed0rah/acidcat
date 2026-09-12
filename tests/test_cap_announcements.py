@@ -130,6 +130,18 @@ EXEMPT = {
                                 "shortened for readability, and a real Logic "
                                 "chunk inflates to a few thousand bytes "
                                 "against this 4 MB"),
+    ("acidcat.core.walk.wav", "_AVID_SCAN_CAP"):
+        (Reason.SEARCH_WINDOW, "how far into a Pro Tools chunk to scan for "
+                               "readable text. Invisible in the result: the "
+                               "chunk is NAMED rather than decoded, and the "
+                               "runs are a hint about what the block holds -- "
+                               "covered by tests/test_riff.py::"
+                               "test_an_avid_chunk_is_named_not_decoded"),
+    ("acidcat.core.formats.xmp", "_VALUE_CAP"):
+        (Reason.VIEWPORT, "one property's display width. The value is "
+                          "elided with an ellipsis IN the value, which says "
+                          "so where a reader is looking -- a warning about a "
+                          "long description would fire on ordinary files"),
     ("acidcat.core.walk.apple", "_APPLE_SCAN_CAP"):
         (Reason.SEARCH_WINDOW, "how far into an AFAn/AFmd typedstream to scan "
                                "for class names. Invisible in the result: the "
@@ -138,8 +150,8 @@ EXEMPT = {
                                "holds rather than the answer -- covered by "
                                "tests/test_riff.py::"
                                "test_apple_metadata_is_named_not_decoded"),
-    ("acidcat.core.walk.wav", "_PADDING_TEXT_CAP"):
-        (Reason.SEARCH_WINDOW, "how far into a non-zero JUNK/FLLR chunk to "
+    ("acidcat.core.walk.base", "_PADDING_TEXT_CAP"):
+        (Reason.SEARCH_WINDOW, "how far into a non-zero padding block to "
                                "look for readable text. Invisible in the "
                                "result: the finding is that the padding is not "
                                "zero, which is reported from the byte count "
@@ -405,6 +417,50 @@ def _svx_many_chunks(tmp_path, n):
     ch = [b"ANNO" + struct.pack(">I", 2) + b"hi" for _ in range(n)]
     p = tmp_path / "many.8svx"
     p.write_bytes(_iff(b"FORM", b"8SVX", ch))
+    return str(p)
+
+
+def _wav_many_xmp_properties(tmp_path, n):
+    """An XMP packet carrying n properties."""
+    import test_riff
+
+    props = "".join(f"<dc:p{i}>v{i}</dc:p{i}>" for i in range(n))
+    packet = ('<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+              '<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+              '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+              '<rdf:Description rdf:about="" '
+              'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+              + props +
+              "</rdf:Description></rdf:RDF></x:xmpmeta>").encode("utf-8")
+    data = test_riff._wav_with(test_riff._chunk(b"_PMX", packet))
+    p = tmp_path / "xmp.wav"
+    p.write_bytes(data)
+    return str(p)
+
+
+def _wav_big_xmp_packet(tmp_path, n):
+    """An XMP packet longer than the read cap."""
+    import test_riff
+
+    pad = b" " * (n * 4)
+    packet = (b'<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+              b'<x:xmpmeta xmlns:x="adobe:ns:meta/">' + pad
+              + b"</x:xmpmeta>")
+    data = test_riff._wav_with(test_riff._chunk(b"_PMX", packet))
+    p = tmp_path / "bigxmp.wav"
+    p.write_bytes(data)
+    return str(p)
+
+
+def _wav_many_avid_runs(tmp_path, n):
+    """A Pro Tools chunk holding n distinct readable runs."""
+    import test_riff
+
+    body = b"".join(b"\x00" + ("Record%03d" % i).encode("ascii")
+                    for i in range(n))
+    data = test_riff._wav_with(test_riff._chunk(b"DGDA", body))
+    p = tmp_path / "dgda.wav"
+    p.write_bytes(data)
     return str(p)
 
 
@@ -737,6 +793,12 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.apple", "_CATE_LABEL_CAP", 4, _aiff_many_categories,
      "listing the first"),
+    ("acidcat.core.walk.wav", "_XMP_PROPERTY_CAP", 4, _wav_many_xmp_properties,
+     "listing the first"),
+    ("acidcat.core.walk.wav", "_AVID_NAME_CAP", 4, _wav_many_avid_runs,
+     "listing the first"),
+    ("acidcat.core.formats.xmp", "_PACKET_CAP", 64, _wav_big_xmp_packet,
+     "reading the first"),
 ]
 
 

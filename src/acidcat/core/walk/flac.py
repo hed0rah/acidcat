@@ -6,6 +6,7 @@ from acidcat.core.primitives.notes import coverage
 import struct
 
 from acidcat.core.formats import flac as flacmod
+from acidcat.core.walk.base import parse_padding  # noqa: F401
 from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _f
 
 def _flac_streaminfo(b):
@@ -251,7 +252,12 @@ def inspect_flac(filepath):
                 entry["summary"], entry["fields"], entry["warnings"] = \
                     _flac_application(payload)
             elif btype == 1:
-                entry["summary"] = f"padding, {length:,} bytes"
+                # the same check RIFF applies to a JUNK chunk. A PADDING block
+                # is supposed to be zero, and one that is not is space a writer
+                # overwrote in place with something shorter -- a find rather
+                # than filler, in a container that was reporting it as size.
+                entry["summary"], entry["fields"], entry["warnings"] = \
+                    parse_padding(payload)
             elif btype == 5:
                 entry["summary"], entry["fields"], entry["warnings"] = \
                     _flac_cuesheet(payload)

@@ -87,3 +87,42 @@ def _bu16(b, off):
 
 def _bu32(b, off):
     return struct.unpack_from(">I", b, off)[0]
+
+
+# How far into a non-zero padding block to look for readable text. The finding
+# is that the padding is not zero, which is counted over the whole block; this
+# only bounds the preview.
+_PADDING_TEXT_CAP = 4096
+
+
+def parse_padding(payload):
+    """A padding block, in whatever container declares one.
+
+    RIFF spells it JUNK, FLLR or PAD; FLAC gives it block type 1. Same
+    structure and the same question about it, so the same reader.
+
+    Named rather than hex-dumped, and CHECKED rather than assumed: padding is
+    supposed to be zero, and padding that is not is space that was overwritten
+    in place with something shorter. What is left is the tail of whatever used
+    to be there, which is a find rather than filler.
+    """
+    fields, warns = [], []
+    nonzero = sum(1 for x in payload if x)
+    fields.append(_f(None, 0, "bytes", f"{len(payload):,}"))
+    if not payload:
+        return "empty", fields, warns
+    if not nonzero:
+        return f"padding, {len(payload):,} zero bytes", fields, warns
+    fields.append(_f(None, 0, "non_zero", f"{nonzero:,}",
+                     "padding is written zero; these are not"))
+    fields.append(_f(0x00, min(len(payload), 16), "first_bytes",
+                     payload[:16].hex(" ")))
+    text = _dtext(payload[:_PADDING_TEXT_CAP])
+    readable = "".join(c for c in text if c.isprintable())
+    if len(readable) >= 8:
+        fields.append(_f(None, 0, "readable", readable[:120]))
+    warns.append(f"{nonzero:,} of {len(payload):,} padding bytes are not zero; "
+                 f"this block may hold the tail of something overwritten in "
+                 f"place")
+    return (f"padding, {len(payload):,} bytes, {nonzero:,} NOT zero",
+            fields, warns)

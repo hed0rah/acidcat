@@ -2120,3 +2120,36 @@ def test_cue_marker_xrefs_data_byte_offset(tmp_path):
     cue_chunk = next(c for c in chunks if c["id"] == "cue ")
     field = next(f for f in cue_chunk["fields"] if f["name"] == "cue[0]")
     assert field["xref"] == (data_chunk["offset"] + 8) + 100 * 2
+
+
+class TestFlacPadding:
+    """A PADDING block gets the check a JUNK chunk already got.
+
+    Padding is supposed to be zero. Padding that is not is space a writer
+    overwrote in place with something shorter, and what is left is the tail of
+    whatever used to be there. RIFF has reported that for a while; FLAC was
+    printing the block's size and nothing else.
+    """
+
+    def _walk(self, tmp_path, payload):
+        from acidcat.core.walk.flac import inspect_flac
+        path = _flac(tmp_path,
+                     _flac_block(0, _streaminfo()),
+                     _flac_block(1, payload, last=True))
+        chunks, warns = inspect_flac(path)
+        pad = next(c for c in chunks if c["id"] == "PADDING")
+        return pad, warns
+
+    def test_zero_padding_is_not_a_finding(self, tmp_path):
+        pad, _w = self._walk(tmp_path, b"\x00" * 64)
+        assert pad["summary"] == "padding, 64 zero bytes"
+        assert not pad["warnings"]
+
+    def test_padding_that_is_not_zero_is_a_finding(self, tmp_path):
+        payload = b"\x00" * 32 + b"ISFT was here" + b"\x00" * 19
+        pad, _w = self._walk(tmp_path, payload)
+        assert "NOT zero" in pad["summary"]
+        assert any("overwrote" in w or "overwritten" in w
+                   for w in pad["warnings"]), pad["warnings"]
+        readable = next(f for f in pad["fields"] if f["name"] == "readable")
+        assert "ISFT was here" in readable["value"]
