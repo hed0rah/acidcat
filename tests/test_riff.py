@@ -760,13 +760,47 @@ def test_an_avid_chunk_is_named_not_decoded(tmp_path):
     map guessed from one vendor's files is a guess that reads like a fact. What
     IS certain is which tool wrote it, and what the block calls its own
     records."""
-    body = b"\x00\x01" + b"AnalysisSetsHdr" + b"\x00\x02" + b"PacketStreamData"
+    body = (bytes([0, 1]) + b"AnalysisSetsHdr" + bytes([0, 2])
+            + b"PacketStreamData" + bytes([0]) + b"W]0!" + bytes([0]))
     data = _wav_with(_chunk(b"DGDA", body))
     _l, chunks, _w = _walk_bytes(tmp_path, data)
     dgda = _chunk_named(chunks, "DGDA")
     assert "Digidesign" in dgda["summary"]
     runs = [x["value"] for x in dgda["fields"] if x["name"] == "text"]
+    # the punctuation run is dropped: binary data throws off short printable
+    # runs constantly, and listing those dresses noise up as a finding
     assert runs == ["AnalysisSetsHdr", "PacketStreamData"]
+
+
+def test_logic_chunks_are_named_as_logic(tmp_path):
+    """LGWV appears in 790 files across BOTH containers, which is what made it
+    a tool's fingerprint rather than a container quirk. Of the LGWV files that
+    also carry a bext chunk, 28 of 33 name Logic Pro as the originator, and
+    Apple say the same in their own support forum.
+
+    No published layout exists, so it stays named-not-decoded. But a named
+    writer is a provenance fact and an unknown chunk is not."""
+    from acidcat.core.walk.base import VENDOR_CHUNKS
+
+    assert VENDOR_CHUNKS["LGWV"] == "Logic Pro"
+    for cid in ("LGWV", "LGBM"):
+        data = _wav_with(_chunk(cid.encode("ascii"), bytes(64)))
+        _l, chunks, _w = _walk_bytes(tmp_path, data, cid + ".wav")
+        entry = _chunk_named(chunks, cid)
+        assert entry["summary"].startswith("Logic Pro"), entry["summary"]
+
+
+def test_a_vendor_chunk_of_pure_noise_lists_nothing(tmp_path):
+    """The control for the label filter. A chunk of arbitrary bytes has
+    printable runs in it by chance, and reporting those as text would turn
+    every encoded blob into a list of findings."""
+    body = bytes((i * 37 + 11) & 0xFF for i in range(2048))
+    data = _wav_with(_chunk(b"SMED", body))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    smed = _chunk_named(chunks, "SMED")
+    assert smed["summary"].startswith("Soundminer")
+    runs = [x["value"] for x in smed["fields"] if x["name"] == "text"]
+    assert len(runs) <= 2, runs
 
 
 def test_every_avid_chunk_id_is_registered(tmp_path):

@@ -15,6 +15,7 @@ import struct
 # single source for the per-chunk payload read cap: the walkers and the grammar
 # strategy share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
 from acidcat.core.formats.riff import PAYLOAD_CAP as _PAYLOAD_CAP
+from acidcat.core.primitives.notes import coverage
 
 
 class Unsupported(Exception):
@@ -126,3 +127,87 @@ def parse_padding(payload):
                  f"place")
     return (f"padding, {len(payload):,} bytes, {nonzero:,} NOT zero",
             fields, warns)
+
+
+# How far into a vendor chunk to scan for readable text, and how many runs to
+# list. A real one is a few KB.
+_OPAQUE_SCAN_CAP = 64 * 1024
+_OPAQUE_RUN_CAP = 12
+
+# Chunks whose writer is known and whose layout is not. Shared, because these
+# ids turn up in more than one container -- LGWV appears in both RIFF and AIFF,
+# which is what made it a tool's fingerprint rather than a container quirk.
+#
+# LGWV and LGBM are Logic Pro. Measured rather than assumed: of the
+# LGWV-carrying files in a real library that also have a bext chunk, 28 of 33
+# name "Logic Pro X" or "Logic Pro" as the originator, and Apple say the same
+# in their own support forum. `LG` is Logic.
+VENDOR_CHUNKS = {
+    "umid": "Avid/Pro Tools material identifier",
+    "minf": "Avid/Pro Tools media info",
+    "regn": "Avid/Pro Tools region table",
+    "elm1": "Avid/Pro Tools element data",
+    "elmo": "Avid/Pro Tools element data",
+    "DGDA": "Digidesign analysis data",
+    "LGWV": "Logic Pro",
+    "LGBM": "Logic Pro",
+    "SMED": "Soundminer metadata",
+}
+
+
+def _looks_like_a_label(text):
+    """Is this run a name someone wrote, or four bytes that happened to print?
+
+    Binary data throws off short printable runs constantly -- `W]0!`, `^3~^uL[`
+    -- and listing those as "text" dresses noise up as a finding, which is the
+    failure this whole reader exists to avoid. A label a vendor wrote looks
+    like one: long enough to be deliberate, starting with a letter, and mostly
+    letters and digits. "AnalysisSetsHdr" and "Z Drop" pass; punctuation soup
+    does not.
+
+    It is a filter, not a judgement, and it has a known blind spot: base64
+    passes, because base64 is alphanumeric. A Soundminer chunk lists a handful
+    of six-character runs that are encoded data rather than names. The field is
+    called `text` and not `label` for that reason -- it reports what is legible,
+    and does not claim to know what it means.
+    """
+    if len(text) < 6 or not text[:1].isalpha():
+        return False
+    wordish = sum(1 for c in text if c.isalnum() or c in " _-.")
+    return wordish / len(text) >= 0.85
+
+
+def parse_opaque(payload, what):
+    """A chunk whose writer is known and whose layout is not.
+
+    Says who wrote it, how big it is, and what is legible inside it. It does
+    not guess at fields: a field map inferred from one vendor's files is a
+    guess that reads like a fact, and the whole point of naming the writer is
+    that a reader can go and ask them.
+
+    The readable runs are worth listing because vendors label their own
+    structures in the clear -- a Digidesign analysis block names
+    "AnalysisSetsHdr" and "PacketStreamData", and a Pro Tools region table
+    carries the region's name.
+    """
+    fields = [_f(None, 0, "bytes", f"{len(payload):,}")]
+    runs, i = [], 0
+    window = payload[:_OPAQUE_SCAN_CAP]
+    while i < len(window):
+        if 32 <= window[i] < 127:
+            j = i
+            while j < len(window) and 32 <= window[j] < 127:
+                j += 1
+            text = window[i:j].decode("ascii")
+            if _looks_like_a_label(text) and text not in runs:
+                runs.append(text)
+            i = j
+        else:
+            i += 1
+    for text in runs[:_OPAQUE_RUN_CAP]:
+        fields.append(_f(None, 0, "text", text[:80]))
+    warns = []
+    if len(runs) > _OPAQUE_RUN_CAP:
+        warns.append(coverage(f"listing the first {_OPAQUE_RUN_CAP} of "
+                              f"{len(runs)} readable runs"))
+    return f"{what}, {len(payload):,} bytes", fields, warns

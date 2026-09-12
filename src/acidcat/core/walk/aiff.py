@@ -13,7 +13,8 @@ from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.apple import (_parse_apple_meta, _parse_cate,
                                      _parse_chan, _parse_resu,
                                      _parse_trns)
-from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _dtext, _f
+from acidcat.core.walk.base import (VENDOR_CHUNKS, _PAYLOAD_CAP, _bu16,
+                                    _bu32, _dtext, _f, parse_opaque)
 from acidcat.util.midi import midi_note_to_name
 
 # AIFC compression types that store real PCM sample frames (so frames/rate
@@ -422,6 +423,11 @@ def inspect_aiff(filepath, form_type, ctx=None):
                 elif cid == "ResU":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _parse_resu(payload, ctx)
+                elif cid in VENDOR_CHUNKS:
+                    # LGWV appears in both containers, which is what made it a
+                    # tool's fingerprint rather than a container quirk
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        parse_opaque(payload, VENDOR_CHUNKS[cid])
                 elif cid in ("AFAn", "AFmd"):
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _parse_apple_meta(payload, ctx)

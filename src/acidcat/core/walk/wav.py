@@ -10,8 +10,8 @@ from acidcat.core.infra.vocab import (WAVE_FORMAT_TAGS as _FORMAT_TAGS,
 from acidcat.core.primitives.notes import coverage, is_coverage
 from acidcat.core.walk.apple import _parse_apple_meta, _parse_resu
 from acidcat.core.walk.base import (
-    _PAYLOAD_CAP, _dtext, _f, _u16, _u32, _cstr, _flag_names,
-    parse_padding,
+    VENDOR_CHUNKS, _PAYLOAD_CAP, _dtext, _f, _u16, _u32, _cstr, _flag_names,
+    parse_opaque, parse_padding,
 )
 from acidcat.util.midi import midi_note_to_name
 
@@ -700,10 +700,6 @@ _ID3_FRAME_CAP = 40
 # An XMP packet is a whole catalogue record; a real one holds a dozen or two
 # properties. The bound is a listing bound, not a parse bound.
 _XMP_PROPERTY_CAP = 40
-# How far into a Pro Tools chunk to scan for record names, and how many to
-# list. A DGDA block is a few KB.
-_AVID_SCAN_CAP = 64 * 1024
-_AVID_NAME_CAP = 12
 
 
 # Windows clipboard format ids, for the DISP chunk's first word. Only the few
@@ -867,40 +863,16 @@ _AVID_CHUNKS = {
 }
 
 
-def _avid_parser(what):
-    """Say who wrote the chunk and how big it is, and stop there."""
+# The table lives in walk/base.py: these ids turn up in more than one
+# container, and AIFF reads the same set.
+_AVID_CHUNKS = VENDOR_CHUNKS          # the name tests and the cap ledger use
+
+
+def _vendor_parser(what):
     def parse(b, _ctx):
-        return _parse_avid(b, what)
+        return parse_opaque(b, what)
     return parse
 
-
-def _parse_avid(b, what):
-    fields = [_f(None, 0, "bytes", f"{len(b):,}")]
-    # the structure is not decoded, but a DGDA block names its own record types
-    # in the clear -- "AnalysisSetsHdr", "PacketStreamSetHdr" -- and a region
-    # table carries the region's name. Listing the readable runs says what the
-    # block is about without claiming to have parsed it.
-    names, i = [], 0
-    window = b[:_AVID_SCAN_CAP]
-    while i < len(window):
-        if 32 <= window[i] < 127:
-            j = i
-            while j < len(window) and 32 <= window[j] < 127:
-                j += 1
-            if j - i >= 4:
-                text = window[i:j].decode("ascii")
-                if text not in names:
-                    names.append(text)
-            i = j
-        else:
-            i += 1
-    for text in names[:_AVID_NAME_CAP]:
-        fields.append(_f(None, 0, "text", text[:80]))
-    warns = []
-    if len(names) > _AVID_NAME_CAP:
-        warns.append(coverage(f"listing the first {_AVID_NAME_CAP} of "
-                              f"{len(names)} readable runs"))
-    return f"{what}, {len(b):,} bytes", fields, warns
 
 
 _PARSERS = {
@@ -941,8 +913,9 @@ _PARSERS = {
     "XMP ": _parse_xmp,
     "minf": _parse_minf,
 }
-# every Avid chunk but minf, which has a field worth reading
-_PARSERS.update({cid: _avid_parser(what) for cid, what in _AVID_CHUNKS.items()
+# every vendor chunk but minf, which has a field worth reading
+_PARSERS.update({cid: _vendor_parser(what)
+                 for cid, what in VENDOR_CHUNKS.items()
                  if cid not in _PARSERS})
 
 

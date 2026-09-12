@@ -130,12 +130,12 @@ EXEMPT = {
                                 "shortened for readability, and a real Logic "
                                 "chunk inflates to a few thousand bytes "
                                 "against this 4 MB"),
-    ("acidcat.core.walk.wav", "_AVID_SCAN_CAP"):
-        (Reason.SEARCH_WINDOW, "how far into a Pro Tools chunk to scan for "
-                               "readable text. Invisible in the result: the "
-                               "chunk is NAMED rather than decoded, and the "
-                               "runs are a hint about what the block holds -- "
-                               "covered by tests/test_riff.py::"
+    ("acidcat.core.walk.base", "_OPAQUE_SCAN_CAP"):
+        (Reason.SEARCH_WINDOW, "how far into a vendor chunk whose layout is not "
+                               "published to scan for readable text. Invisible "
+                               "in the result: the chunk is NAMED rather than "
+                               "decoded, and the runs are a hint about what it "
+                               "holds -- covered by tests/test_riff.py::"
                                "test_an_avid_chunk_is_named_not_decoded"),
     ("acidcat.core.infra.sniff", "_ZERO_HEAD_CAP"):
         (Reason.SEARCH_WINDOW, "how far past a zeroed head the sniffer looks "
@@ -153,7 +153,7 @@ EXEMPT = {
     ("acidcat.core.walk.apple", "_APPLE_SCAN_CAP"):
         (Reason.SEARCH_WINDOW, "how far into an AFAn/AFmd typedstream to scan "
                                "for class names. Invisible in the result: the "
-                               "chunk is NAMED rather than decoded, and the "
+                               "in the result: the chunk is NAMED rather than "
                                "class list is a hint about what the archive "
                                "holds rather than the answer -- covered by "
                                "tests/test_riff.py::"
@@ -812,7 +812,7 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.wav", "_XMP_PROPERTY_CAP", 4, _wav_many_xmp_properties,
      "listing the first"),
-    ("acidcat.core.walk.wav", "_AVID_NAME_CAP", 4, _wav_many_avid_runs,
+    ("acidcat.core.walk.base", "_OPAQUE_RUN_CAP", 4, _wav_many_avid_runs,
      "listing the first"),
     ("acidcat.core.formats.xmp", "_PACKET_CAP", 64, _wav_big_xmp_packet,
      "reading the first"),
