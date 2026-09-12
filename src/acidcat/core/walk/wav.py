@@ -659,77 +659,35 @@ def _parse_strc(b, ctx):
 def _parse_riff_id3(b, ctx):
     """An ID3v2 tag inside a RIFF chunk.
 
-    The same tag acidcat reads at the front of an MP3, in a container where it
-    was not being read at all: one parser, two callers, and only one of them
-    was calling it.
+    The same tag acidcat reads at the front of an MP3 and inside an AIFF
+    chunk, through the same reader: `formats.mp3.id3v2_from_bytes`. There were
+    two readers before, and they disagreed -- a tag whose size is written
+    little-endian read correctly here and not in AIFF.
+
+    Registered under BOTH spellings in _PARSERS. Chunk ids are matched exactly,
+    and registering only the lowercase one left 25 files in a real library
+    reporting an uppercase `ID3 ` chunk as unparsed bytes, each carrying a TBPM
+    frame that was simply dropped.
     """
-    fields, warns = [], []
     from acidcat.core.formats import mp3 as mp3mod
-    if len(b) < 10 or b[:3] != b"ID3":
+    fields = []
+    header, frames, warns = mp3mod.id3v2_from_bytes(b)
+    if header is None:
         return "not an ID3v2 tag", fields, ["id3 chunk does not open with 'ID3'"]
-    major, revision, flags = b[3], b[4], b[5]
-    size = mp3mod.synchsafe(b[6:10])
-    size_note = "synchsafe"
-
-    # A real writer in the wild puts this field LITTLE-ENDIAN, which is not the
-    # format: the size is synchsafe big-endian, and 0f 00 00 00 read that way
-    # is 31,457,280 rather than 15. Measured on files whose whole id3 chunk is
-    # 25 bytes, where the same writer got the FRAME size right -- so the two
-    # halves of one header disagree about their own byte order.
-    #
-    # Believed only when the spec reading does not fit the chunk and the
-    # little-endian one fits exactly. That is narrow on purpose: a guess that
-    # merely looks plausible would silently re-interpret conformant tags.
-    if 10 + size > len(b):
-        le = int.from_bytes(b[6:10], "little")
-        if 10 + le == len(b):
-            warns.append(
-                f"the tag size is written little-endian ({le}), not the "
-                f"synchsafe big-endian the format requires (which reads "
-                f"{size:,}). Using {le}, which matches the chunk exactly.")
-            size, size_note = le, "little-endian, non-conformant"
-
     fields.append(_f(0x00, 3, "magic", "ID3"))
-    fields.append(_f(0x03, 2, "version", f"2.{major}.{revision}"))
-    fields.append(_f(0x05, 1, "flags", f"0x{flags:02x}"))
-    fields.append(_f(0x06, 4, "tag_size", f"{size:,}", size_note,
-                     enc="synchsafe", raw=size))
-    if 10 + size > len(b):
-        warns.append(f"the tag declares {size:,} bytes but the chunk holds "
-                     f"{len(b) - 10:,} after its header")
-    # list_id3v2_frames reads a PATH; this tag is a slice of an already-open
-    # RIFF. The frame walk is short, and the text decoder is the same one, so
-    # the decoding rule has one definition either way.
-    frames = []
-    pos, end = 10, min(10 + size, len(b))
-    idlen = 3 if major == 2 else 4
-    while pos + idlen + (3 if major == 2 else 4) <= end:
-        fid = b[pos:pos + idlen].decode("latin-1", "replace")
-        if not fid.strip("\x00"):
-            break
-        if major == 2:
-            fsize = int.from_bytes(b[pos + 3:pos + 6], "big")
-            head = 6
-        else:
-            raw = b[pos + 4:pos + 8]
-            fsize = (mp3mod.synchsafe(raw) if major >= 4
-                     else int.from_bytes(raw, "big"))
-            head = 10
-        if fsize <= 0 or pos + head + fsize > end:
-            break
-        text = mp3mod._id3_frame_text(fid, b[pos + head:pos + head + fsize])
-        if text:
-            frames.append((fid, text))
-        pos += head + fsize
-
+    fields.append(_f(0x03, 2, "version",
+                     f"2.{header['major']}.{header['revision']}"))
+    fields.append(_f(0x05, 1, "flags", f"0x{header['flags']:02x}"))
+    fields.append(_f(0x06, 4, "tag_size", f"{header['size']:,}",
+                     header["size_note"], enc="synchsafe", raw=header["size"]))
     for fid, text in frames[:_ID3_FRAME_CAP]:
         fields.append(_f(None, 0, fid, str(text)[:160]))
     if len(frames) > _ID3_FRAME_CAP:
-        warns.append(coverage(f"listing the first {_ID3_FRAME_CAP} of "
-                     f"{len(frames)} ID3 frames"))
+        warns = list(warns) + [coverage(
+            f"listing the first {_ID3_FRAME_CAP} of {len(frames)} ID3 frames")]
     n = len(frames)
-    return (f"ID3v2.{major} tag, {size:,} bytes"
-            + (f", {n} frame(s)" if n else "")), fields, warns
+    return (f"ID3v2.{header['major']} tag, {header['size']:,} bytes"
+            + (f", {n} frame(s)" if n else "")), fields, list(warns)
 
 
 # Listing bounds. A slice table can be hundreds of markers and an ID3 tag

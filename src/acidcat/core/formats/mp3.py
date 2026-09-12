@@ -99,6 +99,76 @@ def synchsafe(b4):
             | ((b4[2] & 0x7F) << 7) | (b4[3] & 0x7F))
 
 
+def id3v2_from_bytes(data):
+    """Decode a complete ID3v2 tag held in memory.
+
+    Returns (header, frames, warnings): header is
+    {major, revision, flags, size, size_note}, frames is a list of
+    (frame id, decoded text) for the frames that carry text, and warnings
+    names anything the tag got wrong about itself.
+
+    Bytes rather than a path, because a tag embedded in a RIFF or AIFF chunk is
+    a slice of an already-open file. The alternative in use was writing it to a
+    temp file to read it back, which costs a file per tag and fails wherever the
+    filesystem is read-only.
+    """
+    warns = []
+    if len(data) < 10 or data[:3] != b"ID3":
+        return None, [], ["not an ID3v2 tag"]
+    major, revision, flags = data[3], data[4], data[5]
+    size = synchsafe(data[6:10])
+    size_note = "synchsafe"
+
+    # A writer in the wild puts this field LITTLE-ENDIAN, which is not the
+    # format: the size is synchsafe big-endian, and 0f 00 00 00 read that way
+    # is 31,457,280 rather than 15. Measured in a real library on tags whose
+    # whole chunk is 25 bytes -- where the same writer got the FRAME size
+    # right, so the two halves of one header disagree about their byte order.
+    #
+    # Believed only when the spec reading does not fit the data and the
+    # little-endian one fits exactly. Narrow on purpose: a guess that merely
+    # looked plausible would silently re-interpret conformant tags.
+    if 10 + size > len(data):
+        le = int.from_bytes(data[6:10], "little")
+        if 10 + le == len(data):
+            warns.append(
+                f"the tag size is written little-endian ({le}), not the "
+                f"synchsafe big-endian the format requires (which reads "
+                f"{size:,}). Using {le}, which matches the tag exactly.")
+            size, size_note = le, "little-endian, non-conformant"
+        else:
+            warns.append(f"the tag declares {size:,} bytes but only "
+                         f"{len(data) - 10:,} follow its header")
+
+    header = {"major": major, "revision": revision, "flags": flags,
+              "size": size, "size_note": size_note}
+
+    frames = []
+    pos, end = 10, min(10 + size, len(data))
+    idlen = 3 if major == 2 else 4
+    while pos + idlen + (3 if major == 2 else 4) <= end:
+        fid = data[pos:pos + idlen].decode("latin-1", "replace")
+        if not fid.strip("\x00"):
+            break                       # padding: the tag's frames are done
+        if major == 2:
+            fsize = int.from_bytes(data[pos + 3:pos + 6], "big")
+            head = 6
+        else:
+            raw = data[pos + 4:pos + 8]
+            # v2.4 made the frame size synchsafe; v2.3 left it a plain u32,
+            # and reading one as the other shifts every frame after the first
+            fsize = (synchsafe(raw) if major >= 4
+                     else int.from_bytes(raw, "big"))
+            head = 10
+        if fsize <= 0 or pos + head + fsize > end:
+            break
+        text = _id3_frame_text(fid, data[pos + head:pos + head + fsize])
+        if text:
+            frames.append((fid, text))
+        pos += head + fsize
+    return header, frames, warns
+
+
 def read_id3v2(filepath):
     """Read the ID3v2 header at offset 0, if present.
 

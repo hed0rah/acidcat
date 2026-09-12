@@ -10,7 +10,6 @@ from acidcat.core.formats.aiff import (_AES_EMPHASIS, _AES_RATES,
                                _parse_ieee_extended)
 from acidcat.core.formats.aiff import iter_chunks as iter_aiff_chunks
 from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _dtext, _f
-from acidcat.core.walk.mp3 import _id3v2_frames
 from acidcat.util.midi import midi_note_to_name
 
 # AIFC compression types that store real PCM sample frames (so frames/rate
@@ -280,28 +279,20 @@ def _aiff_appl(b):
 
 
 def _aiff_id3_fields(tag_bytes):
-    """Decode an embedded ID3v2 tag (AIFF 'ID3 ' chunk) by reusing the MP3 ID3
-    parser: the chunk payload is a complete ID3 tag, so write it to a temp file
-    and run the same frame decoder. Returns [] if it is not a valid tag."""
-    if tag_bytes[:3] != b"ID3":
+    """Decode an embedded ID3v2 tag (an AIFF 'ID3 ' chunk).
+
+    This used to write the chunk to a TEMP FILE and read it back, because the
+    only ID3 reader took a path: a file per tag, and a failure wherever the
+    filesystem is not writable. It also meant two readers of one format, and
+    they disagreed -- a tag whose size is written little-endian was read
+    correctly in a RIFF chunk and not here.
+
+    Returns [] if the bytes are not a tag, as before.
+    """
+    header, frames, _warns = mp3mod.id3v2_from_bytes(tag_bytes)
+    if header is None:
         return []
-    import tempfile
-    fd, tmp = tempfile.mkstemp(suffix=".id3")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(tag_bytes)
-        hdr = mp3mod.read_id3v2(tmp)
-        if not hdr:
-            return []
-        flds, _ = _id3v2_frames(tmp, hdr)
-        return flds
-    except Exception:
-        return []
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+    return [_f(None, 0, fid, str(text)[:160]) for fid, text in frames]
 
 
 def inspect_aiff(filepath, form_type, ctx=None):
