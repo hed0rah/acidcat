@@ -814,3 +814,40 @@ def test_every_avid_chunk_id_is_registered(tmp_path):
         _l, chunks, _w = _walk_bytes(tmp_path, data, cid.strip() + ".wav")
         entry = _chunk_named(chunks, cid)
         assert "unparsed" not in entry["summary"], (cid, entry["summary"])
+
+
+def test_a_garbage_chunk_id_is_not_rendered_as_a_shorter_one(tmp_path):
+    """`decode("ascii", errors="ignore")` does something worse than fail: it
+    DROPS the bytes it cannot read and keeps the rest.
+
+    A damaged chunk id of ed f3 34 e5 came back as the string "4", so the
+    walker reported a chunk named `4` that does not exist and then repeated
+    that invented name inside the warning about it. The census had rendered
+    the same bytes as hex all along, which is two answers for one file.
+    """
+    data = _wav_with(_chunk(bytes([0xED, 0xF3, 0x34, 0xE5]), bytes(16)))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    ids = [c["id"] for c in chunks]
+    assert "hex:edf334e5" in ids, ids
+    assert "4" not in ids
+
+
+def test_a_printable_chunk_id_is_untouched(tmp_path):
+    """The control. Hex-escaping an ordinary id would be far worse than the
+    bug it fixes."""
+    from acidcat.core.formats.riff import safe_fourcc
+
+    assert safe_fourcc(b"fmt ") == "fmt "
+    assert safe_fourcc(b"(c) ") == "(c) "
+    data = _wav_with(_chunk(b"acid", bytes(24)))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    assert "acid" in [c["id"] for c in chunks]
+
+
+def test_the_census_and_the_walker_render_an_id_the_same_way():
+    """One definition. Two renderings of one damaged file is how a reader ends
+    up unable to tell whether two tools saw the same thing."""
+    from acidcat.core import census
+    from acidcat.core.formats.riff import safe_fourcc
+
+    assert census._safe_fourcc is safe_fourcc

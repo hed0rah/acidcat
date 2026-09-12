@@ -72,13 +72,10 @@ _MAX_CHUNKS = 4096             # a forged file cannot make the walk spin
 _MAX_DEPTH = 512               # fallback recursion guard when st_ino is unreliable
 
 
-def _safe_fourcc(cid):
-    """A JSON-safe, histogram-stable key for a 4-byte chunk id. Printable ASCII
-    ids pass through; anything else (garbage from a corrupt file) becomes a hex
-    token so it groups cleanly and never injects a control byte into the output."""
-    if all(0x20 <= b < 0x7F for b in cid):
-        return cid.decode("ascii")
-    return "hex:" + cid.hex()
+# The census had this right before the walkers did, so the definition moved to
+# core/formats/riff.py and this is the alias the rest of the module already
+# calls. One rendering, or a damaged file gets two different names.
+from acidcat.core.formats.riff import safe_fourcc as _safe_fourcc
 
 
 def json_safe_path(path):

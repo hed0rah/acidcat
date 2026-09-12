@@ -9,6 +9,7 @@ shared value tables the AIFF walker (core/walk/aiff.py) consumes.
 import math
 import os
 import struct
+from acidcat.core.formats.riff import safe_fourcc
 
 
 # AIFC compression types in common circulation. Apple's spec defines
@@ -83,7 +84,7 @@ def iter_chunks(filepath):
         header = f.read(12)
         if len(header) < 12 or header[0:4] != b"FORM":
             return
-        form_type = header[8:12].decode("ascii", errors="ignore")
+        form_type = safe_fourcc(header[8:12])
         if form_type not in ("AIFF", "AIFC"):
             return
         pos = 12
@@ -92,7 +93,7 @@ def iter_chunks(filepath):
             ch = f.read(8)
             if len(ch) < 8:
                 break
-            cid = ch[0:4].decode("ascii", errors="ignore")
+            cid = safe_fourcc(ch[0:4])
             try:
                 csz = struct.unpack(">I", ch[4:8])[0]
             except struct.error:

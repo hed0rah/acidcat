@@ -20,6 +20,25 @@ PAYLOAD_CAP = 65536
 Span = namedtuple("Span", "id offset payload_base payload size")
 
 
+def safe_fourcc(cid):
+    """Render a 4-byte chunk id as text without inventing one.
+
+    Printable ASCII passes through. Anything else -- garbage from a corrupt
+    file -- becomes a hex token, so it groups cleanly in a histogram and never
+    injects a control byte into output that might be JSON or a terminal.
+
+    This exists because `decode("ascii", errors="ignore")` does something
+    worse than fail: it DROPS the bytes it cannot read and keeps the rest. A
+    damaged chunk id of ed f3 34 e5 came back as the string "4", so the walker
+    reported a chunk named `4` that does not exist, and then repeated that
+    invented name inside the warning about it. The census had this right and
+    the walker did not, which is the whole argument for one definition.
+    """
+    if all(0x20 <= b < 0x7F for b in cid):
+        return cid.decode("ascii")
+    return "hex:" + cid.hex()
+
+
 def iter_chunks(filepath):
     """
     Yield (chunk_id_str, offset, size) for each chunk in a RIFF/WAVE file.
@@ -37,7 +56,7 @@ def iter_chunks(filepath):
             ch = f.read(8)
             if len(ch) < 8:
                 break
-            cid = ch[0:4].decode("ascii", errors="ignore")
+            cid = safe_fourcc(ch[0:4])
             try:
                 csz = struct.unpack("<I", ch[4:8])[0]
             except struct.error:
@@ -137,5 +156,5 @@ def get_riff_info(filepath):
         if len(hdr) < 12 or hdr[0:4] != b"RIFF":
             return None
         riff_size = struct.unpack("<I", hdr[4:8])[0]
-        riff_type = hdr[8:12].decode("ascii", errors="ignore")
+        riff_type = safe_fourcc(hdr[8:12])
         return {"size": riff_size, "type": riff_type}
