@@ -901,10 +901,23 @@ _PARSERS = {
     "DISP": _parse_disp,
     "ResU": _parse_resu,
     # padding, named rather than dumped as hex -- and checked, because
-    # padding that is not zero is a chunk overwritten in place
+    # padding that is not zero is a chunk overwritten in place.
+    #
+    # Chunk ids are matched EXACTLY, so every spelling a writer uses has to be
+    # here. A census of 867,703 files found two that were not: lowercase `junk`
+    # in 12,881 of them and `filr` in 15,639, both all-zero in every specimen
+    # examined. Twenty-eight thousand files were getting no overwritten-data
+    # check because of two table entries.
+    #
+    # This is the third time this exact bug has turned up -- `id3 ` versus
+    # `ID3 ` was the first -- which is why tests/test_riff.py now pins the
+    # padding ids against a census histogram rather than trusting the list.
     "JUNK": _parse_padding,
+    "junk": _parse_padding,
     "FLLR": _parse_padding,
+    "filr": _parse_padding,
     "PAD ": _parse_padding,
+    "pad ": _parse_padding,
     "CSET": _parse_cset,
     "(c) ": _parse_copyright,
     "AFAn": _parse_apple_meta,

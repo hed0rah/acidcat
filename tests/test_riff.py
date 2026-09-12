@@ -851,3 +851,41 @@ def test_the_census_and_the_walker_render_an_id_the_same_way():
     from acidcat.core.formats.riff import safe_fourcc
 
     assert census._safe_fourcc is safe_fourcc
+
+
+# -- the case-variant bug class, pinned ---------------------------------
+
+_PADDING_IDS = ("JUNK", "junk", "FLLR", "filr", "PAD ", "pad ")
+
+
+def test_every_padding_spelling_gets_the_padding_check(tmp_path):
+    """Chunk ids are matched EXACTLY, so every spelling a writer uses has to
+    be in the table.
+
+    A census of 867,703 files found two that were not: lowercase `junk` in
+    12,881 of them and `filr` in 15,639. Both are all-zero in every specimen
+    examined, which is to say both are padding -- so 28,520 files were getting
+    no overwritten-data check because of two missing table entries.
+
+    This is the third time this bug has appeared. `id3 ` versus `ID3 ` was the
+    first and cost 25 files a tempo; this one cost 28,520 files a forensic
+    check. The list is pinned here rather than trusted.
+    """
+    from acidcat.core.walk.wav import _PARSERS, _parse_padding
+
+    for cid in _PADDING_IDS:
+        assert _PARSERS.get(cid) is _parse_padding, f"{cid!r} is not padding"
+
+
+def test_lowercase_padding_that_is_not_zero_is_still_a_finding(tmp_path):
+    """The behaviour the missing entries were costing: a `junk` chunk that is
+    not zero is space overwritten in place, and it has to say so in whatever
+    case the writer used."""
+    payload = bytes(24) + b"ISFT was here" + bytes(11)
+    for cid in (b"junk", b"filr"):
+        data = _wav_with(_chunk(cid, payload))
+        _l, chunks, warns = _walk_bytes(tmp_path, data, cid.decode() + ".wav")
+        entry = _chunk_named(chunks, cid.decode())
+        assert "NOT zero" in entry["summary"], (cid, entry["summary"])
+        readable = next(f for f in entry["fields"] if f["name"] == "readable")
+        assert "ISFT was here" in readable["value"]
