@@ -239,3 +239,32 @@ class TestCensusReadsBothHalvesOfIFF:
         cx = census.Census()
         cx.census_file(str(tmp_path / "x.iff"))
         assert dict(cx.result()["containers"])["FORM:ILBM"] == 1
+
+
+def test_the_histogram_carries_an_example_path_per_chunk(tmp_path):
+    """A count with no way to go and look at one is half an answer.
+
+    The census recorded a first-seen path for every chunk id and dropped it at
+    output time, so finding a specimen for an unidentified chunk meant
+    re-walking the tree -- most of an hour on a 867,703-file corpus, to answer
+    a question the census had already answered and thrown away.
+    """
+    p = _write(tmp_path, "a.wav", _wav([_FMT, _chunk(b"SyLp", b"\x00" * 8), _DATA]))
+    cx = census.Census()
+    cx.census_file(p)
+    res = cx.result()
+    assert res["chunk_examples"]["SyLp"] == census.json_safe_path(p)
+    # every id in the histogram has one, so a consumer can rely on it
+    assert set(res["chunk_examples"]) == set(res["chunk_histogram"])
+
+
+def test_examples_are_bounded_by_top_like_the_histogram(tmp_path):
+    """`--top` bounds the histogram; the examples have to follow it or the
+    json grows a field the flag that limits it does not reach."""
+    chunks = [_FMT, _DATA] + [_chunk(bytes([65, 65, 65, 48 + i]), b"\x00" * 4)
+                              for i in range(6)]
+    p = _write(tmp_path, "many.wav", _wav(chunks))
+    cx = census.Census()
+    cx.census_file(p)
+    res = cx.result(top=3)
+    assert len(res["chunk_examples"]) == len(res["chunk_histogram"]) == 3

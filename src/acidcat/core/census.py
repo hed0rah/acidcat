@@ -438,6 +438,15 @@ class Census:
             "containers": dict(sorted(self.by_container.items(),
                                       key=lambda kv: -kv[1])),
             "chunk_histogram": {c: n for c, n in hist},
+            # One example path per chunk id. The census already recorded these
+            # and then dropped them at output time, so every id in the
+            # histogram was a count with no way to go and look at one. Finding
+            # a specimen for an unidentified chunk meant re-walking the tree,
+            # which on a 867,703-file corpus is most of an hour to answer a
+            # question the census had already answered and discarded.
+            #
+            # Scoped to the histogram, so `--top` bounds this the same way.
+            "chunk_examples": {c: self.chunk_first.get(c, "") for c, _n in hist},
             "rare_chunks": rare,
             "format_tags": {"0x%04x" % t: n for t, n in
                             sorted(self.fmt_tags.items(), key=lambda kv: -kv[1])},
