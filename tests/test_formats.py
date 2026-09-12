@@ -139,3 +139,49 @@ def test_command_single_format_and_miss(capsys):
     assert formats.run(A) == 0
     A.format = "nope-not-real"
     assert formats.run(A) == 1
+
+
+def test_edit_set_matches_live_dispatch(tmp_path):
+    """`acidcat write` is the one verb that changes a file, and the capability
+    matrix did not have a column for it until 1.6.1. The tool could edit
+    metadata in thirteen formats and the command whose whole job is answering
+    "what can acidcat do with format X" did not mention editing at all.
+
+    Derived the same way as convert and repair: feed edit_metadata a real magic
+    per format and see which ones it refuses. Catches the omission class and
+    the over-claim equally.
+    """
+    from acidcat.core.write.edits import EditError, edit_metadata
+
+    probe = dict(_MAGIC,
+                 ogg=b"OggS" + bytes(24),
+                 vital=b'{"synth_version":"1.0"}' + bytes(8),
+                 bitwig=b"BtWg" + bytes(20),
+                 ni=b"RIFF\x00\x00\x00\x00NIKS" + bytes(8))
+    derived = set()
+    for fid, magic in probe.items():
+        p = tmp_path / f"{fid}.bin"
+        p.write_bytes(magic + bytes(64))
+        try:
+            edit_metadata(str(p), {})
+        except EditError as e:
+            # EditError covers two different answers and only one of them
+            # means "unsupported": the dispatch raises it for a file type it
+            # has no editor for, and an editor raises it for content it does
+            # have but cannot use. A 12-byte RIFF/WAVE stub with no fmt chunk
+            # is the second kind, and reading it as the first would have made
+            # this test agree with a matrix that claimed nothing.
+            if "no metadata editor for this file type" in str(e):
+                continue
+        except Exception:
+            pass                           # has one; it just disliked the stub
+        derived.add(fid)
+    # every format the dispatch accepts must be claimed, and nothing else
+    assert derived == formats._EDIT & set(probe), (
+        f"claimed but not dispatched: {formats._EDIT & set(probe) - derived}; "
+        f"dispatched but not claimed: {derived - formats._EDIT}")
+
+
+def test_edit_set_are_known_formats():
+    unknown = formats._EDIT - sniffmod.KNOWN_FORMATS
+    assert not unknown, unknown

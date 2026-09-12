@@ -10,11 +10,11 @@ the live tables and prints one row per format with a tick under each capability.
     acidcat formats --json         # machine-readable, for piping
 
 Inspect and Extract are read straight from their registries (walk._WALKERS and
-samples.EXTRACTABLE), so they never drift. Convert and Repair dispatch on magic
-bytes rather than a format table, so their columns come from the hand-listed sets
-below -- but the tests pin those sets against the live dispatch (probing a real
-magic sample per format), so a stale entry fails the suite. Turning convert/repair
-into real format tables is the next housekeeping step.
+samples.EXTRACTABLE), so they never drift. Convert, Repair and Edit dispatch on
+magic bytes rather than a format table, so their columns come from the
+hand-listed sets below -- but the tests pin those sets against the live dispatch
+(probing a real magic sample per format), so a stale entry fails the suite.
+Turning them into real format tables is the next housekeeping step.
 """
 
 import argparse
@@ -32,6 +32,17 @@ _CONVERT = {"ncw", "8svx", "sf2", "bitwig", "wav", "au"}    # commands/convert.p
 # mp4 -- constraints._repairers(). Not just the WAVE/AIFF subset it looks like.
 _REPAIR = {"wav", "rf64", "aiff", "aifc", "sf2", "8svx", "smus", "rmid", "akp",
            "e4b", "e5b", "flac", "mp4"}
+# `acidcat write` -- core/write/edits.py::edit_metadata, which branches on magic
+# bytes and extension rather than on a format id. This column existed nowhere
+# until 1.6.1: the tool could edit metadata in thirteen formats and the
+# capability matrix, whose whole job is answering "what can acidcat do with
+# format X", did not mention editing at all.
+#
+# The three marked experimental in edit_metadata's own return labels are listed
+# anyway -- a reader deciding whether to try is better served by "yes, and the
+# tool will tell you it is experimental" than by a blank.
+_EDIT = {"wav", "aiff", "aifc", "flac", "mp3", "ogg", "mp4",
+         "vital", "bitwig", "ni"}
 
 # labels for formats that extract/convert but have no inspect walker (so no label
 # in walk._WALKERS). Keeps every row named.
@@ -58,15 +69,16 @@ def register(subparsers):
 
 
 def _matrix():
-    """Build [{id, label, inspect, extract, convert, repair}] over every format
-    with any capability, read from the live registries."""
+    """Build [{id, label, inspect, extract, convert, repair, edit}] over every
+    format with any capability, read from the live registries."""
     from acidcat.core.extract import samples
     from acidcat.core.walk import _WALKERS
 
     labels = {fid: lbl for fid, (lbl, _fn) in _WALKERS.items()}
     labels.update({fid: _EXTRA_LABELS.get(fid, fid) for fid in samples.EXTRACTABLE
                    if fid not in labels})
-    ids = set(_WALKERS) | set(samples.EXTRACTABLE) | _CONVERT | _REPAIR
+    ids = (set(_WALKERS) | set(samples.EXTRACTABLE) | _CONVERT | _REPAIR
+           | _EDIT)
     rows = []
     for fid in sorted(ids):
         rows.append({
@@ -76,11 +88,12 @@ def _matrix():
             "extract": fid in samples.EXTRACTABLE,
             "convert": fid in _CONVERT,
             "repair": fid in _REPAIR,
+            "edit": fid in _EDIT,
         })
     return rows
 
 
-_CAPS = ("inspect", "extract", "convert", "repair")
+_CAPS = ("inspect", "extract", "convert", "repair", "edit")
 
 
 def _print_table(rows):
