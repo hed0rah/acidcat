@@ -121,7 +121,7 @@ class Reason(enum.Enum):
 # covered, if anywhere. An exemption pointing at another test is a redirect; one
 # pointing at nothing is a hole.
 EXEMPT = {
-    ("acidcat.core.walk.wav", "_RESU_INFLATE_CAP"):
+    ("acidcat.core.walk.apple", "_RESU_INFLATE_CAP"):
         (Reason.RESOURCE_LIMIT, "an inflate bound on a zlib payload, so a "
                                 "crafted ResU cannot expand without limit. "
                                 "Crossing it DOES announce -- the parser emits "
@@ -130,7 +130,7 @@ EXEMPT = {
                                 "shortened for readability, and a real Logic "
                                 "chunk inflates to a few thousand bytes "
                                 "against this 4 MB"),
-    ("acidcat.core.walk.wav", "_APPLE_SCAN_CAP"):
+    ("acidcat.core.walk.apple", "_APPLE_SCAN_CAP"):
         (Reason.SEARCH_WINDOW, "how far into an AFAn/AFmd typedstream to scan "
                                "for class names. Invisible in the result: the "
                                "chunk is NAMED rather than decoded, and the "
@@ -405,6 +405,37 @@ def _svx_many_chunks(tmp_path, n):
     ch = [b"ANNO" + struct.pack(">I", 2) + b"hi" for _ in range(n)]
     p = tmp_path / "many.8svx"
     p.write_bytes(_iff(b"FORM", b"8SVX", ch))
+    return str(p)
+
+
+def _aiff_many_transients(tmp_path, n):
+    """An Apple Loops transient table with n slice points."""
+    import test_aiff
+
+    head = (struct.pack(">HHHH", 1, 50, 16, 0) + struct.pack(">I", 0)
+            + b"\x00" * 0x3C + struct.pack(">I", n))
+    assert len(head) == 76
+    body = head + b"".join(struct.pack(">HHI", 1, 0, i * 4410) + b"\x00" * 16
+                           for i in range(n))
+    data = test_aiff._form(b"AIFF", test_aiff._comm_aiff(frames=n * 4410),
+                           test_aiff._ssnd(), test_aiff._chunk(b"trns", body))
+    p = tmp_path / "trns.aif"
+    p.write_bytes(data)
+    return str(p)
+
+
+def _aiff_many_categories(tmp_path, n):
+    """An Apple Loops category chunk carrying n labels."""
+    import test_aiff
+
+    body = struct.pack(">I", n)
+    for i in range(n):
+        label = ("Label%03d" % i).encode("ascii")
+        body += label + b"\x00" * (50 - len(label))
+    data = test_aiff._form(b"AIFF", test_aiff._comm_aiff(), test_aiff._ssnd(),
+                           test_aiff._chunk(b"cate", body))
+    p = tmp_path / "cate.aif"
+    p.write_bytes(data)
     return str(p)
 
 
@@ -698,9 +729,13 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.wav", "_ID3_FRAME_CAP", 4, _wav_many_id3_frames,
      "listing the first"),
-    ("acidcat.core.walk.wav", "_APPLE_CLASS_CAP", 4, _wav_many_apple_classes,
+    ("acidcat.core.walk.apple", "_APPLE_CLASS_CAP", 4, _wav_many_apple_classes,
      "listing the first"),
     ("acidcat.core.walk.midi", "_UNKNOWN_META_CAP", 4, _midi_many_unknown_meta,
+     "listing the first"),
+    ("acidcat.core.walk.apple", "_TRNS_LIST_CAP", 4, _aiff_many_transients,
+     "listing the first"),
+    ("acidcat.core.walk.apple", "_CATE_LABEL_CAP", 4, _aiff_many_categories,
      "listing the first"),
 ]
 

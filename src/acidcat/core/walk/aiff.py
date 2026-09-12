@@ -9,6 +9,10 @@ from acidcat.core.formats.aiff import (_AES_EMPHASIS, _AES_RATES,
                                _AIFC_KNOWN_COMPRESSION, _LOOP_MODES,
                                _parse_ieee_extended)
 from acidcat.core.formats.aiff import iter_chunks as iter_aiff_chunks
+from acidcat.core.primitives.notes import is_coverage
+from acidcat.core.walk.apple import (_parse_apple_meta, _parse_cate,
+                                     _parse_chan, _parse_resu,
+                                     _parse_trns)
 from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _dtext, _f
 from acidcat.util.midi import midi_note_to_name
 
@@ -403,11 +407,24 @@ def inspect_aiff(filepath, form_type, ctx=None):
                     entry["fields"] = _aiff_id3_fields(payload)
                     entry["summary"] = f"embedded ID3v2 tag, {size:,} bytes"
                 elif cid == "cate":
-                    entry["summary"] = "apple loops category data"
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _parse_cate(payload, ctx)
                 elif cid == "trns":
-                    entry["summary"] = "apple loops transient/slice data"
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _parse_trns(payload, ctx)
                 elif cid == "FLLR":
                     entry["summary"] = "filler/padding"
+                elif cid == "CHAN":
+                    # the AIFF-C channel layout is CoreAudio's
+                    # AudioChannelLayout, byte for byte the CAF `chan` payload
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _parse_chan(payload, ctx)
+                elif cid == "ResU":
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _parse_resu(payload, ctx)
+                elif cid in ("AFAn", "AFmd"):
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _parse_apple_meta(payload, ctx)
                 else:
                     entry["summary"] = f"unparsed, first bytes: {payload[:16].hex(' ')}"
             except Exception as e:
@@ -425,4 +442,11 @@ def inspect_aiff(filepath, form_type, ctx=None):
             file_warns.append(
                 f"INST loop references marker id {mid} that MARK does not define"
             )
+
+    # a bound that was crossed is a fact about the whole answer, not about one
+    # chunk: a caller reading only the file-level warnings would otherwise be
+    # told a capped listing was complete.
+    for entry in chunks:
+        file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
+
     return chunks, file_warns

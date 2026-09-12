@@ -8,6 +8,7 @@ from acidcat.core.infra.vocab import (WAVE_FORMAT_TAGS as _FORMAT_TAGS,
                                 WAV_SPEAKER_POSITIONS as _SPEAKER_POSITIONS,
                                 KSDATAFORMAT_TAIL as _KSDATAFORMAT_TAIL)
 from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.walk.apple import _parse_apple_meta, _parse_resu
 from acidcat.core.walk.base import (
     _PAYLOAD_CAP, _dtext, _f, _u16, _u32, _cstr, _flag_names,
 )
@@ -694,15 +695,7 @@ def _parse_riff_id3(b, ctx):
 # dozens of frames; a listing that silently stops is worse than one that
 # says it did.
 _STRC_SLICE_CAP = 64
-# ResU is a few hundred bytes that inflate to a few thousand. The cap is
-# far above any real one and exists so a crafted chunk cannot inflate
-# without bound.
-_RESU_INFLATE_CAP = 4 * 1024 * 1024
 _PADDING_TEXT_CAP = 4096
-# How far into a typedstream to scan for class names, and how many to
-# list. A real AFAn is a few KB.
-_APPLE_SCAN_CAP = 64 * 1024
-_APPLE_CLASS_CAP = 12
 _ID3_FRAME_CAP = 40
 
 
@@ -750,75 +743,6 @@ def _parse_disp(b, ctx):
                          f"allows only 1")
         return (f"{name}, {width}x{abs(height)} at {bits} bpp"), fields, warns
     return f"{name}, {len(body):,} bytes", fields, warns
-
-
-def _parse_resu(b, ctx):
-    """Logic Pro's analysis result: zlib-compressed JSON, and it holds a tempo.
-
-    The payload opens with a zlib header and inflates to a JSON document that
-    records what Logic's Flex analysis decided about the file -- its tempo, its
-    time signature, and the beat positions it found, each with a confidence.
-
-    Worth reading rather than skipping: it is a DAW's own opinion about the
-    material, written into the file, and on a loop library it is the tempo
-    someone actually worked to.
-    """
-    fields, warns = [], []
-    if len(b) < 2 or b[0] != 0x78:
-        return (f"unrecognized, {len(b):,} bytes"), fields, [
-            "ResU does not open with a zlib header"]
-    import json
-    import zlib
-    try:
-        raw = zlib.decompressobj().decompress(b, _RESU_INFLATE_CAP)
-    except zlib.error as e:
-        return "undecodable", fields, [f"ResU did not inflate ({e})"]
-    if len(raw) >= _RESU_INFLATE_CAP:
-        warns.append(coverage(f"ResU inflated to the {_RESU_INFLATE_CAP >> 10} KB "
-                              f"cap; the document may continue"))
-    try:
-        doc = json.loads(raw.decode("utf-8", "replace"))
-    except ValueError as e:
-        return "undecodable", fields, [f"ResU inflated but did not parse as JSON "
-                                       f"({e.__class__.__name__})"]
-    if not isinstance(doc, dict):
-        return "undecodable", fields, ["ResU JSON is not an object"]
-
-    fields.append(_f(None, 0, "compressed", f"{len(b):,} bytes",
-                     f"inflates to {len(raw):,}"))
-    ctxd = doc.get("rec_ctx") if isinstance(doc.get("rec_ctx"), dict) else doc
-    bits = []
-
-    tempo = ctxd.get("Tempo")
-    if isinstance(tempo, list) and tempo and isinstance(tempo[0], dict):
-        value = tempo[0].get("tempo")
-        if value is not None:
-            fields.append(_f(None, 0, "tempo", f"{value:g} BPM",
-                             "as Logic's analysis recorded it"))
-            bits.append(f"{value:g} BPM")
-    sig = ctxd.get("time_signatures")
-    if isinstance(sig, list) and sig and isinstance(sig[0], dict):
-        value = sig[0].get("signature")
-        if value:
-            fields.append(_f(None, 0, "time_signature", str(value)[:16]))
-            bits.append(str(value))
-    dur = ctxd.get("duration")
-    if isinstance(dur, (int, float)) and dur > 0:
-        fields.append(_f(None, 0, "analysed_duration", f"{dur:.3f} s"))
-    beats = ctxd.get("beats")
-    if isinstance(beats, list) and beats:
-        onsets = sum(1 for x in beats if isinstance(x, dict) and x.get("onset"))
-        fields.append(_f(None, 0, "beats", f"{len(beats):,}",
-                         f"{onsets:,} marked as onsets" if onsets else ""))
-        bits.append(f"{len(beats)} beat marker(s)")
-    for key, label in (("UserEdited", "user edited"),
-                       ("MusicDetectionWasPerformed", "music detection run"),
-                       ("ResultWasCreatedFromLogicTempoMap", "from Logic's tempo map")):
-        if ctxd.get(key):
-            fields.append(_f(None, 0, label.replace(" ", "_"), "yes"))
-    return ("Logic analysis: " + ", ".join(bits)) if bits else \
-           f"Logic analysis, {len(raw):,} bytes of JSON", fields, warns
-
 
 def _parse_padding(b, ctx):
     """JUNK / FLLR / PAD: space reserved so a later write need not move anything.
@@ -878,50 +802,6 @@ def _parse_copyright(b, ctx):
 # Apple's typedstream: the archive format NSArchiver wrote before
 # NSKeyedArchiver, still emitted by Logic and Final Cut into AFAn/AFmd. It
 # opens with a version byte and the literal "streamtyped".
-_TYPEDSTREAM = b"streamtyped"
-
-
-def _parse_apple_meta(b, ctx):
-    """AFAn / AFmd: Apple metadata, as a NeXTSTEP typedstream archive.
-
-    NAMED, not decoded. The payload is a real serialised object graph -- an
-    NSMutableDictionary -- and reading it properly means implementing
-    typedstream, which is a format of its own rather than a field or two. What
-    is honest here is to say what the bytes ARE, show the class names the
-    archive references, and leave the values to a reader that implements the
-    format.
-    """
-    fields, warns = [], []
-    if _TYPEDSTREAM not in b[:32]:
-        return (f"unrecognized, {len(b):,} bytes"), fields, [
-            "AFAn/AFmd does not open with an Apple typedstream header"]
-    fields.append(_f(None, 0, "container", "Apple typedstream (NSArchiver)"))
-    fields.append(_f(None, 0, "bytes", f"{len(b):,}"))
-    # the class names are length-prefixed ASCII in the clear; listing them says
-    # what the archive holds without claiming to have decoded its values
-    classes, i = [], 0
-    window = b[:_APPLE_SCAN_CAP]
-    while i < len(window) - 2:
-        n = window[i]
-        if 3 <= n <= 60 and i + 1 + n <= len(window):
-            chunk = window[i + 1:i + 1 + n]
-            if chunk[:2] == b"NS" and all(32 <= c < 127 for c in chunk):
-                name = chunk.decode("ascii")
-                if name not in classes:
-                    classes.append(name)
-                i += 1 + n
-                continue
-        i += 1
-    for name in classes[:_APPLE_CLASS_CAP]:
-        fields.append(_f(None, 0, "class", name))
-    if len(classes) > _APPLE_CLASS_CAP:
-        warns.append(coverage(f"listing the first {_APPLE_CLASS_CAP} of "
-                     f"{len(classes)} archived class names"))
-    summary = f"Apple typedstream, {len(b):,} bytes"
-    if classes:
-        summary += " -- " + ", ".join(classes[:3])
-    return summary, fields, warns
-
 
 _PARSERS = {
     "fmt ": _parse_fmt,

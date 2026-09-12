@@ -75,6 +75,33 @@ WAV_SPEAKER_POSITIONS = [
     "FL", "FR", "FC", "LFE", "BL", "BR", "FLC", "FRC", "BC", "SL", "SR",
     "TC", "TFL", "TFC", "TFR", "TBL", "TBC", "TBR",
 ]
+# CoreAudio's AudioChannelLayoutTag, the value in a CAF `chan` chunk and an
+# AIFF-C `CHAN` chunk. The tag packs a layout in the high 16 bits and the
+# channel count in the low 16, so 0x00650002 is layout 101 with 2 channels.
+#
+# Only the geometric layouts are named. The tag space continues into the
+# MPEG, AC-3, DVD and AAC families, and a wrong name on one of those would be
+# a confident lie about a file's speaker map -- an unnamed tag still prints
+# its number and its channel count, which is the part that never guesses.
+AUDIO_CHANNEL_LAYOUT_TAGS = {
+    0: "use channel descriptions",
+    1: "use channel bitmap",
+    100: "mono",
+    101: "stereo",
+    102: "stereo headphones",
+    103: "matrix stereo",
+    104: "mid/side",
+    105: "XY",
+    106: "binaural",
+    107: "ambisonic B-format",
+    108: "quadraphonic",
+    109: "pentagonal",
+    110: "hexagonal",
+    111: "octagonal",
+    112: "cube",
+}
+
+
 KSDATAFORMAT_TAIL = bytes.fromhex("000000001000800000aa00389b71")
 
 # a grammar Enum/NoteLookup names a value->label table by its id; the walker and

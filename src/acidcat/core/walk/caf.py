@@ -23,6 +23,7 @@ import os
 import struct
 
 from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.walk.apple import _parse_chan
 from acidcat.core.walk.base import _PAYLOAD_CAP, _f
 
 MAGIC = b"caff"
@@ -185,25 +186,6 @@ def _parse_pakt(b, _ctx):
     if packets < 0:
         warns.append(f"packet count is negative ({packets:,})")
     return f"{packets:,} packets, {valid:,} valid frames", fields, warns
-
-
-def _parse_chan(b, _ctx):
-    """CAFChannelLayout: a tag, a bitmap, and optional per-channel entries."""
-    fields, warns = [], []
-    if len(b) < 12:
-        return "truncated", fields, [
-            f"chan payload is {len(b)} bytes, the header alone is 12"]
-    tag, bitmap, n = struct.unpack_from(">III", b, 0)
-    fields.append(_f(0x00, 4, "layout_tag", f"0x{tag:08x}"))
-    fields.append(_f(0x04, 4, "channel_bitmap", f"0x{bitmap:08x}"))
-    fields.append(_f(0x08, 4, "descriptions", n))
-    need = 12 + n * 20
-    if need > len(b):
-        warns.append(
-            f"declares {n} channel descriptions ({need} bytes), payload is "
-            f"{len(b)}")
-    return f"layout 0x{tag:08x}, {n} description(s)", fields, warns
-
 
 def _parse_peak(b, ctx):
     """Per-channel peak amplitude and the frame it occurs on."""

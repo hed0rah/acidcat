@@ -212,12 +212,21 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       </div></div></details>
     <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">basc</span><span class="rspan">apple loops tempo</span></summary>
       <div class="rbody"><p class="note">Apple Loops metadata: version, beat count, root key, scale, time signature. No official spec; layout field-verified against indexed loops. Tempo is not stored directly: bpm = beats / (frames / rate) * 60.</p></div></details>
-    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">cate / trns / FLLR</span><span class="rspan">apple loops companions</span></summary>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">cate / trns / coll / FLLR</span><span class="rspan">apple loops companions</span></summary>
       <div class="rbody"><div class="kv">
-        <div><span class="k">cate</span><span class="v">category/descriptor taxonomy (instrument, genre); no published field layout</span></div>
+        <div><span class="k">cate</span><span class="v">category labels (instrument, genre) as NUL-padded ASCII on a 50-byte grid, after a 4-byte count</span></div>
         <div><span class="k">trns</span><span class="v">transient/slice table used for time-stretching; the REX hiding inside AIFF</span></div>
+        <div><span class="k">coll</span><span class="v">collection membership; no published field layout</span></div>
         <div><span class="k">FLLR</span><span class="v">filler/padding so metadata can be rewritten in place</span></div>
-      </div></div></details>
+      </div>        <div class="sec">a trns record (16 bytes)</div>
+        <p class="note">A 76-byte header comes first: a version at 0x00, two constants, a timestamp at 0x08, and the record count as a big-endian u32 at 0x48. Then one fixed record per transient, and nothing else -- payload length is always 76 + 24 &times; count.</p>
+        <div id="aiff-trns"></div>
+</div></details>
+    <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">CHAN</span><span class="rspan">channel layout</span></summary>
+      <div class="rbody"><p class="note">CoreAudio's AudioChannelLayout, byte for byte the payload of a CAF <code>chan</code> chunk. It says which speaker each channel drives, which COMM cannot: COMM counts channels and stops there.</p>
+        <div class="sec">CHAN, header and layout (20 bytes)</div>
+        <div id="aiff-chan"></div>
+</div></details>
     <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">NAME / AUTH / (c) / ANNO / ID3</span><span class="rspan">text + embedded tag</span></summary>
       <div class="rbody"><div class="kv">
         <div><span class="k">NAME / AUTH</span><span class="v">plain text: title, author</span></div>
@@ -361,6 +370,44 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         ["value","2^(exp-16383) * mantissa / 2^63"]],
         body:"An 80-bit IEEE-754 extended-precision float, a 68k-era Apple format. No mainstream language unpacks it natively, so it must be rebuilt from the exponent and the explicit 64-bit mantissa.",
         note:"40 0E AC 44 00.. : exponent 0x400E = 16398 = 16383 + 15; mantissa / 2^63 = 0xAC44 / 2^15 = 1.3458.., times 2^15 = 44100. an explicit leading mantissa bit, unlike float64. an all-ones exponent (IEEE inf/NaN) decodes to 0 = unset, never a rate."}
+    ]);
+
+  // the Apple Loops transient record: a flag, a position, and room that is
+  // never used
+  build("aiff-trns","byte",
+    [0x00,0x01,0x00,0x00,0x00,0x00,0x12,0xB9,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00],
+    [
+      {label:"flag",k:"flag",r:[0,1],val:"1",
+       body:"One in every record ever written. Whether it marks a transient as enabled, or as of a particular kind, no writer has been observed to say.",
+       note:"a field that never varies is not decoded, it is only recorded. Treating a constant as understood is how a format gets documented wrong."},
+      {label:"reserved",k:"rsv",r:[2,3],val:"0",
+       body:"Always zero."},
+      {label:"position",k:"enum",r:[4,7],val:"4,793",
+       body:"Where the slice point is, in SAMPLE FRAMES from the start of the audio -- not bytes, and not milliseconds. Big-endian, like every other integer in an IFF file.",
+       note:"frames, so the same table means the same thing at any bit depth or channel count. Divide by the COMM sample rate for seconds; a gap of 4,793 frames at 44,100 Hz is a sixteenth note at 138 bpm."},
+      {label:"tail",k:"rsv",r:[8,15],val:"0",
+       body:"Sixteen bytes of zero close the record (eight shown). Room for per-transient data that Apple Loops files do not carry.",
+       note:"it is still part of the record. Stride by 24, not by 8, or every transient after the first lands in the middle of the one before it."}
+    ]);
+  // CoreAudio's channel layout, as AIFF-C carries it
+  build("aiff-chan","byte",
+    [0x43,0x48,0x41,0x4E,0x00,0x00,0x00,0x20,0x00,0x65,0x00,0x02,0x00,0x00,0x00,0x03,0x00,0x00,0x00,0x00],
+    [
+      {label:"ckID",k:"sync",r:[0,3],val:'"CHAN"',
+       body:"Upper case here, lower case in a CAF, same twelve bytes of payload. The container renames the chunk; the structure does not change."},
+      {label:"ckSize",k:"enum",r:[4,7],val:"32",
+       body:"Big-endian. Twelve bytes of header plus, here, twenty more -- one channel description that the header says is not there.",
+       note:"the C struct ends in `AudioChannelDescription mChannelDescriptions[1]`, so a writer that emits the struct rather than the fields emits one empty description. Trust the count, not the size."},
+      {label:"mChannelLayoutTag",k:"enum",r:[8,11],val:"0x00650002",sel:0,
+       branch:[["layout in the high 16 bits","101 is stereo, 100 mono, 108 quadraphonic"],["channel count in the low 16","2 here, and it must agree with COMM"]],
+       body:"One number carrying two: the layout id above, the channel count below. 0x0065 is 101, stereo, and 0x0002 is the two channels it describes.",
+       note:"tag 0 means the layout is in the descriptions instead, and tag 1 means it is in the bitmap. Either way the low half is still the channel count."},
+      {label:"mChannelBitmap",k:"flag",r:[12,15],val:"0x00000003",
+       body:"A speaker per bit, in the same order as a WAVE file's dwChannelMask: front left, front right, front centre, LFE, and on. 3 is front left and front right.",
+       note:"the spec says this is only meaningful when the tag is 1. Writers set it anyway, and a reader that believes it over the tag will be right until it is not."},
+      {label:"mNumberChannelDescriptions",k:"enum",r:[16,19],val:"0",
+       body:"How many 20-byte descriptions follow. Zero whenever the tag alone names the layout, which is nearly always.",
+       note:"this is the field that bounds the read. The chunk size can be larger and usually is."}
     ]);
 
   // the container header: RIFF's shape, IFF's byte order
