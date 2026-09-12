@@ -889,3 +889,46 @@ def test_lowercase_padding_that_is_not_zero_is_still_a_finding(tmp_path):
         assert "NOT zero" in entry["summary"], (cid, entry["summary"])
         readable = next(f for f in entry["fields"] if f["name"] == "readable")
         assert "ISFT was here" in readable["value"]
+
+
+def test_peak_reads_each_channel(tmp_path):
+    """`PEAK` is on the WAV anatomy page -- "records each channel's peak so a
+    reader can normalize and draw the waveform without a full scan" -- and the
+    walker did not read it. 149 files in an 867,703-file census carry one.
+
+    These are the real bytes from one of them: version 1, a Unix timestamp the
+    format defines, and one float-plus-frame record per channel.
+    """
+    payload = bytes.fromhex("01000000ae42e053e35b783f12010000")
+    data = _wav_with(_chunk(b"PEAK", payload))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    peak = _chunk_named(chunks, "PEAK")
+    f = {x["name"]: x for x in peak["fields"]}
+    assert f["version"]["value"] == 1
+    assert f["timestamp"]["note"] == "2014-08-05"
+    assert f["peak[0]"]["value"] == "0.970152 at frame 274"
+    assert not peak["warnings"]
+
+
+def test_a_peak_past_unit_scale_is_stated_not_corrected(tmp_path):
+    """Float WAV is allowed past 0 dBFS, and a writer that normalises to 2^23
+    rather than 1.0 shows up here as a huge number rather than a clipped one.
+    Reporting it as damage would be wrong; hiding it would be worse."""
+    payload = struct.pack("<II", 1, 0) + struct.pack("<fI", 8388608.0, 100)
+    data = _wav_with(_chunk(b"PEAK", payload))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    peak = _chunk_named(chunks, "PEAK")
+    fs = next(x for x in peak["fields"] if x["name"] == "full_scale")
+    assert "2^23" in fs["note"]
+    assert not any("damage" in w or "clip" in w for w in peak["warnings"])
+
+
+def test_peak_record_count_is_checked_against_the_channels(tmp_path):
+    """A peak chunk that disagrees with fmt about how many channels exist is
+    one of the two telling a lie."""
+    payload = struct.pack("<II", 1, 0) + struct.pack("<fI", 0.5, 10) * 3
+    data = _wav_with(_chunk(b"PEAK", payload))      # _wav_with writes 1 channel
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    peak = _chunk_named(chunks, "PEAK")
+    assert any("3 peak record(s) for 1 channel" in w
+               for w in peak["warnings"]), peak["warnings"]

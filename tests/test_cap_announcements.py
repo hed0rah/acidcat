@@ -145,6 +145,15 @@ EXEMPT = {
                                "a damaged head rather than a container -- a "
                                "real one is a sector or two. Covered by "
                                "tests/test_sniff.py::TestZeroedHeadMp3"),
+    ("acidcat.core.walk.wav", "_PEAK_CHANNEL_CAP"):
+        (Reason.RUNAWAY_BACKSTOP, "peak records are one per channel and fmt is "
+                                  "already linted for an implausible channel "
+                                  "count. 64 is far above any real file; "
+                                  "crossing it means the chunk disagrees with "
+                                  "fmt, which is reported as its own warning "
+                                  "-- covered by tests/test_riff.py::"
+                                  "test_peak_record_count_is_checked_against_"
+                                  "the_channels"),
     ("acidcat.core.formats.xmp", "_VALUE_CAP"):
         (Reason.VIEWPORT, "one property's display width. The value is "
                           "elided with an ellipsis IN the value, which says "

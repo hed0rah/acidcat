@@ -700,6 +700,9 @@ _ID3_FRAME_CAP = 40
 # An XMP packet is a whole catalogue record; a real one holds a dozen or two
 # properties. The bound is a listing bound, not a parse bound.
 _XMP_PROPERTY_CAP = 40
+# Peak records are one per channel. 64 is far above any real file and
+# bounds a crafted chunk rather than a normal one.
+_PEAK_CHANNEL_CAP = 64
 
 
 # Windows clipboard format ids, for the DISP chunk's first word. Only the few
@@ -875,6 +878,71 @@ def _vendor_parser(what):
 
 
 
+def _peak_date(v):
+    """The PEAK timestamp, which the format defines as Unix seconds."""
+    import datetime
+    if not 0 < v < (1 << 31):
+        return ""
+    try:
+        d = datetime.datetime.fromtimestamp(v, datetime.timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return ""
+    return d.date().isoformat()
+
+
+def _parse_peak(b, ctx):
+    """`PEAK`: each channel's loudest sample and where it is.
+
+    A version, a Unix timestamp, then one record per channel holding a float
+    peak and the frame it occurs on. Little-endian, unlike the CAF chunk of the
+    same name, which is big-endian with a 64-bit frame -- the same idea written
+    twice by different people, which is why they are read by different code.
+
+    Worth reading rather than skipping for the reason the WAV anatomy page
+    already gives: it lets a reader normalise and draw a waveform without
+    scanning the samples, and it settles the non-unit-float question, because a
+    writer that normalises to 2^23 rather than 1.0 says so here.
+    """
+    fields, warns = [], []
+    if len(b) < 8:
+        return "truncated", fields, [
+            f"PEAK payload is {len(b)} bytes, the header alone is 8"]
+    version, stamp = struct.unpack_from("<II", b, 0)
+    fields.append(_f(0x00, 4, "version", version,
+                     "" if version == 1 else "only version 1 is defined"))
+    # the PEAK spec DEFINES this as seconds since 1970, so it is stated rather
+    # than offered as a reading -- unlike the Apple chunks, where the same
+    # four bytes are a guess that happens to produce sane years
+    fields.append(_f(0x04, 4, "timestamp", stamp, _peak_date(stamp),
+                     enc="<I", raw=stamp))
+    if version != 1:
+        warns.append(f"PEAK declares version {version}; only 1 is defined")
+
+    chans = ctx.get("channels") or 0
+    have = (len(b) - 8) // 8
+    if chans and have != chans:
+        warns.append(f"{have} peak record(s) for {chans} channel(s)")
+    loudest = 0.0
+    for i in range(min(have, _PEAK_CHANNEL_CAP)):
+        value, frame = struct.unpack_from("<fI", b, 8 + i * 8)
+        loudest = max(loudest, abs(value))
+        note = f"{frame / ctx['sample_rate']:.3f} s" if ctx.get("sample_rate") else ""
+        fields.append(_f(8 + i * 8, 8, f"peak[{i}]",
+                         f"{value:.6f} at frame {frame:,}", note))
+    if have > _PEAK_CHANNEL_CAP:
+        warns.append(coverage(f"listing the first {_PEAK_CHANNEL_CAP} of "
+                              f"{have} peak records"))
+    # a peak past unit scale is not damage: float WAV is allowed past 0 dBFS,
+    # and a file normalised to 2^23 rather than 1.0 shows up here as a huge
+    # number rather than as a clipped one. Stated, never corrected.
+    if loudest > 1.0:
+        fields.append(_f(None, 0, "full_scale", f"{loudest:.6f}",
+                         "past unit scale: legal in float, and the tell for a "
+                         "writer that normalises to 2^23 instead of 1.0"))
+    return (f"{have} channel peak(s), loudest {loudest:.6f}"
+            if have else "no peak records"), fields, warns
+
+
 _PARSERS = {
     "fmt ": _parse_fmt,
     "fact": _parse_fact,
@@ -918,6 +986,7 @@ _PARSERS = {
     "filr": _parse_padding,
     "PAD ": _parse_padding,
     "pad ": _parse_padding,
+    "PEAK": _parse_peak,
     "CSET": _parse_cset,
     "(c) ": _parse_copyright,
     "AFAn": _parse_apple_meta,
