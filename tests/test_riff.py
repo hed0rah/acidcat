@@ -656,3 +656,127 @@ def test_an_afan_that_is_not_a_typedstream_says_so(tmp_path):
     _l, chunks, _w = _walk_bytes(tmp_path, data)
     afmd = _chunk_named(chunks, "AFmd")
     assert any("typedstream" in w for w in afmd["warnings"]), afmd["warnings"]
+
+
+# -- the fourth sweep: what a 6,001-file WAV walk still called bytes ---
+
+
+def _xmp_packet(props='<xmp:CreatorTool>Soundminer v4</xmp:CreatorTool>'):
+    return ('<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+            '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 5.5.0">'
+            '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+            '<rdf:Description rdf:about="" '
+            'xmlns:xmp="http://ns.adobe.com/xap/1.0/" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+            'xmlns:xmpDM="http://ns.adobe.com/xmp/1.0/DynamicMedia/">'
+            + props +
+            '</rdf:Description></rdf:RDF></x:xmpmeta>'
+            '<?xpacket end="w"?>').encode("utf-8")
+
+
+def test_a_pmx_chunk_is_an_xmp_packet(tmp_path):
+    """`_PMX` holds Adobe's XMP packet -- RDF/XML, and a sound library writes
+    its whole catalogue record into it. The chunk was being reported as
+    unparsed bytes with an XML document inside."""
+    props = ('<xmp:CreatorTool>Soundminer v4</xmp:CreatorTool>'
+             '<dc:publisher><rdf:Bag><rdf:li>www.example.com</rdf:li>'
+             '</rdf:Bag></dc:publisher>'
+             '<xmpDM:artist>Example Library</xmpDM:artist>')
+    data = _wav_with(_chunk(b"_PMX", _xmp_packet(props)))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    pmx = _chunk_named(chunks, "_PMX")
+    f = {x["name"]: x["value"] for x in pmx["fields"]}
+    assert f["xmp:CreatorTool"] == "Soundminer v4"
+    assert f["dc:publisher"] == "www.example.com"
+    assert f["xmpDM:artist"] == "Example Library"
+    assert "Soundminer v4" in pmx["summary"]
+
+
+def test_an_alt_keeps_one_language_and_a_bag_keeps_every_entry(tmp_path):
+    """RDF has two containers that look alike and do not mean alike. An
+    `rdf:Alt` is one value in several languages; joining it prints the same
+    sentence twice. An `rdf:Bag` is several values, and dropping all but the
+    first loses data."""
+    props = ('<dc:title><rdf:Alt>'
+             '<rdf:li xml:lang="x-default">Kick</rdf:li>'
+             '<rdf:li xml:lang="en-US">Kick</rdf:li>'
+             '</rdf:Alt></dc:title>'
+             '<dc:subject><rdf:Bag><rdf:li>drum</rdf:li>'
+             '<rdf:li>percussion</rdf:li></rdf:Bag></dc:subject>')
+    data = _wav_with(_chunk(b"_PMX", _xmp_packet(props)))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    f = {x["name"]: x["value"] for x in _chunk_named(chunks, "_PMX")["fields"]}
+    assert f["dc:title"] == "Kick"
+    assert f["dc:subject"] == "drum, percussion"
+
+
+def test_a_property_outside_the_known_namespaces_still_reaches_the_reader(tmp_path):
+    """Only the namespaces are named, never the property names. A whitelist of
+    properties is how a reader silently drops the one field that mattered."""
+    props = ('<vendor:SecretSauce xmlns:vendor="http://example.com/ns/vendor/">'
+             '42</vendor:SecretSauce>')
+    data = _wav_with(_chunk(b"_PMX", _xmp_packet(props)))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    f = {x["name"]: x["value"] for x in _chunk_named(chunks, "_PMX")["fields"]}
+    assert f["vendor:SecretSauce"] == "42"
+
+
+def test_a_pmx_that_is_not_well_formed_says_so(tmp_path):
+    data = _wav_with(_chunk(b"_PMX", b'<?xpacket begin=""?><x:xmpmeta '
+                                     b'xmlns:x="adobe:ns:meta/"><oops>'
+                                     b"</x:xmpmeta>"))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    pmx = _chunk_named(chunks, "_PMX")
+    assert any("well-formed" in w for w in pmx["warnings"]), pmx["warnings"]
+
+
+def test_minf_reads_its_timestamp_as_a_filetime(tmp_path):
+    """Nothing in the chunk says the first eight bytes are a date. The reading
+    is offered rather than asserted, and it is offered because it is the one
+    that produces sane answers -- as a FILETIME the field lands in the years
+    the files were made, and read any other common way it does not."""
+    stamp = 0x01CE308F38E4D2DC                   # 2013-04-03
+    data = _wav_with(_chunk(b"minf", struct.pack("<QI", stamp, 1) + b"\x00" * 4))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    minf = _chunk_named(chunks, "minf")
+    f = {x["name"]: x for x in minf["fields"]}
+    assert "2013-04-03" in f["timestamp"]["note"]
+    assert "2013-04-03" in minf["summary"]
+    assert f["flag"]["value"] == 1
+
+
+def test_an_implausible_minf_timestamp_is_not_dressed_up_as_a_date(tmp_path):
+    """The control, and the reason the reading is bounded: a field that is not
+    a date decodes to a year in the far future, and printing that as fact would
+    turn noise into provenance."""
+    data = _wav_with(_chunk(b"minf", struct.pack("<QI", 1, 1) + b"\x00" * 4))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    minf = _chunk_named(chunks, "minf")
+    assert not {x["name"]: x for x in minf["fields"]}["timestamp"]["note"]
+
+
+def test_an_avid_chunk_is_named_not_decoded(tmp_path):
+    """There is no published layout for a Pro Tools region table, and a field
+    map guessed from one vendor's files is a guess that reads like a fact. What
+    IS certain is which tool wrote it, and what the block calls its own
+    records."""
+    body = b"\x00\x01" + b"AnalysisSetsHdr" + b"\x00\x02" + b"PacketStreamData"
+    data = _wav_with(_chunk(b"DGDA", body))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    dgda = _chunk_named(chunks, "DGDA")
+    assert "Digidesign" in dgda["summary"]
+    runs = [x["value"] for x in dgda["fields"] if x["name"] == "text"]
+    assert runs == ["AnalysisSetsHdr", "PacketStreamData"]
+
+
+def test_every_avid_chunk_id_is_registered(tmp_path):
+    """The ID3 lesson: a table is only as good as the ids in it, and a chunk id
+    is matched exactly. Registering the family and then walking one of them is
+    how a spelling goes missing."""
+    from acidcat.core.walk import wav as wwav
+
+    for cid in wwav._AVID_CHUNKS:
+        data = _wav_with(_chunk(cid.encode("ascii"), b"\x00" * 32))
+        _l, chunks, _w = _walk_bytes(tmp_path, data, cid.strip() + ".wav")
+        entry = _chunk_named(chunks, cid)
+        assert "unparsed" not in entry["summary"], (cid, entry["summary"])

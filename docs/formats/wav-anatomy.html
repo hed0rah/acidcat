@@ -314,6 +314,22 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
             <div><span class="k">umid / loudness</span><span class="v">v1+ 64-byte UMID at 0x15C; v2 five i16 loudness at 0x19C</span></div>
             <div><span class="k">coding_history</span><span class="v">unrestricted ASCII from 0x25A to the end of the chunk, in CR/LF-terminated rows, one per coding stage. EBU R 98 defines a recommended row syntax, not a mandatory one</span></div>
           </div></div></details>
+        <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">_PMX</span><span class="rspan">XMP packet . RDF/XML</span></summary>
+          <div class="rbody"><p class="note">Adobe's Extensible Metadata Platform, the same packet an MP4 carries in a <code>uuid</code> box and a JPEG in an APP1 segment. It is XML, so the chunk is text: a catalogue record with a description, a publisher, an artist, a genre, and whatever else the writer's vocabulary defines.</p><div class="kv">
+            <div><span class="k">wrapper</span><span class="v">&lt;?xpacket begin=... id="W5M0MpCehiHzreSzNTczkc9d"?&gt; opens it and &lt;?xpacket end?&gt; closes it. That id is a constant, not a file identifier</span></div>
+            <div><span class="k">namespaces</span><span class="v">xmp: (CreatorTool, ModifyDate), dc: (title, description, publisher), xmpDM: (artist, album, genre, key, tempo)</span></div>
+            <div><span class="k">rdf:Alt</span><span class="v">one value in several languages; the x-default entry is the value</span></div>
+            <div><span class="k">rdf:Bag / rdf:Seq</span><span class="v">several values. Reading one of these as an Alt loses every entry but the first</span></div>
+            <div><span class="k">padding</span><span class="v">a writer leaves whitespace after the closing instruction so the packet can be rewritten in place without moving the audio</span></div>
+          </div></div></details>
+        <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">umid / minf / regn / elm1 / DGDA</span><span class="rspan">Avid, Pro Tools</span></summary>
+          <div class="rbody"><p class="note">Written as a set. Pro Tools publishes no layout for any of them, so what is knowable from the bytes is which tool wrote the file -- and in <code>minf</code>, a date.</p><div class="kv">
+            <div><span class="k">umid</span><span class="v">24 bytes. Not the 32- or 64-byte SMPTE 330M UMID that bext carries at 0x15C, despite the name</span></div>
+            <div><span class="k">minf</span><span class="v">16 bytes: a little-endian u64 that reads as a Windows FILETIME, then a u32 that is 1 or 2</span></div>
+            <div><span class="k">regn</span><span class="v">a region table; the region name is in the clear inside it</span></div>
+            <div><span class="k">elm1 / elmo</span><span class="v">element data, zero-filled in the files examined</span></div>
+            <div><span class="k">DGDA</span><span class="v">Digidesign analysis data, which names its own record types in the clear: AnalysisSetsHdr, PacketStreamSetHdr, PacketStreamData</span></div>
+          </div></div></details>
       </div>
 
       <div class="sec">fmt chunk (PCM, 16 bytes)</div>

@@ -11,6 +11,7 @@ from acidcat.core.primitives.notes import coverage, is_coverage
 from acidcat.core.walk.apple import _parse_apple_meta, _parse_resu
 from acidcat.core.walk.base import (
     _PAYLOAD_CAP, _dtext, _f, _u16, _u32, _cstr, _flag_names,
+    parse_padding,
 )
 from acidcat.util.midi import midi_note_to_name
 
@@ -695,8 +696,14 @@ def _parse_riff_id3(b, ctx):
 # dozens of frames; a listing that silently stops is worse than one that
 # says it did.
 _STRC_SLICE_CAP = 64
-_PADDING_TEXT_CAP = 4096
 _ID3_FRAME_CAP = 40
+# An XMP packet is a whole catalogue record; a real one holds a dozen or two
+# properties. The bound is a listing bound, not a parse bound.
+_XMP_PROPERTY_CAP = 40
+# How far into a Pro Tools chunk to scan for record names, and how many to
+# list. A DGDA block is a few KB.
+_AVID_SCAN_CAP = 64 * 1024
+_AVID_NAME_CAP = 12
 
 
 # Windows clipboard format ids, for the DISP chunk's first word. Only the few
@@ -745,31 +752,8 @@ def _parse_disp(b, ctx):
     return f"{name}, {len(body):,} bytes", fields, warns
 
 def _parse_padding(b, ctx):
-    """JUNK / FLLR / PAD: space reserved so a later write need not move anything.
-
-    Named rather than hex-dumped, and CHECKED rather than assumed: padding is
-    supposed to be zero, and a JUNK chunk that is not is a chunk that was
-    overwritten in place with something shorter. What is left is the tail of
-    whatever used to be there, which is a find rather than filler.
-    """
-    fields, warns = [], []
-    nonzero = sum(1 for x in b if x)
-    fields.append(_f(None, 0, "bytes", f"{len(b):,}"))
-    if not b:
-        return "empty", fields, warns
-    if not nonzero:
-        return f"padding, {len(b):,} zero bytes", fields, warns
-    fields.append(_f(None, 0, "non_zero", f"{nonzero:,}",
-                     "padding is written zero; these are not"))
-    fields.append(_f(0x00, min(len(b), 16), "first_bytes", b[:16].hex(" ")))
-    text = _dtext(b[:_PADDING_TEXT_CAP])
-    readable = "".join(c for c in text if c.isprintable())
-    if len(readable) >= 8:
-        fields.append(_f(None, 0, "readable", readable[:120]))
-    warns.append(f"{nonzero:,} of {len(b):,} padding bytes are not zero; this "
-                 f"chunk may hold the tail of something overwritten in place")
-    return f"padding, {len(b):,} bytes, {nonzero:,} NOT zero", fields, warns
-
+    """JUNK / FLLR / PAD, through the reader every container shares."""
+    return parse_padding(b)
 
 def _parse_cset(b, ctx):
     """RIFF CSET: the code page the text chunks in this file are written in.
@@ -802,6 +786,122 @@ def _parse_copyright(b, ctx):
 # Apple's typedstream: the archive format NSArchiver wrote before
 # NSKeyedArchiver, still emitted by Logic and Final Cut into AFAn/AFmd. It
 # opens with a version byte and the literal "streamtyped".
+
+def _parse_xmp(b, _ctx):
+    """`_PMX`: an XMP packet, which is RDF/XML.
+
+    The same packet an MP4 carries in a `uuid` box and a JPEG in an APP1
+    segment, so the reader is shared. A sound library writes its whole
+    catalogue record here -- description, publisher, artist, genre -- and the
+    chunk was being reported as unparsed bytes with an XML document inside it.
+    """
+    from acidcat.core.formats import xmp as xmpmod
+    fields, warns = [], []
+    if not xmpmod.is_xmp(b):
+        return (f"unrecognized, {len(b):,} bytes"), fields, [
+            "_PMX does not open as an XMP packet"]
+    props, pw = xmpmod.parse_xmp(b)
+    warns.extend(pw)
+    for name, value in props[:_XMP_PROPERTY_CAP]:
+        fields.append(_f(None, 0, name, value))
+    if len(props) > _XMP_PROPERTY_CAP:
+        warns.append(coverage(f"listing the first {_XMP_PROPERTY_CAP} of "
+                              f"{len(props)} XMP properties"))
+    named = dict(props)
+    bits = [named[k] for k in ("xmp:CreatorTool", "dc:publisher", "xmpDM:artist")
+            if named.get(k)]
+    summary = f"XMP packet, {len(b):,} bytes"
+    if bits:
+        summary += " -- " + ", ".join(bits[:2])
+    return summary, fields, warns
+
+
+def _parse_minf(b, _ctx):
+    """`minf`: sixteen bytes, and the first eight are a Windows FILETIME.
+
+    Nothing in the chunk says so. The reading is shown rather than asserted,
+    and it is offered because it is the one that produces sane answers: read as
+    FILETIME the field lands in the years the files were made, and read any
+    other common way it does not.
+    """
+    fields, warns = [], []
+    if len(b) < 16:
+        return "truncated", fields, [
+            f"minf payload is {len(b)} bytes, the structure is 16"]
+    stamp, flag = struct.unpack_from("<QI", b, 0)
+    fields.append(_f(0x00, 8, "timestamp", f"0x{stamp:016x}",
+                     _filetime(stamp), enc="<Q", raw=stamp))
+    fields.append(_f(0x08, 4, "flag", flag, "1 or 2 in every file measured; "
+                                            "meaning unknown"))
+    date = _filetime(stamp)
+    return (f"{_AVID_CHUNKS['minf']}, {date}" if date
+            else f"{_AVID_CHUNKS['minf']}, {len(b):,} bytes"), fields, warns
+
+
+def _filetime(v):
+    """A Windows FILETIME: 100-nanosecond ticks since 1601-01-01 UTC."""
+    import datetime
+    if not 0 < v < (1 << 63):
+        return ""
+    try:
+        d = (datetime.datetime(1601, 1, 1, tzinfo=datetime.timezone.utc)
+             + datetime.timedelta(microseconds=v // 10))
+    except (OverflowError, ValueError):
+        return ""
+    if not 1980 <= d.year <= 2100:
+        return ""
+    return f"reads as a Windows FILETIME: {d.date().isoformat()}"
+
+
+# Chunks Pro Tools writes. Named rather than decoded: there is no published
+# layout for any of them, and a field map guessed from one vendor's files is a
+# guess that reads like a fact. What IS certain is which tool wrote the file,
+# and that is worth more than four bytes of speculation.
+_AVID_CHUNKS = {
+    "umid": "Avid/Pro Tools material identifier",
+    "minf": "Avid/Pro Tools media info",
+    "regn": "Avid/Pro Tools region table",
+    "elm1": "Avid/Pro Tools element data",
+    "elmo": "Avid/Pro Tools element data",
+    "DGDA": "Digidesign analysis data",
+}
+
+
+def _avid_parser(what):
+    """Say who wrote the chunk and how big it is, and stop there."""
+    def parse(b, _ctx):
+        return _parse_avid(b, what)
+    return parse
+
+
+def _parse_avid(b, what):
+    fields = [_f(None, 0, "bytes", f"{len(b):,}")]
+    # the structure is not decoded, but a DGDA block names its own record types
+    # in the clear -- "AnalysisSetsHdr", "PacketStreamSetHdr" -- and a region
+    # table carries the region's name. Listing the readable runs says what the
+    # block is about without claiming to have parsed it.
+    names, i = [], 0
+    window = b[:_AVID_SCAN_CAP]
+    while i < len(window):
+        if 32 <= window[i] < 127:
+            j = i
+            while j < len(window) and 32 <= window[j] < 127:
+                j += 1
+            if j - i >= 4:
+                text = window[i:j].decode("ascii")
+                if text not in names:
+                    names.append(text)
+            i = j
+        else:
+            i += 1
+    for text in names[:_AVID_NAME_CAP]:
+        fields.append(_f(None, 0, "text", text[:80]))
+    warns = []
+    if len(names) > _AVID_NAME_CAP:
+        warns.append(coverage(f"listing the first {_AVID_NAME_CAP} of "
+                              f"{len(names)} readable runs"))
+    return f"{what}, {len(b):,} bytes", fields, warns
+
 
 _PARSERS = {
     "fmt ": _parse_fmt,
@@ -837,7 +937,13 @@ _PARSERS = {
     "(c) ": _parse_copyright,
     "AFAn": _parse_apple_meta,
     "AFmd": _parse_apple_meta,
+    "_PMX": _parse_xmp,
+    "XMP ": _parse_xmp,
+    "minf": _parse_minf,
 }
+# every Avid chunk but minf, which has a field worth reading
+_PARSERS.update({cid: _avid_parser(what) for cid, what in _AVID_CHUNKS.items()
+                 if cid not in _PARSERS})
 
 
 # ── walk ───────────────────────────────────────────────────────────

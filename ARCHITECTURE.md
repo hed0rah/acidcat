@@ -77,8 +77,8 @@ unchanged.
 
 ```
 src/acidcat/
-  core/            167 modules
-    formats/       per-format byte decoders (21)
+  core/            168 modules
+    formats/       per-format byte decoders (22)
     walk/          45 walker modules -> 70 format labels (46)
     primitives/    shared byte readers (6)
     codecs/        sample-data decoders + the 6510/SID player (16)
@@ -95,7 +95,7 @@ src/acidcat/
   mcp_server/      schema, handlers, transport (19 tools)
   tui_app/         Textual inspector/editor
   util/            small shared helpers
-  cli.py  explorer.py  tui_theme.py  __init__.py     (224 modules in total)
+  cli.py  explorer.py  tui_theme.py  __init__.py     (225 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,
