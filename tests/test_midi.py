@@ -274,3 +274,40 @@ def test_system_common_message_advance(tmp_path):
     p.write_bytes(_build_smf([track]))
     chunks, _ = inspect_midi(str(p))
     assert _field(_mtrk(chunks), "notes")["value"] == 1     # note-on stays aligned
+
+
+def test_an_undefined_meta_type_is_named_not_skipped(tmp_path):
+    """SMF tells a reader to skip meta types it does not know, and that is
+    exactly why they are worth naming: a writer can put anything there and
+    every player stays silent.
+
+    42 files in one sample pack open every track with the same five FF 4B
+    events -- byte-identical across all of them, so a constant preamble rather
+    than data. acidcat counted the notes and said nothing about the bytes.
+    """
+    track = (bytes([0x00, 0xFF, 0x4B, 0x01, 0x01])
+             + bytes([0x00, 0xFF, 0x4B, 0x02, 0x05, 0x30])
+             + b"\x00\x90\x3c\x40"
+             + bytes([0x00, 0xFF, 0x2F, 0x00]))
+    p = tmp_path / "vendor.mid"
+    p.write_bytes(_build_smf([track]))
+    chunks, _ = inspect_midi(str(p))
+    trk = _mtrk(chunks)
+    f = _field(trk, "meta 0x4b")
+    assert f["value"] == "2 event(s)", f
+    assert "01" in f["note"]
+    assert _field(trk, "notes")["value"] == 1        # the walk stayed aligned
+
+
+def test_a_defined_meta_type_is_not_reported_as_undefined(tmp_path):
+    """The control. Every type the format defines has a name, and naming one of
+    those as unknown would turn an ordinary file into a finding."""
+    track = (bytes([0x00, 0xFF, 0x51, 0x03]) + (500000).to_bytes(3, "big")
+             + bytes([0x00, 0xFF, 0x58, 0x04, 4, 2, 24, 8])
+             + b"\x00\x90\x3c\x40"
+             + bytes([0x00, 0xFF, 0x2F, 0x00]))
+    p = tmp_path / "plain.mid"
+    p.write_bytes(_build_smf([track]))
+    chunks, _ = inspect_midi(str(p))
+    trk = _mtrk(chunks)
+    assert not [x for x in trk["fields"] if x["name"].startswith("meta 0x")]

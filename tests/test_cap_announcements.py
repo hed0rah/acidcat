@@ -408,6 +408,20 @@ def _svx_many_chunks(tmp_path, n):
     return str(p)
 
 
+def _midi_many_unknown_meta(tmp_path, n):
+    """A track using n distinct meta types the format does not define."""
+    trk = b""
+    for i in range(n):
+        etype = 0x60 + i          # undefined range, above the named types
+        trk += bytes([0x00, 0xFF, etype, 1, 0x01])
+    trk += bytes([0x00, 0xFF, 0x2F, 0x00])
+    data = (b"MThd" + struct.pack(">IHHH", 6, 0, 1, 480)
+            + b"MTrk" + struct.pack(">I", len(trk)) + trk)
+    p = tmp_path / "meta.mid"
+    p.write_bytes(data)
+    return str(p)
+
+
 def _wav_many_apple_classes(tmp_path, n):
     """An AFAn typedstream referencing n distinct NS* classes."""
     import test_riff
@@ -685,6 +699,8 @@ SWEPT = [
     ("acidcat.core.walk.wav", "_ID3_FRAME_CAP", 4, _wav_many_id3_frames,
      "listing the first"),
     ("acidcat.core.walk.wav", "_APPLE_CLASS_CAP", 4, _wav_many_apple_classes,
+     "listing the first"),
+    ("acidcat.core.walk.midi", "_UNKNOWN_META_CAP", 4, _midi_many_unknown_meta,
      "listing the first"),
 ]
 

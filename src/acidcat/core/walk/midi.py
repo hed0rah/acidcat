@@ -7,6 +7,7 @@ import struct
 
 from acidcat.core.formats import midi as midimod
 from acidcat.core.formats.midi import _read_vlq
+from acidcat.core.primitives.notes import coverage, is_coverage
 from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f
 from acidcat.util.midi import key_signature_name, midi_note_to_name
 
@@ -20,6 +21,10 @@ _META_NAMES = {
     0x51: "tempo", 0x54: "smpte offset", 0x58: "time sig", 0x59: "key sig",
     0x7F: "sequencer-specific",
 }
+
+# How many distinct undefined meta types to name per track. Real files use
+# one or two; the bound is for a crafted track that uses all 128.
+_UNKNOWN_META_CAP = 8
 
 _VOICE_NAMES = {
     0x80: "note off", 0x90: "note on", 0xA0: "poly aftertouch",
@@ -43,6 +48,7 @@ def _scan_track(trk, ctx, collect=False):
     copyright = None
     time_sig = key_sig = None
     has_eot = False
+    unknown_meta = {}
     events = []
     n_events = 0
     sysex = []
@@ -101,6 +107,13 @@ def _scan_track(trk, ctx, collect=False):
                 detail = text[:48]
             elif etype == 0x2F:
                 has_eot = True
+            if etype not in _META_NAMES:
+                # SMF tells a READER to skip meta types it does not know, and
+                # that is why they are worth naming: a writer can put anything
+                # here and every player stays silent about it. Counted by type
+                # so a constant vendor preamble shows up as one line.
+                u = unknown_meta.setdefault(etype, [0, edata[:8]])
+                u[0] += 1
             emit("meta " + _META_NAMES.get(etype, f"0x{etype:02x}"), detail)
         elif status in (0xF0, 0xF7):
             running = 0
@@ -166,7 +179,7 @@ def _scan_track(trk, ctx, collect=False):
             "channels": channels, "tempos": tempos, "names": names,
             "copyright": copyright, "time_sig": time_sig, "key_sig": key_sig,
             "has_eot": has_eot, "events": events, "n_events": n_events,
-            "sysex": sysex}
+            "sysex": sysex, "unknown_meta": unknown_meta}
 
 
 # a few common MIDI manufacturer ids (System Exclusive id table); enough to name
@@ -332,6 +345,16 @@ def inspect_midi(filepath, deep=False, ctx=None):
         _channels |= st["channels"]                  # 0-based, like legacy
         if not st["has_eot"]:
             entry["warnings"].append("no end-of-track meta event")
+        for etype in sorted(st["unknown_meta"])[:_UNKNOWN_META_CAP]:
+            count, head = st["unknown_meta"][etype]
+            flds.append(_f(None, 0, f"meta 0x{etype:02x}",
+                           f"{count} event(s)",
+                           "not a type the format defines; first payload "
+                           f"{head.hex(' ') or '(empty)'}"))
+        if len(st["unknown_meta"]) > _UNKNOWN_META_CAP:
+            entry["warnings"].append(coverage(
+                f"listing the first {_UNKNOWN_META_CAP} of "
+                f"{len(st['unknown_meta'])} undefined meta types"))
         for mfr, slen, reserved in st["sysex"]:
             if reserved or slen > 256:
                 flds.append(_f(None, 0, "sysex", f"{mfr}, {slen:,} bytes"))
@@ -390,5 +413,11 @@ def inspect_midi(filepath, deep=False, ctx=None):
     scan["tempo_bpm"] = first_tempo
     scan["duration_ticks"] = max_ticks
     scan["channels_used"] = sorted(_channels)
+
+    # a bound that was crossed is a fact about the whole answer, not about one
+    # track: a caller reading only the file-level warnings would otherwise be
+    # told a capped listing was complete.
+    for entry in chunks:
+        file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
 
     return chunks, file_warns
