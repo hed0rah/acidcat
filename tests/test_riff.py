@@ -465,3 +465,194 @@ def test_a_tag_longer_than_its_chunk_is_flagged(tmp_path):
     _l, chunks, _w = _walk_bytes(tmp_path, data)
     id3 = _chunk_named(chunks, "id3 ")
     assert any("declares" in w for w in id3["warnings"]), id3["warnings"]
+
+
+# ── ResU, DISP and the padding pair ─────────────────────────────────
+#
+# The second sweep, over 1,200 files rather than 266: JUNK in 492, LGWV in 147,
+# ResU in 107, FLLR in 56, DISP in 4. The first sweep had missed ResU and LGWV
+# entirely -- the sample size was the limit, not the method.
+
+
+def _resu(doc):
+    import json
+    import zlib
+    return _chunk(b"ResU", zlib.compress(json.dumps(doc).encode("utf-8")))
+
+
+def _logic_doc(tempo=120, signature="4/4", beats=5, duration=2.1666666666667):
+    ctx = {
+        "version": 2, "offset": 0, "duration": duration,
+        "Tempo": [{"t": 0.104, "conf": -1, "tempo": tempo}],
+        "time_signatures": [{"t": 0, "conf": -1, "signature": signature}],
+        "beats": [{"t": i * 0.5, "conf": -1, "onset": 1} for i in range(beats)],
+        "UserEdited": 0,
+    }
+    return {"version": 2, "rec_ctx": ctx, **ctx}
+
+
+def test_resu_reads_logics_tempo_and_signature(tmp_path):
+    """ResU is zlib-compressed JSON: Logic's own analysis of the file, written
+    into it. On a loop library it is the tempo someone actually worked to."""
+    data = _wav_with(_resu(_logic_doc(tempo=126, signature="3/4", beats=8)))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    resu = _chunk_named(chunks, "ResU")
+    f = {x["name"]: x["value"] for x in resu["fields"]}
+    assert f["tempo"] == "126 BPM"
+    assert f["time_signature"] == "3/4"
+    assert f["beats"] == "8"
+    assert "126 BPM" in resu["summary"]
+
+
+def test_a_resu_that_is_not_zlib_says_so(tmp_path):
+    data = _wav_with(_chunk(b"ResU", b"plainly not compressed at all"))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    resu = _chunk_named(chunks, "ResU")
+    assert any("zlib" in w for w in resu["warnings"]), resu["warnings"]
+
+
+def test_a_resu_that_inflates_to_non_json_says_so(tmp_path):
+    import zlib
+    data = _wav_with(_chunk(b"ResU", zlib.compress(b"\xff\xfe not json")))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    resu = _chunk_named(chunks, "ResU")
+    assert resu["summary"] == "undecodable"
+    assert any("JSON" in w for w in resu["warnings"]), resu["warnings"]
+
+
+def test_disp_reads_a_text_clipboard_payload(tmp_path):
+    """DISP's first u32 is a Windows clipboard format id and the rest is that
+    format's own bytes. Read as text regardless, a bitmap prints as mojibake."""
+    data = _wav_with(_chunk(b"DISP", struct.pack("<I", 1) + b"My Title\x00"))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    disp = _chunk_named(chunks, "DISP")
+    f = {x["name"]: x["value"] for x in disp["fields"]}
+    assert f["clipboard_format"] == 1
+    assert f["text"] == "My Title"
+
+
+def test_disp_reads_a_dib_thumbnail_header(tmp_path):
+    """CF_DIB is 8, and what follows is a BITMAPINFOHEADER rather than text.
+    Real files carry a small thumbnail here."""
+    dib = struct.pack("<Iii", 40, 30, 16) + struct.pack("<HH", 1, 4)
+    data = _wav_with(_chunk(b"DISP", struct.pack("<I", 8) + dib + b"\x00" * 64))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    disp = _chunk_named(chunks, "DISP")
+    assert "30x16 at 4 bpp" in disp["summary"], disp["summary"]
+
+
+def test_padding_is_named_rather_than_dumped(tmp_path):
+    data = _wav_with(_chunk(b"JUNK", b"\x00" * 512))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    junk = _chunk_named(chunks, "JUNK")
+    assert junk["summary"] == "padding, 512 zero bytes"
+    assert junk["warnings"] == []
+
+
+def test_padding_that_is_not_zero_is_a_finding(tmp_path):
+    """Padding is written zero. A JUNK chunk that is not is one that was
+    overwritten in place with something shorter, and what is left is the tail
+    of whatever used to be there."""
+    stale = b"\x00" * 32 + b"ISFT" + b"Sound Forge 9.0\x00" + b"\x00" * 32
+    data = _wav_with(_chunk(b"JUNK", stale))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    junk = _chunk_named(chunks, "JUNK")
+    assert "NOT zero" in junk["summary"], junk["summary"]
+    assert any("overwritten in place" in w for w in junk["warnings"])
+    f = {x["name"]: x["value"] for x in junk["fields"]}
+    assert "Sound Forge" in f["readable"]
+
+
+def test_fllr_and_pad_are_padding_too(tmp_path):
+    for cid in (b"FLLR", b"PAD "):
+        data = _wav_with(_chunk(cid, b"\x00" * 128))
+        _l, chunks, _w = _walk_bytes(tmp_path, data, cid.strip().decode() + ".wav")
+        entry = _chunk_named(chunks, cid.decode())
+        assert "padding" in entry["summary"], (cid, entry["summary"])
+
+
+# ── the third sweep: 2,327 files ────────────────────────────────────
+
+
+def test_the_id3_parser_answers_to_both_spellings(tmp_path):
+    """Chunk ids are matched exactly, and the parser was registered under the
+    lowercase spelling only. 25 files in a real library carried an uppercase
+    `ID3 ` chunk holding a TBPM frame -- a tempo -- and it was reported as
+    unparsed bytes."""
+    for cid in (b"id3 ", b"ID3 "):
+        data = _wav_with(_chunk(cid, _id3_chunk()[8:]))
+        _l, chunks, _w = _walk_bytes(tmp_path, data, cid.strip().decode() + ".wav")
+        entry = _chunk_named(chunks, cid.decode())
+        assert "ID3v2" in entry["summary"], (cid, entry["summary"])
+
+
+def test_a_little_endian_tag_size_is_used_and_named(tmp_path):
+    """A writer in the wild puts the tag size little-endian, which is not the
+    format. 0f 00 00 00 read as the spec requires is 31,457,280; read as that
+    writer meant it, 15 -- and 15 is what the chunk actually holds.
+
+    The same writer gets the FRAME size right, so the two halves of one header
+    disagree about their own byte order.
+    """
+    body = b"TBPM" + struct.pack(">I", 5) + b"\x00\x00" + b"\x00" + b"126\x00"
+    tag = b"ID3" + bytes([4, 0, 0]) + struct.pack("<I", len(body)) + body
+    data = _wav_with(_chunk(b"ID3 ", tag))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    entry = _chunk_named(chunks, "ID3 ")
+    f = {x["name"]: x["value"] for x in entry["fields"]}
+    assert f["tag_size"] == f"{len(body):,}"
+    assert f["TBPM"] == "126"
+    assert any("little-endian" in w for w in entry["warnings"]), entry["warnings"]
+
+
+def test_a_conformant_tag_is_not_reinterpreted(tmp_path):
+    """The control, and the reason the fallback is narrow: it fires only when
+    the spec reading does not fit AND the little-endian one fits exactly. A
+    guess that merely looked plausible would re-read conformant tags."""
+    data = _wav_with(_id3_chunk())
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    entry = _chunk_named(chunks, "id3 ")
+    f = {x["name"]: x["value"] for x in entry["fields"]}
+    assert f["TIT2"] == "Test Title"
+    assert not any("little-endian" in w for w in entry["warnings"])
+
+
+def test_cset_reads_the_code_page(tmp_path):
+    """Everything else holding text is bytes until something says how to
+    decode them. CSET is that something."""
+    data = _wav_with(_chunk(b"CSET", struct.pack("<HHHH", 28591, 0, 9, 1)))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    cset = _chunk_named(chunks, "CSET")
+    f = {x["name"]: x["value"] for x in cset["fields"]}
+    assert f["code_page"] == 28591
+    assert "28591" in cset["summary"]
+
+
+def test_a_copyright_chunk_is_read_as_text(tmp_path):
+    data = _wav_with(_chunk(b"(c) ", b"Example Studios\x00"))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    c = _chunk_named(chunks, "(c) ")
+    assert c["summary"] == "Example Studios"
+
+
+def test_apple_metadata_is_named_not_decoded(tmp_path):
+    """AFAn/AFmd hold a NeXTSTEP typedstream -- a serialised object graph.
+    Reading it properly means implementing typedstream, which is a format of
+    its own. Saying what the bytes ARE and listing the classes the archive
+    references is the honest amount."""
+    archive = (bytes([0x04, 0x0B]) + b"streamtyped" + b"\x81\xe8\x03\x84\x01@"
+               + bytes([19]) + b"NSMutableDictionary"
+               + bytes([12]) + b"NSDictionary" + b"\x00" * 16)
+    data = _wav_with(_chunk(b"AFAn", archive))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    afan = _chunk_named(chunks, "AFAn")
+    assert "Apple typedstream" in afan["summary"]
+    classes = [x["value"] for x in afan["fields"] if x["name"] == "class"]
+    assert "NSMutableDictionary" in classes and "NSDictionary" in classes
+
+
+def test_an_afan_that_is_not_a_typedstream_says_so(tmp_path):
+    data = _wav_with(_chunk(b"AFmd", b"nothing like an archive here at all"))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    afmd = _chunk_named(chunks, "AFmd")
+    assert any("typedstream" in w for w in afmd["warnings"]), afmd["warnings"]

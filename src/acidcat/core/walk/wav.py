@@ -669,10 +669,30 @@ def _parse_riff_id3(b, ctx):
         return "not an ID3v2 tag", fields, ["id3 chunk does not open with 'ID3'"]
     major, revision, flags = b[3], b[4], b[5]
     size = mp3mod.synchsafe(b[6:10])
+    size_note = "synchsafe"
+
+    # A real writer in the wild puts this field LITTLE-ENDIAN, which is not the
+    # format: the size is synchsafe big-endian, and 0f 00 00 00 read that way
+    # is 31,457,280 rather than 15. Measured on files whose whole id3 chunk is
+    # 25 bytes, where the same writer got the FRAME size right -- so the two
+    # halves of one header disagree about their own byte order.
+    #
+    # Believed only when the spec reading does not fit the chunk and the
+    # little-endian one fits exactly. That is narrow on purpose: a guess that
+    # merely looks plausible would silently re-interpret conformant tags.
+    if 10 + size > len(b):
+        le = int.from_bytes(b[6:10], "little")
+        if 10 + le == len(b):
+            warns.append(
+                f"the tag size is written little-endian ({le}), not the "
+                f"synchsafe big-endian the format requires (which reads "
+                f"{size:,}). Using {le}, which matches the chunk exactly.")
+            size, size_note = le, "little-endian, non-conformant"
+
     fields.append(_f(0x00, 3, "magic", "ID3"))
     fields.append(_f(0x03, 2, "version", f"2.{major}.{revision}"))
     fields.append(_f(0x05, 1, "flags", f"0x{flags:02x}"))
-    fields.append(_f(0x06, 4, "tag_size", f"{size:,}", "synchsafe",
+    fields.append(_f(0x06, 4, "tag_size", f"{size:,}", size_note,
                      enc="synchsafe", raw=size))
     if 10 + size > len(b):
         warns.append(f"the tag declares {size:,} bytes but the chunk holds "
@@ -716,7 +736,233 @@ def _parse_riff_id3(b, ctx):
 # dozens of frames; a listing that silently stops is worse than one that
 # says it did.
 _STRC_SLICE_CAP = 64
+# ResU is a few hundred bytes that inflate to a few thousand. The cap is
+# far above any real one and exists so a crafted chunk cannot inflate
+# without bound.
+_RESU_INFLATE_CAP = 4 * 1024 * 1024
+_PADDING_TEXT_CAP = 4096
+# How far into a typedstream to scan for class names, and how many to
+# list. A real AFAn is a few KB.
+_APPLE_SCAN_CAP = 64 * 1024
+_APPLE_CLASS_CAP = 12
 _ID3_FRAME_CAP = 40
+
+
+# Windows clipboard format ids, for the DISP chunk's first word. Only the few
+# that occur in audio files: DISP was meant for any clipboard payload and in
+# practice carries a title or a thumbnail.
+_CF = {1: "CF_TEXT", 2: "CF_BITMAP", 3: "CF_METAFILEPICT", 6: "CF_TIFF",
+       7: "CF_OEMTEXT", 8: "CF_DIB", 9: "CF_PALETTE", 13: "CF_UNICODETEXT",
+       14: "CF_ENHMETAFILE", 17: "CF_DIBV5"}
+
+
+def _parse_disp(b, ctx):
+    """RIFF DISP: a clipboard payload, usually a title or a thumbnail.
+
+    The first u32 is a Windows clipboard format id and the rest is that
+    format's own bytes, so what follows cannot be read without reading it
+    first. A DISP treated as text prints a bitmap header as mojibake.
+    """
+    fields, warns = [], []
+    if len(b) < 4:
+        return "truncated", fields, ["DISP payload is shorter than its format id"]
+    cf = _u32(b, 0)
+    name = _CF.get(cf, f"clipboard format {cf}")
+    fields.append(_f(0x00, 4, "clipboard_format", cf, name, enc="<I", raw=cf))
+    body = b[4:]
+    if cf in (1, 7):                       # CF_TEXT / CF_OEMTEXT
+        text = _dtext(body).strip("\x00").strip()
+        fields.append(_f(0x04, len(body), "text", text[:200]))
+        return f"{name}: {text[:60]}" if text else name, fields, warns
+    if cf == 13 and len(body) >= 2:        # CF_UNICODETEXT
+        text = body.decode("utf-16-le", "replace").split("\x00")[0]
+        fields.append(_f(0x04, len(body), "text", text[:200]))
+        return f"{name}: {text[:60]}", fields, warns
+    if cf in (8, 17) and len(body) >= 16:  # CF_DIB / CF_DIBV5
+        # a BITMAPINFOHEADER: its own size, then a signed width and height
+        hdr, width, height = struct.unpack_from("<Iii", body, 0)
+        planes, bits = struct.unpack_from("<HH", body, 12)
+        fields.append(_f(0x04, 4, "dib_header_size", hdr))
+        fields.append(_f(0x08, 4, "width", width))
+        fields.append(_f(0x0C, 4, "height", height,
+                         "negative means the rows are top-down"))
+        fields.append(_f(0x12, 2, "bits_per_pixel", bits))
+        if planes != 1:
+            warns.append(f"DIB declares {planes} colour planes; the format "
+                         f"allows only 1")
+        return (f"{name}, {width}x{abs(height)} at {bits} bpp"), fields, warns
+    return f"{name}, {len(body):,} bytes", fields, warns
+
+
+def _parse_resu(b, ctx):
+    """Logic Pro's analysis result: zlib-compressed JSON, and it holds a tempo.
+
+    The payload opens with a zlib header and inflates to a JSON document that
+    records what Logic's Flex analysis decided about the file -- its tempo, its
+    time signature, and the beat positions it found, each with a confidence.
+
+    Worth reading rather than skipping: it is a DAW's own opinion about the
+    material, written into the file, and on a loop library it is the tempo
+    someone actually worked to.
+    """
+    fields, warns = [], []
+    if len(b) < 2 or b[0] != 0x78:
+        return (f"unrecognized, {len(b):,} bytes"), fields, [
+            "ResU does not open with a zlib header"]
+    import json
+    import zlib
+    try:
+        raw = zlib.decompressobj().decompress(b, _RESU_INFLATE_CAP)
+    except zlib.error as e:
+        return "undecodable", fields, [f"ResU did not inflate ({e})"]
+    if len(raw) >= _RESU_INFLATE_CAP:
+        warns.append(coverage(f"ResU inflated to the {_RESU_INFLATE_CAP >> 10} KB "
+                              f"cap; the document may continue"))
+    try:
+        doc = json.loads(raw.decode("utf-8", "replace"))
+    except ValueError as e:
+        return "undecodable", fields, [f"ResU inflated but did not parse as JSON "
+                                       f"({e.__class__.__name__})"]
+    if not isinstance(doc, dict):
+        return "undecodable", fields, ["ResU JSON is not an object"]
+
+    fields.append(_f(None, 0, "compressed", f"{len(b):,} bytes",
+                     f"inflates to {len(raw):,}"))
+    ctxd = doc.get("rec_ctx") if isinstance(doc.get("rec_ctx"), dict) else doc
+    bits = []
+
+    tempo = ctxd.get("Tempo")
+    if isinstance(tempo, list) and tempo and isinstance(tempo[0], dict):
+        value = tempo[0].get("tempo")
+        if value is not None:
+            fields.append(_f(None, 0, "tempo", f"{value:g} BPM",
+                             "as Logic's analysis recorded it"))
+            bits.append(f"{value:g} BPM")
+    sig = ctxd.get("time_signatures")
+    if isinstance(sig, list) and sig and isinstance(sig[0], dict):
+        value = sig[0].get("signature")
+        if value:
+            fields.append(_f(None, 0, "time_signature", str(value)[:16]))
+            bits.append(str(value))
+    dur = ctxd.get("duration")
+    if isinstance(dur, (int, float)) and dur > 0:
+        fields.append(_f(None, 0, "analysed_duration", f"{dur:.3f} s"))
+    beats = ctxd.get("beats")
+    if isinstance(beats, list) and beats:
+        onsets = sum(1 for x in beats if isinstance(x, dict) and x.get("onset"))
+        fields.append(_f(None, 0, "beats", f"{len(beats):,}",
+                         f"{onsets:,} marked as onsets" if onsets else ""))
+        bits.append(f"{len(beats)} beat marker(s)")
+    for key, label in (("UserEdited", "user edited"),
+                       ("MusicDetectionWasPerformed", "music detection run"),
+                       ("ResultWasCreatedFromLogicTempoMap", "from Logic's tempo map")):
+        if ctxd.get(key):
+            fields.append(_f(None, 0, label.replace(" ", "_"), "yes"))
+    return ("Logic analysis: " + ", ".join(bits)) if bits else \
+           f"Logic analysis, {len(raw):,} bytes of JSON", fields, warns
+
+
+def _parse_padding(b, ctx):
+    """JUNK / FLLR / PAD: space reserved so a later write need not move anything.
+
+    Named rather than hex-dumped, and CHECKED rather than assumed: padding is
+    supposed to be zero, and a JUNK chunk that is not is a chunk that was
+    overwritten in place with something shorter. What is left is the tail of
+    whatever used to be there, which is a find rather than filler.
+    """
+    fields, warns = [], []
+    nonzero = sum(1 for x in b if x)
+    fields.append(_f(None, 0, "bytes", f"{len(b):,}"))
+    if not b:
+        return "empty", fields, warns
+    if not nonzero:
+        return f"padding, {len(b):,} zero bytes", fields, warns
+    fields.append(_f(None, 0, "non_zero", f"{nonzero:,}",
+                     "padding is written zero; these are not"))
+    fields.append(_f(0x00, min(len(b), 16), "first_bytes", b[:16].hex(" ")))
+    text = _dtext(b[:_PADDING_TEXT_CAP])
+    readable = "".join(c for c in text if c.isprintable())
+    if len(readable) >= 8:
+        fields.append(_f(None, 0, "readable", readable[:120]))
+    warns.append(f"{nonzero:,} of {len(b):,} padding bytes are not zero; this "
+                 f"chunk may hold the tail of something overwritten in place")
+    return f"padding, {len(b):,} bytes, {nonzero:,} NOT zero", fields, warns
+
+
+def _parse_cset(b, ctx):
+    """RIFF CSET: the code page the text chunks in this file are written in.
+
+    Worth reading because everything else that holds text -- INFO, (c), DISP --
+    is bytes until something says how to decode them, and without CSET a reader
+    is assuming. Rare in practice, which is why the assumption usually holds.
+    """
+    fields, warns = [], []
+    if len(b) < 8:
+        return "truncated", fields, [
+            f"CSET payload is {len(b)} bytes, the spec fixes it at 8"]
+    page, country, lang, dialect = struct.unpack_from("<HHHH", b, 0)
+    fields.append(_f(0x00, 2, "code_page", page,
+                     "0 means the system default", enc="<H", raw=page))
+    fields.append(_f(0x02, 2, "country_code", country))
+    fields.append(_f(0x04, 2, "language", lang))
+    fields.append(_f(0x06, 2, "dialect", dialect))
+    return (f"code page {page}" if page else "system default code page"), fields, warns
+
+
+def _parse_copyright(b, ctx):
+    """The top-level '(c) ' chunk: a copyright string, outside any INFO list."""
+    fields, warns = [], []
+    text = _dtext(b).strip("\x00").strip()
+    fields.append(_f(0x00, len(b), "copyright", text[:200]))
+    return (text[:70] if text else "empty"), fields, warns
+
+
+# Apple's typedstream: the archive format NSArchiver wrote before
+# NSKeyedArchiver, still emitted by Logic and Final Cut into AFAn/AFmd. It
+# opens with a version byte and the literal "streamtyped".
+_TYPEDSTREAM = b"streamtyped"
+
+
+def _parse_apple_meta(b, ctx):
+    """AFAn / AFmd: Apple metadata, as a NeXTSTEP typedstream archive.
+
+    NAMED, not decoded. The payload is a real serialised object graph -- an
+    NSMutableDictionary -- and reading it properly means implementing
+    typedstream, which is a format of its own rather than a field or two. What
+    is honest here is to say what the bytes ARE, show the class names the
+    archive references, and leave the values to a reader that implements the
+    format.
+    """
+    fields, warns = [], []
+    if _TYPEDSTREAM not in b[:32]:
+        return (f"unrecognized, {len(b):,} bytes"), fields, [
+            "AFAn/AFmd does not open with an Apple typedstream header"]
+    fields.append(_f(None, 0, "container", "Apple typedstream (NSArchiver)"))
+    fields.append(_f(None, 0, "bytes", f"{len(b):,}"))
+    # the class names are length-prefixed ASCII in the clear; listing them says
+    # what the archive holds without claiming to have decoded its values
+    classes, i = [], 0
+    window = b[:_APPLE_SCAN_CAP]
+    while i < len(window) - 2:
+        n = window[i]
+        if 3 <= n <= 60 and i + 1 + n <= len(window):
+            chunk = window[i + 1:i + 1 + n]
+            if chunk[:2] == b"NS" and all(32 <= c < 127 for c in chunk):
+                name = chunk.decode("ascii")
+                if name not in classes:
+                    classes.append(name)
+                i += 1 + n
+                continue
+        i += 1
+    for name in classes[:_APPLE_CLASS_CAP]:
+        fields.append(_f(None, 0, "class", name))
+    if len(classes) > _APPLE_CLASS_CAP:
+        warns.append(coverage(f"listing the first {_APPLE_CLASS_CAP} of "
+                     f"{len(classes)} archived class names"))
+    summary = f"Apple typedstream, {len(b):,} bytes"
+    if classes:
+        summary += " -- " + ", ".join(classes[:3])
+    return summary, fields, warns
 
 
 _PARSERS = {
@@ -736,7 +982,23 @@ _PARSERS = {
     # as "unparsed, first bytes: ..."
     "clm ": _parse_clm,
     "strc": _parse_strc,
+    # BOTH spellings. Chunk ids are matched exactly, and registering only
+    # the lowercase one left 25 files in a real library reporting an ID3
+    # tag as unparsed bytes -- each carrying a TBPM frame, a tempo, that
+    # was simply dropped.
     "id3 ": _parse_riff_id3,
+    "ID3 ": _parse_riff_id3,
+    "DISP": _parse_disp,
+    "ResU": _parse_resu,
+    # padding, named rather than dumped as hex -- and checked, because
+    # padding that is not zero is a chunk overwritten in place
+    "JUNK": _parse_padding,
+    "FLLR": _parse_padding,
+    "PAD ": _parse_padding,
+    "CSET": _parse_cset,
+    "(c) ": _parse_copyright,
+    "AFAn": _parse_apple_meta,
+    "AFmd": _parse_apple_meta,
 }
 
 

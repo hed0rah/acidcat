@@ -121,6 +121,32 @@ class Reason(enum.Enum):
 # covered, if anywhere. An exemption pointing at another test is a redirect; one
 # pointing at nothing is a hole.
 EXEMPT = {
+    ("acidcat.core.walk.wav", "_RESU_INFLATE_CAP"):
+        (Reason.RESOURCE_LIMIT, "an inflate bound on a zlib payload, so a "
+                                "crafted ResU cannot expand without limit. "
+                                "Crossing it DOES announce -- the parser emits "
+                                "a coverage note naming the cap -- but it is a "
+                                "resource ceiling rather than a listing "
+                                "shortened for readability, and a real Logic "
+                                "chunk inflates to a few thousand bytes "
+                                "against this 4 MB"),
+    ("acidcat.core.walk.wav", "_APPLE_SCAN_CAP"):
+        (Reason.SEARCH_WINDOW, "how far into an AFAn/AFmd typedstream to scan "
+                               "for class names. Invisible in the result: the "
+                               "chunk is NAMED rather than decoded, and the "
+                               "class list is a hint about what the archive "
+                               "holds rather than the answer -- covered by "
+                               "tests/test_riff.py::"
+                               "test_apple_metadata_is_named_not_decoded"),
+    ("acidcat.core.walk.wav", "_PADDING_TEXT_CAP"):
+        (Reason.SEARCH_WINDOW, "how far into a non-zero JUNK/FLLR chunk to "
+                               "look for readable text. Invisible in the "
+                               "result: the finding is that the padding is not "
+                               "zero, which is reported from the byte count "
+                               "over the whole chunk, and this only bounds how "
+                               "much of it is scanned for a preview -- covered "
+                               "by tests/test_riff.py::"
+                               "test_padding_that_is_not_zero_is_a_finding"),
     ("acidcat.core.formats.sf2", "_MAX_RECORDS"):
         (Reason.FIELD_SANITY, "a ceiling on a record count derived from a "
                               "declared chunk size, used to refuse a forged "
@@ -379,6 +405,20 @@ def _svx_many_chunks(tmp_path, n):
     ch = [b"ANNO" + struct.pack(">I", 2) + b"hi" for _ in range(n)]
     p = tmp_path / "many.8svx"
     p.write_bytes(_iff(b"FORM", b"8SVX", ch))
+    return str(p)
+
+
+def _wav_many_apple_classes(tmp_path, n):
+    """An AFAn typedstream referencing n distinct NS* classes."""
+    import test_riff
+
+    body = bytes([0x04, 0x0B]) + b"streamtyped"
+    for i in range(n):
+        name = ("NSClass%03d" % i).encode("ascii")
+        body += bytes([len(name)]) + name
+    data = test_riff._wav_with(test_riff._chunk(b"AFAn", body))
+    p = tmp_path / "apple.wav"
+    p.write_bytes(data)
     return str(p)
 
 
@@ -643,6 +683,8 @@ SWEPT = [
     ("acidcat.core.walk.wav", "_STRC_SLICE_CAP", 4, _wav_many_slices,
      "listing the first"),
     ("acidcat.core.walk.wav", "_ID3_FRAME_CAP", 4, _wav_many_id3_frames,
+     "listing the first"),
+    ("acidcat.core.walk.wav", "_APPLE_CLASS_CAP", 4, _wav_many_apple_classes,
      "listing the first"),
 ]
 
