@@ -1,4 +1,4 @@
-"""Corpus census: walk a directory tree of RIFF-family audio files and answer
+"""Corpus census: walk a directory tree of IFF-family audio files and answer
 structural questions empirically -- a chunk-id histogram, the container-variant
 and format-tag distributions, and flags for the open-question chunks.
 
@@ -43,12 +43,21 @@ else:
         os.lseek(fd, offset, os.SEEK_SET)
         return os.read(fd, n)
 
-# RIFF-family extensions worth opening. Extension-filtered off the dirent so a
-# 1 M-file tree does not stat-and-open every unrelated file; the census is about
-# RIFF containers. Compared case-folded.
+# IFF-family extensions worth opening. Extension-filtered off the dirent so a
+# 1 M-file tree does not stat-and-open every unrelated file. Compared
+# case-folded.
+#
+# Both halves of the family, because they are the same grammar with the
+# integers reversed and the census question is the same on either side. It read
+# only the Microsoft half for a long time, which meant that pointing it at a
+# library of 4,015 AIFFs opened nothing and reported no chunks -- silently, in
+# a tool whose entire job is telling you what is in a corpus.
 _EXTS = frozenset({
+    # RIFF, little-endian
     ".wav", ".wave", ".bwf", ".bw64", ".rf64", ".w64", ".acid",
     ".avi", ".ani", ".rmi", ".dls", ".sf2", ".cpt", ".ds", ".wav_",
+    # IFF proper, big-endian
+    ".aif", ".aiff", ".aifc", ".aifz", ".iff", ".svx", ".8svx", ".smus",
 })
 
 # Wave64 RIFF GUID (little-endian on disk): 'riff' + fixed v1-UUID suffix.
@@ -309,8 +318,16 @@ class Census:
             return                                     # GUID chunk walk: count only for v1
         elif magic == b"RIFF":
             container, be = "RIFF:" + form.decode("latin1"), False
+        elif magic == b"FORM":
+            # IFF proper: same grammar, big-endian sizes, same even-length pad.
+            # _walk_riff is already parameterised on byte order, so the walk
+            # itself needs nothing -- only this arm was missing.
+            formtype = _safe_fourcc(form).strip() or "?"
+            container, be = "FORM:" + formtype, True
+            if formtype == "AIFC":
+                self._flag("aifc", path)
         else:
-            return                                     # not a RIFF-family file
+            return                                     # not an IFF-family file
         self.riff_files += 1
         self._bump(self.by_container, container)
         self._walk_riff(fd, path, be)
@@ -378,6 +395,18 @@ class Census:
                 self._flag(fourcc.strip(), path)
             elif cid in (b"minf", b"elm1", b"elmo", b"regn", b"ovwf"):
                 self._flag("protools_" + fourcc.strip(), path)
+            elif cid in (b"LGWV", b"LGBM"):
+                # Logic Pro. Measured: of the LGWV files carrying a bext chunk,
+                # 28 of 33 name Logic Pro as the originator.
+                self._flag("logic_" + fourcc.strip(), path)
+            elif cid == b"SMED":
+                self._flag("soundminer", path)
+            elif cid in (b"_PMX", b"XMP "):
+                self._flag("xmp", path)
+            elif cid in (b"trns", b"cate", b"basc"):
+                self._flag("apple_loops", path)
+            elif cid == b"CHAN":
+                self._flag("chan_layout", path)
             elif cid in (b"chna", b"axml", b"aXML"):
                 self._flag("adm_" + fourcc.strip(), path)
 
@@ -402,7 +431,11 @@ class Census:
         hist = chunks[:top] if top else chunks
         return {
             "files_opened": self.files,
+            # the key kept its RIFF name after the census learned to read
+            # the big-endian half of the family; renaming it would break
+            # anything parsing the json, so the honest name sits beside it
             "riff_family_files": self.riff_files,
+            "iff_family_files": self.riff_files,
             "errors": self.errors,
             "distinct_chunks": len(self.chunk_counts),
             "containers": dict(sorted(self.by_container.items(),

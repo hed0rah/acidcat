@@ -1,7 +1,7 @@
 """
 acidcat census -- chunk-id histogram and open-question flags over a corpus.
 
-A scaled-up, read-only survey of a RIFF-family tree: which FOURCCs actually
+A scaled-up, read-only survey of an IFF-family tree: which FOURCCs actually
 occur and how often, the container-variant and format-tag distributions, and
 flags for the rare/undocumented chunks worth a closer look. Built to run over
 millions of files without evicting the machine's working set; see
@@ -90,7 +90,7 @@ def run(args):
 
     if not quiet and args.output_format != "json":
         print(f"\n[census] {res['files_opened']} files, "
-              f"{res['riff_family_files']} RIFF-family, "
+              f"{res['riff_family_files']} IFF-family, "
               f"{res['distinct_chunks']} distinct chunks, "
               f"{res['errors']} errors in {res['elapsed_sec']}s", file=sys.stderr)
     return 0
@@ -98,7 +98,7 @@ def run(args):
 
 def _write_table(w, res):
     w.write(f"Corpus census -- {res['files_opened']} files opened, "
-            f"{res['riff_family_files']} RIFF-family\n\n")
+            f"{res['riff_family_files']} IFF-family\n\n")
 
     if res["containers"]:
         w.write("Containers\n")

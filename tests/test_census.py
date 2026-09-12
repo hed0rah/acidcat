@@ -166,3 +166,76 @@ def test_merge_combines_accumulators(tmp_path):
     a.merge(b)
     assert a.riff_files == 2
     assert a.chunk_counts["fmt "] == 2
+
+
+# ---- the big-endian half of the family -------------------------------------
+
+def _bchunk(cid, payload):
+    """An IFF chunk: big-endian size, same even-length pad."""
+    return cid + struct.pack(">I", len(payload)) + payload + (
+        b"\x00" if len(payload) & 1 else b"")
+
+
+def _aiff(chunks, form=b"AIFF"):
+    body = form + b"".join(chunks)
+    return b"FORM" + struct.pack(">I", len(body)) + body
+
+
+_COMM = _bchunk(b"COMM", struct.pack(">hIh", 2, 441, 16)
+                + bytes.fromhex("400eac440000000000000000")[:10])
+_SSND = _bchunk(b"SSND", struct.pack(">II", 0, 0) + b"\x00" * 8)
+
+
+class TestCensusReadsBothHalvesOfIFF:
+    """The census opened only the Microsoft half for a long time.
+
+    Pointed at a library of 4,015 AIFFs it opened nothing and reported no
+    chunks -- silently, in a tool whose entire job is telling you what is in a
+    corpus. RIFF and IFF are the same grammar with the integers reversed, and
+    the walk was already parameterised on byte order; only the dispatch arm
+    and the extension filter were missing.
+    """
+
+    def test_an_aiff_is_opened_and_its_chunks_counted(self, tmp_path):
+        _write(tmp_path, "a.aif", _aiff([_COMM, _SSND]))
+        cx = census.Census()
+        cx.census_file(str(tmp_path / "a.aif"))
+        res = cx.result()
+        assert res["riff_family_files"] == 1
+        assert dict(res["containers"])["FORM:AIFF"] == 1
+        names = dict(res["chunk_histogram"])
+        assert names["COMM"] == 1 and names["SSND"] == 1
+
+    def test_the_aiff_extension_is_in_the_dirent_filter(self):
+        """The filter runs off the dirent so a million-file tree is not
+        stat-and-opened. An extension missing here is a file never seen, and
+        that is how the AIFF half went unnoticed."""
+        for ext in (".aif", ".aiff", ".aifc", ".8svx"):
+            assert ext in census._EXTS
+
+    def test_an_aifc_is_flagged(self, tmp_path):
+        _write(tmp_path, "c.aifc", _aiff([_COMM, _SSND], form=b"AIFC"))
+        cx = census.Census()
+        cx.census_file(str(tmp_path / "c.aifc"))
+        assert "aifc" in cx.result()["flags"]
+
+    def test_logic_and_soundminer_are_flagged_in_either_container(self, tmp_path):
+        """LGWV turns up in both containers, which is what identified it as a
+        tool's fingerprint rather than a container quirk."""
+        _write(tmp_path, "l.aif", _aiff([_COMM, _bchunk(b"LGWV", b"\x00" * 8)]))
+        _write(tmp_path, "l.wav", _wav([_FMT, _chunk(b"SMED", b"\x00" * 8)]))
+        cx = census.Census()
+        cx.census_file(str(tmp_path / "l.aif"))
+        cx.census_file(str(tmp_path / "l.wav"))
+        flags = cx.result()["flags"]
+        assert "logic_LGWV" in flags
+        assert "soundminer" in flags
+
+    def test_a_form_that_is_not_audio_is_still_counted_by_its_type(self, tmp_path):
+        """FORM is the container, not the format. Counting by form type is how
+        an ILBM in a sample library shows up as an ILBM rather than as audio."""
+        _write(tmp_path, "x.iff", _aiff([_bchunk(b"BMHD", b"\x00" * 20)],
+                                        form=b"ILBM"))
+        cx = census.Census()
+        cx.census_file(str(tmp_path / "x.iff"))
+        assert dict(cx.result()["containers"])["FORM:ILBM"] == 1
