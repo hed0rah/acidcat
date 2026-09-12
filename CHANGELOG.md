@@ -4,6 +4,109 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [1.6.0] - 2026-09-12
+
+A base-coverage pass over the formats everything else is built on. One method,
+six formats: walk a real library, count what the walker calls unparsed, and
+then count separately what it NAMES and cannot decode. The second list is where
+the work was -- a walker that prints a chunk's own name back at the reader
+looks like coverage and is not.
+
+Every layout derived here was checked against an oracle nobody on this project
+wrote.
+
+### Added
+
+- **AIFF reads five chunks it was reporting as unparsed bytes.** A 4,015-file
+  library named nine chunk ids the walker could not open. Three of them acidcat
+  already knew how to read -- inside a WAV. An `AFAn` Apple typedstream was
+  named in a RIFF and called unparsed in an AIFF 241 times; a Logic `ResU`,
+  which holds the tempo someone worked to, 53 times; and `CHAN`, which is
+  CoreAudio's AudioChannelLayout, 214 times, while the byte-identical CAF
+  `chan` was decoded. Those structures now live in `core/walk/apple.py` and
+  three walkers call in. A structure read in three places is how the same bytes
+  get an answer in one container and silence in the next.
+
+- **The Apple Loops transient table (`trns`).** Where the slice points are: a
+  76-byte header whose last four bytes are the record count, then fixed 24-byte
+  records holding a flag and a position. The layout holds on every file
+  measured with no mismatch. The positions are sample frames rather than bytes,
+  and the evidence for that is external to the tool: across files carrying a
+  tempo in their own filename, the median gap between transients is a
+  sixteenth note at that tempo, four in five of them exactly. A transient
+  falling past the frame count `COMM` declares is now a warning, which some
+  files earn.
+
+- **Apple Loops category labels (`cate`).** What the loop says it is, read as
+  NUL-padded ASCII on a 50-byte grid. Only the labels are claimed: two payload
+  shapes exist and the larger puts a gap where a flat array of slots would not,
+  so the record structure around them is left undecoded rather than guessed.
+
+- **XMP packets in RIFF (`_PMX`).** Adobe's metadata, as RDF/XML, and a sound
+  library writes its whole catalogue record into it -- creator tool,
+  description, publisher, artist, genre. acidcat was printing `unparsed, first
+  bytes: 3c 3f 78 70...` at an XML document. Read through
+  `core/formats/xmp.py`, because the same packet turns up in an MP4 `uuid` box
+  and a JPEG APP1 segment and one place should know how. The reader names
+  namespaces, never property names: a property whitelist is how a reader
+  silently drops the one field that mattered. An `rdf:Alt` keeps its first
+  entry, being one value in several languages; an `rdf:Bag` keeps all of them,
+  being several values.
+
+- **Undefined MIDI meta events are named.** SMF tells a reader to skip meta
+  types it does not know, which is exactly why they are worth naming: a writer
+  can put anything in one and every player stays silent about it. One library
+  opens every track in 42 files with the same five `FF 4B` events,
+  byte-identical -- a constant preamble rather than data. The track entry now
+  carries a line per undefined type with a count and the first payload bytes,
+  and names no vendor, because nothing in the file does.
+
+- **Pro Tools chunks are named, not decoded.** `umid`, `regn`, `elm1`, `elmo`
+  and `DGDA` get a name, a size, and the readable runs inside them -- a `DGDA`
+  names its own record types in the clear, and a `regn` carries the region's
+  name. There is no published layout for any of them and a field map guessed
+  from one vendor's files is a guess that reads like a fact. `minf` is the
+  exception: sixteen bytes whose first eight read as a Windows FILETIME. The
+  reading is shown rather than asserted, and it is offered because it is the
+  one that produces sane answers -- every value lands in the years those files
+  were made, and no other common reading does.
+
+- **FLAC checks its PADDING.** Padding is supposed to be zero, and padding that
+  is not is space a writer overwrote in place with something shorter: the tail
+  of whatever used to be there, a find rather than filler. RIFF has reported
+  that for a while and it earns its keep. FLAC printed the block's size and
+  stopped. The reader is now shared from `walk/base.py`.
+
+### Fixed
+
+- **One ID3v2 reader for the three containers that embed a tag.** There were
+  two, and AIFF reached the MP3 one by writing each chunk to a TEMP FILE and
+  reading it back -- a file per tag, and a failure wherever the filesystem is
+  not writable. Worse than the duplication, they disagreed: a tag whose size is
+  written little-endian, which a real writer does, read correctly in a RIFF
+  chunk and not in an AIFF one, because that path never learned about it.
+
+- **The Ogg comment header is reported whenever it exists**, not only when it
+  holds a tag. Most Ogg files hold none: in a 1,200-file walk the header was
+  present in 1,176 and reported in 18. What those files carry is the vendor
+  string -- the encoder naming itself down to its build date -- and gating on
+  the tag count threw that away on every ordinary file. The header is mandatory
+  in Vorbis; an empty tag list was never a missing header.
+
+- **An MP3 whose head was zeroed is still an MP3.** Files turn up that are
+  ordinary MPEG audio behind a run of NUL bytes, a head clobbered by a failed
+  write or reserved and never filled. The frame sync is not at offset 0, so
+  every magic test missed it and the file was refused outright while two
+  minutes of intact audio sat behind the hole. The rule is narrow on purpose,
+  because scanning forward for any sync would call half a disk an MP3: every
+  byte before the sync must be zero, the sync must decode, and a second header
+  must sit exactly one frame length on. Measured across 68,268 files, it fires
+  on four, and all four are real MPEG audio.
+
+- **Chunk-level coverage notes reach the file-level warnings** in the AIFF and
+  MIDI walkers, as the RIFF and CAF walkers already did. A caller reading only
+  those was being told a capped listing was complete.
+
 ## [1.5.0] - 2026-09-09
 
 Two formats the tool could name and could not open, a working `acidcat-lab`,
