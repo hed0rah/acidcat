@@ -4,7 +4,12 @@ Vorbis/Opus comment header. Page primitives live in core/ogg.py."""
 import os
 
 from acidcat.core.formats import ogg as oggmod
+from acidcat.core.primitives.notes import coverage, is_coverage
 from acidcat.core.walk.base import _f
+
+# A comment header is a handful of tags; 200 is far above any real one
+# and bounds a crafted header rather than a normal file.
+_TAG_LIST_CAP = 200
 
 def inspect_ogg(filepath):
     """Structural view of an Ogg stream: page count/codec and the Vorbis/Opus
@@ -73,16 +78,28 @@ def inspect_ogg(filepath):
     chunks = [{"id": "OggS", "offset": 0, "size": file_size,
                "summary": f"Ogg {codec}, {len(pages)} page(s){rate_txt}",
                "fields": fields, "warnings": [], "payload_base": 0}]
-    if ch and ch[2]:
+    # The comment header is emitted whenever it EXISTS, not only when it holds
+    # tags. Its vendor string is the encoder's own name -- "Xiph.Org libVorbis
+    # I 20020717" -- and most files in the wild carry exactly that and no tags
+    # at all, so gating on the tag count threw away the one provenance fact the
+    # header was written to hold.
+    if ch and (ch[1] or ch[2]):
         _, vendor, tags = ch
         fields = []
         if vendor:
-            fields.append(_f(None, 0, "vendor", vendor[:200]))
-        for k, v in list(tags.items())[:200]:
+            fields.append(_f(None, 0, "vendor", vendor[:200],
+                             "the encoder's own name for itself"))
+        for k, v in list(tags.items())[:_TAG_LIST_CAP]:
             fields.append(_f(None, 0, k, str(v)[:200]))
-        if len(tags) > 200:
-            fields.append(_f(None, 0, "...", f"{len(tags) - 200} more comments"))
+        cwarns = []
+        if len(tags) > _TAG_LIST_CAP:
+            cwarns.append(coverage(f"listing the first {_TAG_LIST_CAP} of "
+                                   f"{len(tags)} comments"))
+        summary = f"{len(tags)} Vorbis comment(s)" if tags else "no comments"
+        if vendor:
+            summary += f" -- {vendor[:80]}"
         chunks.append({"id": "comments", "offset": 0, "size": 0,
-                       "summary": f"{len(tags)} Vorbis comment(s)",
-                       "fields": fields, "warnings": []})
+                       "summary": summary,
+                       "fields": fields, "warnings": cwarns})
+        warns.extend(w for w in cwarns if is_coverage(w))
     return chunks, warns

@@ -464,6 +464,15 @@ def _wav_many_avid_runs(tmp_path, n):
     return str(p)
 
 
+def _ogg_many_comments(tmp_path, n):
+    """An Ogg stream whose comment header carries n tags."""
+    import test_ogg_comments
+
+    tags = tuple(f"T{i}=v{i}".encode("ascii") for i in range(n))
+    return test_ogg_comments._ogg(
+        tmp_path, test_ogg_comments._comments(tags=tags), name="tags.ogg")
+
+
 def _aiff_many_transients(tmp_path, n):
     """An Apple Loops transient table with n slice points."""
     import test_aiff
@@ -799,6 +808,8 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.formats.xmp", "_PACKET_CAP", 64, _wav_big_xmp_packet,
      "reading the first"),
+    ("acidcat.core.walk.ogg", "_TAG_LIST_CAP", 4, _ogg_many_comments,
+     "listing the first"),
 ]
 
 

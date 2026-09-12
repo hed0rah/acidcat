@@ -226,7 +226,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <p class="note">Packet type 1. Channels and sample rate live here, not in the page header.</p>
         <div id="ogg-ident"></div>
         <div class="sec">the comment header (24 bytes)</div>
-        <p class="note">Packet type 3, and the same comment structure FLAC borrowed.</p>
+        <p class="note">Packet type 3, and the same comment structure FLAC borrowed. It is MANDATORY: a stream without it is malformed, whatever its tag count. Most files carry a vendor string and nothing else, so an empty tag list is the normal case rather than a missing header -- and the vendor string is still the encoder naming itself, build date included.</p>
         <div id="ogg-comment"></div>
 </div></details>
   </div>
