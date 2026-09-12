@@ -220,6 +220,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <div><span class="k">FLLR</span><span class="v">filler/padding so metadata can be rewritten in place</span></div>
       </div>        <div class="sec">a trns record (16 bytes)</div>
         <p class="note">A 76-byte header comes first: a version at 0x00, two constants, a timestamp at 0x08, and the record count as a big-endian u32 at 0x48. Then one fixed record per transient, and nothing else -- payload length is always 76 + 24 &times; count.</p>
+        <p class="note">The header is <b>76</b> bytes, not 100, and the difference is one whole record. The first record sits at <b>0x4C</b> and its position is <b>frame 0</b>: the downbeat. Read the header as 100 bytes and the arithmetic still closes -- the payload divides evenly either way -- but the count the chunk states about itself no longer matches, and the transient that gets swallowed is the first one in the loop.</p>
         <div id="aiff-trns"></div>
 </div></details>
     <details class="region opt"><summary><span class="chev">&#9656;</span><span class="rname">CHAN</span><span class="rspan">channel layout</span></summary>
