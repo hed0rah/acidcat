@@ -137,6 +137,14 @@ EXEMPT = {
                                "runs are a hint about what the block holds -- "
                                "covered by tests/test_riff.py::"
                                "test_an_avid_chunk_is_named_not_decoded"),
+    ("acidcat.core.infra.sniff", "_ZERO_HEAD_CAP"):
+        (Reason.SEARCH_WINDOW, "how far past a zeroed head the sniffer looks "
+                               "for the first MPEG frame. Invisible in the "
+                               "result: the answer is a format id or nothing, "
+                               "not a shortened report, and a zeroed region is "
+                               "a damaged head rather than a container -- a "
+                               "real one is a sector or two. Covered by "
+                               "tests/test_sniff.py::TestZeroedHeadMp3"),
     ("acidcat.core.formats.xmp", "_VALUE_CAP"):
         (Reason.VIEWPORT, "one property's display width. The value is "
                           "elided with an ellipsis IN the value, which says "

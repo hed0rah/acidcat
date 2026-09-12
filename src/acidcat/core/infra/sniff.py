@@ -295,6 +295,53 @@ def _second_frame_follows(filepath, head):
     return len(nxt) == 4 and mp3mod.decode_frame_header(nxt) is not None
 
 
+# How far past a zeroed head to look for the first frame. A zeroed region is a
+# damaged or over-padded head, not a container, and a real one is under a
+# sector or two; 64 KB is far above that.
+_ZERO_HEAD_CAP = 64 * 1024
+
+
+def _zeroed_head_mp3(filepath, head):
+    """An MP3 whose leading bytes were zeroed, and nothing else.
+
+    Files turn up that are ordinary MPEG audio behind a run of NUL bytes -- a
+    head clobbered by a failed write, or a tag reserved and never filled. The
+    audio is intact; acidcat was refusing the whole file because the frame sync
+    is not at offset 0.
+
+    The rule is deliberately narrow, because scanning forward for any sync
+    would call half the disk an MP3:
+
+      * every byte before the sync must be ZERO. Not "mostly zero", not
+        "skippable" -- one non-zero byte and this is some other container whose
+        magic acidcat does not know, and guessing is worse than saying so.
+      * the sync must decode as a frame header.
+      * a second header must sit exactly one frame length on, the same
+        corroboration a bare sync at offset 0 has to pass.
+
+    A file that passes all three is MPEG audio with a hole punched in front of
+    it. Nothing else survives the combination.
+    """
+    from acidcat.core.formats import mp3 as mp3mod
+    if not head or any(head[:4]):
+        return False                       # a real head; not this case
+    try:
+        with open(filepath, "rb") as f:
+            window = f.read(_ZERO_HEAD_CAP)
+            start = next((i for i, b in enumerate(window) if b), -1)
+            if start < 4 or start + 4 > len(window):
+                return False
+            first = mp3mod.decode_frame_header(window[start:start + 4])
+            step = first and (first.get("frame_length") or 0)
+            if not step or step < 4:
+                return False
+            f.seek(start + step)
+            nxt = f.read(4)
+    except OSError:
+        return False
+    return len(nxt) == 4 and mp3mod.decode_frame_header(nxt) is not None
+
+
 def sniff(filepath):
     """Sniff a file on disk. Same ids as ``sniff_bytes`` plus
     "id3-wrapped" for an ID3v2 tag around a non-MP3 container."""
@@ -421,6 +468,12 @@ def sniff(filepath):
     # because 16 bytes cannot confirm it; with the file in hand, accept only
     # when the constant frame length is measurable (a matching second sync).
     if fmt is None and len(head) >= 4 and _free_format_mp3(filepath, head):
+        return "mp3"
+    # MPEG audio behind a run of NUL bytes: the frame sync is not at offset 0,
+    # so every magic test misses it and the file reads as unrecognized. Narrow
+    # on purpose -- see _zeroed_head_mp3 for why each of its three conditions
+    # is load-bearing.
+    if fmt is None and _zeroed_head_mp3(filepath, head):
         return "mp3"
     # S3M's 'SCRM' magic sits at 0x2C (outside the head), a disk-level confirm.
     # It runs before the MOD check: it is cheaper and more precise, and MOD's

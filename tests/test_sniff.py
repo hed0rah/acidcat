@@ -185,3 +185,47 @@ def test_labx_zip_probe_reads_forty_bytes_not_the_member(tmp_path):
         tracemalloc.stop()
     assert fmt == "labx"                 # still recognized from the 40 bytes
     assert peak < 8 * 1024 * 1024, f"peak {peak >> 20} MB inside the sniffer"
+
+
+class TestZeroedHeadMp3:
+    """MPEG audio behind a run of NUL bytes is still MPEG audio.
+
+    Files turn up that are ordinary MP3s with their first sector or two erased
+    -- a failed write, or a head reserved and never filled. The frame sync is
+    not at offset 0, so every magic test misses it and the whole file reads as
+    unrecognized while 131 seconds of audio sits intact behind the hole.
+
+    The rule is narrow because scanning forward for any sync would call half a
+    disk an MP3: the skipped bytes must be ZERO, the sync must decode, and a
+    second frame must sit exactly one frame length on.
+    """
+
+    # 128 kbps, 44.1 kHz, Layer III: a 417-byte frame with no padding bit
+    FRAME = b"\xff\xfb\x90\x00" + b"\x00" * 413
+
+    def _write(self, tmp_path, head, name="x.mp3"):
+        p = tmp_path / name
+        p.write_bytes(head + self.FRAME * 4)
+        return str(p)
+
+    def test_a_zeroed_head_does_not_hide_the_audio(self, tmp_path):
+        assert sniff(self._write(tmp_path, b"\x00" * 1451)) == "mp3"
+
+    def test_one_non_zero_byte_and_it_is_not_ours_to_claim(self, tmp_path):
+        """The load-bearing condition. A single non-zero byte in front means
+        this is some other container whose magic acidcat does not know, and
+        guessing is worse than saying so."""
+        head = b"\x00" * 700 + b"\x01" + b"\x00" * 750
+        assert sniff(self._write(tmp_path, head, "x.bin")) is None
+
+    def test_a_zeroed_head_over_noise_is_not_an_mp3(self, tmp_path):
+        """The other condition: without a second frame at the right distance a
+        lone sync is a byte pair, not a stream."""
+        p = tmp_path / "noise.bin"
+        p.write_bytes(b"\x00" * 512 + b"\xff\xfb\x90\x00" + b"\x11" * 2000)
+        assert sniff(str(p)) is None
+
+    def test_an_all_zero_file_is_not_an_mp3(self, tmp_path):
+        p = tmp_path / "zero.bin"
+        p.write_bytes(b"\x00" * 8192)
+        assert sniff(str(p)) is None

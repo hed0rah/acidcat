@@ -8,7 +8,7 @@ import struct
 
 from acidcat.core.formats import mp3 as mp3mod
 from acidcat.core.walk.base import (
-    _FRAME_LISTING_CAP, _ID3_READ_CAP, _bu16, _bu32, _f,
+    _FRAME_LISTING_CAP, _ID3_READ_CAP, _PAYLOAD_CAP, _bu16, _bu32, _f,
 )
 
 _ID3_TEXT_FRAMES = {
@@ -591,10 +591,23 @@ def inspect_mp3(filepath, deep=False):
 
     frame_off, fh = first
     if frame_off > audio_start:
-        file_warns.append(
-            f"{frame_off - audio_start} bytes of junk between the tag and the "
-            f"first frame sync"
-        )
+        gap = frame_off - audio_start
+        with open(filepath, "rb") as f:
+            f.seek(audio_start)
+            skipped = f.read(min(gap, _PAYLOAD_CAP))
+        # all-zero is the damaged-head case rather than the stray-bytes one: a
+        # write that failed, or a reserved area never filled. Saying which is
+        # the difference between "there is junk here" and "the first N bytes of
+        # this file were erased".
+        where = "the tag" if audio_start else "the start of the file"
+        if gap and not any(skipped):
+            file_warns.append(
+                f"the first {gap:,} bytes are ZERO; the audio begins at "
+                f"0x{frame_off:x}. A head that was erased or reserved and "
+                f"never written, not a tag")
+        else:
+            file_warns.append(
+                f"{gap} bytes of junk between {where} and the first frame sync")
     if fh.get("free_format"):
         # bitrate index 0: the length was measured from sync spacing, so the
         # true bitrate is derived, not tabled -- and not bit-editable
