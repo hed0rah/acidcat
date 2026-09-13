@@ -271,6 +271,20 @@ def mdx(channels=9):
     return head + body
 
 
+@seed("pdx", ".pdx")
+def pdx(samples=3, length=64):
+    """X68000 ADPCM sample bank. No magic either: 96 slots of big-endian
+    offset/length, and the first sample has to begin exactly where the table
+    ends, which is what makes the bank count derivable."""
+    import acidcat.core.formats.pdx as P
+    table = bytearray(P.BANK)
+    pos = P.BANK
+    for i in range(samples):
+        struct.pack_into(">II", table, i * P.SLOT, pos, length)
+        pos += length
+    return bytes(table) + b"\x88" * (length * samples)
+
+
 @seed("adx", ".adx")
 def adx(channels=1, rate=44100, frames=32):
     """CRI ADX. The copyright offset points two bytes BEFORE '(c)CRI', so the

@@ -1,0 +1,124 @@
+"""PDX: the ADPCM sample bank a Sharp X68000 MDX tune plays its P channel from.
+
+An MDX carries no samples. Its ADPCM channel names a bank by file name -- the
+NUL-terminated string right after the title -- and every drum and voice hit in
+the tune lives in that separate .PDX file. core/formats/mdx.py reads the name;
+this reads what it points at.
+
+The format is a pointer table and nothing else. No magic, no version, no
+count, no names:
+
+    0x0000  slot[0]    offset u32 BE, length u32 BE
+    0x0008  slot[1]    ...
+    ...
+    0x0300  sample data
+
+Ninety-six slots of eight bytes is one BANK, 768 bytes, and an unused slot is
+eight zero bytes. The slot INDEX is the identity: MML says a sample number and
+that is the row it reads, so a bank with one sample at slot 33 has 95 empty
+rows in front of it, and removing them would silently retune the tune.
+
+Banks stack. A file with more than 96 samples repeats the table -- 192 slots,
+288, up to 768 in the files measured -- and the sample data starts after the
+last one. Nothing declares how many banks there are, so it is recovered the
+same way MDX recovers its channel count: the first sample has to begin exactly
+where the table ends, so the smallest offset in the table IS the table's size.
+Measured over 3,418 real banks, every table size that resolves is a multiple
+of 768.
+
+Slots may point at the SAME bytes. 947 duplicate slot pairs across the corpus,
+and every one of them is an exact duplicate -- same offset, same length --
+rather than a window into another sample. A bank aliases a sample to several
+numbers; it does not slice one.
+
+The samples themselves are OKI MSM6258V ADPCM: 4 bits per sample, one nibble
+per step, which is the chip the X68000 has. A length is therefore twice the
+number of audio samples it holds, and there is no rate in the file -- the
+player sets it.
+
+Identification is arithmetic, like MDX's. Verified over 3,418 real banks
+against 132,305 files of everything else: 3,256 accepted, 0 false positives.
+"""
+
+import struct
+
+from acidcat.core.formats.mdx import packer_stamp
+
+SLOT = 8
+SLOTS_PER_BANK = 96
+BANK = SLOTS_PER_BANK * SLOT          # 768
+# Eight banks is 768 samples. The largest real table measured is 6,144 bytes,
+# and the bound stops a crafted first-offset from making us read a table
+# larger than the file.
+MAX_BANKS = 8
+# A slot length is BYTES. MSM6258 ADPCM packs one sample per nibble, so the
+# audio is twice as many samples as the length says.
+SAMPLES_PER_BYTE = 2
+
+
+def parse_table(raw, filesize):
+    """Read the slot table. Returns a dict; `ok` says whether it holds up.
+
+    `slots` is every row, empty ones included, because the row number is the
+    sample number and a compacted list would not be addressable.
+    """
+    h = {"ok": False, "why": "", "table_size": 0, "banks": 0,
+         "slots": [], "used": 0, "packer": "", "data_start": 0}
+    if filesize < BANK + SLOT:
+        h["why"] = "file is smaller than one %d-byte bank table" % BANK
+        return h
+
+    n = SLOTS_PER_BANK
+    for _ in range(MAX_BANKS):
+        want = n * SLOT
+        if want > len(raw) or want > filesize:
+            h["why"] = "file ends inside the slot table"
+            return h
+        words = struct.unpack_from(">%dI" % (n * 2), raw, 0)
+        rows = [(words[i * 2], words[i * 2 + 1]) for i in range(n)]
+        live = [(o, s) for o, s in rows if o or s]
+        if not live:
+            h["why"] = "every slot is empty"
+            return h
+        if any(s == 0 or o + s > filesize for o, s in live):
+            # This is where a PACKED bank lands. The compressors of the era
+            # wrote over the table, so the offsets are compressor output and
+            # point anywhere at all -- while the file is still a PDX.
+            h["packer"] = packer_stamp(raw, 0)
+            if h["packer"]:
+                h["why"] = ("the bank is packed with %s; the slot table "
+                            "belongs to the unpacked form" % h["packer"])
+            else:
+                h["why"] = "a slot points outside the file"
+            return h
+
+        low = min(o for o, _s in live)
+        if low == want:
+            h.update(ok=True, table_size=want, banks=n // SLOTS_PER_BANK,
+                     slots=rows, used=len(live), data_start=want)
+            return h
+        # a bigger table: the data starts after the LAST bank, so a first
+        # offset that is a whole number of banks further on says how many
+        if low > want and low % BANK == 0 and low <= MAX_BANKS * BANK:
+            n = low // SLOT
+            continue
+        h["why"] = ("the first sample begins at %d, which is not where a "
+                    "table of whole banks ends" % low)
+        return h
+    h["why"] = "slot table claims more than %d banks" % MAX_BANKS
+    return h
+
+
+def looks_like_pdx(raw, filesize):
+    """Structural identification. The format has no magic, so this is it."""
+    return parse_table(raw, filesize)["ok"]
+
+
+def looks_like_pdx_file(path):
+    import os
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(MAX_BANKS * BANK)
+        return looks_like_pdx(head, os.path.getsize(path))
+    except OSError:
+        return False

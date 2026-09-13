@@ -18,7 +18,8 @@ from acidcat.core.walk import (
     ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, caf, chiptune, containers, dmx,
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
-    mp4, mpc, multisample, ncw, ni, ogg, rf64, rmid, rx2, serum, sf2, sigmf, svx, tracker,
+    mp4, mpc, multisample, ncw, ni, ogg, pdx, rf64, rmid, rx2, serum, sf2, sigmf, svx,
+    tracker,
     dsd, sid, streams, vital, wav, wave64, wt,
 )
 from acidcat.core.walk.base import Unsupported
@@ -109,6 +110,8 @@ _WALKERS = {
     "vag": ("Sony VAG (SPU-ADPCM)", lambda path, deep: streams.inspect_vag(path, deep)),
     "mdx": ("Sharp X68000 MXDRV tune (MDX)",
             lambda path, deep: mdx.inspect_mdx(path, deep=deep)),
+    "pdx": ("Sharp X68000 ADPCM sample bank (PDX)",
+            lambda path, deep: pdx.inspect_pdx(path, deep=deep)),
     "sid": ("Commodore 64 SID tune (PSID/RSID)",
             lambda path, deep: sid.inspect_sid(path, deep=deep)),
     "wt": ("Surge/Bitwig wavetable", lambda path, deep: wt.inspect_wt(path)),

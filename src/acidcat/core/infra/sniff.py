@@ -24,6 +24,7 @@ confirms it from disk; ``sniff_bytes`` cannot classify a MOD from a head.
 from acidcat.core.codecs import ncw as ncwmod
 from acidcat.core.formats import ableton as abletonmod
 from acidcat.core.formats import mdx as mdxmod
+from acidcat.core.formats import pdx as pdxmod
 from acidcat.core.formats import sid as sidmod
 from acidcat.core.formats import dsd as dsdmod
 from acidcat.core.formats import tracker as trackermod
@@ -44,7 +45,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pgm", "rf64", "rmid", "rx2", "s3m", "sap", "serum", "sf2", "sigmf", "smus",
+    "okt", "pdx", "pgm", "rf64", "rmid", "rx2", "s3m", "sap", "serum", "sf2", "sigmf", "smus",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -396,6 +397,11 @@ def sniff(filepath):
     # check above.
     if fmt is None and mdxmod.looks_like_mdx_file(filepath):
         return "mdx"                                   # Sharp X68000 MXDRV tune
+    # The sample bank an MDX plays its ADPCM channel from, and the same
+    # problem: no magic, just a table of big-endian offset/length pairs whose
+    # first entry has to land exactly where the table ends.
+    if fmt is None and pdxmod.looks_like_pdx_file(filepath):
+        return "pdx"                                   # Sharp X68000 ADPCM bank
     # every Ableton document except .asd and .amxd is gzipped XML, so the magic
     # is just gzip's. Identifying it needs one decompressed block, which is why
     # this lives here rather than in sniff_bytes.

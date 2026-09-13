@@ -795,6 +795,19 @@ def _mdx_over_cap(tmp_path, n):
     return str(q)
 
 
+def _pdx_many_samples(tmp_path, n):
+    """A .pdx holding n samples, to cross the sample-listing cap.
+
+    Every sample is a distinct region, because the cap counts regions rather
+    than slots -- a bank that aliases one sample to n numbers has one region
+    and would not cross anything.
+    """
+    import seeds
+    q = tmp_path / "many.pdx"
+    q.write_bytes(seeds.SEEDS["pdx"][0](samples=n, length=8))
+    return str(q)
+
+
 def _hps_over_cap(tmp_path, n):
     """An .hps larger than n bytes, to cross the stream walkers' read cap.
 
@@ -860,6 +873,10 @@ SWEPT = [
     ("acidcat.core.walk.dmx", "_READ_CAP", 64, _dmx_over_cap, "only the first"),
     ("acidcat.core.walk.sid", "_SID_READ_CAP", 64, _sid_over_cap, "parsed the first"),
     ("acidcat.core.walk.mdx", "_MDX_READ_CAP", 64, _mdx_over_cap, "parsed the first"),
+    ("acidcat.core.walk.pdx", "_PDX_SAMPLE_CAP", 4, _pdx_many_samples,
+     "listing the first"),
+    ("acidcat.core.walk.pdx", "_PDX_SLOT_FIELD_CAP", 4, _pdx_many_samples,
+     "filled slots"),
     ("acidcat.core.walk.streams", "_HEAD_CAP", 64, _hps_over_cap, "lower bound"),
     ("acidcat.core.walk.containers", "_XA_SCAN_CAP", 8, _cdxa_over_cap, "examined the first"),
     ("acidcat.core.walk.chiptune", "_NSF_READ_CAP", 256, _nsf_over_cap,
