@@ -35,6 +35,13 @@ def inspect_mdx(filepath, deep=False):
                               % (size, len(raw))))
 
     h = mdxmod.parse_header(raw)
+    if not h["ok"] and h.get("packer"):
+        # A PACKED module: the title and the PDX reference are in the clear
+        # and everything after them is compressed. That is a readable header
+        # in front of a body we cannot walk, which is a different answer to
+        # "this is not an MDX" -- and the answer 440 of 27,166 modules on one
+        # drive were getting.
+        return _packed(size, h), warns
     if not h["ok"]:
         warns.append("header did not resolve: %s" % h["why"])
         return [_broken(raw, h)], warns
@@ -71,6 +78,47 @@ def inspect_mdx(filepath, deep=False):
     if h["voice_abs"] > len(raw):
         warns.append("the voice block points past the end of the file")
     return chunks, warns
+
+
+def _packed(size, h):
+    """The header of a module whose body is compressed.
+
+    Everything here is real: the title and the PDX file name were written
+    before the packer ran. What is NOT here is the offset table, the voices
+    and the channel streams, because those are inside the compressed block --
+    so they are named as absent rather than guessed at.
+    """
+    title = h["title"] or "(untitled)"
+    fields = [
+        _f(0x00, h["title_end"], "title", title[:120]),
+        _f(None, 0, "packer", h["packer"],
+           "the body is compressed; unpack it to walk the music"),
+    ]
+    base = max(h["base"], 0)
+    if h["has_pdx"]:
+        # the length in BYTES, not in decoded characters -- a Shift-JIS name
+        # is not one byte per character, and the field is a byte range
+        name_at = h["title_end"] + 3
+        fields.append(_f(name_at, max(base - 1 - name_at, 0), "pdx_name",
+                         h["pdx_name"],
+                         "the ADPCM sample bank this tune plays from"))
+    head = {"id": "header", "offset": 0, "size": base,
+            "summary": "%s, packed with %s" % (title[:48], h["packer"]),
+            "fields": fields,
+            "warnings": ["the MML and voice data are packed with %s, so the "
+                         "channels and voices are not walked" % h["packer"]],
+            "payload_base": 0, "payload_len": base, "extent_len": base}
+    if base >= size:
+        return [head]
+    # The packed block is named rather than walked. It still belongs to the
+    # file, so it gets a chunk: leaving it out would read as a cavity, which
+    # is what an unaccounted region means everywhere else in acidcat.
+    body = {"id": "packed", "offset": base, "size": size - base,
+            "summary": "%s stream, %d bytes" % (h["packer"], size - base),
+            "fields": [], "warnings": [],
+            "payload_base": base, "payload_len": size - base,
+            "extent_len": size - base}
+    return [head, body]
 
 
 def _broken(raw, h):

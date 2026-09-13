@@ -6,7 +6,7 @@ an offset table that has to resolve to 9 or 16 channels with every offset
 inside the file. That makes the identification itself the thing most worth
 testing, because there is no signature to fall back on.
 
-Verified against 27,166 real tunes from the X68000 MDX Master Library: 26,689
+Verified against 27,166 real tunes from the X68000 MDX Master Library: 27,147
 identified, none crashed, none produced untrustworthy geometry, and every one
 of them was accounted for byte for byte.
 """
@@ -20,7 +20,8 @@ from acidcat.core.infra import sniff
 from acidcat.core.walk import mdx as walker
 
 
-def _mdx(title="TEST TUNE", pdx="", channels=9, voices=2, mml_len=16):
+def _mdx(title="TEST TUNE", pdx="", channels=9, voices=2, mml_len=16,
+         voices_first=False):
     """A structurally valid MDX.
 
     The channel data has to start immediately after the offset table, because
@@ -37,16 +38,41 @@ def _mdx(title="TEST TUNE", pdx="", channels=9, voices=2, mml_len=16):
                           for i in range(voices))
     streams = [bytes(mml_len) if i < 2 else b"\x00\x00" for i in range(channels)]
 
-    pos = table
-    mml_rel = []
-    for s in streams:
-        mml_rel.append(pos)
-        pos += len(s)
-    voice_rel = pos
+    if voices_first:
+        # the METAL SIGHT layout: voice block immediately after the table,
+        # MML streams after that
+        voice_rel = table
+        pos = table + len(voice_blob)
+        mml_rel = []
+        for s in streams:
+            mml_rel.append(pos)
+            pos += len(s)
+        tail = voice_blob + b"".join(streams)
+    else:
+        pos = table
+        mml_rel = []
+        for s in streams:
+            mml_rel.append(pos)
+            pos += len(s)
+        voice_rel = pos
+        tail = b"".join(streams) + voice_blob
 
     body = struct.pack(">H", voice_rel) + struct.pack(">%dH" % channels, *mml_rel)
-    body += b"".join(streams) + voice_blob
-    return head + body
+    return head + body + tail
+
+
+def _packed_mdx(title="PACKED TUNE", pdx="bank", stamp=b"LZX 0.32"):
+    """A module whose body was compressed after the header was written.
+
+    The title and the PDX name survive in the clear; everything from the
+    offset table on is the compressor's output, which is why the table
+    resolves to nonsense.
+    """
+    head = title.encode("shift_jis") + mdxmod.TITLE_END
+    head += pdx.encode("shift_jis") + b"\x00"
+    # four bytes of packed stream, then the stamp where 438 of 440 real
+    # packed modules carry it
+    return head + b"`&`2" + stamp + bytes(256)
 
 
 # ── identification, which is the whole problem ──────────────────────
@@ -96,7 +122,8 @@ def test_a_table_resolving_to_an_impossible_channel_count_is_rejected():
     deliberately naive method -- so this rejection does real work."""
     blob = bytearray(_mdx())
     base = blob.index(mdxmod.TITLE_END) + 4
-    struct.pack_into(">H", blob, base + 2, 0x6000)
+    struct.pack_into(">H", blob, base, 0x7000)      # voice block, further out
+    struct.pack_into(">H", blob, base + 2, 0x6000)  # first MML stream
     h = mdxmod.parse_header(bytes(blob))
     assert h["ok"] is False and "channels" in h["why"]
 
@@ -206,18 +233,92 @@ def test_a_voice_offset_of_zero_is_reported_not_followed(tmp_path):
 
 # ── the walk ────────────────────────────────────────────────────────
 
-def test_the_first_channel_must_follow_the_table_immediately():
-    """The invariant the channel count depends on.
+def test_the_table_ends_at_whichever_block_comes_first():
+    """The invariant the channel count depends on, in both layouts.
 
-    (first_offset - 2) / 2 only yields the channel count when nothing sits
-    between the table and the first channel stream. True in 5,890 of 5,890
-    real tunes measured, and in every one the voice block came after the
-    channel data. Nothing in the format states it, so it is asserted here.
+    (table_end - 2) / 2 yields the channel count, and the table end is
+    whichever of the voice block or the first MML stream starts earlier.
+    Most tunes put the MML first. Eighteen of 27,166 do not, and reading the
+    first MML offset as the table end gave those 399 channels and threw them
+    away as not-MDX.
     """
     for n in (mdxmod.CHANNELS_BASE, mdxmod.CHANNELS_MERCURY):
-        h = mdxmod.parse_header(_mdx(channels=n))
-        assert h["mml_offsets"][0] == 2 + n * 2
-        assert h["voice_offset"] > h["mml_offsets"][0],             "the voice block follows the channel data in every real file"
+        after = mdxmod.parse_header(_mdx(channels=n))
+        assert after["channels"] == n
+        assert after["mml_offsets"][0] == 2 + n * 2
+        assert after["voice_offset"] > after["mml_offsets"][0]
+
+        before = mdxmod.parse_header(_mdx(channels=n, voices_first=True))
+        assert before["channels"] == n,             "the voice block can come first, and then it ends the table"
+        assert before["voice_offset"] == 2 + n * 2
+        assert before["mml_offsets"][0] > before["voice_offset"]
+
+
+def test_a_voices_first_module_walks_and_is_identified(tmp_path):
+    p = tmp_path / "metal.mdx"
+    p.write_bytes(_mdx(channels=9, voices_first=True))
+    assert sniff.sniff(str(p)) == "mdx"
+    chunks, _warns = walker.inspect_mdx(str(p))
+    covered = sum(c["size"] for c in chunks)
+    assert covered == p.stat().st_size
+
+
+# ── packed modules ──────────────────────────────────────────────────
+
+def test_a_packed_module_is_an_mdx_not_an_unknown(tmp_path):
+    """440 of 27,166 real modules are LZX- or ZOO-packed. Their bodies cannot
+    be walked, but their titles and sample-bank names read perfectly -- so
+    "unrecognized file" was the wrong answer to all 440."""
+    p = tmp_path / "packed.mdx"
+    p.write_bytes(_packed_mdx())
+    assert sniff.sniff(str(p)) == "mdx"
+
+    h = mdxmod.parse_header(p.read_bytes())
+    assert h["ok"] is False, "the body genuinely cannot be walked"
+    assert h["packer"] == "LZX 0.32"
+    assert h["title"] == "PACKED TUNE"
+    assert h["pdx_name"] == "bank"
+
+
+def test_a_packed_module_names_its_packed_bytes(tmp_path):
+    """The compressed block is not walked, but it is still in the file, so it
+    gets a chunk. An unaccounted region reads as a cavity everywhere else in
+    acidcat and it should not mean something different here."""
+    p = tmp_path / "packed.mdx"
+    p.write_bytes(_packed_mdx())
+    chunks, _warns = walker.inspect_mdx(str(p))
+
+    assert [c["id"] for c in chunks] == ["header", "packed"]
+    assert sum(c["size"] for c in chunks) == p.stat().st_size
+    names = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+    assert names["packer"] == "LZX 0.32"
+    assert names["title"] == "PACKED TUNE"
+    assert names["pdx_name"] == "bank"
+    assert any("packed" in w for w in chunks[0]["warnings"])
+
+
+@pytest.mark.parametrize("stamp", [b"LZX 0.42", b"ZOO", b"LHA", b"LZS"])
+def test_every_packer_in_the_table_is_recognized(tmp_path, stamp):
+    p = tmp_path / "p.mdx"
+    p.write_bytes(_packed_mdx(stamp=stamp))
+    assert sniff.sniff(str(p)) == "mdx"
+
+
+def test_garbage_after_a_title_is_still_not_an_mdx(tmp_path):
+    """The packer branch must not become a way in. Without a stamp, a file
+    with a title terminator and a nonsense table stays rejected."""
+    p = tmp_path / "no.mdx"
+    p.write_bytes(_packed_mdx(stamp=b"........"))
+    assert sniff.sniff(str(p)) != "mdx"
+    h = mdxmod.parse_header(p.read_bytes())
+    assert h["packer"] == "" and h["ok"] is False
+
+
+def test_the_packer_stamp_is_only_looked_for_near_the_table():
+    """"LZX" is three ordinary bytes. Finding them anywhere in a file proves
+    nothing, so the search is a short window at the table."""
+    raw = bytes(4096) + b"LZX 0.32"
+    assert mdxmod.packer_stamp(raw, 0) == ""
 
 
 def test_the_walk_covers_every_byte(tmp_path):
@@ -265,7 +366,7 @@ def test_mdx_is_a_known_format():
 @pytest.mark.skipif(not os.environ.get("ACIDCAT_MDX_CORPUS"),
                     reason="set ACIDCAT_MDX_CORPUS to a dir of real .mdx files")
 def test_real_corpus_walks_completely():
-    """Measured over 27,166 tunes: 26,689 identified, zero crashes, zero
+    """Measured over 27,166 tunes: 27,147 identified, zero crashes, zero
     untrustworthy geometry, and every identified file covered byte for byte."""
     import glob
     from acidcat.core.infra import geometry

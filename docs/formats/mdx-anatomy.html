@@ -158,7 +158,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   <div class="head">
     <div class="row">
       <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>MDX Anatomy</h1></div></div>
-      <div class="stamp"><b>Sharp X68000</b>MXDRV . YM2151<br>rev 2026.08</div>
+      <div class="stamp"><b>Sharp X68000</b>MXDRV . YM2151<br>rev 2026.09</div>
     </div>
     <div class="strip">
       <div>magic <b>none</b></div>
@@ -171,7 +171,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
   <div class="intro">
     <p class="lede">An <b>.mdx</b> is a Music Macro Language score for the Sharp X68000, played by
     MXDRV. It drives the <b>YM2151</b> FM chip, and where a tune uses ADPCM samples those live in a
-    <b>separate .PDX file</b> which the MDX names. The format has <b>no magic number</b>: a file
+    <b>separate <a href="pdx-anatomy.html">.PDX file</a></b> which the MDX names. The format has <b>no magic number</b>: a file
     opens with its title, so identification is arithmetic rather than a signature.</p>
     <aside class="sig" aria-label="color key">
       <div class="legrows">
@@ -202,17 +202,19 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         to the position of the <b>voiceOffset</b> word.</p>
         <div id="mdx-table"></div>
         <p class="note">The channel count is <b>not stored anywhere</b>. It is recovered from the
-        table's own shape: the first channel's data begins immediately after the table, so the
-        first channel offset IS the table's size, and</p>
+        table's own shape: the table runs right up to whatever is written after it, so the
+        <b>smallest offset in the table</b> IS the table's size, and</p>
         <div class="kv">
-          <div><span class="k">channels</span><span class="v">(first channel offset &minus; 2) / 2</span></div>
+          <div><span class="k">channels</span><span class="v">(smallest offset &minus; 2) / 2</span></div>
           <div><span class="k">here</span><span class="v">(0x0014 &minus; 2) / 2 = 9</span></div>
           <div><span class="k-en">only two values occur</span><span class="v">9 or 16; anything else is not an MDX</span></div>
         </div>
-        <p class="note">That derivation depends on nothing sitting between the table and the first
-        channel. The voice block is therefore always placed <b>after</b> the channel data, never
-        before it. Nothing in the format states this, and a file that broke it would make its own
-        channel count underivable.</p>
+        <p class="note">That smallest offset is usually channel A's, because the channel streams
+        are usually written first and the voice block last. It is a convention and not a rule:
+        some tunes put the <b>voice block first</b>, and in those the voiceOffset is the table's
+        size and channel A's offset points well past it. A reader that assumes channel A always
+        comes first gets a channel count in the hundreds for those files and concludes they are
+        not MDX at all.</p>
       </div>
     </details>
 
@@ -242,6 +244,14 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         an MDX means finding the terminator, then a NUL-terminated name, then reading the table and
         checking that it resolves to a legal channel count with every offset inside the file. The
         arithmetic IS the identification.</p>
+        <p class="note">One class of file passes the first half and fails the second on purpose.
+        Tunes were distributed <b>packed</b> with the X68000 compressors of the day, and the
+        packers compressed the file from the offset table onward while leaving the title and the
+        sample-bank name readable. The result is a module whose text reads perfectly and whose
+        table is compressor output, so the channel count resolves to nonsense. The compressor
+        stamps its name and version a few bytes into the packed stream --
+        <code>LZX</code>, <code>ZOO</code>, <code>LHA</code> or <code>LZS</code> -- which is
+        what separates a packed module from a file that is simply not an MDX.</p>
       </div>
     </details>
 
@@ -427,7 +437,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
        body:"Where the voice definitions begin, measured from THIS field's own position. Absolute position here is 0x1B + 0x827 = 0x842.",
        note:"the base every other offset is measured from, including itself."},
       {label:"channel A",k:"enum",r:[29,30],val:"0x0014",
-       body:"The first channel's offset, and the one that gives away the channel count. It equals the table size because the channel data starts immediately after the table: (0x14 - 2) / 2 = 9 channels.",
+       body:"The first channel's offset. Here it is the smallest value in the table, so it is the table's size and gives away the channel count: (0x14 - 2) / 2 = 9 channels. In a tune that writes its voice block first, voiceOffset would be the smaller of the two instead.",
        note:"this single word is how the count is recovered."},
       {label:"channels B-P",k:"sync",r:[31,46],val:"8 more words",
        body:"One big-endian word per remaining channel, in order B C D E F G H P. Every one is relative to the voiceOffset field.",
@@ -439,7 +449,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     [0x08,0x27, 0x00,0x14, 0x01,0x30, 0x02,0x4F, 0x03,0x4C, 0x04,0x50, 0x05,0x03, 0x05,0xAE, 0x06,0x5C, 0x07,0x0A],
     [
       {label:"voiceOffset",k:"sync",r:[0,1],val:"0x0827",
-       body:"The voice block. Always after the channel data in practice, because putting it first would sit between the table and channel A and break the count derivation.",
+       body:"The voice block. Usually after the channel data, but not always -- when it comes first, this word rather than channel A's is the one that gives the table's size.",
        note:"the origin for every offset here, including this one."},
       {label:"channel A",k:"enum",r:[2,3],val:"0x0014 = 20",
        body:"Equal to the table's own size: 2 bytes for voiceOffset plus 9 channel words. That is what makes the channel count recoverable.",

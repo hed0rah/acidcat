@@ -20,18 +20,21 @@ Every offset is relative to the position of the VOICE OFFSET WORD, not to the
 start of the file -- which is the one thing a reader has to get right, because
 the title and PDX name are both variable length so that base moves per file.
 
-The channel count is recovered from the table rather than declared. The first
-MML offset sits two bytes past the base, so (first_offset - 2) / 2 is how many
-words lie between the base and the data it points at, which is the channel
-count. Measured over 27,166 real tunes: 18,367 use 9 channels and 8,331 use
-16, and nothing else resolves.
+The channel count is recovered from the table rather than declared. The table
+ends where the first thing after it begins, and the gap between that point and
+the base, divided by two, is the channel count. Measured over 27,166 real
+tunes: 18,385 use 9 channels and 8,331 use 16, and nothing else resolves.
 
-That works only because the first channel's data begins immediately after the
-table, with nothing between. It holds in every file measured -- 5,890 of 5,890
-have a first MML offset exactly equal to the table size, and in every one the
-voice block sits AFTER the channel data rather than before it. So the layout
-is fixed in practice even though nothing in the format states it, and a file
-that put the voices first would make the channel count underivable.
+The thing after the table is USUALLY the first MML stream, so the first MML
+offset is usually the table end. It is a convention rather than a rule:
+eighteen modules measured (the METAL SIGHT set among them) lay the voice block
+down first, and there the first MML offset points hundreds of bytes further
+on. Taking the earlier of the two is what makes both layouts resolve.
+
+A further 440 modules were packed with an X68000 compressor after they were
+written. Their titles and PDX names are in the clear and everything from the
+table on is compressed, so they are identified and their headers read, but
+their music is not walked. See packer_stamp below.
 
 Channels are lettered rather than numbered: A through H are the eight FM
 voices, P is the ADPCM channel, and Q through W are the extra voices a Mercury
@@ -95,6 +98,38 @@ def decode_title(raw):
         return raw.decode("latin-1").strip()
 
 
+# X68000 packers, stamped into the file where the offset table would be.
+# An MDX whose body is packed keeps its title and its PDX reference in the
+# clear and replaces everything after with compressed data, so the header
+# reads perfectly and the offset table resolves to nonsense -- 12,312
+# channels, in the file that turned this up.
+#
+# Measured on 27,166 modules: 440 are packed, and in 438 of them the stamp
+# sits at exactly base+4, immediately after the two words the offset table
+# would have started with.
+PACKERS = (b"LZX", b"ZOO", b"LHA", b"LZS")
+PACKER_WINDOW = 64
+
+
+def packer_stamp(raw, base):
+    """The packer that wrote this file, or "" if the body is not packed.
+
+    Looked for near the offset table rather than anywhere in the file: "LZX"
+    is three common bytes and finding them in compressed data proves nothing.
+    """
+    if base < 0:
+        return ""
+    window = raw[base:base + PACKER_WINDOW]
+    for name in PACKERS:
+        at = window.find(name)
+        if at < 0:
+            continue
+        version = bytes(c for c in window[at + len(name):at + len(name) + 8]
+                        if 0x20 <= c < 0x7F).strip()
+        return (name + b" " + version).decode("latin-1").strip()
+    return ""
+
+
 def parse_header(raw):
     """Decode an MDX header. Never raises; `ok` says whether it holds together.
 
@@ -106,7 +141,7 @@ def parse_header(raw):
         "ok": False, "why": "", "title": "", "title_end": -1,
         "pdx_name": "", "has_pdx": False, "base": -1,
         "channels": 0, "voice_offset": 0, "voice_abs": -1,
-        "mml_offsets": [], "mml_abs": [],
+        "mml_offsets": [], "mml_abs": [], "packer": "",
     }
     end = raw.find(TITLE_END, 0, MAX_TITLE)
     if end < 0:
@@ -130,13 +165,39 @@ def parse_header(raw):
         return h
 
     h["voice_offset"], first = struct.unpack_from(">HH", raw, base)
-    # The channel count is not stored. The first MML offset points past the
-    # table, so the gap between it and the table's start is the table itself.
+    # The channel count is not stored. It has to be derived from where the
+    # table ENDS, and the table ends wherever the first thing after it begins
+    # -- which is not always the first MML stream.
+    #
+    # Most tunes lay the MML streams down immediately after the table and put
+    # the voices last, so `first` is the table's end. But the layout is a
+    # convention, not a rule: 18 of 27,166 modules measured (the METAL SIGHT
+    # set among them) write the VOICE block first, and there `first` points
+    # hundreds of bytes further on. Reading it as the table end gave those
+    # files 399 channels and rejected them as not-MDX.
+    #
+    # Whichever of the two comes first is the end of the table. A voice offset
+    # of 0 is excluded because it means "no voice block" rather than "the
+    # voice block is at the top of the table".
     if first < 2 or first % 2:
         h["why"] = "first MML offset %d cannot start an offset table" % first
         return h
-    count = (first - 2) // 2
+    table_end = first
+    if 2 <= h["voice_offset"] < first and h["voice_offset"] % 2 == 0:
+        table_end = h["voice_offset"]
+    count = (table_end - 2) // 2
     if count not in (CHANNELS_BASE, CHANNELS_MERCURY):
+        # A PACKED module lands here: its title and PDX name are in the clear
+        # and everything after is compressed, so the offset table is whatever
+        # the compressed stream happens to start with. That is not an
+        # unreadable file, it is a readable header in front of a body we
+        # cannot walk, and the two deserve different answers.
+        h["packer"] = packer_stamp(raw, base)
+        if h["packer"]:
+            h["why"] = ("the MML and voice data are packed with %s; the "
+                        "offset table belongs to the unpacked form"
+                        % h["packer"])
+            return h
         h["why"] = ("offset table resolves to %d channels, and only 9 or 16 "
                     "occur" % count)
         return h
@@ -168,7 +229,9 @@ def looks_like_mdx(raw, filesize=None):
     """
     h = parse_header(raw)
     if not h["ok"]:
-        return False
+        # a packed module is an MDX whose body cannot be walked, not a file
+        # that is something else
+        return bool(h.get("packer"))
     n = len(raw) if filesize is None else filesize
     if not 0 <= h["voice_abs"] <= n:
         return False
