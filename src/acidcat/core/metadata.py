@@ -79,6 +79,15 @@ CANONICAL = {
     "tags": ((), TEXT, "free-form labels"),
     "device": ((), TEXT, "the device a preset is for"),
 
+    # ── read-only: present in files, with no writer behind them ───────
+    "copyright": ((), TEXT, "the rights statement"),
+    "encoder": ((), TEXT, "the encoder that produced the stream"),
+    "disc": (("disc_number", "discnumber"), NUMBER,
+             "which disc of a set"),
+    "keywords": ((), TEXT, "search terms the writer attached"),
+    "subject": ((), TEXT, "what the recording is of"),
+    "technician": ((), TEXT, "who operated the equipment"),
+
     # ── container-specific ────────────────────────────────────────────
     "annotation": ((), TEXT, "AIFF's free annotation chunk"),
 }
@@ -103,9 +112,35 @@ def canonical(field):
 # rather than a second one -- and a second one is the exact duplication this
 # module exists to prevent.
 #
+# `key` is the READER's key specifically. The writers have their own maps and
+# never consult this one, so a binding that borrows a writer's spelling reads
+# nothing and looks fine: `track` was written as `tracknumber` here, which is
+# what the writer takes, while the reader emits `track_number`.
+#
 # chunk is None for the tagged formats, whose values come from the tag reader
 # rather than from a chunk walk.
-Bind = _namedtuple("Bind", "label chunk key")
+# access: "rw" both ways, "r" readable only, "w" writable only.
+#
+# Not decoration. A field that writes and does not read back is either a bug
+# or a fact about the format, and the two look identical until somebody says
+# which. `track` was the bug -- the binding carried the writer's spelling of
+# the key and the reader uses another. `albumartist` is the fact: it writes,
+# and the tag reader does not surface it. `copyright` and `encoder` are the
+# mirror image, readable with no writer behind them.
+Bind = _namedtuple("Bind", "label chunk key access")
+Bind.__new__.__defaults__ = ("rw",)
+
+
+def readable(fmt, field):
+    """Can this field be read back out of this format?"""
+    bind = binding(fmt, field)
+    return bool(bind) and "r" in bind.access
+
+
+def writable(fmt, field):
+    """Can this field be written into this format?"""
+    bind = binding(fmt, field)
+    return bool(bind) and "w" in bind.access
 
 BINDINGS = {
     "wav": {
@@ -126,6 +161,11 @@ BINDINGS = {
         "bpm": Bind("acid tempo", "acid", "tempo"),
         "key": Bind("acid root note", "acid", "root_note"),
         "root_note": Bind("smpl unity note", "smpl", "midi_unity_note"),
+        # LIST/INFO tags the walker names and no writer sets
+        "copyright": Bind("LIST/INFO ICOP", "LIST", "ICOP", "r"),
+        "keywords": Bind("LIST/INFO IKEY", "LIST", "IKEY", "r"),
+        "subject": Bind("LIST/INFO ISBJ", "LIST", "ISBJ", "r"),
+        "technician": Bind("LIST/INFO ITCH", "LIST", "ITCH", "r"),
     },
     # AIFF has THREE text chunks and more than three ideas to put in them, so
     # comment, description and annotation all land in ANNO. Setting one
@@ -142,14 +182,19 @@ BINDINGS = {
         "title": Bind("TITLE", None, "title"),
         "artist": Bind("ARTIST", None, "artist"),
         "album": Bind("ALBUM", None, "album"),
-        "albumartist": Bind("ALBUMARTIST", None, "albumartist"),
+        # written, and the tag reader does not surface it
+        "albumartist": Bind("ALBUMARTIST", None, "albumartist", "w"),
         "comment": Bind("COMMENT", None, "comment"),
         "description": Bind("COMMENT", None, "comment"),
         "genre": Bind("GENRE", None, "genre"),
         "date": Bind("DATE", None, "date"),
-        "track": Bind("TRACKNUMBER", None, "tracknumber"),
+        "track": Bind("TRACKNUMBER", None, "track_number"),
         "bpm": Bind("BPM", None, "bpm"),
         "key": Bind("KEY", None, "key"),
+        # readable, with no writer behind them
+        "copyright": Bind("COPYRIGHT", None, "copyright", "r"),
+        "encoder": Bind("ENCODER", None, "encoder", "r"),
+        "disc": Bind("DISCNUMBER", None, "disc_number", "r"),
     },
     "vital": {
         "title": Bind("preset_name", None, "preset_name"),
@@ -184,9 +229,15 @@ BINDINGS["aifc"] = BINDINGS["aiff"]
 BINDINGS["ni"] = BINDINGS["bitwig"]
 
 
-def fields_for(fmt):
-    """The canonical fields a format can hold, or () if it cannot be edited."""
-    return tuple(sorted(BINDINGS.get(fmt, {})))
+def fields_for(fmt, access=None):
+    """The canonical fields a format can hold.
+
+    `access` filters to "r" or "w"; without it, every field either way.
+    """
+    binds = BINDINGS.get(fmt, {})
+    if access:
+        return tuple(sorted(f for f, b in binds.items() if access in b.access))
+    return tuple(sorted(binds))
 
 
 def where(fmt, field):
@@ -266,6 +317,8 @@ def read_metadata(path, fmt=None):
             return {}
         out = {}
         for field, bind in binds.items():
+            if "r" not in bind.access:
+                continue
             value = tags.get(bind.key)
             if value not in (None, ""):
                 out.setdefault(field, value)
@@ -284,7 +337,7 @@ def read_metadata(path, fmt=None):
 
     out = {}
     for field, bind in binds.items():
-        if bind.chunk is None:
+        if bind.chunk is None or "r" not in bind.access:
             continue
         entry = by_id.get(bind.chunk.strip())
         if entry is None:

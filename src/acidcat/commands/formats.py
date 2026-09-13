@@ -127,10 +127,21 @@ def _print_fields(fid):
     wid = max(len(f) for f in fields)
     print(f"{fid} holds {len(fields)} metadata field"
           f"{'' if len(fields) == 1 else 's'}\n")
-    print(f"  {'FIELD':<{wid}}  {'KIND':<7}  GOES TO")
-    print("  " + "-" * (wid + 9 + 24))
+    print(f"  {'FIELD':<{wid}}  {'KIND':<7}  {'ACCESS':<10}  GOES TO")
+    print("  " + "-" * (wid + 21 + 24))
     for f in fields:
-        print(f"  {f:<{wid}}  {M.kind_of(f):<7}  {M.where(fid, f)}")
+        bind = M.binding(fid, f)
+        access = {"rw": "read/write", "r": "read", "w": "write"}[bind.access]
+        print(f"  {f:<{wid}}  {M.kind_of(f):<7}  {access:<10}  {bind.label}")
+    ro = [f for f in fields if not M.writable(fid, f)]
+    wo = [f for f in fields if not M.readable(fid, f)]
+    if ro:
+        print("\n  read-only -- present in files, no writer sets them:")
+        print("    " + ", ".join(ro))
+    if wo:
+        print("\n  write-only -- set them, and the reader cannot show them "
+              "back:")
+        print("    " + ", ".join(wo))
     clashes = M.collisions(fid)
     if clashes:
         print("\n  sharing a destination -- setting one replaces the other:")

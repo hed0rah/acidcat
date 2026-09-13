@@ -89,7 +89,7 @@ def test_every_bound_field_is_accepted_by_the_writer(fmt):
     synthesise here.
     """
     live = _LIVE_MAPS[fmt]
-    for field in M.BINDINGS[fmt]:
+    for field in M.fields_for(fmt, "w"):
         # the CANONICAL spelling specifically, not merely some alias:
         # edit_metadata folds every known spelling to it before dispatch, so a
         # writer that takes only its own alias would reject the very name the
@@ -124,7 +124,7 @@ def test_a_bound_field_really_writes(tmp_path):
     file back, and require the writer to have accepted it."""
     for fmt, name in (("wav", "a.wav"), ("aiff", "a.aif")):
         raw = _minimal(fmt)
-        for field in M.BINDINGS[fmt]:
+        for field in M.fields_for(fmt, "w"):
             p = tmp_path / name
             p.write_bytes(raw)
             probe = _PROBE[M.kind_of(field)]
@@ -229,3 +229,76 @@ def test_read_and_write_agree_about_which_formats_they_serve():
         # every binding is complete enough to read through
         for field, bind in binds.items():
             assert bind.label and bind.key, (fmt, field)
+
+
+# ── access modes, and the round trip that found them ────────────────
+
+def test_the_reader_key_is_the_readers_not_the_writers():
+    """`Bind.key` is consulted only by read_metadata -- the writers have their
+    own maps and never look at this table. A binding that borrows a writer's
+    spelling therefore reads nothing and looks perfectly fine.
+
+    `track` was exactly that: stored here as `tracknumber`, which is what the
+    writer accepts, while the tag reader emits `track_number`. It wrote, it
+    never read back, and nothing noticed."""
+    assert M.binding("flac", "track").key == "track_number"
+
+
+@pytest.mark.parametrize("fmt", ["wav", "aiff"])
+def test_every_writable_field_reads_back(fmt, tmp_path):
+    """The pin that makes a divergence impossible to ship quietly.
+
+    Write each writable field, read it back through the ledger, and require it
+    to appear. Three fields disagreed the first time this ran, and each was a
+    different problem: a wrong reader key, a field the reader cannot see, and
+    fields with no writer at all. None of them were visible without this.
+    """
+    raw = _minimal(fmt)
+    unreadable = []
+    for field in M.fields_for(fmt, "w"):
+        if not M.readable(fmt, field):
+            continue                       # declared write-only; see below
+        p = tmp_path / f"rt.{fmt}"
+        p.write_bytes(raw)
+        res = edit_metadata(str(p), {field: _PROBE[M.kind_of(field)]})
+        p.write_bytes(res.data)
+        if field not in M.read_metadata(str(p), fmt=fmt):
+            unreadable.append(field)
+    assert not unreadable, (
+        f"{fmt} writes {unreadable} and cannot read them back. Either the "
+        f"binding's reader key is wrong, or the field is genuinely write-only "
+        f"and should say access='w'.")
+
+
+def test_write_only_and_read_only_are_declared_not_accidental():
+    """The three states have to be distinguishable, because a field that
+    writes and does not read back is either a bug or a fact about the format
+    and they look identical until somebody says which."""
+    # written, and the tag reader does not surface it
+    assert M.writable("flac", "albumartist")
+    assert not M.readable("flac", "albumartist")
+    # readable, with no writer behind them
+    for field in ("copyright", "encoder", "disc"):
+        assert M.readable("flac", field)
+        assert not M.writable("flac", field)
+    # and the ordinary case is still both
+    assert M.readable("flac", "title") and M.writable("flac", "title")
+
+
+def test_a_read_only_field_is_not_claimed_as_writable():
+    """`--fields` and any caller filtering on writability must not offer a
+    field the writer will refuse."""
+    for fmt in ("flac", "wav"):
+        for field in M.fields_for(fmt, "w"):
+            assert M.writable(fmt, field), (fmt, field)
+
+
+def test_read_only_fields_are_excluded_from_the_writer_pin():
+    """The earlier pin requires every bound field to be accepted by the
+    writer. Read-only fields are bound and deliberately are NOT, so the pin
+    has to know the difference or adding one breaks the suite."""
+    live = _LIVE_MAPS["wav"]
+    for field in M.fields_for("wav", "r"):
+        if not M.writable("wav", field):
+            assert field not in live, (
+                f"{field!r} is declared read-only and the writer accepts it")
