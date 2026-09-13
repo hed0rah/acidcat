@@ -29,6 +29,18 @@ class EditResult(NamedTuple):
     applied: list
 
 
+def _spoken(result, spelling):
+    """Report `applied` in the words the CALLER used.
+
+    The dispatch folds every spelling to its canonical name so the writers see
+    one vocabulary. A report about somebody's request should still use their
+    request's words: asking to set `creator` and being told `artist` changed is
+    a small lie about what was asked.
+    """
+    data, applied = result
+    return data, [(spelling.get(f, f), old, new) for f, old, new in applied]
+
+
 def edit_metadata(path, changes):
     """Apply metadata field changes to the file at path and return EditResult.
 
@@ -36,31 +48,48 @@ def edit_metadata(path, changes):
     Raises EditError for an unsupported file type. The format dispatch lives here
     (not in the CLI) so any caller gets a stable public entry point; bytes are
     returned in memory (backup/commit policy is the caller's)."""
+    # Fold every known spelling to its canonical name before dispatch, so a
+    # caller may say `preset_name` to a WAV or `tempo` to a FLAC and reach the
+    # same field. The ledger in core/metadata.py is the one place that knows
+    # which spellings mean the same thing; without this, which ones worked
+    # depended on whose field map the call happened to land in.
+    #
+    # An UNKNOWN name passes through untouched, so the writer's own
+    # "no editable field" error still fires and says what it always said.
+    from acidcat.core import metadata as _meta
+    _spelling = {}                      # canonical -> what the caller wrote
+    _folded = {}
+    for _k, _v in changes.items():
+        _c = _meta.canonical(_k) or _k
+        _spelling[_c] = _k
+        _folded[_c] = _v
+    changes = _folded
+
     with open(path, "rb") as f:
         data = f.read()
     ext = os.path.splitext(path)[1].lower()
     head = data[:16]
     if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
-        return EditResult("Vital preset", *edit_vital(data, changes))
+        return EditResult("Vital preset", *_spoken(edit_vital(data, changes), _spelling))
     if head[:4] == b"BtWg":
-        return EditResult("Bitwig preset (experimental)", *edit_bitwig(data, changes))
+        return EditResult("Bitwig preset (experimental)", *_spoken(edit_bitwig(data, changes), _spelling))
     if head[12:16] == b"hsin" or head[:4] == b"-in-" \
             or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"):
-        return EditResult("NI preset (experimental)", *edit_ni(data, changes))
+        return EditResult("NI preset (experimental)", *_spoken(edit_ni(data, changes), _spelling))
     if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
         try:
             from acidcat.core.write import edit_riff
         except ImportError:
             raise EditError("WAV editing is not available in this build")
-        return EditResult("WAV", *edit_riff.edit_wav(data, changes))
+        return EditResult("WAV", *_spoken(edit_riff.edit_wav(data, changes), _spelling))
     if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
         from acidcat.core.write import edit_aiff
-        return EditResult("AIFF", *edit_aiff.edit_aiff(data, changes))
+        return EditResult("AIFF", *_spoken(edit_aiff.edit_aiff(data, changes), _spelling))
     tagged = (head[:4] == b"fLaC" or head[:3] == b"ID3" or head[:4] == b"OggS"
               or head[4:8] == b"ftyp"
               or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
     if tagged:
-        return EditResult("tagged audio", *edit_tagged(data, ext or ".mp3", changes))
+        return EditResult("tagged audio", *_spoken(edit_tagged(data, ext or ".mp3", changes), _spelling))
     raise EditError("no metadata editor for this file type")
 
 
@@ -96,6 +125,9 @@ def edit_vital(data, changes):
 import struct as _struct
 
 _BITWIG_FIELDS = {
+    # `artist` is the canonical spelling core/metadata.py folds to, and this
+    # map already had two synonyms for it and not the name itself
+    "artist": b"creator",
     "creator": b"creator", "author": b"creator",
     "comment": b"comment", "description": b"comment",
     "tags": b"tags",

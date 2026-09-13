@@ -61,6 +61,9 @@ def register(subparsers):
                         "support per format.")
     p.add_argument("format", nargs="?",
                    help="Show just this format id (as sniff/inspect report it).")
+    p.add_argument("--fields", action="store_true",
+                   help="Show which metadata fields the format can hold and "
+                        "where each one lands. Needs a format.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"), deprecated_f=False)
     p.add_argument("--format-out", dest="output_format",
                    choices=("table", "json", "tsv"),
@@ -108,7 +111,47 @@ def _print_table(rows):
     print(f"\n{len(rows)} format{'' if len(rows) == 1 else 's'}  (x = supported, . = not)")
 
 
+def _print_fields(fid):
+    """What metadata a format can hold, and where it goes.
+
+    The capability matrix answers yes-or-no. This answers which, and where --
+    the question anyone who is about to edit a file actually has.
+    """
+    from acidcat.core import metadata as M
+
+    fields = M.fields_for(fid)
+    if not fields:
+        print(f"acidcat formats: {fid} holds no editable metadata",
+              file=sys.stderr)
+        return 1
+    wid = max(len(f) for f in fields)
+    print(f"{fid} holds {len(fields)} metadata field"
+          f"{'' if len(fields) == 1 else 's'}\n")
+    print(f"  {'FIELD':<{wid}}  {'KIND':<7}  GOES TO")
+    print("  " + "-" * (wid + 9 + 24))
+    for f in fields:
+        print(f"  {f:<{wid}}  {M.kind_of(f):<7}  {M.where(fid, f)}")
+    clashes = M.collisions(fid)
+    if clashes:
+        print("\n  sharing a destination -- setting one replaces the other:")
+        for target, group in sorted(clashes.items()):
+            print(f"    {', '.join(group)}  ->  {target}")
+    aliases = [(a, n) for a, n in sorted(M.ALIASES.items())
+               if n in fields and a != n]
+    if aliases:
+        print("\n  also accepted:")
+        for alias, name in aliases:
+            print(f"    {alias}  ->  {name}")
+    return 0
+
+
 def run(args):
+    if getattr(args, "fields", False):
+        if not args.format:
+            print("acidcat formats --fields: needs a format "
+                  "(try `acidcat formats` for the list)", file=sys.stderr)
+            return 1
+        return _print_fields(args.format.lower())
     rows = _matrix()
     if args.format:
         rows = [r for r in rows if r["id"] == args.format.lower()]
