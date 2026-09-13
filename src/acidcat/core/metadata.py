@@ -158,6 +158,12 @@ BINDINGS = {
         "originator_reference": Bind("bext originator reference", "bext", "originator_reference"),
         "origination_date": Bind("bext origination date", "bext", "origination_date"),
         "origination_time": Bind("bext origination time", "bext", "origination_time"),
+        # WAV has a SECOND home for a tempo -- LIST/INFO IBPM, which Bitwig
+        # writes -- and this binds only the acid chunk. Measured before
+        # deciding whether that matters: IBPM appears in 0 of 80,005 files
+        # here, against 472 with an acid chunk in the first 20,000. A field
+        # with two homes needs a precedence rule, and building one for a
+        # tag nothing writes would be machinery in search of a file.
         "bpm": Bind("acid tempo", "acid", "tempo"),
         "key": Bind("acid root note", "acid", "root_note"),
         "root_note": Bind("smpl unity note", "smpl", "midi_unity_note"),
