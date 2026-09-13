@@ -26,6 +26,7 @@ from acidcat.core.formats import ableton as abletonmod
 from acidcat.core.formats import mdx as mdxmod
 from acidcat.core.formats import sid as sidmod
 from acidcat.core.formats import dsd as dsdmod
+from acidcat.core.formats import tracker as trackermod
 from acidcat.core.formats import wave64 as wave64mod
 
 # containers an ID3v2 tag is known to wrap; the tag then does not make
@@ -44,7 +45,7 @@ KNOWN_FORMATS = frozenset({
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
     "okt", "pgm", "rf64", "rmid", "rx2", "s3m", "sap", "serum", "sf2", "sigmf", "smus",
-    "dmx", "dff", "dsf", "sid", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
+    "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
 
@@ -493,6 +494,11 @@ def sniff(filepath):
     # offset-1080 heuristic can false-positive inside S3M pattern data.
     if fmt is None and _is_s3m(filepath):
         return "s3m"
+    # Scream Tracker 2, the format S3M grew out of. Checked after S3M because
+    # SCRM at 0x2C is the stronger signal and an STM has no magic at all --
+    # only an EOF marker, a file type and eight free-form characters.
+    if fmt is None and _is_stm(filepath):
+        return "stm"
     # SigMF pair members and bare IQ captures are headerless: accept them only
     # when no magic matched, keyed on the mandated / conventional extensions.
     if fmt is None:
@@ -576,6 +582,20 @@ def _is_mod(filepath):
     try:
         with open(filepath, "rb") as f:
             return tkmod.is_mod(f.read(1084))
+    except OSError:
+        return False
+
+
+def _is_stm(filepath):
+    """Scream Tracker 2, confirmed from disk.
+
+    The identifying bytes sit at 28-31 and `head` in sniff() is twenty bytes,
+    which is enough for the XM signature and not for this. A disk-level
+    confirm, the same shape as the S3M one below.
+    """
+    try:
+        with open(filepath, "rb") as f:
+            return trackermod.is_stm(f.read(48))
     except OSError:
         return False
 

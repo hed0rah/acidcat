@@ -391,3 +391,90 @@ def parse_it(data):
         "pat_off": pat_off, "pat_base": pat_base,
         "samples": samples, "warnings": warns,
     }
+
+
+# Scream Tracker 2. The direct ancestor of S3M, which acidcat already reads,
+# and simple enough that the whole header is fixed-offset: no pointer table,
+# no variable-length anything before the instruments.
+#
+# The tracker name is the identity. "!Scream!" is Scream Tracker itself; the
+# field exists because other programs wrote the format and said so here.
+STM_HEADER = 48
+STM_INSTRUMENT = 32
+STM_INSTRUMENTS = 31
+STM_ORDER_LEN = 128
+# 65535 in a loop end means "no loop", the same sentinel the other trackers of
+# the era use. Reading it as a length gives a sample 64 KB longer than itself.
+STM_NO_LOOP = 65535
+
+
+def is_stm(data):
+    """True if the bytes open a Scream Tracker 2 module.
+
+    Checked on the EOF marker and the file type as well as the tracker name,
+    because the name is 8 free-form characters that several programs wrote
+    their own thing into.
+    """
+    return (len(data) >= 32 and data[28] == 0x1A and data[29] in (1, 2)
+            and all(32 <= c < 127 or c == 0 for c in data[20:28]))
+
+
+def parse_stm(data):
+    """Parse a Scream Tracker 2 STM. Returns a dict of the header, the
+    instrument table, the order list and the resolved sample offsets."""
+    warns = []
+    song_name = _c(data[:20])
+    tracker = _c(data[20:28])
+    file_type = data[29]
+    ver_major, ver_minor = data[30], data[31]
+    tempo, num_patterns, gvol = data[32], data[33], data[34]
+
+    instruments = []
+    for i in range(STM_INSTRUMENTS):
+        off = STM_HEADER + i * STM_INSTRUMENT
+        if off + STM_INSTRUMENT > len(data):
+            break
+        r = data[off:off + STM_INSTRUMENT]
+        length, loop_beg, loop_end = struct.unpack_from("<HHH", r, 16)
+        instruments.append({
+            "name": _c(r[:12]),
+            "disk": r[13],
+            "length": length,
+            "loop_start": loop_beg,
+            "loop_end": loop_end,
+            "volume": r[22],
+            "c2spd": struct.unpack_from("<H", r, 24)[0],
+            "hdr_off": off,
+        })
+
+    order_off = STM_HEADER + STM_INSTRUMENTS * STM_INSTRUMENT
+    order = list(data[order_off:order_off + STM_ORDER_LEN])
+    # the order list is terminated by 99 (or 255 in later writers); anything
+    # after it is padding rather than a pattern to play
+    used = []
+    for entry in order:
+        if entry in (99, 255):
+            break
+        used.append(entry)
+
+    pattern_off = order_off + STM_ORDER_LEN
+    # ST2 patterns are a fixed 64 rows x 4 channels x 4 bytes = 1024 bytes
+    pattern_bytes = num_patterns * 1024
+    cur = pattern_off + pattern_bytes
+    for ins in instruments:
+        ins["offset"] = cur if ins["length"] else None
+        cur += ins["length"]
+    if cur > len(data):
+        warns.append(f"sample data runs to {cur:,} but the file is "
+                     f"{len(data):,} bytes")
+    if used and max(used) >= num_patterns:
+        warns.append(f"the order list plays pattern {max(used)} and the "
+                     f"header declares {num_patterns}")
+    return {
+        "kind": "stm", "song_name": song_name, "tracker": tracker,
+        "file_type": file_type, "version": f"{ver_major}.{ver_minor:02d}",
+        "tempo": tempo, "num_patterns": num_patterns, "global_volume": gvol,
+        "instruments": instruments, "order": used, "order_off": order_off,
+        "pattern_off": pattern_off, "sample_data_off": pattern_off + pattern_bytes,
+        "warnings": warns,
+    }

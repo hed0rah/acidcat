@@ -163,6 +163,12 @@ EXEMPT = {
                                "tests/test_dsd.py::TestDsf::"
                                "test_the_id3_tag_is_read_through_the_shared_"
                                "reader"),
+    ("acidcat.core.walk.tracker", "_STM_INSTRUMENT_CAP"):
+        (Reason.RUNAWAY_BACKSTOP, "31 is the instrument table's FIXED size in "
+                                  "the Scream Tracker 2 format -- the header "
+                                  "has no count, so the walk cannot read more "
+                                  "than the format defines and crossing it is "
+                                  "impossible rather than merely unlikely"),
     ("acidcat.core.formats.xmp", "_VALUE_CAP"):
         (Reason.VIEWPORT, "one property's display width. The value is "
                           "elided with an ellipsis IN the value, which says "

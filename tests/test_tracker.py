@@ -136,3 +136,109 @@ def test_truncated_headers_degrade(tmp_path):
         chunks, warns = inspect(str(p))              # must not raise
         assert chunks and warns
         assert any("truncated" in w for w in warns)
+
+
+ZERO = bytes([0])
+
+
+# -- Scream Tracker 2 -------------------------------------------------
+
+def _stm(song=b"a song", tracker=b"!Scream!", ftype=2, major=2, minor=21,
+         tempo=96, patterns=1, gvol=64, instruments=None, order=(0, 99)):
+    """A Scream Tracker 2 module, laid out as the format fixes it."""
+    head = (song.ljust(20, ZERO) + tracker.ljust(8, ZERO)
+            + bytes([0x1A, ftype, major, minor, tempo, patterns, gvol])
+            + bytes(13))
+    assert len(head) == 48, len(head)
+    table = b""
+    for i in range(31):
+        spec = (instruments or {}).get(i, {})
+        table += (spec.get("name", b"").ljust(12, ZERO)
+                  + bytes([0, spec.get("disk", 0)])
+                  + struct.pack("<HHHH", 0, spec.get("length", 0),
+                                spec.get("loop_start", 0),
+                                spec.get("loop_end", 65535))
+                  + bytes([spec.get("volume", 64), 0])
+                  + struct.pack("<H", spec.get("c2spd", 8363))
+                  + bytes(6))
+    orders = bytes(order).ljust(128, ZERO)
+    return head + table + orders + bytes(patterns * 1024)
+
+
+class TestScreamTracker2:
+    """STM is the format S3M grew out of, and the one real tracker module on
+    these drives acidcat could not open.
+
+    Its header is fixed-offset throughout -- no pointer table, nothing
+    variable before the instruments -- which is why the whole thing can be
+    read without seeking.
+    """
+
+    def test_the_header_from_the_real_specimen(self, tmp_path):
+        p = tmp_path / "a.stm"
+        p.write_bytes(_stm(song=b"FuCKiN' RoTZooI!!!!!", tempo=95, patterns=8))
+        chunks, warns = wtk.inspect_stm(str(p))
+        f = {x["name"]: x for x in chunks[0]["fields"]}
+        assert f["song_name"]["value"] == "FuCKiN' RoTZooI!!!!!"
+        assert f["tracker"]["value"] == "!Scream!"
+        assert f["version"]["value"] == "2.21"
+        assert f["initial_tempo"]["value"] == 95
+        assert f["global_volume"]["note"].endswith("full")
+        assert not warns
+
+    def test_a_non_scream_writer_is_reported_as_itself(self, tmp_path):
+        """The tracker field is eight free-form characters and several
+        programs wrote their own name into it, so it is reported rather than
+        used as a magic."""
+        p = tmp_path / "b.stm"
+        p.write_bytes(_stm(tracker=b"BMOD2STM"))
+        chunks, _w = wtk.inspect_stm(str(p))
+        assert next(x for x in chunks[0]["fields"]
+                    if x["name"] == "tracker")["value"] == "BMOD2STM"
+
+    def test_instrument_names_are_read(self, tmp_path):
+        """Scene modules use the instrument table as liner notes, so the
+        names are often the only text in the file worth having."""
+        p = tmp_path / "c.stm"
+        p.write_bytes(_stm(instruments={0: {"name": b"By:", "length": 100},
+                                        1: {"name": b"The", "length": 50}}))
+        chunks, _w = wtk.inspect_stm(str(p))
+        names = [c["fields"][0]["value"] for c in chunks[1:]]
+        assert names[:2] == ["By:", "The"]
+
+    def test_no_loop_is_named_not_printed_as_65535(self, tmp_path):
+        """65535 in a loop end means no loop, the same sentinel the other
+        trackers of the era use. Read as a length it gives a sample 64 KB
+        longer than itself."""
+        p = tmp_path / "d.stm"
+        p.write_bytes(_stm(instruments={0: {"name": b"x", "length": 10}}))
+        chunks, _w = wtk.inspect_stm(str(p))
+        end = next(x for x in chunks[1]["fields"] if x["name"] == "loop_end")
+        assert end["note"] == "no loop"
+
+    def test_sample_data_past_the_end_is_reported(self, tmp_path):
+        p = tmp_path / "e.stm"
+        p.write_bytes(_stm(instruments={0: {"name": b"big", "length": 60000}}))
+        chunks, _w = wtk.inspect_stm(str(p))
+        assert any("sample data runs to" in w for w in chunks[0]["warnings"])
+
+    def test_an_order_naming_a_pattern_that_does_not_exist(self, tmp_path):
+        p = tmp_path / "f.stm"
+        p.write_bytes(_stm(patterns=2, order=(0, 1, 9, 99)))
+        chunks, _w = wtk.inspect_stm(str(p))
+        assert any("plays pattern 9" in w for w in chunks[0]["warnings"])
+
+    def test_a_song_that_claims_samples_is_contradicting_itself(self, tmp_path):
+        """file_type 1 is a song: the patterns without the samples. One that
+        declares sample lengths is making two claims that cannot both hold."""
+        p = tmp_path / "g.stm"
+        p.write_bytes(_stm(ftype=1, instruments={0: {"name": b"s", "length": 8}}))
+        chunks, _w = wtk.inspect_stm(str(p))
+        assert any("no samples" in w for w in chunks[0]["warnings"])
+
+    def test_a_volume_outside_the_range(self, tmp_path):
+        p = tmp_path / "h.stm"
+        p.write_bytes(_stm(instruments={0: {"name": b"v", "length": 4,
+                                            "volume": 200}}))
+        chunks, _w = wtk.inspect_stm(str(p))
+        assert any("outside the 0-64 range" in w for w in chunks[1]["warnings"])

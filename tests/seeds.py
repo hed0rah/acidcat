@@ -878,6 +878,15 @@ def w64():
     return _call("test_wave64", "_make_w64", 64, 1, 16, 44100, b"\x01\x02\x03")
 
 
+@seed("stm", ".stm")
+def stm():
+    """Scream Tracker 2: fixed-offset throughout, so there is no pointer to
+    corrupt -- the interesting mutations are the ones that make a declared
+    sample longer than the file, which is the check the walker exists for."""
+    return _call("test_tracker", "_stm",
+                 instruments={0: {"name": b"seed", "length": 64}})
+
+
 @seed("dsf", ".dsf")
 def dsf():
     """Sony DSF: little-endian, flat, and ONE BIT per sample. The seed carries

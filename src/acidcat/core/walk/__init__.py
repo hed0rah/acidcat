@@ -140,6 +140,7 @@ _WALKERS = {
             lambda path, deep: mp3.inspect_mp3(path, deep=deep)),
     "mod": ("ProTracker MOD", lambda path, deep: tracker.inspect_mod(path)),
     "s3m": ("ScreamTracker 3 S3M", lambda path, deep: tracker.inspect_s3m(path)),
+    "stm": ("ScreamTracker 2 STM", lambda path, deep: tracker.inspect_stm(path)),
     "xm": ("FastTracker II XM", lambda path, deep: tracker.inspect_xm(path)),
     "it": ("Impulse Tracker", lambda path, deep: tracker.inspect_it(path)),
 }

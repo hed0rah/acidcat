@@ -10,6 +10,7 @@ import os
 import struct
 
 from acidcat.core.formats import tracker as tk
+from acidcat.core.primitives.notes import coverage, is_coverage
 from acidcat.core.walk.base import Unsupported, _f
 
 _SAMPLE_CAP = 400        # samples to list
@@ -32,6 +33,11 @@ def _truncated(fmt_id, size, msg):
     return ([{"id": fmt_id, "offset": 0, "size": size,
               "summary": f"{fmt_id}: header truncated, cannot decode",
               "fields": [], "warnings": [msg], "payload_base": 0}], [msg])
+
+
+# 31 instruments is the format's fixed table; the bound is for a crafted
+# file whose header claims more.
+_STM_INSTRUMENT_CAP = 31
 
 
 def inspect_mod(filepath):
@@ -349,3 +355,83 @@ def inspect_it(filepath):
             "warnings": [], "payload_base": s["offset"],
         })
     return chunks, it["warnings"]
+
+
+def inspect_stm(filepath):
+    """Scream Tracker 2, the format S3M grew out of."""
+    file_size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(file_size, 64 * 1024 * 1024))
+    if not tk.is_stm(data):
+        raise Unsupported("no Scream Tracker 2 header at offset 0")
+    try:
+        s = tk.parse_stm(data)
+    except (struct.error, IndexError):
+        return _truncated("STM", file_size, "STM header is truncated "
+                                            "(need 48 bytes)")
+    named = [i for i in s["instruments"] if i["name"]]
+    used = [i for i in s["instruments"] if i["length"]]
+    chunks = [{
+        "id": "STM", "offset": 0, "size": file_size,
+        "summary": (f"Scream Tracker {s['version']}, {s['num_patterns']} "
+                    f"patterns, {len(used)} samples"
+                    + (f" -- '{s['song_name']}'" if s["song_name"] else "")),
+        "fields": [
+            _f(0x00, 20, "song_name", s["song_name"]),
+            _f(0x14, 8, "tracker", s["tracker"],
+               "the program that wrote it; the field is free-form and several "
+               "wrote their own name here"),
+            _f(0x1D, 1, "file_type", s["file_type"],
+               "module" if s["file_type"] == 2 else "song (no samples)"),
+            _f(0x1E, 2, "version", s["version"]),
+            _f(0x20, 1, "initial_tempo", s["tempo"]),
+            _f(0x21, 1, "pattern_count", s["num_patterns"]),
+            _f(0x22, 1, "global_volume", s["global_volume"],
+               "0-64" + (", full" if s["global_volume"] == 64 else "")),
+            _f(None, 0, "order", ", ".join(str(o) for o in s["order"][:32])
+               + (" ..." if len(s["order"]) > 32 else ""),
+               f"{len(s['order'])} entries before the terminator"),
+        ],
+        "warnings": list(s["warnings"]),
+        "payload_base": 0, "payload_len": file_size,
+    }]
+    if s["file_type"] == 1 and used:
+        chunks[0]["warnings"].append(
+            "file_type says song (no samples) and the instrument table "
+            "declares sample lengths")
+
+    for i, ins in enumerate(s["instruments"][:_STM_INSTRUMENT_CAP]):
+        if not (ins["name"] or ins["length"]):
+            continue
+        note = f"{ins['length']:,} bytes"
+        if ins["length"] and ins["loop_end"] not in (0, tk.STM_NO_LOOP):
+            note += f", loop {ins['loop_start']}-{ins['loop_end']}"
+        entry = {
+            "id": f"inst[{i}]", "offset": ins["hdr_off"], "size": 32,
+            "summary": ins["name"] or note,
+            "fields": [
+                _f(0x00, 12, "name", ins["name"]),
+                _f(0x10, 2, "length", f"{ins['length']:,}", "bytes"),
+                _f(0x12, 2, "loop_start", ins["loop_start"]),
+                _f(0x14, 2, "loop_end", ins["loop_end"],
+                   "no loop" if ins["loop_end"] == tk.STM_NO_LOOP else ""),
+                _f(0x16, 1, "volume", ins["volume"], "0-64"),
+                _f(0x18, 2, "c2spd", ins["c2spd"], "Hz at middle C"),
+            ],
+            "warnings": [], "payload_base": ins["hdr_off"],
+            "payload_len": 32, "extent_len": 32,
+        }
+        if ins["volume"] > 64:
+            entry["warnings"].append(
+                f"volume {ins['volume']} is outside the 0-64 range")
+        if ins["offset"] is not None and ins["offset"] + ins["length"] > file_size:
+            entry["warnings"].append(
+                f"sample data runs past the end of the file")
+        chunks.append(entry)
+    if len(s["instruments"]) > _STM_INSTRUMENT_CAP:
+        chunks[0]["warnings"].append(coverage(
+            f"listing the first {_STM_INSTRUMENT_CAP} of "
+            f"{len(s['instruments'])} instruments"))
+
+    file_warns = [x for x in chunks[0]["warnings"] if is_coverage(x)]
+    return chunks, file_warns
