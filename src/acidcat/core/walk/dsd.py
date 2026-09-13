@@ -288,6 +288,62 @@ def _dsdiff_prop(payload):
     return ", ".join(bits) if bits else "sound properties", fields, warns
 
 
+def _dst_sound(payload, size, ctx):
+    """The DST sound chunk, which is a container rather than a blob.
+
+    `FRTE` states how many DST frames there are and how many run per second,
+    and those two numbers are the only place a DST file says how long it is:
+    the sample count lives in the DSD chunk a compressed file does not have.
+    Frames follow as `DSTF`, each optionally trailed by a `DSTC` checksum.
+
+    The frames are not decoded. DST is a real codec with its own arithmetic
+    coder, and naming it is not the same as reading it.
+    """
+    fields, warns = [], []
+    frames = rate = None
+    counted = 0
+    pos, n = 0, 0
+    while pos + 12 <= len(payload) and n < _MAX_CHUNKS:
+        cid = payload[pos:pos + 4]
+        csize = struct.unpack_from(">Q", payload, pos + 4)[0]
+        body = payload[pos + 12:pos + 12 + csize]
+        n += 1
+        if cid == b"FRTE" and len(body) >= 6:
+            frames, rate = struct.unpack_from(">IH", body, 0)
+            fields.append(_f(pos, 12 + csize, "frames", f"{frames:,}"))
+            fields.append(_f(pos + 12 + 4, 2, "frame_rate", rate,
+                             "DST frames per second"))
+            if rate:
+                fields.append(_f(None, 0, "duration",
+                                 f"{frames / rate:.3f} s",
+                                 "frames over frame rate: a compressed file "
+                                 "has no sample count to divide"))
+        elif cid == b"DSTF":
+            counted += 1
+        pos += 12 + csize + (csize & 1)
+        if csize == 0 and cid != b"DSTF":
+            break
+    if frames is None:
+        warns.append("no FRTE chunk: a DST stream states its length there and "
+                     "nowhere else")
+    elif counted and counted != frames:
+        # only trustworthy when the whole chunk was read; a capped read sees
+        # fewer frames than the file holds and that is not a finding
+        if len(payload) >= size:
+            warns.append(f"FRTE declares {frames:,} frames, {counted:,} DSTF "
+                         f"chunks follow")
+    if n >= _MAX_CHUNKS:
+        warns.append(coverage(f"stopped after {_MAX_CHUNKS} DST chunks"))
+    if frames and rate and ctx is not None:
+        ctx.setdefault("duration", frames / rate)
+    summary = f"DST lossless, {size:,} bytes"
+    if frames:
+        summary += f", {frames:,} frames"
+        if rate:
+            summary += f" at {rate}/s"
+    return summary, fields, warns
+
+
 def inspect_dsdiff(filepath, ctx=None):
     """Philips DSDIFF: IFF with 64-bit sizes, big-endian throughout."""
     ctx = ctx if ctx is not None else {}
@@ -354,11 +410,17 @@ def inspect_dsdiff(filepath, ctx=None):
                 elif cid == b"ID3 ":
                     entry["fields"], entry["warnings"] = _id3_fields(payload)
                     entry["summary"] = f"ID3v2 tag, {size:,} bytes"
-                elif cid in (b"DSD ", b"DST "):
-                    entry["summary"] = (
-                        f"{'DST lossless' if cid == b'DST ' else 'raw'} "
-                        f"one-bit stream, {size:,} bytes")
+                elif cid == b"DSD ":
+                    entry["summary"] = f"raw one-bit stream, {size:,} bytes"
                     entry["fields"] = [_f(None, 0, "audio_bytes", f"{size:,}")]
+                elif cid == b"DST ":
+                    # DST NESTS. The sound chunk is a container: an FRTE that
+                    # counts the frames, then one DSTF per frame with an
+                    # optional DSTC checksum beside it. Reporting only the
+                    # outer size would say how big the compressed audio is and
+                    # nothing about how much audio that is.
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _dst_sound(payload, size, ctx)
                 elif cid == b"COMT":
                     entry["summary"] = f"comments, {size:,} bytes"
                 elif cid == b"DIIN":

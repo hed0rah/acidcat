@@ -245,3 +245,72 @@ def test_hostile_input_does_not_raise(tmp_path, corrupt):
     p = _write(tmp_path, "x.bin", corrupt)
     inspect_dsf(p)
     inspect_dsdiff(p)
+
+
+# ── DST, the lossless half of DSDIFF ────────────────────────────────
+
+def make_dst(frames=75, rate=75, declared=None, crc=True):
+    """A DST-compressed DSDIFF: the sound chunk is a container, not a blob."""
+    body = _bchunk(b"FRTE", struct.pack(">IH",
+                                        frames if declared is None else declared,
+                                        rate))
+    for _ in range(frames):
+        body += _bchunk(b"DSTF", bytes(32))
+        if crc:
+            body += _bchunk(b"DSTC", bytes(2))
+    raw = make_dff(compression=b"DST ", audio=b"")
+    raw = raw.replace(_bchunk(b"DSD ", b""), _bchunk(b"DST ", body), 1)
+    return b"FRM8" + struct.pack(">Q", len(raw) - 12) + raw[12:]
+
+
+class TestDst:
+    """DST is why a Super Audio CD can hold multichannel at all: 4.7 GB at
+    5.6 Mbit/s is under two hours in stereo and far less with six channels.
+
+    The frames are NOT decoded. DST is a real codec with its own arithmetic
+    coder, and naming a thing is not reading it.
+    """
+
+    def test_the_compression_type_is_the_only_thing_that_says_which(self, tmp_path):
+        """A DST file and a raw one look identical at the container level
+        apart from CMPR and the sound chunk's id."""
+        p = _write(tmp_path, "a.dff", make_dst())
+        chunks, _w = inspect_dsdiff(p)
+        assert _field(_named(chunks, "PROP"), "compression")["note"] == \
+            "DST lossless"
+        assert "DST " in [c["id"] for c in chunks]
+        assert "DSD " not in [c["id"] for c in chunks]
+
+    def test_duration_comes_from_the_frame_count(self, tmp_path):
+        """The one place a compressed file states its length. An uncompressed
+        DSDIFF has a sample count; a DST one does not, so FRTE is it."""
+        p = _write(tmp_path, "b.dff", make_dst(frames=150, rate=75))
+        chunks, _w = inspect_dsdiff(p)
+        dst = _named(chunks, "DST ")
+        assert _field(dst, "frames")["value"] == "150"
+        assert _field(dst, "duration")["value"] == "2.000 s"
+        assert "150 frames at 75/s" in dst["summary"]
+
+    def test_a_frame_count_that_disagrees_with_the_frames_present(self, tmp_path):
+        p = _write(tmp_path, "c.dff", make_dst(frames=10, declared=99))
+        chunks, _w = inspect_dsdiff(p)
+        assert any("declares 99 frames, 10 DSTF" in w
+                   for w in _named(chunks, "DST ")["warnings"])
+
+    def test_a_dst_stream_with_no_frte_says_so(self, tmp_path):
+        """Without FRTE the file does not state its own length anywhere."""
+        raw = make_dff(compression=b"DST ", audio=b"")
+        raw = raw.replace(_bchunk(b"DSD ", b""),
+                          _bchunk(b"DST ", _bchunk(b"DSTF", bytes(16))), 1)
+        raw = b"FRM8" + struct.pack(">Q", len(raw) - 12) + raw[12:]
+        p = _write(tmp_path, "d.dff", raw)
+        chunks, _w = inspect_dsdiff(p)
+        assert any("no FRTE" in w for w in _named(chunks, "DST ")["warnings"])
+
+    def test_frames_without_a_crc_are_still_counted(self, tmp_path):
+        """DSTC is optional, so a reader that steps by a fixed pair loses
+        count on any file that omits it."""
+        p = _write(tmp_path, "e.dff", make_dst(frames=20, crc=False))
+        chunks, _w = inspect_dsdiff(p)
+        assert not _named(chunks, "DST ")["warnings"]
+        assert _field(_named(chunks, "DST "), "frames")["value"] == "20"
