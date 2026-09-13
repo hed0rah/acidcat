@@ -446,6 +446,18 @@ def _svx_many_chunks(tmp_path, n):
     return str(p)
 
 
+def _wav_many_plst_segments(tmp_path, n):
+    """A playlist with n segments."""
+    import struct as _s
+    import test_riff
+
+    body = _s.pack("<I", n) + b"".join(_s.pack("<III", 2, 100, 1)
+                                       for _ in range(n))
+    p = tmp_path / "plst.wav"
+    p.write_bytes(test_riff._wav_with(test_riff._chunk(b"plst", body)))
+    return str(p)
+
+
 def _wav_many_xmp_properties(tmp_path, n):
     """An XMP packet carrying n properties."""
     import test_riff
@@ -873,6 +885,8 @@ SWEPT = [
     ("acidcat.core.walk.apple", "_CATE_LABEL_CAP", 4, _aiff_many_categories,
      "listing the first"),
     ("acidcat.core.walk.wav", "_XMP_PROPERTY_CAP", 4, _wav_many_xmp_properties,
+     "listing the first"),
+    ("acidcat.core.walk.wav", "_PLST_SEGMENT_CAP", 4, _wav_many_plst_segments,
      "listing the first"),
     ("acidcat.core.walk.base", "_OPAQUE_RUN_CAP", 4, _wav_many_avid_runs,
      "listing the first"),

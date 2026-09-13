@@ -932,3 +932,63 @@ def test_peak_record_count_is_checked_against_the_channels(tmp_path):
     peak = _chunk_named(chunks, "PEAK")
     assert any("3 peak record(s) for 1 channel" in w
                for w in peak["warnings"]), peak["warnings"]
+
+
+def _cue(cue_id, sample=0):
+    """One cue point: id, play order, chunk, then the sample frame."""
+    return struct.pack("<II4sIII", cue_id, 0, b"data", 0, 0, sample)
+
+
+def test_plst_is_the_playlist_the_spec_defines(tmp_path):
+    """The spec's OWN loop machinery -- cue points plus a playlist carrying a
+    repeat count -- and it lost. Across one production library `plst` appears
+    48 times and `smpl` 154,697. Read anyway: 48 files is 48 files."""
+    plst = struct.pack("<I", 1) + struct.pack("<III", 2, 19928, 1)
+    data = _wav_with(_chunk(b"plst", plst)
+                     + _chunk(b"cue ", struct.pack("<I", 1) + _cue(2)))
+    _l, chunks, warns = _walk_bytes(tmp_path, data)
+    p = _chunk_named(chunks, "plst")
+    seg = next(f for f in p["fields"] if f["name"] == "segment[0]")
+    assert seg["value"] == "19,928 frames"
+    assert seg["note"].startswith("cue 2")
+    assert not warns
+
+
+def test_a_playlist_naming_a_cue_that_does_not_exist(tmp_path):
+    """A segment names a cue point by id and `cue ` is what defines those
+    ids. A playlist pointing at a cue nobody declared is broken, and nothing
+    else in the file says so."""
+    plst = struct.pack("<I", 1) + struct.pack("<III", 99, 1000, 1)
+    data = _wav_with(_chunk(b"plst", plst)
+                     + _chunk(b"cue ", struct.pack("<I", 1) + _cue(2)))
+    _l, _chunks, warns = _walk_bytes(tmp_path, data)
+    assert any("cue point(s) [99]" in w and "does not define" in w
+               for w in warns), warns
+
+
+def test_a_playlist_with_no_cue_chunk_at_all(tmp_path):
+    """Distinguished from the above, because "the cue chunk is missing" and
+    "the cue chunk omits this id" are different repairs."""
+    plst = struct.pack("<I", 1) + struct.pack("<III", 4, 1000, 1)
+    data = _wav_with(_chunk(b"plst", plst))
+    _l, _chunks, warns = _walk_bytes(tmp_path, data)
+    assert any("no cue chunk" in w for w in warns), warns
+
+
+def test_a_segment_that_plays_zero_times(tmp_path):
+    """dwLoops is a repeat count, so zero means the segment is in the playlist
+    and never plays. Legal, and worth saying out loud."""
+    plst = struct.pack("<I", 1) + struct.pack("<III", 2, 1000, 0)
+    data = _wav_with(_chunk(b"plst", plst)
+                     + _chunk(b"cue ", struct.pack("<I", 1) + _cue(2)))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    assert any("not at all" in w
+               for w in _chunk_named(chunks, "plst")["warnings"])
+
+
+def test_a_plst_that_lies_about_its_segment_count(tmp_path):
+    plst = struct.pack("<I", 50) + struct.pack("<III", 2, 1000, 1)
+    data = _wav_with(_chunk(b"plst", plst))
+    _l, chunks, _w = _walk_bytes(tmp_path, data)
+    assert any("declares 50 segments" in w
+               for w in _chunk_named(chunks, "plst")["warnings"])

@@ -703,6 +703,8 @@ _XMP_PROPERTY_CAP = 40
 # Peak records are one per channel. 64 is far above any real file and
 # bounds a crafted chunk rather than a normal one.
 _PEAK_CHANNEL_CAP = 64
+# A playlist is a handful of segments. The bound is for a crafted one.
+_PLST_SEGMENT_CAP = 64
 
 
 # Windows clipboard format ids, for the DISP chunk's first word. Only the few
@@ -943,6 +945,54 @@ def _parse_peak(b, ctx):
             if have else "no peak records"), fields, warns
 
 
+def _parse_plst(b, ctx):
+    """`plst`: the playlist. Which cue points to play, how long, how often.
+
+    This is the spec's OWN loop machinery -- cue points plus a playlist
+    carrying a repeat count -- and it lost. The WAV anatomy page has the
+    census: across one production library `plst` appeared 48 times and `smpl`
+    154,697. The sanctioned system was beaten by the sampler chunk.
+
+    Read anyway, because 48 files is 48 files and because a segment naming a
+    cue point that does not exist is a broken playlist that nothing else will
+    tell you about.
+    """
+    fields, warns = [], []
+    if len(b) < 4:
+        return "truncated", fields, ["plst payload is under 4 bytes"]
+    declared = _u32(b, 0)
+    capacity = max(0, (len(b) - 4) // 12)
+    fields.append(_f(0x00, 4, "segments", declared))
+    if declared > capacity:
+        warns.append(f"declares {declared} segments but the payload holds "
+                     f"{capacity}")
+    rate = ctx.get("sample_rate")
+    wanted = []
+    for i in range(min(declared, capacity, _PLST_SEGMENT_CAP)):
+        base = 4 + i * 12
+        cue_id, length, loops = struct.unpack_from("<III", b, base)
+        wanted.append(cue_id)
+        note = f"cue {cue_id}"
+        if rate:
+            note += f", {length / rate:.3f} s"
+        if loops != 1:
+            note += f", {loops}x"
+        fields.append(_f(base, 12, f"segment[{i}]",
+                         f"{length:,} frames", note))
+        if loops == 0:
+            warns.append(f"segment[{i}] plays {loops} times, which plays it "
+                         f"not at all")
+    if declared > _PLST_SEGMENT_CAP:
+        warns.append(coverage(f"listing the first {_PLST_SEGMENT_CAP} of "
+                              f"{declared} segments"))
+    # the cue ids this playlist needs, for the cross-check after the walk --
+    # plst is written BEFORE cue in the files measured, so the check cannot
+    # happen here
+    ctx.setdefault("plst_cue_ids", []).extend(wanted)
+    return (f"{declared} segment(s)" if declared else "empty playlist"), \
+        fields, warns
+
+
 _PARSERS = {
     "fmt ": _parse_fmt,
     "fact": _parse_fact,
@@ -950,6 +1000,7 @@ _PARSERS = {
     "smpl": _parse_smpl,
     "inst": _parse_inst,
     "cue ": _parse_cue,
+    "plst": _parse_plst,
     "LIST": _parse_list,
     "bext": _parse_bext,
     "BWBM": _parse_bwbm,
@@ -1082,6 +1133,30 @@ def inspect_wav(filepath, ctx=None):
         file_warns.append("no data chunk: no audio payload")
     if "fmt " in seen and "data" in seen and seen.index("fmt ") > seen.index("data"):
         file_warns.append("fmt appears after data, violating the one RIFF ordering rule")
+
+    # A playlist segment names a cue point by id, and `cue ` is what defines
+    # those ids. plst is written BEFORE cue in the files measured, so the
+    # check waits until the walk is done and ctx holds both.
+    wanted = ctx.get("plst_cue_ids") or []
+    if wanted:
+        defined = set()
+        for entry in chunks:
+            if entry.get("id") != "cue ":
+                continue
+            for fld in entry.get("fields") or []:
+                note = fld.get("note") or ""
+                if fld["name"].startswith("cue[") and note.startswith("id "):
+                    try:
+                        defined.add(int(note[3:].split(",")[0]))
+                    except ValueError:
+                        pass
+        missing = sorted({c for c in wanted if c not in defined})
+        if missing and defined:
+            file_warns.append(
+                f"plst names cue point(s) {missing} that cue does not define")
+        elif missing and not defined:
+            file_warns.append(
+                f"plst names cue point(s) {missing} and there is no cue chunk")
 
     # The wavetable FRAME COUNT needs both the frame size and the data length,
     # and clm is written before data in every file measured -- so at the moment
