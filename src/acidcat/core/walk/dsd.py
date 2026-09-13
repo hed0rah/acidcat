@@ -288,6 +288,138 @@ def _dsdiff_prop(payload):
     return ", ".join(bits) if bits else "sound properties", fields, warns
 
 
+# Comment types, from the spec's own table. Type 3 is the one that matters in
+# practice: a File History comment is where a ripper writes its own name.
+_COMMENT_TYPES = {
+    0: "general (album)", 1: "channel", 2: "sound source", 3: "file history",
+}
+# For a sound-source comment the reference is not a channel number.
+_SOUND_SOURCE = {0: "DSD recording", 1: "analogue recording"}
+# Marker types. TrackStart and TrackStop are how an edited master carves a
+# continuous stream into tracks, which is what an SACD actually stores.
+_MARK_TYPES = {
+    0: "TrackStart", 1: "TrackStop", 2: "ProgramStart", 3: "obsolete",
+    4: "Index",
+}
+
+# Listing bounds. A real file carries a handful of each.
+_COMMENT_CAP = 32
+_MARKER_CAP = 64
+
+
+def _pstring(body, pos):
+    """A DSDIFF counted string: a u32 length then that many bytes.
+
+    Returns the text and the offset AFTER its pad byte. The pad is decided by
+    the STRING LENGTH being odd, which is what the spec says and what
+    MediaInfoLib does (`if (count%2)`). Deciding it from the absolute offset
+    instead happens to agree while every record starts on an even boundary,
+    and stops agreeing the moment one does not.
+    """
+    if pos + 4 > len(body):
+        return "", pos
+    n = struct.unpack_from(">I", body, pos)[0]
+    text = body[pos + 4:pos + 4 + n].decode("latin-1", "replace")
+    return text.rstrip("\x00"), pos + 4 + n + (n & 1)
+
+
+def _dsdiff_comt(payload, chans):
+    """The comments chunk: a count, then timestamped typed strings.
+
+    This is where a ripper signs its work. A file-history comment carries the
+    tool's name and version and the date it ran, which makes COMT a provenance
+    record rather than a free-text field -- and the reason it is decoded rather
+    than counted.
+    """
+    fields, warns = [], []
+    if len(payload) < 2:
+        return "truncated", fields, ["COMT is under 2 bytes"]
+    count = struct.unpack_from(">H", payload, 0)[0]
+    fields.append(_f(0x00, 2, "comments", count))
+    pos, shown, bits = 2, 0, []
+    while shown < min(count, _COMMENT_CAP) and pos + 14 <= len(payload):
+        # year u16, month/day/hour/minute u8, cmtType u16, cmtRef u16 = TEN
+        # bytes, and then the counted string. Reading the count two bytes late
+        # sliced the first two characters off every comment and ran the text
+        # into the next record: "terial ripped from SACD" for "Material...".
+        year, month, day, hour, minute, ctype, cref = \
+            struct.unpack_from(">HBBBBHH", payload, pos)
+        text, end = _pstring(payload, pos + 10)
+        kind = _COMMENT_TYPES.get(ctype, f"type {ctype}")
+        if ctype == 2:
+            kind += f" ({_SOUND_SOURCE.get(cref, cref)})"
+        elif ctype == 1:
+            kind += f" (channel {cref})" if cref else " (all channels)"
+        stamp = f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}"
+        fields.append(_f(pos, end - pos, f"comment[{shown}]",
+                         text[:200], f"{kind}, {stamp}"))
+        if text:
+            bits.append(text[:40])
+        pos = end                      # _pstring stepped over the pad
+        shown += 1
+    # Two different facts, and the first draft reported only one of them: a
+    # chunk declaring 30,840 comments in seven bytes got "listing the first 32
+    # of 30,840", which claimed thirty-two listings that never happened. How
+    # many were READ is the truncation finding; how many were LISTED is the
+    # coverage note, and a damaged chunk earns both.
+    if shown < min(count, _COMMENT_CAP):
+        warns.append(f"declares {count} comments, {shown} fit in the chunk")
+    if count > _COMMENT_CAP and shown >= _COMMENT_CAP:
+        warns.append(coverage(f"listing the first {_COMMENT_CAP} of {count} "
+                              f"comments"))
+    return (" | ".join(bits) if bits else f"{count} comment(s)"), fields, warns
+
+
+def _dsdiff_diin(payload):
+    """Edited master information: the artist, the title, and the track marks.
+
+    An SACD is authored as one continuous stream and carved into tracks by
+    MARK chunks, so this is where an edited master says what it is. DIAR and
+    DITI are the artist and title -- plain counted strings, and metadata that
+    was being reported as a byte count.
+    """
+    fields, warns = [], []
+    pos, n, marks, bits = 0, 0, 0, []
+    while pos + 12 <= len(payload) and n < _MAX_CHUNKS:
+        cid = payload[pos:pos + 4]
+        size = struct.unpack_from(">Q", payload, pos + 4)[0]
+        body = payload[pos + 12:pos + 12 + size]
+        n += 1
+        if cid == b"DIAR":
+            text, _ = _pstring(body, 0)
+            fields.append(_f(pos, 12 + size, "artist", text[:160]))
+            bits.append(text[:40])
+        elif cid == b"DITI":
+            text, _ = _pstring(body, 0)
+            fields.append(_f(pos, 12 + size, "title", text[:160]))
+            bits.append(text[:40])
+        elif cid == b"EMID":
+            fields.append(_f(pos, 12 + size, "edited_master_id",
+                             body.hex(" ")[:60]))
+        elif cid == b"MARK" and len(body) >= 20:
+            marks += 1
+            if marks <= _MARKER_CAP:
+                h, m, sec, smp, off, mtype, mchan, flags = \
+                    struct.unpack_from(">HBBIiHHH", body, 0)
+                text, _ = _pstring(body, 18)
+                fields.append(_f(
+                    pos, 12 + size, f"marker[{marks - 1}]",
+                    f"{h:02d}:{m:02d}:{sec:02d} + {smp:,}",
+                    f"{_MARK_TYPES.get(mtype, f'type {mtype}')}"
+                    + (f", channel {mchan}" if mchan else ", all channels")
+                    + (f", {text[:40]}" if text else "")))
+        else:
+            fields.append(_f(pos, 12 + size, cid.decode("latin-1"),
+                             f"{size:,} bytes"))
+        pos += 12 + size + (size & 1)
+    if marks > _MARKER_CAP:
+        warns.append(coverage(f"listing the first {_MARKER_CAP} of {marks} "
+                              f"markers"))
+    if marks:
+        bits.append(f"{marks} marker(s)")
+    return (", ".join(bits) if bits else f"{n} chunk(s)"), fields, warns
+
+
 def _dst_sound(payload, size, ctx):
     """The DST sound chunk, which is a container rather than a blob.
 
@@ -422,9 +554,33 @@ def inspect_dsdiff(filepath, ctx=None):
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _dst_sound(payload, size, ctx)
                 elif cid == b"COMT":
-                    entry["summary"] = f"comments, {size:,} bytes"
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _dsdiff_comt(payload, ctx.get("channels"))
                 elif cid == b"DIIN":
-                    entry["summary"] = f"edited master info, {size:,} bytes"
+                    entry["summary"], entry["fields"], entry["warnings"] = \
+                        _dsdiff_diin(payload)
+                elif cid == b"DSTI":
+                    # the DST index: one 12-byte entry per frame, giving its
+                    # offset and length. Counted rather than listed -- the
+                    # offsets are a seek table, and reading one back is the
+                    # job of a player rather than of a structural walk.
+                    entries = size // 12
+                    entry["summary"] = f"DST index, {entries:,} entries"
+                    entry["fields"] = [_f(None, 0, "entries", f"{entries:,}",
+                                          "one per DST frame: offset and "
+                                          "length, for seeking")]
+                    if size % 12:
+                        entry["warnings"].append(
+                            f"{size:,} bytes is not a whole number of 12-byte "
+                            f"index entries")
+                elif cid == b"MANF":
+                    entry["summary"] = (
+                        f"manufacturer-specific, {size:,} bytes")
+                    entry["fields"] = [
+                        _f(0x00, 4, "manufacturer",
+                           payload[:4].decode("latin-1", "replace")
+                           if len(payload) >= 4 else ""),
+                        _f(None, 0, "bytes", f"{size:,}")]
                 else:
                     entry["summary"] = f"{size:,} bytes"
             except Exception as e:                      # noqa: BLE001

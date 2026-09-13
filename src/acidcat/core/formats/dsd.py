@@ -61,6 +61,16 @@ DSF_CHANNEL_TYPES = {
 
 # The channel layout each type implies, from the spec's own annotation. Used to
 # say what the channels ARE, not merely how many.
+#
+# TYPES 4 AND 5 ARE EASY TO TRANSPOSE and MediaInfoLib does. Sony's Annotation
+# 1 lists the layouts in enum order and is unambiguous: QUAD comes fourth and
+# is "Front Left, Front Right, Back Left, Back Right"; 4-CHANNELS comes fifth
+# and is "Front Left, Front Right, Center, Low Frequency". MediaInfoLib's
+# table has the LFE layout at index 4 and the back-pair layout at index 5,
+# which is the other way round.
+#
+# Both are four channels, so a file reads and plays either way -- and the
+# centre channel comes out of a back speaker. This table follows the spec.
 DSF_CHANNEL_LAYOUTS = {
     1: ("C",),
     2: ("FL", "FR"),

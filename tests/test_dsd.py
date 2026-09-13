@@ -232,11 +232,12 @@ class TestDsdiff:
         """DSDIFF widened its sizes to 64 bits and KEPT the IFF even-length
         pad. A walk that drops the pad lands one byte into the next chunk on
         the first odd-sized one."""
-        odd = _bchunk(b"COMT", b"x" * 7)               # 7 bytes: needs a pad
-        p = _write(tmp_path, "g.dff", make_dff(extra=odd + _bchunk(b"DIIN", b"ok")))
+        # an id with NO decoder, so this tests the stepping and nothing else
+        odd = _bchunk(b"XXXX", b"x" * 7)               # 7 bytes: needs a pad
+        p = _write(tmp_path, "g.dff", make_dff(extra=odd + _bchunk(b"YYYY", b"ok")))
         chunks, warns = inspect_dsdiff(p)
         ids = [c["id"] for c in chunks]
-        assert "COMT" in ids and "DIIN" in ids, ids
+        assert "XXXX" in ids and "YYYY" in ids, ids
         assert not warns
 
 
@@ -314,3 +315,121 @@ class TestDst:
         chunks, _w = inspect_dsdiff(p)
         assert not _named(chunks, "DST ")["warnings"]
         assert _field(_named(chunks, "DST "), "frames")["value"] == "20"
+
+
+# ── the chunks that carry the metadata ──────────────────────────────
+
+def _cstr(text):
+    """A DSDIFF counted string: u32 length then the bytes."""
+    b = text.encode("latin-1")
+    return struct.pack(">I", len(b)) + b
+
+
+def make_comment(text, year=2014, month=6, day=30, hour=0, minute=0,
+                 ctype=3, cref=0):
+    """One Comment record: ten bytes of header, then a counted string."""
+    rec = (struct.pack(">HBBBBHH", year, month, day, hour, minute, ctype, cref)
+           + _cstr(text))
+    return rec + (b"\x00" if len(rec) & 1 else b"")
+
+
+class TestCommentsAndEditedMaster:
+    """COMT and DIIN were named and not decoded, and both carry content in
+    every real file examined: DIIN holds the artist and the title, and COMT
+    holds the rip's own provenance -- which ripper, what version, what date,
+    from which disc.
+
+    A ripper signing its work is exactly what a forensic tool should surface,
+    and reporting it as "comments, 188 bytes" was the same named-but-empty
+    failure this project keeps finding in other people's walkers.
+    """
+
+    def test_the_artist_and_title_are_read(self, tmp_path):
+        diin = _bchunk(b"DIIN", _bchunk(b"DIAR", _cstr("Steely Dan"))
+                       + _bchunk(b"DITI", _cstr("Razor Boy")))
+        p = _write(tmp_path, "a.dff", make_dff(extra=diin))
+        chunks, _w = inspect_dsdiff(p)
+        d = _named(chunks, "DIIN")
+        assert _field(d, "artist")["value"] == "Steely Dan"
+        assert _field(d, "title")["value"] == "Razor Boy"
+        assert "Steely Dan" in d["summary"]
+
+    def test_a_comment_is_timestamped_and_typed(self, tmp_path):
+        """The ten-byte header is the part that is easy to get wrong. Reading
+        the count two bytes late slices the first two characters off every
+        comment and runs the text into the next record."""
+        body = struct.pack(">H", 1) + make_comment(
+            "Material ripped from SACD: Countdown To Ecstasy")
+        p = _write(tmp_path, "b.dff", make_dff(extra=_bchunk(b"COMT", body)))
+        chunks, _w = inspect_dsdiff(p)
+        c = _named(chunks, "COMT")
+        got = _field(c, "comment[0]")
+        assert got["value"].startswith("Material ripped"), got["value"]
+        assert got["note"] == "file history, 2014-06-30 00:00"
+
+    def test_several_comments_all_decode(self, tmp_path):
+        """Each record pads to even, so a walk that forgets the pad lands one
+        byte into the next comment's year."""
+        body = (struct.pack(">H", 3)
+                + make_comment("odd")               # 3 chars: needs a pad
+                + make_comment("even!")             # 5 chars: needs a pad
+                + make_comment("sixchr"))           # 6 chars: no pad
+        p = _write(tmp_path, "c.dff", make_dff(extra=_bchunk(b"COMT", body)))
+        chunks, _w = inspect_dsdiff(p)
+        c = _named(chunks, "COMT")
+        vals = [_field(c, f"comment[{i}]")["value"] for i in range(3)]
+        assert vals == ["odd", "even!", "sixchr"], vals
+
+    def test_the_comment_type_is_named(self, tmp_path):
+        """Type 2 is a sound source, and its reference is not a channel
+        number -- it says whether the recording was DSD or analogue."""
+        body = struct.pack(">H", 1) + make_comment("x", ctype=2, cref=1)
+        p = _write(tmp_path, "d.dff", make_dff(extra=_bchunk(b"COMT", body)))
+        chunks, _w = inspect_dsdiff(p)
+        note = _field(_named(chunks, "COMT"), "comment[0]")["note"]
+        assert "sound source (analogue recording)" in note, note
+
+    def test_a_track_marker_is_named_by_type(self, tmp_path):
+        """An SACD is authored as one continuous stream and carved into tracks
+        by markers, so the marker type is what makes a track a track."""
+        mark = struct.pack(">HBBIiHHH", 0, 5, 18, 59, 0, 0, 0, 0) + _cstr("")
+        p = _write(tmp_path, "e.dff",
+                   make_dff(extra=_bchunk(b"DIIN", _bchunk(b"MARK", mark))))
+        chunks, _w = inspect_dsdiff(p)
+        m = _field(_named(chunks, "DIIN"), "marker[0]")
+        assert m["value"] == "00:05:18 + 59"
+        assert "TrackStart" in m["note"]
+
+    def test_a_comment_count_larger_than_the_chunk_is_reported(self, tmp_path):
+        body = struct.pack(">H", 9) + make_comment("only one")
+        p = _write(tmp_path, "f.dff", make_dff(extra=_bchunk(b"COMT", body)))
+        chunks, _w = inspect_dsdiff(p)
+        assert any("declares 9 comments, 1 fit" in w
+                   for w in _named(chunks, "COMT")["warnings"])
+
+
+def test_a_dst_index_is_counted_not_listed(tmp_path):
+    """DSTI is a seek table: one 12-byte entry per frame. Reading the offsets
+    back is a player's job, so the walk states how many there are."""
+    p = _write(tmp_path, "g.dff", make_dff(extra=_bchunk(b"DSTI", bytes(12 * 7))))
+    chunks, _w = inspect_dsdiff(p)
+    assert _field(_named(chunks, "DSTI"), "entries")["value"] == "7"
+
+
+def test_a_ragged_dst_index_says_so(tmp_path):
+    p = _write(tmp_path, "h.dff", make_dff(extra=_bchunk(b"DSTI", bytes(20))))
+    chunks, _w = inspect_dsdiff(p)
+    assert any("whole number of 12-byte" in w
+               for w in _named(chunks, "DSTI")["warnings"])
+
+
+def test_a_nonsense_comment_count_reports_what_was_read(tmp_path):
+    """Seven bytes of filler read as a comments chunk declares 30,840 of them.
+    The first draft answered "listing the first 32 of 30,840", which claimed
+    thirty-two listings that never happened. How many were READ is the
+    truncation finding; how many were LISTED is the coverage note."""
+    p = _write(tmp_path, "i.dff", make_dff(extra=_bchunk(b"COMT", b"x" * 7)))
+    chunks, _w = inspect_dsdiff(p)
+    warns = _named(chunks, "COMT")["warnings"]
+    assert any("0 fit in the chunk" in w for w in warns), warns
+    assert not any("listing the first" in w for w in warns), warns

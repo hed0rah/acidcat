@@ -490,6 +490,30 @@ def _wav_many_avid_runs(tmp_path, n):
     return str(p)
 
 
+def _dff_many_comments(tmp_path, n):
+    """A DSDIFF whose COMT chunk carries n comments."""
+    import struct as _s
+    import test_dsd
+
+    body = _s.pack(">H", n) + b"".join(test_dsd.make_comment(f"c{i}")
+                                       for i in range(n))
+    p = tmp_path / "comt.dff"
+    p.write_bytes(test_dsd.make_dff(extra=test_dsd._bchunk(b"COMT", body)))
+    return str(p)
+
+
+def _dff_many_markers(tmp_path, n):
+    """A DSDIFF whose DIIN carries n MARK chunks."""
+    import struct as _s
+    import test_dsd
+
+    mark = _s.pack(">HBBIiHHH", 0, 0, 1, 0, 0, 0, 0, 0) + _s.pack(">I", 0)
+    diin = b"".join(test_dsd._bchunk(b"MARK", mark) for _ in range(n))
+    p = tmp_path / "mark.dff"
+    p.write_bytes(test_dsd.make_dff(extra=test_dsd._bchunk(b"DIIN", diin)))
+    return str(p)
+
+
 def _dff_many_chunks(tmp_path, n):
     """A DSDIFF carrying n trailing chunks."""
     import test_dsd
@@ -859,6 +883,10 @@ SWEPT = [
     ("acidcat.core.walk.dsd", "_MAX_CHUNKS", 4, _dff_many_chunks,
      "stopped after"),
     ("acidcat.core.walk.dsd", "_CHANNEL_LIST_CAP", 4, _dff_many_channels,
+     "listing the first"),
+    ("acidcat.core.walk.dsd", "_COMMENT_CAP", 4, _dff_many_comments,
+     "listing the first"),
+    ("acidcat.core.walk.dsd", "_MARKER_CAP", 4, _dff_many_markers,
      "listing the first"),
 ]
 
