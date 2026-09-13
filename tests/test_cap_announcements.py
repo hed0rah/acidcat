@@ -808,6 +808,23 @@ def _pdx_many_samples(tmp_path, n):
     return str(q)
 
 
+def _s3p_many_keygroups(tmp_path, n):
+    """An .s3p with n keygroups, to cross the keygroup-listing cap."""
+    import seeds
+    q = tmp_path / "many.s3p"
+    q.write_bytes(seeds.SEEDS["s3p"][0](keygroups=n))
+    return str(q)
+
+
+def _s3p_over_cap(tmp_path, n):
+    """An .s3p larger than n bytes, to cross the read cap. Each keygroup block
+    is a fixed 397 bytes on the wire, so the size comes from the count."""
+    import seeds
+    q = tmp_path / "big.s3p"
+    q.write_bytes(seeds.SEEDS["s3p"][0](keygroups=max(2, n // 397 + 2)))
+    return str(q)
+
+
 def _hps_over_cap(tmp_path, n):
     """An .hps larger than n bytes, to cross the stream walkers' read cap.
 
@@ -875,6 +892,10 @@ SWEPT = [
     ("acidcat.core.walk.mdx", "_MDX_READ_CAP", 64, _mdx_over_cap, "parsed the first"),
     ("acidcat.core.walk.pdx", "_PDX_SAMPLE_CAP", 4, _pdx_many_samples,
      "listing the first"),
+    ("acidcat.core.walk.akai", "_S3P_KEYGROUP_CAP", 4, _s3p_many_keygroups,
+     "listing the first"),
+    ("acidcat.core.walk.akai", "_S3P_READ_CAP", 2048, _s3p_over_cap,
+     "parsed the first"),
     ("acidcat.core.walk.pdx", "_PDX_SLOT_FIELD_CAP", 4, _pdx_many_samples,
      "filled slots"),
     ("acidcat.core.walk.streams", "_HEAD_CAP", 64, _hps_over_cap, "lower bound"),

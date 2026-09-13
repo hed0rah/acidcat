@@ -271,6 +271,58 @@ def mdx(channels=9):
     return head + body
 
 
+@seed("s3p", ".s3p")
+def s3p(keygroups=2, name="SEED PROG"):
+    """Akai S1000/S3000 program: a recording of a SysEx dump, so the payload is
+    nibble-split (low nibble first) and every block is 192 bytes on the wire
+    for 150 bytes of content.
+
+    Names are padded with the AKAI space code rather than with zeros, because
+    zero is the code for the character "0" -- an all-zero name field decodes
+    to "000000000000", which is what a lazy builder produces and no sampler
+    ever wrote.
+    """
+    import acidcat.core.formats.akai as A
+    SPACE = A.CHARSET.index(" ")
+
+    def put_name(buf, at, text):
+        for i in range(A.NAME_LEN):
+            ch = text[i] if i < len(text) else " "
+            buf[at + i] = A.CHARSET.index(ch)
+
+    def frame(fn, sel, body):
+        nib = bytearray()
+        for v in body:
+            nib += bytes([v & 0x0F, v >> 4])
+        return (bytes([A.SYSEX_START, A.AKAI_ID, 0, fn, A.S1000_ID])
+                + bytes(sel) + bytes(nib) + bytes([A.SYSEX_END]))
+
+    prog = bytearray(A.BLOCK)
+    prog[0] = 1                              # PRIDENT
+    prog[1] = A.BLOCK_USED                   # KGRP1@, an internal address
+    put_name(prog, 3, name)
+    prog[19], prog[20] = 24, 127             # play range
+    prog[42] = keygroups                     # GROUPS, the cross-check
+
+    out = bytearray(A.MAGIC + struct.pack(">I", keygroups))
+    pd = frame(A.PDATA, [0, 0], prog)
+    out += struct.pack(">I", len(pd)) + pd
+    for k in range(keygroups):
+        kg = bytearray(A.BLOCK)
+        kg[0] = 2                            # KGIDENT
+        # the sampler's own range is 24-127, so many keygroups wrap rather
+        # than running off the end of a byte
+        lo = 24 + (k * 12) % 96
+        kg[3], kg[4] = lo, min(lo + 11, 127)
+        for z in range(A.ZONES):
+            at = A.ZONE_AT + z * A.ZONE_LEN
+            put_name(kg, at, "SEED SAMPLE" if z == 0 else "")
+            kg[at + 13] = 127                # HIVEL
+        kd = frame(A.KDATA, [0, k, 0], kg)
+        out += struct.pack(">I", len(kd)) + kd
+    return bytes(out)
+
+
 @seed("pdx", ".pdx")
 def pdx(samples=3, length=64):
     """X68000 ADPCM sample bank. No magic either: 96 slots of big-endian

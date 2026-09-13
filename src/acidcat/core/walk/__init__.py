@@ -112,6 +112,8 @@ _WALKERS = {
             lambda path, deep: mdx.inspect_mdx(path, deep=deep)),
     "pdx": ("Sharp X68000 ADPCM sample bank (PDX)",
             lambda path, deep: pdx.inspect_pdx(path, deep=deep)),
+    "s3p": ("Akai S1000/S3000 program (SysEx dump)",
+            lambda path, deep: akai.inspect_s3p(path)),
     "sid": ("Commodore 64 SID tune (PSID/RSID)",
             lambda path, deep: sid.inspect_sid(path, deep=deep)),
     "wt": ("Surge/Bitwig wavetable", lambda path, deep: wt.inspect_wt(path)),

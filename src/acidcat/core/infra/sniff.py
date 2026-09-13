@@ -23,6 +23,7 @@ confirms it from disk; ``sniff_bytes`` cannot classify a MOD from a head.
 
 from acidcat.core.codecs import ncw as ncwmod
 from acidcat.core.formats import ableton as abletonmod
+from acidcat.core.formats import akai as akaimod
 from acidcat.core.formats import mdx as mdxmod
 from acidcat.core.formats import pdx as pdxmod
 from acidcat.core.formats import sid as sidmod
@@ -45,7 +46,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "rf64", "rmid", "rx2", "s3m", "sap", "serum", "sf2", "sigmf", "smus",
+    "okt", "pdx", "pgm", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -137,6 +138,10 @@ def sniff_bytes(head):
         return "rmid"
     if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"APRG":
         return "akp"                                   # Akai S5000/S6000 program
+    if head[:8] == akaimod.MAGIC:
+        # The S1000/S3000 program a decade earlier: not a file layout but a
+        # recording of the sampler's own SysEx dump.
+        return "s3p"                                   # Akai S1000/S3000 program
     if head[4:15] == b"MPC1000 PGM":                   # Akai MPC1000/2500 program
         return "pgm"
     if len(head) >= 12 and head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):

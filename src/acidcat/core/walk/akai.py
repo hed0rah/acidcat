@@ -1,4 +1,4 @@
-"""Akai sampler program walker.
+"""Akai sampler program walkers, two generations apart.
 
 .akp is the Akai S5000/S6000 program: a RIFF file (form type APRG) of IFF
 chunks -- prg (program header), out, tune, lfo, mods, then one kgrp per
@@ -6,15 +6,28 @@ keygroup. Each kgrp is itself nested IFF: kloc (key range), env x3, filt, and up
 to four zone chunks, each naming the sample it plays. This surfaces the program
 layout and the sampled zones (referenced sample names); the samples live in
 sibling .wav files, so they are references, not carveable regions.
+
+.s3p is the S1000/S3000 program from a decade earlier, and is not a file layout
+at all: it is a recording of the MIDI System Exclusive dump the sampler sends,
+one message per 150-byte block, each with a length written in front of it. See
+core/formats/akai.py for the layout and where it was verified.
 """
 
 import os
 import struct
 
+from acidcat.core.formats import akai as akaimod
+from acidcat.core.primitives.notes import coverage
 from acidcat.core.walk.base import Unsupported as _Unsupported
 from acidcat.core.walk.base import _f
 
 _KGRP_CAP = 128
+# One .s3p message per keygroup, and the program block itself caps keygroups at
+# 99. The bound is for a file that claims more than the sampler can hold.
+_S3P_KEYGROUP_CAP = 128
+# The largest .s3p measured is under 60 KB. The cap stops a crafted length
+# from making us hold a huge file, and announces itself when it bites.
+_S3P_READ_CAP = 16 * 1024 * 1024
 
 
 def _iff(buf, start=0):
@@ -104,3 +117,95 @@ def inspect_akp(filepath):
                        "summary": f"... {len(keygroups) - _KGRP_CAP} more keygroup(s)",
                        "fields": [], "warnings": [], "payload_base": 0})
     return chunks, warns
+
+
+def inspect_s3p(filepath):
+    """Akai S1000/S3000 program: a transcript of a SysEx dump."""
+    size = os.path.getsize(filepath)
+    with open(filepath, "rb") as f:
+        data = f.read(min(size, _S3P_READ_CAP))
+    if data[:len(akaimod.MAGIC)] != akaimod.MAGIC:
+        raise _Unsupported("not an Akai S1000/S3000 program (no PSYSSS30)")
+
+    warns = []
+    if size > _S3P_READ_CAP:
+        warns.append(coverage("file is %d bytes; parsed the first %d"
+                              % (size, len(data))))
+
+    h = akaimod.parse_program(data, len(data))
+    if not h["ok"]:
+        return [{"id": "header", "offset": 0, "size": min(size, akaimod.HEADER),
+                 "summary": "not a resolvable Akai program: %s" % h["why"],
+                 "fields": [], "warnings": [], "payload_base": 0}],             ["program did not resolve: %s" % h["why"]]
+
+    prog = h["program"]
+    fields = [_f(0x00, len(akaimod.MAGIC), "magic", "PSYSSS30"),
+              _f(0x08, 4, "keygroups", h["declared_keygroups"],
+                 "messages that follow the program block")]
+    chunks = [{"id": "header", "offset": 0, "size": akaimod.HEADER,
+               "summary": "Akai S1000/S3000 program, %d keygroup(s)"
+                          % h["declared_keygroups"],
+               "fields": fields, "warnings": [], "payload_base": 0,
+               "payload_len": akaimod.HEADER, "extent_len": akaimod.HEADER}]
+
+    # The program block's own count and the number of messages are written by
+    # different parts of the sampler. They agreed in all 1,670 programs
+    # measured, which is what makes the block layout trustworthy -- so when
+    # they disagree, that is worth saying.
+    declared = prog[42] if len(prog) > 42 else None
+    if declared is not None and declared != len(h["keygroups"]):
+        warns.append("the program block declares %d keygroups and %d keygroup "
+                     "message(s) follow" % (declared, len(h["keygroups"])))
+    if h["corrupt"]:
+        warns.append("%d message(s) carry a payload byte with bit 7 set, which "
+                     "no System Exclusive message can; those blocks were "
+                     "masked to read them and their contents are not "
+                     "trustworthy" % h["corrupt"])
+    if h["declared_keygroups"] != len(h["keygroups"]):
+        warns.append("the file header declares %d keygroups and %d keygroup "
+                     "message(s) follow"
+                     % (h["declared_keygroups"], len(h["keygroups"])))
+
+    pf = [_f(None, 0, name, value, note)
+          for name, value, note in akaimod.program_fields(prog)]
+    # Each chunk starts at its own length word, so the file tiles: the
+    # twelve-byte header, then 4 + length for every message.
+    at, plen = h["program_at"], h["program_len"]
+    chunks.append({
+        "id": "program", "offset": at - 4, "size": plen + 4,
+        "summary": "program %s" % (
+            akaimod.akai_name(prog[3:3 + akaimod.NAME_LEN]) or "(unnamed)"),
+        "fields": pf, "warnings": [], "payload_base": at,
+        "payload_len": plen, "extent_len": plen})
+
+    for i, (off, length, body) in enumerate(h["keygroups"][:_S3P_KEYGROUP_CAP]):
+        zones = [z for z in akaimod.keygroup_zones(body) if z["sample"]]
+        kf = [
+            _f(None, 0, "key_range", "%d-%d" % (body[3], body[4]),
+               "%s to %s" % (akaimod._note_name(body[3]),
+                             akaimod._note_name(body[4]))),
+            _f(None, 0, "filter", body[7], "cutoff, 0-99"),
+            _f(None, 0, "amp_envelope",
+               "A%d D%d S%d R%d" % (body[12], body[13], body[14], body[15]),
+               "0-99 each"),
+        ]
+        for z in zones:
+            kf.append(_f(None, 0, "zone[%d]" % z["zone"], z["sample"],
+                         "velocity %d-%d, pan %+d"
+                         % (z["low_velocity"], z["high_velocity"], z["pan"])))
+        chunks.append({
+            "id": "keygroup[%d]" % i, "offset": off - 4, "size": length + 4,
+            "summary": "notes %d-%d, %d zone(s)"
+                       % (body[3], body[4], len(zones)),
+            "fields": kf, "warnings": [], "payload_base": off,
+            "payload_len": length, "extent_len": length})
+    if len(h["keygroups"]) > _S3P_KEYGROUP_CAP:
+        note = coverage("listing the first %d of %d keygroups"
+                        % (_S3P_KEYGROUP_CAP, len(h["keygroups"])))
+        chunks[0]["warnings"].append(note)
+        warns.append(note)
+
+    if h["consumed"] < size:
+        warns.append("%d bytes after the last message are not part of any "
+                     "SysEx frame" % (size - h["consumed"]))
+    return chunks, [w for w in warns if w]
