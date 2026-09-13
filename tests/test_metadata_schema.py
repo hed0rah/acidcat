@@ -173,3 +173,59 @@ def test_a_tagged_format_answers_for_itself():
 def test_an_unknown_format_holds_nothing():
     assert M.fields_for("sf2") == ()
     assert M.where("sf2", "title") is None
+
+
+# ── reading through the same bindings ───────────────────────────────
+
+def test_read_metadata_round_trips_a_wav(tmp_path):
+    """The counterpart to edit_metadata, built on the SAME bindings. A
+    separate read table would be free to drift, and the asymmetry it produced
+    is what this module exists to end: the writer handled thirteen formats and
+    the tag reader eight, a different eight, so WAV metadata was reachable
+    only by walking the file."""
+    p = tmp_path / "rt.wav"
+    p.write_bytes(_minimal("wav"))
+    written = {"title": "Razor Boy", "artist": "Steely Dan", "genre": "Rock",
+               "tempo": "126", "root_note": "60", "originator": "acidcat"}
+    for field, value in written.items():
+        res = edit_metadata(str(p), {field: value})
+        p.write_bytes(res.data)
+
+    got = M.read_metadata(str(p))
+    assert got["title"] == "Razor Boy"
+    assert got["artist"] == "Steely Dan"
+    assert got["genre"] == "Rock"
+    assert got["originator"] == "acidcat"       # bext, not LIST/INFO
+    assert float(got["bpm"]) == 126.0           # acid, and `tempo` folded to it
+    assert int(got["root_note"]) == 60          # smpl
+
+
+def test_an_unset_chunk_field_is_not_reported_as_set(tmp_path):
+    """Chunks are fixed-size, so an unset field is not absent -- it is zero.
+    The acid chunk carries a root note of 0 whether the key is unset or is
+    C-1, and reporting the first would graft a "0" into the next file as
+    though someone had chosen it."""
+    p = tmp_path / "u.wav"
+    p.write_bytes(_minimal("wav"))
+    res = edit_metadata(str(p), {"bpm": "120"})   # writes acid, leaves key unset
+    p.write_bytes(res.data)
+    got = M.read_metadata(str(p))
+    assert "bpm" in got
+    assert "key" not in got, got
+
+
+def test_reading_an_unsupported_format_is_empty_not_an_error(tmp_path):
+    """A courtesy read, the same one read_tags already extends."""
+    p = tmp_path / "x.bin"
+    p.write_bytes(b"\x00" * 64)
+    assert M.read_metadata(str(p)) == {}
+
+
+def test_read_and_write_agree_about_which_formats_they_serve():
+    """The asymmetry, pinned. Anything the ledger says is writable must also
+    be readable, because both now consult the same table."""
+    for fmt, binds in M.BINDINGS.items():
+        assert binds, fmt
+        # every binding is complete enough to read through
+        for field, bind in binds.items():
+            assert bind.label and bind.key, (fmt, field)

@@ -35,6 +35,8 @@ something a human has to know.
 # the acid chunk and a string in a Vorbis comment. A cross-format move cannot
 # be correct without knowing which -- "120" and 120.0 are the same tempo and
 # not the same bytes.
+from collections import namedtuple as _namedtuple
+
 TEXT, NUMBER, NOTE, DATE, TIME = "text", "number", "note", "date", "time"
 # KEY is not free text. The WAV writer turns a key name into a MIDI note and
 # refuses anything it cannot parse -- "unrecognized key 'probe'" -- while a
@@ -94,44 +96,67 @@ def canonical(field):
     return ALIASES.get(field.lower().strip()) if field else None
 
 
-# format id -> {canonical field: where it goes}
+# format id -> {canonical field: Bind(label, chunk, key)}
 #
-# The right-hand side is a human-readable location, not a key the code uses --
-# the writers already know where to put things. Its job is to let a reader ask
-# "where does this end up" and to make a collision visible, which is how the
-# AIFF row below earns its keep.
+# `label` is what a person reads. `chunk` and `key` are where the value
+# actually lives in a walked file, which is what lets reading use this table
+# rather than a second one -- and a second one is the exact duplication this
+# module exists to prevent.
+#
+# chunk is None for the tagged formats, whose values come from the tag reader
+# rather than from a chunk walk.
+Bind = _namedtuple("Bind", "label chunk key")
+
 BINDINGS = {
     "wav": {
-        "title": "LIST/INFO INAM", "artist": "LIST/INFO IART",
-        "album": "LIST/INFO IPRD", "comment": "LIST/INFO ICMT",
-        "genre": "LIST/INFO IGNR", "date": "LIST/INFO ICRD",
-        "track": "LIST/INFO ITRK", "engineer": "LIST/INFO IENG",
-        "software": "LIST/INFO ISFT",
-        "description": "bext description",
-        "originator": "bext originator",
-        "originator_reference": "bext originator reference",
-        "origination_date": "bext origination date",
-        "origination_time": "bext origination time",
-        "bpm": "acid tempo", "key": "acid root note",
-        "root_note": "smpl unity note",
+        "title": Bind("LIST/INFO INAM", "LIST", "INAM"),
+        "artist": Bind("LIST/INFO IART", "LIST", "IART"),
+        "album": Bind("LIST/INFO IPRD", "LIST", "IPRD"),
+        "comment": Bind("LIST/INFO ICMT", "LIST", "ICMT"),
+        "genre": Bind("LIST/INFO IGNR", "LIST", "IGNR"),
+        "date": Bind("LIST/INFO ICRD", "LIST", "ICRD"),
+        "track": Bind("LIST/INFO ITRK", "LIST", "ITRK"),
+        "engineer": Bind("LIST/INFO IENG", "LIST", "IENG"),
+        "software": Bind("LIST/INFO ISFT", "LIST", "ISFT"),
+        "description": Bind("bext description", "bext", "description"),
+        "originator": Bind("bext originator", "bext", "originator"),
+        "originator_reference": Bind("bext originator reference", "bext", "originator_reference"),
+        "origination_date": Bind("bext origination date", "bext", "origination_date"),
+        "origination_time": Bind("bext origination time", "bext", "origination_time"),
+        "bpm": Bind("acid tempo", "acid", "tempo"),
+        "key": Bind("acid root note", "acid", "root_note"),
+        "root_note": Bind("smpl unity note", "smpl", "midi_unity_note"),
     },
     # AIFF has THREE text chunks and more than three ideas to put in them, so
     # comment, description and annotation all land in ANNO. Setting one
     # replaces another, and that is a fact about the format rather than a bug
     # in the writer -- which is exactly why it is written down.
     "aiff": {
-        "title": "NAME", "artist": "AUTH",
-        "comment": "ANNO", "description": "ANNO", "annotation": "ANNO",
+        "title": Bind("NAME", "NAME", "text"),
+        "artist": Bind("AUTH", "AUTH", "text"),
+        "comment": Bind("ANNO", "ANNO", "text"),
+        "description": Bind("ANNO", "ANNO", "text"),
+        "annotation": Bind("ANNO", "ANNO", "text"),
     },
     "tagged": {
-        "title": "TITLE", "artist": "ARTIST", "album": "ALBUM",
-        "albumartist": "ALBUMARTIST", "comment": "COMMENT",
-        "description": "COMMENT", "genre": "GENRE", "date": "DATE",
-        "track": "TRACKNUMBER", "bpm": "BPM", "key": "KEY",
+        "title": Bind("TITLE", None, "title"),
+        "artist": Bind("ARTIST", None, "artist"),
+        "album": Bind("ALBUM", None, "album"),
+        "albumartist": Bind("ALBUMARTIST", None, "albumartist"),
+        "comment": Bind("COMMENT", None, "comment"),
+        "description": Bind("COMMENT", None, "comment"),
+        "genre": Bind("GENRE", None, "genre"),
+        "date": Bind("DATE", None, "date"),
+        "track": Bind("TRACKNUMBER", None, "tracknumber"),
+        "bpm": Bind("BPM", None, "bpm"),
+        "key": Bind("KEY", None, "key"),
     },
     "vital": {
-        "title": "preset_name", "artist": "author", "comment": "comments",
-        "description": "comments", "category": "preset_style",
+        "title": Bind("preset_name", None, "preset_name"),
+        "artist": Bind("author", None, "author"),
+        "comment": Bind("comments", None, "comments"),
+        "description": Bind("comments", None, "comments"),
+        "category": Bind("preset_style", None, "preset_style"),
     },
     # Bitwig distinguishes the DEVICE from the PRESET and has a category for
     # each, so `category` and `preset_category` are separate fields here
@@ -139,9 +164,13 @@ BINDINGS = {
     # preset's, so there is no title binding: claiming one would put a preset
     # title into a device name.
     "bitwig": {
-        "artist": "creator", "comment": "comment", "description": "comment",
-        "tags": "tags", "device": "device_name",
-        "category": "device_category", "preset_category": "preset_category",
+        "artist": Bind("creator", None, "creator"),
+        "comment": Bind("comment", None, "comment"),
+        "description": Bind("comment", None, "comment"),
+        "tags": Bind("tags", None, "tags"),
+        "device": Bind("device_name", None, "device_name"),
+        "category": Bind("device_category", None, "device_category"),
+        "preset_category": Bind("preset_category", None, "preset_category"),
     },
 }
 
@@ -161,7 +190,13 @@ def fields_for(fmt):
 
 
 def where(fmt, field):
-    """Where a canonical field lands in a format, or None."""
+    """Where a canonical field lands in a format, as text, or None."""
+    bind = binding(fmt, field)
+    return bind.label if bind else None
+
+
+def binding(fmt, field):
+    """The full Bind for a field in a format, or None."""
     name = canonical(field)
     return BINDINGS.get(fmt, {}).get(name) if name else None
 
@@ -174,8 +209,8 @@ def collisions(fmt):
     before the move rather than after.
     """
     seen = {}
-    for field, target in BINDINGS.get(fmt, {}).items():
-        seen.setdefault(target, []).append(field)
+    for field, bind in BINDINGS.get(fmt, {}).items():
+        seen.setdefault(bind.label, []).append(field)
     return {t: sorted(f) for t, f in seen.items() if len(f) > 1}
 
 
@@ -197,3 +232,86 @@ def kind_of(field):
     """
     name = canonical(field)
     return CANONICAL[name][1] if name else None
+
+
+def read_metadata(path, fmt=None):
+    """Read a file's metadata as canonical fields.
+
+    The counterpart to `edit_metadata`, and deliberately built on the SAME
+    bindings: a separate read table would be free to drift, and the asymmetry
+    it produced is what this module exists to end. Before this, the writer
+    handled thirteen formats and the tag reader handled eight -- different
+    eight -- so WAV metadata was reachable only by walking the file, and a
+    caller who tried the obvious reader got nothing and no explanation.
+
+    Returns {canonical field: value} for what is present. Absent fields are
+    absent rather than None, so a caller can tell "not set" from "set empty".
+    Never raises: an unreadable file is an empty answer, which is the same
+    courtesy `read_tags` already extends.
+    """
+    from acidcat.core.infra.sniff import sniff
+
+    fmt = fmt or sniff(path)
+    binds = BINDINGS.get(fmt or "", {})
+    if not binds:
+        return {}
+
+    # the tagged formats answer through the tag reader; everything else is
+    # read out of a chunk walk, because that is where its metadata lives
+    if all(b.chunk is None for b in binds.values()):
+        try:
+            from acidcat.core.tagged import read_tags
+            tags = read_tags(path) or {}
+        except Exception:                                  # noqa: BLE001
+            return {}
+        out = {}
+        for field, bind in binds.items():
+            value = tags.get(bind.key)
+            if value not in (None, ""):
+                out.setdefault(field, value)
+            # a collision means two canonical fields read the same place; the
+            # first one wins so `comment` beats `description` deterministically
+        return out
+
+    try:
+        from acidcat.core.walk import walk_file
+        _label, chunks, _warns = walk_file(path)
+    except Exception:                                      # noqa: BLE001
+        return {}
+    by_id = {}
+    for entry in chunks:
+        by_id.setdefault(entry["id"].strip(), entry)
+
+    out = {}
+    for field, bind in binds.items():
+        if bind.chunk is None:
+            continue
+        entry = by_id.get(bind.chunk.strip())
+        if entry is None:
+            continue
+        for fld in entry.get("fields", ()):
+            if fld["name"] == bind.key:
+                value = fld["value"]
+                if _is_set(field, value):
+                    out.setdefault(field, value)
+                break
+    return out
+
+
+def _is_set(field, value):
+    """Is this value a value, or the format's way of saying "nothing here"?
+
+    Chunks are fixed-size, so an unset field is not absent -- it is zero. The
+    acid chunk carries a root note of 0 whether the key is unset or is C-1,
+    and reporting the first as a key would graft a "0" into the next file as
+    though someone had chosen it.
+
+    The cost of this rule is one unreportable value per field: a genuine C-1
+    root note reads as unset. That is the right trade at the bottom of the
+    MIDI range, and it is stated here rather than discovered later.
+    """
+    if value in (None, ""):
+        return False
+    if kind_of(field) in (NOTE, KEY) and value in (0, "0"):
+        return False
+    return True
