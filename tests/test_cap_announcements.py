@@ -154,6 +154,15 @@ EXEMPT = {
                                   "-- covered by tests/test_riff.py::"
                                   "test_peak_record_count_is_checked_against_"
                                   "the_channels"),
+    ("acidcat.core.walk.dsd", "_TAG_CAP"):
+        (Reason.SEARCH_WINDOW, "how much of an embedded ID3 tag to read out "
+                               "of a 200 MB one-bit stream. Invisible in the "
+                               "result: a DSD tag is a few hundred bytes and "
+                               "the frame listing inside it has its own bound "
+                               "in formats.mp3, which announces -- covered by "
+                               "tests/test_dsd.py::TestDsf::"
+                               "test_the_id3_tag_is_read_through_the_shared_"
+                               "reader"),
     ("acidcat.core.formats.xmp", "_VALUE_CAP"):
         (Reason.VIEWPORT, "one property's display width. The value is "
                           "elided with an ellipsis IN the value, which says "
@@ -478,6 +487,26 @@ def _wav_many_avid_runs(tmp_path, n):
     data = test_riff._wav_with(test_riff._chunk(b"DGDA", body))
     p = tmp_path / "dgda.wav"
     p.write_bytes(data)
+    return str(p)
+
+
+def _dff_many_chunks(tmp_path, n):
+    """A DSDIFF carrying n trailing chunks."""
+    import test_dsd
+
+    extra = b"".join(test_dsd._bchunk(b"COMT", b"x" * 4) for _ in range(n))
+    p = tmp_path / "many.dff"
+    p.write_bytes(test_dsd.make_dff(extra=extra))
+    return str(p)
+
+
+def _dff_many_channels(tmp_path, n):
+    """A DSDIFF whose CHNL chunk declares n channels."""
+    import test_dsd
+
+    ids = tuple(b"C%03d" % i for i in range(n))
+    p = tmp_path / "chans.dff"
+    p.write_bytes(test_dsd.make_dff(channel_ids=ids))
     return str(p)
 
 
@@ -826,6 +855,10 @@ SWEPT = [
     ("acidcat.core.formats.xmp", "_PACKET_CAP", 64, _wav_big_xmp_packet,
      "reading the first"),
     ("acidcat.core.walk.ogg", "_TAG_LIST_CAP", 4, _ogg_many_comments,
+     "listing the first"),
+    ("acidcat.core.walk.dsd", "_MAX_CHUNKS", 4, _dff_many_chunks,
+     "stopped after"),
+    ("acidcat.core.walk.dsd", "_CHANNEL_LIST_CAP", 4, _dff_many_channels,
      "listing the first"),
 ]
 

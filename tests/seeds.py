@@ -878,6 +878,26 @@ def w64():
     return _call("test_wave64", "_make_w64", 64, 1, 16, 44100, b"\x01\x02\x03")
 
 
+@seed("dsf", ".dsf")
+def dsf():
+    """Sony DSF: little-endian, flat, and ONE BIT per sample. The seed carries
+    an ID3v2 tag because the metadata block is a pointer to one at the end of
+    the file -- a seed without it would never exercise the offset."""
+    import struct as _s
+    body = b"TIT2" + _s.pack(">I", 4) + bytes([0, 0]) + bytes([0]) + b"abc"
+    tag = b"ID3" + bytes([3, 0, 0]) + bytes([0, 0, 0, 0x7F]) + body
+    return _call("test_dsd", "make_dsf", tag=tag)
+
+
+@seed("dff", ".dff")
+def dff():
+    """Philips DSDIFF: IFF with 64-bit big-endian sizes and the even-length
+    pad kept. The seed carries an ODD-sized trailing chunk so the pad rule is
+    exercised -- without one, a walk that drops the pad still passes."""
+    return _call("test_dsd", "make_dff",
+                 extra=_call("test_dsd", "_bchunk", b"COMT", b"x" * 7))
+
+
 @seed("iq", ".cu8")
 def iq():
     """A bare IQ capture: no header at all, interleaved unsigned 8-bit I/Q. The

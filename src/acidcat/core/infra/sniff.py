@@ -25,6 +25,7 @@ from acidcat.core.codecs import ncw as ncwmod
 from acidcat.core.formats import ableton as abletonmod
 from acidcat.core.formats import mdx as mdxmod
 from acidcat.core.formats import sid as sidmod
+from acidcat.core.formats import dsd as dsdmod
 from acidcat.core.formats import wave64 as wave64mod
 
 # containers an ID3v2 tag is known to wrap; the tag then does not make
@@ -43,7 +44,7 @@ KNOWN_FORMATS = frozenset({
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
     "okt", "pgm", "rf64", "rmid", "rx2", "s3m", "sap", "serum", "sf2", "sigmf", "smus",
-    "dmx", "sid", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
+    "dmx", "dff", "dsf", "sid", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
 
@@ -62,6 +63,10 @@ AUDIO_CONTAINERS = {
     # container worth finding embedded in something larger.
     "w64":  (wave64mod.RIFF_GUID, "w64"),
     "caf":  (b"caff", "caf"),
+    # the two DSD containers. FRM8 is IFF with 64-bit sizes, and the DSF
+    # magic is four characters that also open its first chunk.
+    "dff":  (b"FRM8", "dff"),
+    "dsf":  (b"DSD ", "dsf"),
     "aiff": (b"FORM", "aiff"),
     "aifc": (b"FORM", "aiff"),
     "8svx": (b"FORM", "8svx"),
@@ -178,6 +183,14 @@ def sniff_bytes(head):
     # in LOWERCASE, so it never collides with the RIFF test below.
     if wave64mod.is_wave64(head):
         return "w64"
+    # DSD, the two containers behind SACD. DSF is checked on its declared
+    # header size as well as its magic, because 'DSD ' is four common
+    # characters; DSDIFF is checked on its form type as well as FRM8, which is
+    # the 64-bit IFF container rather than a format of its own.
+    if dsdmod.is_dsf(head):
+        return "dsf"
+    if dsdmod.is_dsdiff(head):
+        return "dff"
     if head[:8] == b"XferJson":
         return "serum"
     if head[:4] == b"vawt":
