@@ -340,21 +340,23 @@ def pmd(title="SEED", composer="NOBODY"):
         body += stream
         pos += len(stream)
     rhythm_at = pos                                      # empty rhythm table
-    # memo anchor: pointer word, tag 0x40, FE
-    memo_table_at = pos + 4 + 27                         # after one tone
-    anchor = struct.pack("<H", memo_table_at) + bytes([0x40, 0xFE])
+    # one 26-byte instrument (number 1, then 25 registers), then the 00 FF
+    # terminator, then the memo strings, then the pointer table last --
+    # which is the order every real file has
     tone_at = pos + 4
-    tone = bytes(27)
+    tone = bytes([1]) + bytes(25) + P.TONE_END
+    strings_at = tone_at + len(tone)
     strings = b""
     ptrs = []
-    base = memo_table_at + 2 * 5                        # 4 slots + terminator
     for text in (b"/", title.encode("shift_jis"), composer.encode("shift_jis"),
                  b"/"):
-        ptrs.append(base + len(strings))
-        strings += text + b"\x00"
+        ptrs.append(strings_at + len(strings))
+        strings += text + bytes(1)
+    memo_table_at = strings_at + len(strings)
+    anchor = struct.pack("<H", memo_table_at) + bytes([0x40, 0xFE])
     table = struct.pack("<5H", *(ptrs + [0]))
     head = struct.pack("<12H", *(offs + [rhythm_at])) + struct.pack("<H", tone_at)
-    return bytes([P.FLAG_PC98]) + head + body + anchor + tone + table + strings
+    return bytes([P.FLAG_PC98]) + head + body + anchor + tone + strings + table
 
 
 @seed("pdx", ".pdx")

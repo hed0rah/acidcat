@@ -26,6 +26,9 @@ _PMD_READ_CAP = 4 * 1024 * 1024
 # A #Memo block may carry up to 128 lines by the MML manual. Listing them all
 # is right; the cap is for a crafted table that loops.
 _PMD_MEMO_LINE_CAP = pmdmod.MEMO_LINE_CAP
+# Instruments listed on the tone chunk. The count is always reported; the
+# largest real file measured holds under 40.
+_PMD_TONE_LIST_CAP = 64
 
 
 def inspect_pmd(filepath, deep=False):
@@ -107,13 +110,31 @@ def inspect_pmd(filepath, deep=False):
     if h["has_tones"]:
         at = 1 + h["tone_at"]
         length = extent_after(at)
+        instruments, end = pmdmod.tones(raw, h)
+        fields = [_f(None, 0, "offset", h["tone_at"],
+                     "from byte 1, as the driver counts"),
+                  _f(None, 0, "instruments", len(instruments),
+                     "%d bytes each: a number and 25 YM2608 registers"
+                     % pmdmod.TONE_RECORD)]
+        for num, off in instruments[:_PMD_TONE_LIST_CAP]:
+            fields.append(_f(off - at, pmdmod.TONE_RECORD, "tone[%d]" % num,
+                             raw[off + 1:off + 5].hex(" "),
+                             "first four register bytes"))
+        tone_warns = []
+        if len(instruments) > _PMD_TONE_LIST_CAP:
+            tone_warns.append(coverage("listing the first %d of %d instruments"
+                                       % (_PMD_TONE_LIST_CAP, len(instruments))))
+            warns.append(tone_warns[-1])
+        if raw[end - 2:end] != pmdmod.TONE_END:
+            tone_warns.append("the instrument list does not end with 00 FF, "
+                              "which every file measured does")
         chunks.append({
             "id": "tones", "offset": at, "size": length,
-            "summary": "FM instrument definitions, %d bytes" % length,
-            "fields": [_f(None, 0, "offset", h["tone_at"],
-                          "from byte 1, as the driver counts")],
-            "warnings": [], "payload_base": at, "payload_len": length,
-            "extent_len": length})
+            "summary": "%d FM instrument%s" % (len(instruments),
+                                               "" if len(instruments) == 1
+                                               else "s"),
+            "fields": fields, "warnings": tone_warns,
+            "payload_base": at, "payload_len": length, "extent_len": length})
     else:
         warns.append("no FM instruments are embedded: compiled without MC's "
                      "/V option, so the driver needs a .FF file to play this")
@@ -150,11 +171,14 @@ def _header_chunk(raw, h):
 
 
 def _memo_text_start(raw, h):
-    """Where the memo's pointer table begins, in file coordinates, or None.
+    """Where the memo block begins, in file coordinates, or None.
 
-    The anchor at tone-4 holds a word pointing at a table of word pointers;
-    the strings follow that. The table is the first thing of the memo block
-    in every file measured, so it is where the block starts.
+    The block is the STRINGS and then the pointer table, and the table sits
+    at the very end of the file pointing backwards. So the block starts at
+    the lowest string pointer -- which is also, in 1,086 of 1,086 files,
+    exactly two bytes past the last instrument: the 00 FF that ends the tone
+    list. The first draft placed the memo at the table and left the strings
+    inside the tone region, which tiled and was wrong.
     """
     if h["memo_at"] is None:
         return None
@@ -163,7 +187,20 @@ def _memo_text_start(raw, h):
     if at + 2 > len(raw):
         return None
     table = 1 + struct.unpack_from("<H", raw, at)[0]
-    return table if table < len(raw) else None
+    if table >= len(raw):
+        return None
+    lowest = table
+    pos = table
+    for _ in range(_PMD_MEMO_LINE_CAP + 8):
+        if pos + 2 > len(raw):
+            break
+        dx = struct.unpack_from("<H", raw, pos)[0]
+        pos += 2
+        if dx == 0:
+            break
+        if 0 < 1 + dx < lowest:
+            lowest = 1 + dx
+    return lowest
 
 
 def _memo_chunk(raw, h, at, extent_after):

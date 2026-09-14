@@ -876,6 +876,33 @@ def _mp4_many_refs(tmp_path, n):
     return str(q)
 
 
+def _pmd_many_tones(tmp_path, n):
+    """A .m with n FM instruments, to cross the tone-listing cap. Built by
+    hand because the seed writes one instrument and the layout is fixed."""
+    import acidcat.core.formats.pmd as P
+    import struct as _s
+    parts = [bytes([0xF6, 0x00, 0x80])] * P.PARTS
+    offs, body, pos = [], b"", P.STREAM_START
+    for st in parts:
+        offs.append(pos)
+        body += st
+        pos += len(st)
+    rhythm_at = pos
+    tone_at = pos + 4
+    tone = b"".join(bytes([i + 1]) + bytes(25) for i in range(n)) + P.TONE_END
+    strings_at = tone_at + len(tone)
+    strings = b"/" + bytes(1) + b"T" + bytes(1) + b"C" + bytes(1) + b"/" + bytes(1)
+    ptrs = [strings_at, strings_at + 2, strings_at + 4, strings_at + 6]
+    memo_table_at = strings_at + len(strings)
+    anchor = _s.pack("<H", memo_table_at) + bytes([0x40, 0xFE])
+    table = _s.pack("<5H", *(ptrs + [0]))
+    head = _s.pack("<12H", *(offs + [rhythm_at])) + _s.pack("<H", tone_at)
+    q = tmp_path / "tones.m"
+    q.write_bytes(bytes([P.FLAG_PC98]) + head + body + anchor + tone + strings
+                  + table)
+    return str(q)
+
+
 def _pmd_over_cap(tmp_path, n):
     """A .m larger than n bytes, to cross the PMD walker's read cap. The seed
     is under 120 bytes, so the tail is padded past the cap."""
@@ -962,6 +989,8 @@ SWEPT = [
      "parsed the first"),
     ("acidcat.core.walk.pmd", "_PMD_READ_CAP", 128, _pmd_over_cap,
      "parsed the first"),
+    ("acidcat.core.walk.pmd", "_PMD_TONE_LIST_CAP", 4, _pmd_many_tones,
+     "listing the first"),
     ("acidcat.core.walk.pdx", "_PDX_SLOT_FIELD_CAP", 4, _pdx_many_samples,
      "filled slots"),
     ("acidcat.core.walk.streams", "_HEAD_CAP", 64, _hps_over_cap, "lower bound"),

@@ -14,8 +14,9 @@ The whole layout, from the driver source and its API documentation:
                            from byte 1: six FM, three SSG, ADPCM, rhythm
     0x17   rhythm table    word; where the rhythm pattern address table is
     0x19   tone offset     word; where the FM instrument definitions start
-    0x1B   ...             the part streams, then the instruments, then a
-                           memo block
+    0x1B   ...             the part streams, then the rhythm table, then the
+                           instruments (26 bytes each, ending 00 FF), then
+                           the memo strings, then the memo pointer table
            (via 0x18+1)    the word at 0x18 of the stream, minus 4, is the
                            memo ANCHOR: a word pointer to the memo table,
                            then a tag byte, then 0xFE
@@ -86,6 +87,32 @@ MEMO_LINE_CAP = 128           # what the MML manual allows for #Memo
 
 FLAG_PC98 = 0
 FLAG_X68000 = 1
+
+# An FM instrument: its number, then 25 bytes of YM2608 operator registers.
+# The driver finds one by walking 26-byte records comparing the number, so
+# the block is a list and not an indexed array. It ends with 00 FF -- a
+# record number of 0 and no registers -- in 1,086 of 1,086 files measured,
+# and the memo strings begin immediately after.
+TONE_RECORD = 26
+TONE_END = b"\x00\xff"
+TONE_CAP = 256                # a byte-sized instrument number cannot exceed it
+
+
+def tones(raw, h):
+    """The FM instruments as (number, offset) pairs, in file order, and the
+    file offset just past the 00 FF terminator. Empty if there are none."""
+    if not h["has_tones"]:
+        return [], 1 + h["tone_at"]
+    pos = 1 + h["tone_at"]
+    out = []
+    while pos + 2 <= len(raw) and len(out) < TONE_CAP:
+        if raw[pos:pos + 2] == TONE_END:
+            return out, pos + 2
+        if pos + TONE_RECORD > len(raw):
+            break
+        out.append((raw[pos], pos))
+        pos += TONE_RECORD
+    return out, pos
 
 
 def is_pmd(head):
