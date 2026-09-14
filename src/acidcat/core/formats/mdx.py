@@ -130,6 +130,26 @@ def packer_stamp(raw, base):
     return ""
 
 
+# The shape shared by the SACOM modules that are not MXDRV files: see the
+# note where parse_header reports them.
+POINTER_TABLE_SLOTS = 16
+POINTER_TABLE_USED = 9
+
+
+def looks_like_pointer_table_module(raw):
+    """A 64-byte table of sixteen 32-bit big-endian slots, the first nine
+    rising and inside the file, the rest zero, the first equal to 64."""
+    if len(raw) < POINTER_TABLE_SLOTS * 4 + 4:
+        return False
+    words = struct.unpack_from(">%dI" % POINTER_TABLE_SLOTS, raw, 0)
+    if words[0] != POINTER_TABLE_SLOTS * 4:
+        return False
+    used = words[:POINTER_TABLE_USED]
+    if any(words[POINTER_TABLE_USED:]):
+        return False
+    return all(a < b for a, b in zip(used, used[1:]))
+
+
 def parse_header(raw):
     """Decode an MDX header. Never raises; `ok` says whether it holds together.
 
@@ -142,9 +162,24 @@ def parse_header(raw):
         "pdx_name": "", "has_pdx": False, "base": -1,
         "channels": 0, "voice_offset": 0, "voice_abs": -1,
         "mml_offsets": [], "mml_abs": [], "packer": "",
+        "pointer_table": False,
     }
     end = raw.find(TITLE_END, 0, MAX_TITLE)
     if end < 0:
+        # Before saying "no title", say what the bytes ARE if they are
+        # something consistent. Eighty of 54,738 modules in one archive --
+        # all from one publisher, SACOM -- open with a 64-byte table of
+        # sixteen big-endian 32-bit slots with exactly nine filled, every
+        # stream beginning with a command byte and every file ending FF FA.
+        # Nine is the X68000's channel count, so it is a module for this
+        # machine written by a driver that is not MXDRV. Which driver is not
+        # known and not guessed; the shape is named so the answer is "a
+        # different driver's file" rather than "damaged".
+        if looks_like_pointer_table_module(raw):
+            h["why"] = ("a nine-channel X68000 module with a 64-byte pointer "
+                        "table and no MXDRV title; a different driver's file")
+            h["pointer_table"] = True
+            return h
         h["why"] = "no 0D 0A 1A title terminator in the first %d bytes" % MAX_TITLE
         return h
     h["title"] = decode_title(raw[:end])

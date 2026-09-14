@@ -263,6 +263,34 @@ def test_a_voices_first_module_walks_and_is_identified(tmp_path):
     assert covered == p.stat().st_size
 
 
+# ── a different driver's file, named as such ────────────────────────
+
+def _pointer_table_module(channels=9):
+    """The shape 80 SACOM modules share: sixteen big-endian 32-bit slots,
+    the first nine rising, the rest zero, the first equal to 64."""
+    offsets = [64 + i * 40 for i in range(channels)] + [0] * (16 - channels)
+    head = struct.pack(">16I", *offsets)
+    return head + bytes([0xF7, 0x0D]) + bytes(40 * channels) + b"\xff\xfa"
+
+
+def test_a_pointer_table_module_is_named_not_called_damaged():
+    """Eighty of 54,738 modules in one archive, all from one publisher, are
+    not MXDRV files: no title, a 64-byte pointer table, nine channels.
+    "no title terminator" reads as damage. The shape is named instead, and
+    the driver is not guessed at."""
+    h = mdxmod.parse_header(_pointer_table_module())
+    assert h["ok"] is False
+    assert h["pointer_table"] is True
+    assert "different driver" in h["why"]
+    assert "damaged" not in h["why"]
+
+
+def test_the_pointer_table_shape_does_not_match_a_real_mdx():
+    """Zero of 54,738 real MDX match it. The builder's own tune must not."""
+    assert mdxmod.looks_like_pointer_table_module(_mdx()) is False
+    assert mdxmod.looks_like_pointer_table_module(bytes(80)) is False
+
+
 # ── packed modules ──────────────────────────────────────────────────
 
 def test_a_packed_module_is_an_mdx_not_an_unknown(tmp_path):
