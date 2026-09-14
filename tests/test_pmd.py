@@ -7,7 +7,7 @@ documentation, and the three things a reader gets wrong are pinned here: the
 offsets count from byte 1, the part table is twelve words not eleven, and the
 memo anchor is the four bytes before the tone block rather than a region.
 
-Verified against 813 real files from Modland's PMD archive and the MXDRV
+Verified against 1,515 real files from Modland's PMD archive and the MXDRV
 Complete set, plus the pmdmini specimen: all identified, zero crashes, zero
 untrustworthy geometry, every one tiled to the byte. Zero of 146,564 files
 of everything else pass even the three-byte identification.
@@ -201,7 +201,7 @@ def test_pmd_is_a_known_format():
 @pytest.mark.skipif(not os.environ.get("ACIDCAT_PMD_CORPUS"),
                     reason="set ACIDCAT_PMD_CORPUS to a dir of real .m files")
 def test_real_corpus_walks_completely():
-    """Measured over 813 files: all identified, zero crashes, zero
+    """Measured over 1,515 files: all identified, zero crashes, zero
     untrustworthy geometry, every one tiled to the byte."""
     from acidcat.core.infra import geometry
     from acidcat.core.walk import walk_file

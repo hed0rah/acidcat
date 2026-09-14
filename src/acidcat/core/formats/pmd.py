@@ -50,11 +50,11 @@ Identification is the driver's own three-byte test: byte 0 at most 0x0F, byte
 1 either 0x1A or 0x18, byte 2 either 0 or 0xE6. That is what pmdmini checks
 before it will play a file, so it is the definition.
 
-Verified on 558 real files across Modland's PMD archive and the MXDRV
-Complete set: every one identified, 543 carrying a memo block whose titles
+Verified on 1,515 real files across Modland's PMD archive and the MXDRV
+Complete set: every one identified, 1,439 carrying a memo block whose titles
 and composers decode -- Falcom Sound Team J.D.K., Ryu Umemoto, Masaharu
-Iwata among them. One file with a `.M` extension failed the three-byte test
-and is a text file, which is what the test is for.
+Iwata among them. Two files with a `.M` extension failed the three-byte test: a text file
+and a PDX sample bank, which is what the test is for.
 """
 
 import struct
