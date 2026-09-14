@@ -79,6 +79,32 @@ def test_banks_stack_well_past_eight():
         assert h["banks"] == banks
 
 
+def test_a_table_rounded_up_to_1024_is_accepted_as_padding(tmp_path):
+    """Seventeen real banks put their first sample at 1,024 with the 256
+    bytes after the table all zero: a writer rounding to a power of two. It is
+    accepted ONLY when that gap is zero, and the gap is named as padding so
+    the file still tiles."""
+    blob = bytearray(_pdx(samples=(64,)))
+    # move the sample from 768 to 1024 and insert 256 zero bytes before it
+    blob[0:4] = struct.pack(">I", 1024)
+    blob = bytes(blob[:768]) + bytes(256) + bytes(blob[768:])
+    h = pdxmod.parse_table(blob, len(blob))
+    assert h["ok"] and h["padded"] and h["data_start"] == 1024
+
+    p = _write(tmp_path, blob)
+    chunks, _w = walker.inspect_pdx(str(p))
+    assert [c["id"] for c in chunks][:3] == ["table", "padding", "sample[0]"]
+    assert sum(c["size"] for c in chunks) == len(blob)
+
+
+def test_a_1024_gap_that_is_not_zero_is_not_padding():
+    blob = bytearray(_pdx(samples=(64,)))
+    blob[0:4] = struct.pack(">I", 1024)
+    blob = bytes(blob[:768]) + b"" + bytes(255) + bytes(blob[768:])
+    h = pdxmod.parse_table(blob, len(blob))
+    assert h["ok"] is False
+
+
 def test_a_first_sample_that_is_not_at_a_bank_boundary_is_rejected():
     """768 is the whole of the format's self-description. An offset that is
     not a whole number of banks past zero describes no table."""

@@ -45,6 +45,15 @@ def inspect_pdx(filepath, deep=False):
 
     chunks = [_table_chunk(h)]
     warns = [w for w in chunks[0]["warnings"] if is_coverage(w)]
+    if h["padded"]:
+        pad = h["data_start"] - h["table_size"]
+        chunks.append({
+            "id": "padding", "offset": h["table_size"], "size": pad,
+            "summary": "%d zero bytes; the table rounded up to %d"
+                       % (pad, h["data_start"]),
+            "fields": [], "warnings": [],
+            "payload_base": h["table_size"], "payload_len": pad,
+            "extent_len": pad})
 
     # distinct REGIONS, not slots: a bank that maps one sample to six numbers
     # has one region and six slots reaching it

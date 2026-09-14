@@ -53,6 +53,8 @@ BANK = SLOTS_PER_BANK * SLOT          # 768
 # from making us read a table larger than the file; it is not a claim about
 # the format, which declares no ceiling.
 MAX_BANKS = 32
+# A single bank rounded up to a power of two by its writer.
+PADDED_TABLE = 1024
 # A slot length is BYTES. MSM6258 ADPCM packs one sample per nibble, so the
 # audio is twice as many samples as the length says.
 SAMPLES_PER_BYTE = 2
@@ -65,7 +67,8 @@ def parse_table(raw, filesize):
     sample number and a compacted list would not be addressable.
     """
     h = {"ok": False, "why": "", "table_size": 0, "banks": 0,
-         "slots": [], "used": 0, "packer": "", "data_start": 0}
+         "slots": [], "used": 0, "packer": "", "data_start": 0,
+         "padded": False}
     if filesize < BANK + SLOT:
         h["why"] = "file is smaller than one %d-byte bank table" % BANK
         return h
@@ -104,6 +107,16 @@ def parse_table(raw, filesize):
         if low > want and low % BANK == 0 and low <= MAX_BANKS * BANK:
             n = low // SLOT
             continue
+        # One bank, then the data at 1024 rather than 768: a writer that
+        # rounds the table up to a power of two. Seventeen real banks do it,
+        # every one with the 256 bytes between all zero, and no bank with
+        # more than one table does. Accepted as padding, and only when the
+        # padding IS zero -- anything else there is data nobody accounted for.
+        if (want == BANK and low == PADDED_TABLE
+                and not raw[BANK:PADDED_TABLE].strip(b"\x00")):
+            h.update(ok=True, table_size=want, banks=1, slots=rows,
+                     used=len(live), data_start=low, padded=True)
+            return h
         h["why"] = ("the first sample begins at %d, which is not where a "
                     "table of whole banks ends" % low)
         return h

@@ -62,11 +62,14 @@ def inspect_mdx(filepath, deep=False):
                      % (h["voice_offset"], h["voice_abs"]))
     elif h["voice_abs"] < len(raw):
         chunks.append(_voice_chunk(raw, h, voices, deep))
-        if not voices:
+        region = _voice_region_end(raw, h) - h["voice_abs"]
+        # No voices at all is a tune that plays only its ADPCM channel, and
+        # 416 of 54,178 do -- so an EMPTY region is a fact about the tune, not
+        # damage. A region that is short but not empty is a voice cut off,
+        # which seventeen real files show and which is worth a warning.
+        if not voices and region > 0:
             warns.append("the voice region is %d bytes, too short for a %d-byte "
-                         "voice definition"
-                         % (_voice_region_end(raw, h) - h["voice_abs"],
-                            mdxmod.VOICE_SIZE))
+                         "voice definition" % (region, mdxmod.VOICE_SIZE))
     mml = _mml_chunk(raw, h)
     if mml:
         chunks.append(mml)
