@@ -472,6 +472,18 @@ def _wav_many_plst_segments(tmp_path, n):
     return str(p)
 
 
+def _wav_many_triggers(tmp_path, n):
+    """A trigger list with n records, each a fixed 24 bytes."""
+    import struct as _s
+    import test_riff
+
+    rec = b"cue " + _s.pack("<HHI", 0, 0, 1) + bytes([0xFF, 0x3C, 0x90, 0])         + bytes(8)
+    body = _s.pack("<I", n) + rec * n
+    p = tmp_path / "tlst.wav"
+    p.write_bytes(test_riff._wav_with(test_riff._chunk(b"tlst", body)))
+    return str(p)
+
+
 def _wav_many_xmp_properties(tmp_path, n):
     """An XMP packet carrying n properties."""
     import test_riff
@@ -974,6 +986,8 @@ SWEPT = [
     ("acidcat.core.walk.wav", "_XMP_PROPERTY_CAP", 4, _wav_many_xmp_properties,
      "listing the first"),
     ("acidcat.core.walk.wav", "_PLST_SEGMENT_CAP", 4, _wav_many_plst_segments,
+     "listing the first"),
+    ("acidcat.core.walk.wav", "_TLST_RECORD_CAP", 4, _wav_many_triggers,
      "listing the first"),
     ("acidcat.core.walk.base", "_OPAQUE_RUN_CAP", 4, _wav_many_avid_runs,
      "listing the first"),

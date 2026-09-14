@@ -705,6 +705,19 @@ _XMP_PROPERTY_CAP = 40
 _PEAK_CHANNEL_CAP = 64
 # A playlist is a handful of segments. The bound is for a crafted one.
 _PLST_SEGMENT_CAP = 64
+# A trigger list record, fixed. 4 + count * 24 is the whole payload in all 30
+# specimens measured, across four different payload sizes.
+_TLST_RECORD = 24
+# The most triggers to list individually. The declared count is always
+# reported, so a shortened listing never reads as the whole list. The largest
+# real one measured has eight.
+_TLST_RECORD_CAP = 64
+# MIDI's Note On status byte, which is what the trigger word's third byte is.
+_MIDI_NOTE_ON = 0x90
+# Every SAUR measured is exactly this long.
+_SAUR_SIZE = 32
+# And every chrp.
+_CHRP_SIZE = 12
 
 
 # Windows clipboard format ids, for the DISP chunk's first word. Only the few
@@ -945,6 +958,146 @@ def _parse_peak(b, ctx):
             if have else "no peak records"), fields, warns
 
 
+def _parse_fake(b, _ctx):
+    """`Fake`: a placeholder, and it says so in its own name.
+
+    Measured on 30 specimens from unrelated libraries: two bytes in 29 of
+    them and four in one, and the content is either NULs or spaces. Nothing
+    is encoded in it. It is reported rather than decoded because there is
+    nothing to decode, and because a reader who meets a chunk called `Fake`
+    deserves to be told it is exactly what it looks like.
+    """
+    blank = not b.strip(b"\x00 ")
+    return ("%d blank byte(s)" % len(b) if blank
+            else "%d byte(s), not blank" % len(b)), \
+        [_f(0x00, len(b), "bytes", b[:8].hex(" ") or "(empty)",
+            "NULs or spaces in every specimen measured" if blank
+            else "this one is NOT blank, which no specimen measured was")], []
+
+
+def _parse_chrp(b, _ctx):
+    """`chrp`: twelve bytes, and all thirty specimens measured are zero.
+
+    It travels with `muma`, which does carry per-file values, so this is
+    probably a companion record its writer never fills in. Reported rather
+    than decoded, because zero bytes decode to nothing.
+    """
+    blank = not b.strip(b"\x00")
+    warns = []
+    if len(b) != _CHRP_SIZE:
+        warns.append("chrp is %d bytes; every specimen measured is %d"
+                     % (len(b), _CHRP_SIZE))
+    return ("%d zero byte(s)" % len(b) if blank
+            else "%d byte(s), not zero" % len(b)),         [_f(0x00, len(b), "bytes", b[:12].hex(" ") or "(empty)",
+            "zero in every specimen measured" if blank
+            else "NOT zero; every specimen measured is")], warns
+
+
+def _parse_saur(b, _ctx):
+    """`SAUR`: a fixed 32-byte version string, NUL-padded.
+
+    All 30 specimens are byte-identical and read `1.1.0.0`, across two
+    unrelated libraries. So it stamps the writer's version and carries nothing
+    about the file it is in.
+    """
+    if not b:
+        return "empty", [], ["SAUR payload is empty"]
+    text = b.split(b"\x00", 1)[0].decode("latin-1", "replace")
+    warns = []
+    if len(b) != _SAUR_SIZE:
+        warns.append("SAUR is %d bytes; every specimen measured is %d"
+                     % (len(b), _SAUR_SIZE))
+    return ("version %s" % text if text else "no version string"), \
+        [_f(0x00, len(text), "version", text,
+            "a writer's stamp; the same in every specimen measured")], warns
+
+
+def _parse_cdif(b, _ctx):
+    """`CDif`: 68 bytes that are the same 68 bytes in every file.
+
+    The first word is the chunk's own size and the second is 1; the remaining
+    sixty bytes are zero. Thirty specimens from unrelated libraries are
+    byte-identical, so whatever it was meant to hold, nothing is putting
+    anything in it.
+    """
+    fields, warns = [], []
+    if len(b) < 8:
+        return "truncated", fields, ["CDif payload is under 8 bytes"]
+    declared, kind = _u32(b, 0), _u32(b, 4)
+    fields.append(_f(0x00, 4, "size", declared,
+                     "the chunk's own size, repeated"))
+    fields.append(_f(0x04, 4, "value", kind))
+    if declared != len(b):
+        warns.append("CDif declares %d bytes and its payload is %d"
+                     % (declared, len(b)))
+    rest = b[8:]
+    if rest.strip(b"\x00"):
+        # worth saying: it would be the first specimen carrying anything
+        fields.append(_f(0x08, len(rest), "rest", rest[:16].hex(" "),
+                         "NOT zero; every specimen measured is"))
+    else:
+        fields.append(_f(0x08, len(rest), "rest", "%d zero bytes" % len(rest),
+                         "zero in every specimen measured"))
+    return "%d bytes, constant in every specimen measured" % len(b), \
+        fields, warns
+
+
+def _parse_tlst(b, ctx):
+    """`tlst`: a trigger list. Which chunk to play, and what plays it.
+
+    A count and then fixed 24-byte records, verified on 30 specimens across
+    four payload sizes (28, 52, 100 and 196 bytes) where 4 + count * 24 is the
+    whole payload every time. Every record in every specimen names `cue `, so
+    a trigger targets a cue point.
+
+    Two things are deliberately NOT claimed.
+
+    The second word is not the cue point's ID. It reads 0 where the file's own
+    `cue ` chunk calls the point 1, in all thirty specimens, so whatever it
+    selects, it is not by the id `cue ` assigns. It is reported as the two
+    16-bit halves it visibly is, and named `selector`, because that is as far
+    as the evidence goes.
+
+    The fourth word is offered rather than asserted. It reads `FF nn 90 00`,
+    where 0x90 is MIDI's Note On and nn took 60, 61, 62 and 63 across the
+    specimens -- consecutive notes from middle C, which is what a trigger list
+    is for. The reading is shown next to the raw bytes so a reader can judge
+    it.
+    """
+    fields, warns = [], []
+    if len(b) < 4:
+        return "truncated", fields, ["tlst payload is under 4 bytes"]
+    count = _u32(b, 0)
+    capacity = (len(b) - 4) // _TLST_RECORD
+    fields.append(_f(0x00, 4, "triggers", count))
+    if count != capacity:
+        warns.append("tlst declares %d trigger(s) and its payload holds %d"
+                     % (count, capacity))
+    for i in range(min(count, capacity, _TLST_RECORD_CAP)):
+        at = 4 + i * _TLST_RECORD
+        target = b[at:at + 4].decode("latin-1", "replace")
+        low, high = _u16(b, at + 4), _u16(b, at + 6)
+        kind = _u32(b, at + 8)
+        trigger = b[at + 12:at + 16]
+        note = ""
+        if len(trigger) == 4 and trigger[2] == _MIDI_NOTE_ON:
+            note = "reads as MIDI note %d on note-on" % trigger[1]
+        fields.append(_f(at, _TLST_RECORD, "trigger[%d]" % i,
+                         "%s, selector %d/%d" % (target, low, high),
+                         (note + ", " if note else "")
+                         + "raw %s" % trigger.hex(" ")))
+        if kind != 1:
+            warns.append("trigger[%d] has kind %d; every specimen measured "
+                         "has 1" % (i, kind))
+        if target.strip() != "cue":
+            warns.append("trigger[%d] targets %r; every specimen measured "
+                         "targets 'cue '" % (i, target))
+    if count > _TLST_RECORD_CAP:
+        warns.append(coverage("listing the first %d of %d triggers"
+                              % (_TLST_RECORD_CAP, count)))
+    return ("%d trigger(s)" % count if count else "no triggers"), fields, warns
+
+
 def _parse_plst(b, ctx):
     """`plst`: the playlist. Which cue points to play, how long, how often.
 
@@ -1001,6 +1154,11 @@ _PARSERS = {
     "inst": _parse_inst,
     "cue ": _parse_cue,
     "plst": _parse_plst,
+    "tlst": _parse_tlst,
+    "Fake": _parse_fake,
+    "SAUR": _parse_saur,
+    "CDif": _parse_cdif,
+    "chrp": _parse_chrp,
     "LIST": _parse_list,
     "bext": _parse_bext,
     "BWBM": _parse_bwbm,

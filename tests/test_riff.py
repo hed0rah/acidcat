@@ -992,3 +992,146 @@ def test_a_plst_that_lies_about_its_segment_count(tmp_path):
     _l, chunks, _w = _walk_bytes(tmp_path, data)
     assert any("declares 50 segments" in w
                for w in _chunk_named(chunks, "plst")["warnings"])
+
+
+# ── four chunks nobody documents, measured on 30 specimens each ─────
+#
+# ExifTool, which is the most comprehensive metadata reader there is,
+# documents none of them. Three turn out to carry no per-file information at
+# all, which is a finding rather than a failure: "68 constant bytes in every
+# file measured" is a complete description, and it is what stops the next
+# reader spending an evening on it.
+
+def _tlst(count, note=0x3C, target=b"cue ", kind=1, sel=(0, 0)):
+    rec = (target + struct.pack("<HHI", sel[0], sel[1], kind)
+           + bytes([0xFF, note, 0x90, 0]) + bytes(8))
+    return _chunk(b"tlst", struct.pack("<I", count) + rec * count)
+
+
+def _fields(chunks, cid):
+    c = next(x for x in chunks if x["id"].strip() == cid.strip())
+    return c, {f["name"]: f["value"] for f in c["fields"]}
+
+
+def test_tlst_is_a_count_and_fixed_24_byte_records(tmp_path):
+    """4 + count * 24 is the whole payload in all 30 specimens measured,
+    across four different payload sizes."""
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_tlst(3)))
+    c, vals = _fields(chunks, "tlst")
+    assert vals["triggers"] == 3
+    assert len([f for f in c["fields"] if f["name"].startswith("trigger[")]) == 3
+    assert not c["warnings"]
+
+
+def test_a_trigger_names_the_chunk_it_targets(tmp_path):
+    """Every record in every specimen names `cue `, so a trigger targets a
+    cue point. A record naming anything else has not been seen and says so."""
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_tlst(1)))
+    _c, vals = _fields(chunks, "tlst")
+    assert vals["trigger[0]"].startswith("cue ")
+
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_tlst(1, target=b"labl")), "b.wav")
+    c, _vals = _fields(chunks, "tlst")
+    assert any("targets" in w for w in c["warnings"])
+
+
+def test_the_midi_reading_is_offered_beside_the_raw_bytes(tmp_path):
+    """0x90 is MIDI's Note On and the byte beside it took 60 through 63 across
+    the specimens. That is a reading, so the raw bytes are shown with it."""
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_tlst(1, note=0x3E)))
+    c, _vals = _fields(chunks, "tlst")
+    note = next(f["note"] for f in c["fields"] if f["name"] == "trigger[0]")
+    assert "MIDI note 62" in note
+    assert "ff 3e 90 00" in note
+
+
+def test_a_trigger_word_that_is_not_note_on_gets_no_reading(tmp_path):
+    """The reading is conditional on the byte that carries it. Printing a note
+    number for bytes that are not a note-on would be inventing one."""
+    body = struct.pack("<I", 1) + b"cue " + struct.pack("<HHI", 0, 0, 1) \
+        + bytes([0xFF, 0x3C, 0x00, 0]) + bytes(8)
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"tlst", body)))
+    c, _vals = _fields(chunks, "tlst")
+    note = next(f["note"] for f in c["fields"] if f["name"] == "trigger[0]")
+    assert "MIDI note" not in note
+    assert "raw" in note
+
+
+def test_a_declared_trigger_count_the_payload_cannot_hold_is_reported(tmp_path):
+    body = struct.pack("<I", 99) + b"cue " + struct.pack("<HHI", 0, 0, 1) \
+        + bytes([0xFF, 0x3C, 0x90, 0]) + bytes(8)
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"tlst", body)))
+    c, _vals = _fields(chunks, "tlst")
+    assert any("declares 99" in w for w in c["warnings"])
+
+
+def test_fake_is_reported_as_the_placeholder_it_is(tmp_path):
+    """Two bytes in 29 of 30 specimens, four in one, always NULs or spaces."""
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"Fake", b"\x00\x00")))
+    c, vals = _fields(chunks, "Fake")
+    assert "blank" in c["summary"]
+    assert vals["bytes"] == "00 00"
+
+
+def test_a_Fake_that_is_not_blank_says_so(tmp_path):
+    """No specimen measured carries anything. One that did would be new."""
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"Fake", b"\x01\x02")))
+    c, _vals = _fields(chunks, "Fake")
+    assert "not blank" in c["summary"]
+
+
+def test_chrp_is_twelve_zero_bytes(tmp_path):
+    """All 30 specimens, from four unrelated kits, are zero. It travels with
+    `muma`, which does carry values, so it looks like a companion record its
+    writer never fills in."""
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"chrp", bytes(12))))
+    c, vals = _fields(chunks, "chrp")
+    assert "12 zero byte(s)" in c["summary"]
+    assert not c["warnings"]
+
+
+def test_a_chrp_carrying_something_says_so(tmp_path):
+    _l, chunks, _w = _walk_bytes(
+        tmp_path, _wav_with(_chunk(b"chrp", b"" + bytes(11))))
+    c, _vals = _fields(chunks, "chrp")
+    assert "not zero" in c["summary"]
+
+
+def test_saur_is_a_version_stamp(tmp_path):
+    """All 30 specimens are byte-identical and read 1.1.0.0, across two
+    unrelated libraries, so it stamps the writer and not the file."""
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"SAUR", b"1.1.0.0" + bytes(25))))
+    c, vals = _fields(chunks, "SAUR")
+    assert vals["version"] == "1.1.0.0"
+    assert not c["warnings"]
+
+
+def test_a_saur_of_an_unmeasured_length_says_so(tmp_path):
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"SAUR", b"9.9" + bytes(5))))
+    c, _vals = _fields(chunks, "SAUR")
+    assert any("every specimen measured is 32" in w for w in c["warnings"])
+
+
+def test_cdif_repeats_its_own_size_and_is_otherwise_empty(tmp_path):
+    """Thirty specimens from unrelated libraries are byte-identical."""
+    body = struct.pack("<II", 68, 1) + bytes(60)
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"CDif", body)))
+    c, vals = _fields(chunks, "CDif")
+    assert vals["size"] == 68 and vals["value"] == 1
+    assert "60 zero bytes" in str(vals["rest"])
+    assert not c["warnings"]
+
+
+def test_a_cdif_carrying_something_is_flagged_as_new(tmp_path):
+    body = struct.pack("<II", 68, 1) + b"\x07" + bytes(59)
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"CDif", body)))
+    c, _vals = _fields(chunks, "CDif")
+    note = next(f["note"] for f in c["fields"] if f["name"] == "rest")
+    assert "NOT zero" in note
+
+
+def test_a_cdif_whose_declared_size_disagrees_is_reported(tmp_path):
+    body = struct.pack("<II", 999, 1) + bytes(60)
+    _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"CDif", body)))
+    c, _vals = _fields(chunks, "CDif")
+    assert any("declares 999" in w for w in c["warnings"])

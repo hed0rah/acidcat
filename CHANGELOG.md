@@ -128,8 +128,19 @@ with a published account the reason is in the code next to it.
   867,703-file census: `SNDM` and `ovwf` (Soundminer), `DIGI` (Pro Tools),
   `str2`, `bmrk` and `dtbt` (ACID/Sound Forge), `coll` (Apple Loops). Measured
   by walking each chunk id's own example file and asking whether any fields
-  came back, the named-only list went from 16 ids to 8, and the chunks behind
-  them from about 110,000 to about 35,000.
+  came back, the named-only list went from 16 ids to 8 here and to 3 after
+  the measuring pass below.
+
+- **Five undocumented chunks measured on thirty specimens each, and four hold
+  nothing.** `CDif`, `SAUR`, `chrp` and `Fake` are byte-identical or all-zero
+  in every file measured, and are now reported as exactly that -- "constant in
+  every specimen" is a complete description, and each says so loudly if a
+  specimen ever differs. `tlst` is a trigger list and is decoded: a count,
+  then fixed 24-byte records, every one naming a `cue ` point. The obvious
+  reading of its second word as the cue id was wrong (it reads 0 where the
+  file's own cue chunk says 1, in all thirty files) and the cross-check is
+  what caught it; the field is called `selector` and claims no more.
+  Named-only chunk ids: 16 to 3.
 
 - **`census` keeps an example path for every chunk id**, not just the flagged
   ones, and reads the other half of the IFF family. Without that there was no
