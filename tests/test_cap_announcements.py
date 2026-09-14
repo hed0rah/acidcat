@@ -130,6 +130,14 @@ EXEMPT = {
                                 "shortened for readability, and a real Logic "
                                 "chunk inflates to a few thousand bytes "
                                 "against this 4 MB"),
+    ("acidcat.core.formats.xmp", "_REPAIR_CAP"):
+        (Reason.RUNAWAY_BACKSTOP, "how many illegal attribute names the XMP "
+                                  "reader will rewrite before giving up. A "
+                                  "packet needing hundreds is not one writer's "
+                                  "quirk, and when the bound bites the repair "
+                                  "fails, so the packet is reported as "
+                                  "malformed and unread -- which is the "
+                                  "announcement. Real packets need two"),
     ("acidcat.core.walk.base", "_OPAQUE_SCAN_CAP"):
         (Reason.SEARCH_WINDOW, "how far into a vendor chunk whose layout is not "
                                "published to scan for readable text. Invisible "

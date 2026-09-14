@@ -42,6 +42,35 @@ _VALUE_CAP = 400
 _XPACKET = re.compile(rb"<\?xpacket\b")
 
 
+# An attribute name with TWO colons, which XML does not allow: a QName has at
+# most one. Anchored on the space before it and the `=` after so it cannot
+# match inside an attribute's value, where a colon is ordinary text.
+_EXTRA_COLON = re.compile(
+    rb"(\s)([A-Za-z_][\w.-]*):([\w.-]+):([\w.-]+)(\s*=)")
+# A packet with hundreds of these is not one writer's quirk. Past this the
+# repair stops and the packet stays reported as malformed.
+_REPAIR_CAP = 256
+
+
+def repair_qnames(body):
+    """Rewrite `a:b:c=` to `a:b_c=`. Returns (repaired, how many).
+
+    The extra colon becomes an underscore rather than being dropped, so the
+    recovered name still says what the writer wrote: `dc:description_2`, not
+    `dc:description` colliding with a real one.
+    """
+    count = [0]
+
+    def sub(m):
+        if count[0] >= _REPAIR_CAP:
+            return m.group(0)
+        count[0] += 1
+        return (m.group(1) + m.group(2) + b":" + m.group(3) + b"_"
+                + m.group(4) + m.group(5))
+
+    return _EXTRA_COLON.sub(sub, body), count[0]
+
+
 def is_xmp(data):
     """True if the bytes open as an XMP packet."""
     head = data[:256]
@@ -82,8 +111,24 @@ def parse_xmp(data):
                              else 0)]
     try:
         root = ET.fromstring(body)
-    except ET.ParseError as e:
-        return [], warns + [f"the XMP packet is not well-formed XML ({e})"]
+    except ET.ParseError as first:
+        # One malformation is common enough to be worth recovering from, and
+        # only one: attribute names with an extra colon. Anything else stays
+        # reported and unread.
+        body, fixed = repair_qnames(body)
+        if not fixed:
+            return [], warns + [
+                f"the XMP packet is not well-formed XML ({first})"]
+        try:
+            root = ET.fromstring(body)
+        except ET.ParseError as second:
+            return [], warns + [
+                f"the XMP packet is not well-formed XML ({second})"]
+        warns.append(
+            f"the XMP packet is not well-formed XML: {fixed} attribute "
+            f"name(s) carry a second colon, which a QName may not. They were "
+            f"read as if the extra colon were an underscore; the values below "
+            f"are recovered, not as written")
 
     props = []
     for desc in root.iter(_RDF + "Description"):

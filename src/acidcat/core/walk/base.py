@@ -142,6 +142,15 @@ _OPAQUE_RUN_CAP = 12
 # LGWV-carrying files in a real library that also have a bext chunk, 28 of 33
 # name "Logic Pro X" or "Logic Pro" as the originator, and Apple say the same
 # in their own support forum. `LG` is Logic.
+# Who wrote a chunk, for chunks whose layout is not published. Naming the
+# WRITER is most of what a reader needs -- it turns "four unknown bytes" into
+# "this file has been through Pro Tools" -- and it claims nothing about the
+# contents, which is the honest state for a format nobody has documented.
+#
+# Attributions below the Avid set were established by CO-OCCURRENCE on a
+# 867,703-file census: a chunk that only ever appears beside chunks acidcat
+# already identifies was written by the same tool. Where that reasoning is the
+# only evidence, the comment says so.
 VENDOR_CHUNKS = {
     "umid": "Avid/Pro Tools material identifier",
     "minf": "Avid/Pro Tools media info",
@@ -149,9 +158,21 @@ VENDOR_CHUNKS = {
     "elm1": "Avid/Pro Tools element data",
     "elmo": "Avid/Pro Tools element data",
     "DGDA": "Digidesign analysis data",
+    # sits with minf/elm1/regn/umid/DGDA and nothing else
+    "DIGI": "Digidesign/Pro Tools",
     "LGWV": "Logic Pro",
     "LGBM": "Logic Pro",
     "SMED": "Soundminer metadata",
+    # both only ever appear beside SMED
+    "SNDM": "Soundminer metadata",
+    "ovwf": "Soundminer cached waveform overview",
+    # the ACID family: these three only appear beside `acid` and `strc`, which
+    # acidcat already reads, and never without them
+    "str2": "ACID/Sound Forge stretch data",
+    "bmrk": "ACID/Sound Forge beat markers",
+    "dtbt": "ACID/Sound Forge detected beats",
+    # appears beside basc/cate/trns, the Apple Loops descriptors
+    "coll": "Apple Loops descriptor collection",
 }
 
 
