@@ -13,6 +13,8 @@ produces a plausible-looking number.
 
 import struct
 
+import os
+
 import pytest
 
 from acidcat.core.formats import dsd as dsdmod
@@ -433,3 +435,100 @@ def test_a_nonsense_comment_count_reports_what_was_read(tmp_path):
     warns = _named(chunks, "COMT")["warnings"]
     assert any("0 fit in the chunk" in w for w in warns), warns
     assert not any("listing the first" in w for w in warns), warns
+
+
+# ── opt-in: the real corpus ─────────────────────────────────────────
+
+def _tiles(chunks, size):
+    """True if the LEAF chunks tile the file with no gap and no overlap.
+
+    A container chunk (FRM8 in DSDIFF) spans its children, so summing every
+    chunk's extent double-counts the file and a container that spans the
+    whole file "tiles" it trivially. So: a chunk is a container if any OTHER
+    chunk lies strictly inside it, and only non-containers are tiled. The
+    first draft of this got the fallback wrong and could not fail; the
+    sabotage check in the test below is what caught it.
+    """
+    def inside(inner, outer):
+        return (inner is not outer
+                and outer["offset"] <= inner["offset"]
+                and inner["offset"] + inner["extent_len"]
+                <= outer["offset"] + outer["extent_len"]
+                and inner["extent_len"] < outer["extent_len"])
+
+    # A container owns its header, up to payload_base, plus whatever of its
+    # payload its own FIELDS account for before the first child -- FRM8's
+    # four-byte form type, say. Letting it own everything up to the first
+    # child would let a missing child hide as a bigger header, which the
+    # sabotage test below demonstrates.
+    leaves = []
+    for c in chunks:
+        children = [o for o in chunks if inside(o, c)]
+        if not children:
+            leaves.append((c["offset"], c["extent_len"]))
+            continue
+        owned = c.get("payload_base", c["offset"]) - c["offset"]
+        for f in c.get("fields", []):
+            if f.get("off") is not None and f.get("len"):
+                owned = max(owned, f["off"] + f["len"])
+        if owned > 0:
+            leaves.append((c["offset"], owned))
+    end = 0
+    for off, length in sorted(leaves):
+        if off != end:
+            return False
+        end = off + length
+    return end == size
+
+
+def test_the_tiling_check_can_fail():
+    """A verification that cannot fail verifies nothing. Three sabotages."""
+    whole = [{"offset": 0, "extent_len": 100, "payload_base": 12},
+             {"offset": 12, "extent_len": 40},
+             {"offset": 52, "extent_len": 48}]
+    assert _tiles(whole, 100)
+    hole = [dict(c) for c in whole]
+    hole[1]["extent_len"] = 39
+    assert not _tiles(hole, 100)
+    missing = [whole[0], whole[2]]
+    assert not _tiles(missing, 100)
+    short = [dict(c) for c in whole]
+    short[2]["extent_len"] = 40
+    assert not _tiles(short, 100)
+
+
+@pytest.mark.skipif(not os.environ.get("ACIDCAT_DSD_CORPUS"),
+                    reason="set ACIDCAT_DSD_CORPUS to a dir of real .dsf/.dff")
+def test_real_corpus_walks_completely():
+    """Measured on 49 files across five SACD rips, stereo and 5.1, DSF and
+    DSDIFF: every one identified, zero crashes, zero untrustworthy geometry,
+    and every one tiled to the byte by its leaf chunks.
+
+    The 5.1 files are the ones that matter: they carry channel type 7, which
+    exercises the layout table acidcat reads from Sony's spec and MediaInfoLib
+    has transposed at types 4 and 5.
+    """
+    from acidcat.core.infra import geometry, sniff
+    from acidcat.core.walk import walk_file
+
+    root = os.environ["ACIDCAT_DSD_CORPUS"]
+    files = [os.path.join(r, f) for r, _d, fn in os.walk(root) for f in fn
+             if f.lower().endswith((".dsf", ".dff"))]
+    assert len(files) >= 20, "only %d files; that tests almost nothing" % len(files)
+    seen = tiled = multichannel = 0
+    for path in files:
+        if sniff.sniff(path) not in ("dsf", "dff"):
+            continue
+        seen += 1
+        _label, chunks, _warns = walk_file(path)
+        size = os.path.getsize(path)
+        geometry.normalize(chunks, size)
+        assert all(geometry.is_trustworthy(c) for c in chunks), path
+        tiled += _tiles(chunks, size)
+        for c in chunks:
+            for f in c["fields"]:
+                if f["name"] == "channels" and str(f["value"]) not in ("1", "2"):
+                    multichannel += 1
+    assert seen == len(files), "%d of %d not identified" % (len(files) - seen, len(files))
+    assert tiled == seen, "%d of %d did not tile" % (seen - tiled, seen)
+    assert multichannel >= 1, "no multichannel file in the corpus; type 7 untested"
