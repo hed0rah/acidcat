@@ -38,6 +38,24 @@ MIRROR = os.path.join(os.path.dirname(os.path.dirname(HERE)),
 # Only formats whose card does not exist yet. Once a card is in index.html the
 # entry here is redundant and can go.
 NEW_CARDS = {
+    "dsd": ("DSD", "#5B7F9E", "#48657E", "byte map",
+            "The two containers behind SACD, and they disagree about almost "
+            "everything: Sony's DSF is little-endian with a 64-bit size that "
+            "counts the header, Philips' DSDIFF is big-endian IFF with a size "
+            "that does not. One bit per sample at 2.8 MHz, so a PCM reader "
+            "that opens one reports the byte count wrong by sixteen times."),
+    "pdx": ("PDX", "#35625E", "#294B48", "byte map",
+            "The ADPCM sample bank an MDX plays from, and a pointer table with "
+            "nothing else in it: no magic, no version, no count, no names. "
+            "Ninety-six rows of offset and length, and the row NUMBER is the "
+            "sample's identity, so an empty row is not padding to be tidied "
+            "away."),
+    "s3p": ("S3P", "#6B4A7D", "#553D63", "byte map",
+            "An Akai S1000 program, which is not a file format at all: the "
+            "sampler had only a MIDI System Exclusive dump, so the program was "
+            "recorded message by message. The payload is nibble-split because "
+            "SysEx cannot carry a byte with bit 7 set, and three fields that "
+            "look like offsets are addresses in the sampler's own memory."),
     "voc": ("VOC", "#6b5a3d", "#d6bd7f", "byte map",
             "The sample format of the DOS era, inside almost every Build-engine "
             "archive. A chain of typed blocks whose terminator is one byte with "
