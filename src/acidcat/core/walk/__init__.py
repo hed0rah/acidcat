@@ -18,7 +18,8 @@ from acidcat.core.walk import (
     ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, caf, chiptune, containers, dmx,
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
-    mp4, mpc, multisample, ncw, ni, ogg, pdx, rf64, rmid, rx2, serum, sf2, sigmf, svx,
+    mp4, mpc, multisample, ncw, ni, ogg, pdx, pmd, rf64, rmid, rx2, serum, sf2, sigmf,
+    svx,
     tracker,
     dsd, sid, streams, vital, wav, wave64, wt,
 )
@@ -112,6 +113,8 @@ _WALKERS = {
             lambda path, deep: mdx.inspect_mdx(path, deep=deep)),
     "pdx": ("Sharp X68000 ADPCM sample bank (PDX)",
             lambda path, deep: pdx.inspect_pdx(path, deep=deep)),
+    "pmd": ("PC-98 Professional Music Driver score (PMD)",
+            lambda path, deep: pmd.inspect_pmd(path, deep=deep)),
     "s3p": ("Akai S1000/S3000 program (SysEx dump)",
             lambda path, deep: akai.inspect_s3p(path)),
     "sid": ("Commodore 64 SID tune (PSID/RSID)",

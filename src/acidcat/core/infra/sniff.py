@@ -26,6 +26,7 @@ from acidcat.core.formats import ableton as abletonmod
 from acidcat.core.formats import akai as akaimod
 from acidcat.core.formats import mdx as mdxmod
 from acidcat.core.formats import pdx as pdxmod
+from acidcat.core.formats import pmd as pmdmod
 from acidcat.core.formats import sid as sidmod
 from acidcat.core.formats import dsd as dsdmod
 from acidcat.core.formats import tracker as trackermod
@@ -46,7 +47,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus",
+    "okt", "pdx", "pgm", "pmd", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -407,6 +408,13 @@ def sniff(filepath):
     # first entry has to land exactly where the table ends.
     if fmt is None and pdxmod.looks_like_pdx_file(filepath):
         return "pdx"                                   # Sharp X68000 ADPCM bank
+    # PMD's identification is three bytes with no magic in them, so it goes
+    # LAST among the content checks and only for the extensions its compiler
+    # writes: a random file passes a three-byte test one time in a few
+    # thousand, and this tree walks millions.
+    if (fmt is None and pmdmod.is_pmd(head)
+            and filepath.lower().endswith((".m", ".m2", ".m86", ".mz"))):
+        return "pmd"                                   # PC-98 PMD score
     # every Ableton document except .asd and .amxd is gzipped XML, so the magic
     # is just gzip's. Identifying it needs one decompressed block, which is why
     # this lives here rather than in sniff_bytes.

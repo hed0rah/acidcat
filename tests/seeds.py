@@ -323,6 +323,40 @@ def s3p(keygroups=2, name="SEED PROG"):
     return bytes(out)
 
 
+@seed("pmd", ".m")
+def pmd(title="SEED", composer="NOBODY"):
+    """PC-98 PMD: a flag byte, then twelve little-endian words -- eleven
+    part offsets and the rhythm table -- then the tone offset, all counted
+    from byte 1. The memo anchor is the four bytes before the tones."""
+    import acidcat.core.formats.pmd as P
+    parts = []
+    for i in range(P.PARTS):
+        parts.append(bytes([0xF6, 0x00, 0x80]))          # a short stream
+    body = b""
+    offs = []
+    pos = P.STREAM_START
+    for stream in parts:
+        offs.append(pos)
+        body += stream
+        pos += len(stream)
+    rhythm_at = pos                                      # empty rhythm table
+    # memo anchor: pointer word, tag 0x40, FE
+    memo_table_at = pos + 4 + 27                         # after one tone
+    anchor = struct.pack("<H", memo_table_at) + bytes([0x40, 0xFE])
+    tone_at = pos + 4
+    tone = bytes(27)
+    strings = b""
+    ptrs = []
+    base = memo_table_at + 2 * 5                        # 4 slots + terminator
+    for text in (b"/", title.encode("shift_jis"), composer.encode("shift_jis"),
+                 b"/"):
+        ptrs.append(base + len(strings))
+        strings += text + b"\x00"
+    table = struct.pack("<5H", *(ptrs + [0]))
+    head = struct.pack("<12H", *(offs + [rhythm_at])) + struct.pack("<H", tone_at)
+    return bytes([P.FLAG_PC98]) + head + body + anchor + tone + table + strings
+
+
 @seed("pdx", ".pdx")
 def pdx(samples=3, length=64):
     """X68000 ADPCM sample bank. No magic either: 96 slots of big-endian

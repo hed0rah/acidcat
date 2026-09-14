@@ -876,6 +876,15 @@ def _mp4_many_refs(tmp_path, n):
     return str(q)
 
 
+def _pmd_over_cap(tmp_path, n):
+    """A .m larger than n bytes, to cross the PMD walker's read cap. The seed
+    is under 120 bytes, so the tail is padded past the cap."""
+    import seeds
+    q = tmp_path / "big.m"
+    q.write_bytes(seeds.SEEDS["pmd"][0]() + bytes(max(0, n * 4)))
+    return str(q)
+
+
 def _hps_over_cap(tmp_path, n):
     """An .hps larger than n bytes, to cross the stream walkers' read cap.
 
@@ -950,6 +959,8 @@ SWEPT = [
     ("acidcat.core.formats.mp4", "_DREF_ENTRY_CAP", 4, _mp4_many_refs,
      "examined the first"),
     ("acidcat.core.walk.akai", "_S3P_READ_CAP", 2048, _s3p_over_cap,
+     "parsed the first"),
+    ("acidcat.core.walk.pmd", "_PMD_READ_CAP", 128, _pmd_over_cap,
      "parsed the first"),
     ("acidcat.core.walk.pdx", "_PDX_SLOT_FIELD_CAP", 4, _pdx_many_samples,
      "filled slots"),
