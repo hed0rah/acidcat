@@ -4,6 +4,142 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [1.7.0] - 2026-09-13
+
+Five formats that were on the drives and unreadable, a metadata layer that
+reads through the same table it writes through, and four defects that only a
+real corpus could have shown. The method did not change: walk a real library,
+count what comes back unparsed, and count SEPARATELY what the walker names and
+cannot open. Every number below was measured, and where a reading disagrees
+with a published account the reason is in the code next to it.
+
+### Added
+
+- **DSD: Sony DSF and Philips DSDIFF.** The two containers behind SACD, written
+  from their published specifications and then checked against real encoders,
+  which is where the surprises were. `COMT` and `DIIN` were carrying the
+  metadata all along. The `DST` sound chunk is walked into rather than reported
+  as a size. Two readings deliberately follow Sony's spec over MediaInfoLib,
+  whose channel-type table has 4 and 5 transposed -- both are four channels, so
+  a file plays either way and the centre channel comes out of a back speaker.
+
+- **The Sharp X68000 sample bank (`.pdx`), 3,418 files that nothing opened.**
+  An MDX names a bank and carries no samples, so a tune without its bank is
+  half a file, and acidcat read one half of the pair and nothing of the other.
+  The format is a pointer table and nothing else: 96 rows of big-endian offset
+  and length, 768 bytes, then the data. Banks STACK -- more than 96 samples
+  repeats the table, and nothing declares how many, so the count comes out the
+  way MDX's channel count does: the first sample must begin exactly where the
+  table ends. The row index IS the sample number, so empty rows are kept; and
+  rows alias only exactly (947 duplicate pairs measured, never a window into
+  another sample), so samples are emitted per distinct region. 3,255 of 3,418
+  identified, zero false positives across 132,305 other files. The samples are
+  OKI MSM6258V ADPCM and are located, not decoded: there is no independent
+  decoder here to check one against, and `extract` should not offer audio
+  nobody has verified.
+
+- **The Akai S1000/S3000 program (`.s3p`), deferred twice as "no anchors".** It
+  has an eight-byte magic. What made it look anchorless is that it is not a
+  file format: the S1000 had no program file, only a MIDI System Exclusive
+  dump, so a program was captured message by message with a length in front of
+  each. Two consequences a file reader does not expect. The payload is
+  NIBBLE-SPLIT, because SysEx cannot carry a byte with bit 7 set -- skip that
+  step and you get small numbers that look like plausible parameters and names
+  that decode to strings of the digit 0, a silent failure. And three fields
+  look like pointers and are not: `KGRP1@` reads 150 in ordinary files, which
+  is exactly the block size. What settles the layout is that the program
+  block's own `GROUPS` count equals the number of keygroup messages around it,
+  in 1,670 of 1,670 files. 51,212 velocity zones decoded, and a name on every
+  program where there was none.
+
+- **Scream Tracker 2 (`.stm`)**, the ancestor of S3M and the one tracker module
+  on these drives acidcat could not open.
+
+- **One metadata field vocabulary, pinned to the writers that use it.** 23
+  canonical fields with a table saying, per format, where each one lands and
+  whether it can be read, written, or both. The reader now goes through the
+  same bindings as the writer, which is how `track` was found to be
+  unreadable from every tagged format: the binding held the writer's spelling
+  where the reader emits another. `acidcat formats --fields FMT` prints the
+  map, including fields that share a destination and fields you can set and
+  not read back.
+
+- **`plst`, the playlist chunk the RIFF spec defines and almost nothing
+  writes**, with a check that its segments name cue points that exist. And
+  `PEAK`, which the anatomy page already explained and the walker did not read.
+
+### Fixed
+
+- **Every iPhone video was reported as malformed.** ISO-BMFF says `meta` is a
+  FullBox, with four bytes of version and flags before its children.
+  QuickTime says it is a plain box. Apple writes the QuickTime form in `.MOV`,
+  so acidcat was landing four bytes into the first child, whose size then read
+  as zero -- "overruns its parent", and the whole metadata tree behind it
+  discarded. The two are told apart by looking: the four bytes after the header
+  are a box TYPE in one form and a box SIZE in the other, and a type is
+  printable. Overrun reports across 393 real files: 8 to 0. `mp4-anatomy.html`
+  had described this fork all along, down to "a parser must sniff rather than
+  assume"; the knowledge was written down and the walker never implemented it.
+
+- **A malformed MP4 box claimed 1.2 GB inside a 27 MB file.** Its DECLARED size
+  was passed through as the chunk's extent. It now claims only the bytes that
+  remain and reports the declared value as what it is: evidence, not an extent.
+
+- **Ten MP4 boxes were named and left closed.** `mvhd`, `tkhd`, `mdhd`,
+  `hdlr`, `elst`, `stts`, `stsz`, `smhd` and `dref` carried no fields, so the
+  tree said `trak` three times and nothing about which one was the audio. All
+  decoded, at both box versions -- version 1 widens the times to 64 bits, and
+  reading it with the version-0 offsets lands every field in the wrong place
+  while still producing numbers.
+
+- **28,226 XMP packets read as nothing, correctly.** XMP is RDF/XML and these
+  packets are genuinely malformed: a sample-library tagger writes attribute
+  names like `dc:description:2`, and a QName may hold at most one colon. Of
+  400 packets sampled, 333 failed and every single failure was those two
+  names. There is now exactly one repair -- rewrite `a:b:c=` to `a:b_c=`,
+  re-parse, and warn -- after which 400 of 400 parse. The extra colon becomes
+  an underscore rather than being dropped, so a recovered `dc:title_2` cannot
+  silently overwrite a real `dc:title`, and the warning says the values are
+  recovered rather than as written. Anything else malformed stays reported and
+  unread.
+
+- **440 MDX modules were packed, and 18 more put their voices first.** Both
+  read as "unrecognized file". The packers of the era compressed a module from
+  the offset table onward and left the title and sample-bank name in the clear,
+  so the header parses and the table is compressor output -- 12,312 channels,
+  in the file that turned this up. Separately, the channel count comes from
+  where the offset table ends, and that was taken to be the first MML offset,
+  which assumes the channel streams are written before the voice block. It is
+  a convention, not a rule. Coverage went from 26,689 of 27,166 to 27,147, and
+  the anatomy page, which asserted the wrong rule as fact, was corrected.
+
+- **A MIDI format 2 file is patterns in sequence, not tracks in parallel**, and
+  was being summarised as the latter.
+
+- **Lowercase `junk` and `filr` are padding too**, which 28,520 files said and
+  the walker did not. And a damaged chunk id is no longer rendered as a
+  shorter real-looking one.
+
+### Changed
+
+- **Seven chunk ids gain an attribution rather than a guess.** A chunk that
+  only ever appears beside chunks acidcat already identifies was written by the
+  same tool, which names the WRITER without claiming a layout. From a
+  867,703-file census: `SNDM` and `ovwf` (Soundminer), `DIGI` (Pro Tools),
+  `str2`, `bmrk` and `dtbt` (ACID/Sound Forge), `coll` (Apple Loops). Measured
+  by walking each chunk id's own example file and asking whether any fields
+  came back, the named-only list went from 16 ids to 8, and the chunks behind
+  them from about 110,000 to about 35,000.
+
+- **`census` keeps an example path for every chunk id**, not just the flagged
+  ones, and reads the other half of the IFF family. Without that there was no
+  way to find a specimen for an unknown chunk, which is what the whole exercise
+  above depends on.
+
+- **`acidcat formats` gains an Edit column.** The tool could edit metadata in
+  thirteen formats and the capability matrix, whose entire job is answering
+  "what can acidcat do with format X", did not mention editing at all.
+
 ## [1.6.0] - 2026-09-12
 
 A base-coverage pass over the formats everything else is built on. One method,
