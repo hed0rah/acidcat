@@ -56,6 +56,12 @@ NEW_CARDS = {
             "recorded message by message. The payload is nibble-split because "
             "SysEx cannot carry a byte with bit 7 set, and three fields that "
             "look like offsets are addresses in the sampler's own memory."),
+    "pmd": ("PMD", "#7A4E3D", "#5F3D30", "byte map",
+            "A compiled score for the PC-9801's Professional Music Driver, the "
+            "format most of the PC-98's game music was written in. MML is the "
+            "source, MC.EXE compiles it, and the memo block at the end is the "
+            "part of the source the compiler kept: title, composer, and which "
+            "sample banks to load. Every offset counts from byte 1."),
     "voc": ("VOC", "#6b5a3d", "#d6bd7f", "byte map",
             "The sample format of the DOS era, inside almost every Build-engine "
             "archive. A chain of typed blocks whose terminator is one byte with "
