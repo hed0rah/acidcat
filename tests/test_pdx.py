@@ -6,7 +6,8 @@ arithmetic, the same as MDX's, and it is the thing most worth testing: the
 first sample has to begin exactly where the table ends, and that is the only
 statement the file makes about its own shape.
 
-Verified against 3,418 real banks from the X68000 MDX Master Library: 3,255
+Verified against 3,418 real banks from the X68000 MDX Master Library, then
+8,769 more from the MXDRV Complete archive (8,530 identified): 3,255
 identified, none crashed, none produced untrustworthy geometry, and 3,244 of
 them were accounted for byte for byte. Against 132,305 files of everything
 else, zero false positives.
@@ -64,6 +65,18 @@ def test_the_table_size_is_derived_from_the_first_sample():
         assert h["ok"], h["why"]
         assert h["banks"] == banks
         assert h["table_size"] == banks * pdxmod.BANK
+
+
+def test_banks_stack_well_past_eight():
+    """The first corpus topped out at 8 banks and the cap was set there. A
+    second corpus twice its size had 9, 10, 12, 13 and 17 -- and rejected all
+    22 of them as "not a whole number of banks", which was the cap talking,
+    not the arithmetic. The format declares no ceiling."""
+    for banks in (9, 13, 17):
+        blob = _pdx(banks=banks)
+        h = pdxmod.parse_table(blob, len(blob))
+        assert h["ok"], "%d banks: %s" % (banks, h["why"])
+        assert h["banks"] == banks
 
 
 def test_a_first_sample_that_is_not_at_a_bank_boundary_is_rejected():

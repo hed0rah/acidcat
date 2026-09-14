@@ -19,7 +19,7 @@ that is the row it reads, so a bank with one sample at slot 33 has 95 empty
 rows in front of it, and removing them would silently retune the tune.
 
 Banks stack. A file with more than 96 samples repeats the table -- 192 slots,
-288, up to 768 in the files measured -- and the sample data starts after the
+288, up to 1,632 in the files measured -- and the sample data starts after the
 last one. Nothing declares how many banks there are, so it is recovered the
 same way MDX recovers its channel count: the first sample has to begin exactly
 where the table ends, so the smallest offset in the table IS the table's size.
@@ -47,10 +47,12 @@ from acidcat.core.formats.mdx import packer_stamp
 SLOT = 8
 SLOTS_PER_BANK = 96
 BANK = SLOTS_PER_BANK * SLOT          # 768
-# Eight banks is 768 samples. The largest real table measured is 6,144 bytes,
-# and the bound stops a crafted first-offset from making us read a table
-# larger than the file.
-MAX_BANKS = 8
+# Thirty-two banks is 3,072 samples. The largest real table measured is 17
+# banks (13,056 bytes) -- the first corpus topped out at 8, and a second twice
+# its size found 9, 10, 12, 13 and 17. The bound stops a crafted first-offset
+# from making us read a table larger than the file; it is not a claim about
+# the format, which declares no ceiling.
+MAX_BANKS = 32
 # A slot length is BYTES. MSM6258 ADPCM packs one sample per nibble, so the
 # audio is twice as many samples as the length says.
 SAMPLES_PER_BYTE = 2
