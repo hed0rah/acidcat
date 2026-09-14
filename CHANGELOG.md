@@ -4,6 +4,80 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [1.7.1] - 2026-09-14
+
+One new format, and what doubling a corpus finds. Every walker here was run
+over a real archive twice the size of the one it was verified on, and the
+two bugs that turned up were both a limit derived from one sample presented
+as a property of the format.
+
+### Added
+
+- **PMD: the compiled PC-98 Professional Music Driver score (`.M`).** The
+  driver M. Kajihara wrote for the NEC PC-9801's YM2608, and the format most
+  of the PC-98's game and doujin music was composed in -- Falcom, ZUN, Ryu
+  Umemoto. A composer writes MML and MC.EXE compiles it to this; the score's
+  own `#Title`, `#Composer`, `#Arranger` and sample-bank directives survive as
+  a memo table the driver's author documents slot by slot. The layout was read
+  from the driver source (pmdmini, an oracle and not a source) and three
+  things it caught would each have produced plausible numbers rather than an
+  error: every offset counts from byte 1; the part table is twelve words, not
+  eleven, which left a two-byte hole in front of every first part until fixed;
+  and the memo slot order depends on a tag byte through arithmetic that had to
+  be reproduced rather than read, because getting it wrong puts the composer
+  in the arranger field. Instruments are 26-byte records the driver walks by
+  number, operators stored in the chip's own 1, 3, 2, 4 order. Verified on
+  1,515 files from Modland's archive and the MXDRV Complete set: all
+  identified, zero crashes, every one tiled to the byte. An anatomy page,
+  with every byte from one real tune.
+
+- **Five undocumented RIFF chunks measured on thirty specimens each, and
+  four hold nothing.** `CDif`, `SAUR`, `chrp` and `Fake` are byte-identical
+  or all-zero in every file measured, and are reported as exactly that:
+  "constant in every specimen" is a complete description, and each says so if
+  a specimen ever differs. `tlst` is a trigger list and is decoded -- a count,
+  then fixed 24-byte records, every one naming a `cue ` point. The obvious
+  reading of its second word as the cue id was wrong (it reads 0 where the
+  file's own cue chunk says 1, in all thirty files) and the cross-check caught
+  it; the field is called `selector` and claims no more. Named-only chunk
+  ids: 8 to 3.
+
+- **A DSD corpus test whose tiling check can fail.** Five SACD rips, 49
+  files, including the first 5.1 specimen, which carries channel type 7 and
+  exercises the layout table acidcat reads from Sony's spec on a real file
+  rather than only against MediaInfoLib's transposed copy. The first draft of
+  the check could not fail -- a container spanning the file tiled it
+  trivially -- so three sabotages sit beside it.
+
+### Fixed
+
+- **PDX banks stack past eight, and the cap was pretending otherwise.**
+  `MAX_BANKS` was set from the first corpus's largest table. A second corpus
+  twice the size had 9, 10, 12, 13 and 17-bank files, and rejected all 22
+  with a message blaming the file. Raised to 32; the format declares no
+  ceiling. Also: seventeen banks put their first sample at 1,024 rather than
+  768 with the 256 bytes between all zero -- a writer rounding to a power of
+  two -- and are accepted as padding, only when the padding is zero.
+
+- **An MDX with no voices is not damaged.** 416 of 54,178 modules have no
+  voice block at all: they play only their ADPCM channel. The walker warned
+  "0 bytes, too short for a 27-byte voice", which reads as damage and is a
+  fact about the tune. Empty is silent; short-but-not-empty still warns.
+
+- **Eighty modules from one publisher are a different driver's files, and
+  say so.** They have no title, so the sniff said "no title terminator",
+  which reads as damage. All eighty open with a 64-byte table of sixteen
+  32-bit slots with exactly nine filled -- the X68000's channel count -- and
+  zero of 54,738 real MDX match the shape. Which driver is not known and is
+  not guessed at; the shape is named so the answer is "a different driver's
+  file" rather than "damaged".
+
+### Measured
+
+MXDRV Complete, 63,547 files: MDX 54,629 of 54,738 identified, PDX 8,547 of
+8,769, zero crashes and zero untrustworthy geometry across both. Modland's
+PMD archive, 1,509 files, plus six from the X68000 set: 1,515 of 1,515.
+
 ## [1.7.0] - 2026-09-13
 
 Five formats that were on the drives and unreadable, a metadata layer that
@@ -128,19 +202,8 @@ with a published account the reason is in the code next to it.
   867,703-file census: `SNDM` and `ovwf` (Soundminer), `DIGI` (Pro Tools),
   `str2`, `bmrk` and `dtbt` (ACID/Sound Forge), `coll` (Apple Loops). Measured
   by walking each chunk id's own example file and asking whether any fields
-  came back, the named-only list went from 16 ids to 8 here and to 3 after
-  the measuring pass below.
-
-- **Five undocumented chunks measured on thirty specimens each, and four hold
-  nothing.** `CDif`, `SAUR`, `chrp` and `Fake` are byte-identical or all-zero
-  in every file measured, and are now reported as exactly that -- "constant in
-  every specimen" is a complete description, and each says so loudly if a
-  specimen ever differs. `tlst` is a trigger list and is decoded: a count,
-  then fixed 24-byte records, every one naming a `cue ` point. The obvious
-  reading of its second word as the cue id was wrong (it reads 0 where the
-  file's own cue chunk says 1, in all thirty files) and the cross-check is
-  what caught it; the field is called `selector` and claims no more.
-  Named-only chunk ids: 16 to 3.
+  came back, the named-only list went from 16 ids to 8, and the chunks behind
+  them from about 110,000 to about 35,000.
 
 - **`census` keeps an example path for every chunk id**, not just the flagged
   ones, and reads the other half of the IFF family. Without that there was no

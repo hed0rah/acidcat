@@ -6,7 +6,7 @@ see exactly what a file is, flag anomalies, and edit or repair its structure.
 Closer to readelf / 010 Editor / radare2's format layer than to exiftool, with
 some optional audio analysis (BPM/key via librosa).
 
-v1.7.0 · ~56k source LOC · ~52k test LOC · one hard dependency (`mutagen`);
+v1.7.1 · ~56k source LOC · ~52k test LOC · one hard dependency (`mutagen`);
 everything heavier is an optional, lazily imported extra, so `import acidcat`
 pulls only the stdlib core.
 
