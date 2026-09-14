@@ -825,6 +825,37 @@ def _s3p_over_cap(tmp_path, n):
     return str(q)
 
 
+def _mp4_many_edits(tmp_path, n):
+    """An .mp4 whose edit list has n entries, to cross the listing cap."""
+    def box(t, payload):
+        return struct.pack(">I", len(payload) + 8) + t + payload
+    entry = struct.pack(">IihH", 1000, 0, 1, 0)
+    elst = box(b"elst", b"\x00\x00\x00\x00" + struct.pack(">I", n)
+               + entry * n)
+    mvhd = box(b"mvhd", b"\x00\x00\x00\x00"
+               + struct.pack(">IIII", 0, 0, 1000, 1000)
+               + struct.pack(">Ih", 0x00010000, 0x0100) + b"\x00" * 76)
+    blob = (box(b"ftyp", b"M4A \x00\x00\x00\x00")
+            + box(b"moov", mvhd + box(b"trak", box(b"edts", elst))))
+    q = tmp_path / "edits.mp4"
+    q.write_bytes(blob)
+    return str(q)
+
+
+def _mp4_many_refs(tmp_path, n):
+    """An .mp4 whose dref declares n entries, to cross the reference cap."""
+    def box(t, payload):
+        return struct.pack(">I", len(payload) + 8) + t + payload
+    url = struct.pack(">I", 12) + b"url " + b"\x00\x00\x00"
+    dref = box(b"dref", b"\x00\x00\x00\x00" + struct.pack(">I", n) + url * n)
+    blob = (box(b"ftyp", b"M4A \x00\x00\x00\x00")
+            + box(b"moov", box(b"trak", box(b"mdia", box(b"minf",
+                  box(b"dinf", dref))))))
+    q = tmp_path / "refs.mp4"
+    q.write_bytes(blob)
+    return str(q)
+
+
 def _hps_over_cap(tmp_path, n):
     """An .hps larger than n bytes, to cross the stream walkers' read cap.
 
@@ -894,6 +925,10 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.akai", "_S3P_KEYGROUP_CAP", 4, _s3p_many_keygroups,
      "listing the first"),
+    ("acidcat.core.formats.mp4", "_ELST_ENTRY_CAP", 4, _mp4_many_edits,
+     "listing the first"),
+    ("acidcat.core.formats.mp4", "_DREF_ENTRY_CAP", 4, _mp4_many_refs,
+     "examined the first"),
     ("acidcat.core.walk.akai", "_S3P_READ_CAP", 2048, _s3p_over_cap,
      "parsed the first"),
     ("acidcat.core.walk.pdx", "_PDX_SLOT_FIELD_CAP", 4, _pdx_many_samples,

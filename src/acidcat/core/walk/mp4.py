@@ -6,6 +6,7 @@ import os
 import struct
 
 from acidcat.core.formats import mp4 as mp4mod
+from acidcat.core.primitives.notes import coverage
 from acidcat.core.walk.base import _f
 
 _CODEC_NAMES = {"mp4a": "AAC", "alac": "Apple Lossless", "Opus": "Opus",
@@ -182,6 +183,10 @@ def _config_chunk(data, btype, boff, bhdr, bsize, depth):
 
 
 _STCO_CAP = 256          # chunk-offset entries to annotate individually
+# How far the media header and the sample table may disagree before it means
+# something. Measured on real files: honest rounding lands around 25 ms.
+_CLOCK_SLACK_S = 0.5
+_CLOCK_SLACK = 0.02
 
 
 def _stco_fields(data, b, file_size):
@@ -224,6 +229,165 @@ def _stco_fields(data, b, file_size):
     return note, fields, warns
 
 
+
+def _box_fields(payload, kind):
+    """Decoded fields for one box, or [] for a box we only name.
+
+    Offsets are relative to the box PAYLOAD, which is what payload_base means
+    everywhere in acidcat -- a box's fields are not at absolute positions and
+    reporting them that way is the recurring bug this convention exists for.
+    """
+    if kind == b"mvhd":
+        h = mp4mod.parse_mvhd(payload)
+        if not h:
+            return []
+        out = [_f(0x00, 1, "version", h["version"]),
+               _f(None, 0, "timescale", "%s / s" % f"{h['timescale']:,}",
+                  "the clock the MOVIE is counted in"),
+               _f(None, 0, "duration", f"{h['duration']:,}",
+                  "%.3f s" % h["seconds"] if h["seconds"] else "")]
+        if h["rate"] != 1.0:
+            out.append(_f(None, 0, "rate", h["rate"], "1.0 is normal speed"))
+        out.append(_f(None, 0, "volume", h["volume"], "1.0 is full"))
+        for label in ("created", "modified"):
+            if h[label]:
+                out.append(_f(None, 0, label, _stamp(h[label]),
+                              "counted from 1904, not 1970"))
+        return out
+
+    if kind == b"tkhd":
+        h = mp4mod.parse_tkhd(payload)
+        if not h:
+            return []
+        state = [n for n, on in (("enabled", h["enabled"]),
+                                 ("in movie", h["in_movie"]),
+                                 ("in preview", h["in_preview"])) if on]
+        out = [_f(None, 0, "track_id", h["track_id"]),
+               _f(None, 0, "flags", "0x%06X" % h["flags"],
+                  ", ".join(state) if state else "not played"),
+               _f(None, 0, "duration", f"{h['duration']:,}",
+                  "in the movie timescale, not the media's")]
+        if h["volume"]:
+            out.append(_f(None, 0, "volume", h["volume"]))
+        if h["width"] or h["height"]:
+            out.append(_f(None, 0, "size", "%g x %g" % (h["width"], h["height"]),
+                          "a visual track"))
+        return out
+
+    if kind == b"mdhd":
+        h = mp4mod.parse_mdhd(payload)
+        if not h:
+            return []
+        out = [_f(None, 0, "timescale", f"{h['timescale']:,}",
+                  "usually the audio sample rate; NOT the movie's clock"),
+               _f(None, 0, "duration", f"{h['duration']:,}",
+                  "%.3f s" % h["seconds"] if h["seconds"] else "")]
+        if h["language"]:
+            out.append(_f(None, 0, "language", h["language"], "ISO 639-2/T"))
+        return out
+
+    if kind == b"hdlr":
+        h = mp4mod.parse_hdlr(payload)
+        if not h:
+            return []
+        out = [_f(0x08, 4, "handler", h["handler"], h["means"])]
+        if h["name"]:
+            out.append(_f(0x18, len(h["name"]), "name", h["name"]))
+        return out
+
+    if kind == b"elst":
+        h = mp4mod.parse_elst(payload)
+        if not h:
+            return []
+        out = [_f(0x04, 4, "entries", h["count"])]
+        for i, e in enumerate(h["entries"]):
+            note = "empty edit, inserts silence" if e["media_time"] < 0 else \
+                "starts %s into the media" % f"{e['media_time']:,}"
+            if e["rate"] != 1:
+                note += ", rate %d" % e["rate"]
+            out.append(_f(None, 0, "edit[%d]" % i,
+                          "%s for %s" % (e["media_time"], f"{e['duration']:,}"),
+                          note))
+        if h["count"] > len(h["entries"]):
+            out.append(_f(None, 0, "...", "%d more"
+                          % (h["count"] - len(h["entries"]))))
+        return out
+
+    if kind == b"stts":
+        h = mp4mod.parse_stts(payload)
+        if not h:
+            return []
+        out = [_f(0x04, 4, "entries", h["count"]),
+               _f(None, 0, "samples", f"{h['samples']:,}",
+                  "summed from the table"),
+               _f(None, 0, "duration", f"{h['duration']:,}",
+                  "in the media timescale")]
+        if h["constant"] and h["delta"]:
+            out.append(_f(None, 0, "frame", h["delta"],
+                          "every sample the same length"))
+        return out
+
+    if kind == b"stsz":
+        h = mp4mod.parse_stsz(payload)
+        if not h:
+            return []
+        out = [_f(0x04, 4, "uniform_size", h["uniform"],
+                  "every sample this size" if h["uniform"]
+                  else "0 means the table below"),
+               _f(0x08, 4, "samples", f"{h['count']:,}")]
+        if h["bytes"]:
+            out.append(_f(None, 0, "media_bytes", f"{h['bytes']:,}",
+                          "summed; largest sample %s" % f"{h['largest']:,}"))
+        return out
+
+    if kind == b"smhd":
+        h = mp4mod.parse_smhd(payload)
+        if not h:
+            return []
+        return [_f(0x04, 2, "balance", h["balance"], "0 is centred")]
+
+    if kind == b"dref":
+        h = mp4mod.parse_dref(payload)
+        if not h:
+            return []
+        return [_f(0x04, 4, "entries", h["count"]),
+                _f(None, 0, "self_contained", h["self_contained"],
+                   "the media is in this file"
+                   if h["self_contained"] else
+                   "at least one reference points at ANOTHER file")]
+    return []
+
+
+def _stamp(unix_time):
+    """A box timestamp, rendered. Out-of-range values are shown raw rather than
+    raising: the field is only as trustworthy as the writer."""
+    import datetime
+    try:
+        return datetime.datetime.utcfromtimestamp(unix_time).strftime(
+            "%Y-%m-%d %H:%M:%S UTC")
+    except (OSError, OverflowError, ValueError):
+        return str(unix_time)
+
+
+
+def _capped_note(payload, kind):
+    """A coverage note when a bounded listing actually bit, and nothing when
+    it did not. The bound is on the LISTING, never on the declared count,
+    which is always reported."""
+    if kind == b"elst":
+        h = mp4mod.parse_elst(payload)
+        if h and h["capped"]:
+            return coverage("listing the first %d of %d edit-list entries"
+                            % (mp4mod._ELST_ENTRY_CAP, h["count"]))
+    elif kind == b"dref":
+        h = mp4mod.parse_dref(payload)
+        if h and h["capped"]:
+            return coverage("examined the first %d of %d data references, so "
+                            "whether the media is all in this file is not "
+                            "settled" % (mp4mod._DREF_ENTRY_CAP, h["count"]))
+    return None
+
+
 def inspect_mp4(filepath):
     """Structural view of an ISO-BMFF MP4/M4A file: the decoded metadata (from
     udta > meta > ilst and the movie duration) followed by the box tree."""
@@ -237,8 +401,14 @@ def inspect_mp4(filepath):
         moov_data = data
         moov_box = next((b for b in mp4mod.iter_boxes(data)
                          if b["type"] == b"moov"), None)
-        overruns = moov_box is not None and \
-            moov_box["offset"] + moov_box["size"] > len(data)
+        # `size` on a malformed box is what REMAINS, not what it declared --
+        # so a moov whose tail sits past the head window is `truncated` and
+        # its clamped size no longer sticks out. Asking the flag is the
+        # question that was meant all along; the arithmetic only worked
+        # while a bad size was passed through as an extent.
+        overruns = moov_box is not None and (
+            moov_box["truncated"]
+            or moov_box["offset"] + moov_box["size"] > len(data))
         if (moov_box is None or overruns) and file_size > len(data):
             moff, msz = mp4mod.find_moov(filepath, file_size)
             if moff is not None:
@@ -265,7 +435,10 @@ def inspect_mp4(filepath):
                 desc += f" {rate} Hz"
         mfields.append(_f(None, 0, "codec", desc))
     if dur_s:
-        mfields.append(_f(None, 0, "duration", f"{dur_s:.3f} s"))
+        mfields.append(_f(None, 0, "duration", f"{dur_s:.3f} s",
+                          "the MOVIE, which runs as long as its longest "
+                          "track; a player showing only the audio may say "
+                          "less"))
     fixed = ("title", "artist", "album_artist", "album", "year", "genre",
              "bpm", "composer", "encoder", "comment", "track", "disc",
              "cover_art", "compilation")
@@ -284,13 +457,18 @@ def inspect_mp4(filepath):
                        "summary": f"'{title}'" if title else "iTunes metadata",
                        "fields": mfields, "warnings": []})
 
+    clocks = {}
     for b in mp4mod.iter_boxes(data, file_size=file_size):
         t = b["type"].decode("latin-1", errors="replace")
         summary = ". " * b["depth"] + t
         fields = []
         if b["truncated"]:
-            warns.append(f"box {t!r} at 0x{b['offset']:08x} overruns its parent")
+            warns.append(f"box {t!r} at 0x{b['offset']:08x} declares "
+                         f"{b.get('declared', 0):,} bytes, which overruns its "
+                         f"parent; {b['size']:,} bytes remain")
             summary += " (overruns parent)"
+            fields.append(_f(0x00, 4, "declared_size", f"{b.get('declared', 0):,}",
+                             "larger than what is left; not followed"))
         elif b.get("beyond_cap"):
             # a valid box (e.g. a large mdat) whose contents run past the read
             # window: not an error, just not fully read.
@@ -300,19 +478,66 @@ def inspect_mp4(filepath):
             summary += f"  major brand {brand.decode('latin-1', errors='replace')}"
             fields.append(_f(0x00, 4, "major_brand",
                              brand.decode("latin-1", errors="replace")))
-        box_warns = []
+        box_warns_early = []
+        if not b["truncated"] and not b.get("beyond_cap"):
+            base = b["offset"] + b["hdr"]
+            payload = data[base:b["offset"] + b["size"]]
+            decoded = _box_fields(payload, b["type"])
+            if decoded:
+                fields.extend(decoded)
+                clocks.setdefault(b["type"], []).append((base, payload))
+            note = _capped_note(payload, b["type"])
+            if note:
+                box_warns_early.append(note)
+                warns.append(note)
         if b["type"] in (b"stco", b"co64") and not b["truncated"] \
                 and not b.get("beyond_cap"):
-            note, sfields, box_warns = _stco_fields(data, b, file_size)
+            note, sfields, box_warns_early2 = _stco_fields(data, b, file_size)
+            box_warns_early.extend(box_warns_early2)
             if note:
                 summary += f"  {note}"
             fields.extend(sfields)
         chunks.append({"id": t[:8], "offset": b["offset"], "size": b["size"],
-                       "summary": summary, "fields": fields, "warnings": box_warns,
+                       "summary": summary, "fields": fields,
+                       "warnings": box_warns_early,
                        "payload_base": b["offset"] + b["hdr"],
                        "payload_len": b["size"] - b["hdr"],
                        "extent_len": b["size"]})
         if b["type"] == b"stsd" and not b["truncated"] \
                 and not b.get("beyond_cap"):
             chunks.extend(_entry_chunks(data, b))
+    warns.extend(_clock_disagreements(clocks))
     return chunks, warns
+
+
+def _clock_disagreements(clocks):
+    """The same duration is written in three places on three different clocks.
+
+    mvhd counts in the movie timescale, mdhd in the media's (usually the sample
+    rate), and stts is the sum of the actual sample durations. They describe
+    the same audio, so converting them to seconds and comparing is a check on
+    the file that needs nothing outside it -- and a file whose clocks disagree
+    is one where a player and a tagger will report different lengths.
+    """
+    out = []
+    mdhd = [mp4mod.parse_mdhd(p) for _at, p in clocks.get(b"mdhd", [])]
+    stts = [mp4mod.parse_stts(p) for _at, p in clocks.get(b"stts", [])]
+    # NOT compared: the media duration against the movie duration. A track
+    # whose media outlasts the movie looks wrong and is not -- an edit list
+    # trims it, and all six such tracks in the files measured had one. That
+    # check was written, fired six times, and every hit was legitimate, so it
+    # was removed rather than left as a caveat nobody reads.
+    for i, (m, t) in enumerate(zip(mdhd, stts)):
+        if not (m and t and m["timescale"] and t["duration"] and m["seconds"]):
+            continue
+        summed = t["duration"] / m["timescale"]
+        # Sub-frame rounding between the two is normal and was measured at
+        # around 25 ms. The threshold sits well above that so the note means
+        # "these disagree about the content", not "these disagree in the last
+        # decimal": the one real hit was a media declared three seconds longer
+        # than its own sample table accounts for.
+        if abs(summed - m["seconds"]) > max(_CLOCK_SLACK_S,
+                                            m["seconds"] * _CLOCK_SLACK):
+            out.append("track %d declares %.3f s of media and its sample table "
+                       "accounts for %.3f s" % (i + 1, m["seconds"], summed))
+    return out

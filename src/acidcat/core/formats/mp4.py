@@ -22,6 +22,14 @@ _CONTAINERS = {
 }
 _MAX_DEPTH = 16
 
+# An edit list is a handful of entries. The bound is for a crafted one; the
+# table's own declared count is reported either way, so a truncated listing
+# never reads as the whole list.
+_ELST_ENTRY_CAP = 64
+# Data references are one entry in a self-contained file.
+_DREF_ENTRY_CAP = 64
+
+
 # iTunes ilst tags -> label. the a9 (copyright sign) tags start with 0xA9.
 _A9 = 0xA9
 _ILST_TAGS = {
@@ -63,6 +71,37 @@ def _box_header(data, pos, end, avail):
     return btype, hdr, size, pos + size > avail
 
 
+def meta_children_at(data, box_offset, hdr, end):
+    """Where a `meta` box's children start.
+
+    Two incompatible definitions of the same box:
+
+        ISO-BMFF   [size][meta][version+flags 4 bytes][child]...
+        QuickTime  [size][meta][child]...
+
+    Apple writes the second one in .MOV files. Reading those as the first lands
+    four bytes into the first child, whose size then reads as zero.
+
+    The two are told apart by looking: in the QuickTime form the four bytes at
+    hdr+4 are a box TYPE, which is printable ASCII (`hdlr`, in every file
+    measured). In the ISO form those bytes are the first child's SIZE, which
+    for a small box is 00 00 00 xx and not printable.
+    """
+    at = box_offset + hdr
+    if at + 8 > min(end, len(data)):
+        return at
+    maybe_type = data[at + 4:at + 8]
+    if all(0x20 <= c < 0x7F for c in maybe_type):
+        return at                      # QuickTime: children start here
+    return at + 4                      # ISO-BMFF FullBox
+
+
+# A `wave` box ends with an eight-byte atom whose type is four zero bytes.
+# It is a documented terminator, not damage, and rendering its type verbatim
+# puts control characters in the output.
+TERMINATOR = b"\x00\x00\x00\x00"
+
+
 def iter_boxes(data, start=0, end=None, depth=0, file_size=None):
     """Yield box dicts {type, offset, size, hdr, depth, truncated, beyond_cap}
     for the box tree in [start, end), recursing into containers. `file_size` (the
@@ -77,10 +116,19 @@ def iter_boxes(data, start=0, end=None, depth=0, file_size=None):
     while pos + 8 <= end and pos + 8 <= avail:
         hd = _box_header(data, pos, end, avail)
         if hd is None:
-            # a box header that overruns its logical parent: report and stop.
-            raw = struct.unpack_from(">I", data, pos)[0] if pos + 4 <= avail else 0
-            yield {"type": data[pos + 4:pos + 8], "offset": pos, "size": raw,
-                   "hdr": 8, "depth": depth, "truncated": True, "beyond_cap": False}
+            # A box header that overruns its logical parent: report and stop.
+            #
+            # `size` is what the box ACTUALLY occupies, which is everything
+            # left in the parent -- never the declared size. A malformed
+            # header routinely declares a gigabyte inside a file of a few
+            # megabytes, and passing that through as an extent makes the chunk
+            # claim bytes that are not there. The declared value is kept
+            # separately so it can still be reported as the evidence it is.
+            declared = struct.unpack_from(">I", data, pos)[0]                 if pos + 4 <= avail else 0
+            yield {"type": data[pos + 4:pos + 8], "offset": pos,
+                   "size": max(0, min(end, avail) - pos), "declared": declared,
+                   "hdr": 8, "depth": depth, "truncated": True,
+                   "beyond_cap": False}
             return
         btype, hdr, size, beyond_cap = hd
         yield {"type": btype, "offset": pos, "size": size, "hdr": hdr,
@@ -89,8 +137,11 @@ def iter_boxes(data, start=0, end=None, depth=0, file_size=None):
             yield from iter_boxes(data, pos + hdr, pos + size, depth + 1, file_size)
         elif not beyond_cap and btype == b"meta" and size >= hdr + 4 \
                 and depth < _MAX_DEPTH:
-            # FullBox container: 4-byte version/flags before the children
-            yield from iter_boxes(data, pos + hdr + 4, pos + size, depth + 1, file_size)
+            # Two incompatible definitions of the same box; see
+            # meta_children_at for how they are told apart.
+            yield from iter_boxes(data,
+                                  meta_children_at(data, pos, hdr, pos + size),
+                                  pos + size, depth + 1, file_size)
         pos += size
 
 
@@ -333,6 +384,262 @@ def parse_dops(payload):
     return {"version": ver, "channels": ch, "pre_skip": pre_skip,
             "input_sample_rate": in_rate, "output_gain_db": gain / 256.0,
             "mapping_family": family}
+
+
+# ── the boxes that were named and never opened ──────────────────────
+#
+# ISO-BMFF boxes are mostly FULL boxes: one version byte, three flag bytes,
+# then fields whose WIDTH depends on that version. Version 1 widens the times
+# and durations from 32 to 64 bits, and reading a version-1 box with the
+# version-0 offsets lands every field in the wrong place while still producing
+# numbers -- which is the failure worth guarding against here.
+
+# Boxes count time from 1904, not 1970, because that is what QuickTime did.
+_EPOCH_1904_TO_1970 = 2082844800
+
+# A fixed-point 16.16 or 8.8 value. The spec spells rate and volume this way,
+# so 0x00010000 is 1.0 and 0x0100 is full volume, and reading either as an
+# integer gives 65536 and 256.
+def _fixed(value, fraction_bits):
+    return value / float(1 << fraction_bits)
+
+
+def _mp4_time(stamp):
+    """A box timestamp as a unix time, or None when it is unset.
+
+    Zero means "not recorded" and is the commonest value; converting it anyway
+    reports every such file as created in 1904.
+    """
+    if not stamp:
+        return None
+    return stamp - _EPOCH_1904_TO_1970
+
+
+def _full_box(payload):
+    """(version, flags) of a full box, or (None, None) if it is too short."""
+    if len(payload) < 4:
+        return None, None
+    return payload[0], int.from_bytes(payload[1:4], "big")
+
+
+def parse_mvhd(payload):
+    """The movie header: the timescale everything at movie level is counted in."""
+    version, flags = _full_box(payload)
+    if version is None:
+        return None
+    wide = version == 1
+    need = 4 + (28 if wide else 16) + 4 + 2
+    if len(payload) < need:
+        return None
+    at = 4
+    if wide:
+        created, modified, timescale, duration = struct.unpack_from(
+            ">QQIQ", payload, at)
+        at += 28
+    else:
+        created, modified, timescale, duration = struct.unpack_from(
+            ">IIII", payload, at)
+        at += 16
+    rate, volume = struct.unpack_from(">Ih", payload, at)
+    return {
+        "version": version, "flags": flags,
+        "created": _mp4_time(created), "modified": _mp4_time(modified),
+        "timescale": timescale, "duration": duration,
+        "seconds": duration / timescale if timescale else None,
+        "rate": _fixed(rate, 16), "volume": _fixed(volume, 8),
+    }
+
+
+def parse_tkhd(payload):
+    """A track header. Its flags say whether the track is even played."""
+    version, flags = _full_box(payload)
+    if version is None:
+        return None
+    wide = version == 1
+    need = 4 + (32 if wide else 20)
+    if len(payload) < need + 60:
+        return None
+    at = 4
+    if wide:
+        created, modified, track_id, _r, duration = struct.unpack_from(
+            ">QQIIQ", payload, at)
+        at += 32
+    else:
+        created, modified, track_id, _r, duration = struct.unpack_from(
+            ">IIIII", payload, at)
+        at += 20
+    at += 8 + 2                       # two reserved words, then layer
+    alternate, volume = struct.unpack_from(">hh", payload, at)
+    at += 4 + 2 + 36                  # reserved, then the 3x3 matrix
+    width, height = struct.unpack_from(">II", payload, at)
+    return {
+        "version": version, "flags": flags,
+        "enabled": bool(flags & 0x1), "in_movie": bool(flags & 0x2),
+        "in_preview": bool(flags & 0x4),
+        "created": _mp4_time(created), "modified": _mp4_time(modified),
+        "track_id": track_id, "duration": duration,
+        "alternate_group": alternate, "volume": _fixed(volume, 8),
+        "width": _fixed(width, 16), "height": _fixed(height, 16),
+    }
+
+
+def parse_mdhd(payload):
+    """A media header. Its timescale is usually the audio SAMPLE RATE, and it
+    is a different timescale from the movie's -- confusing the two is the
+    classic way to report a wrong duration."""
+    version, flags = _full_box(payload)
+    if version is None:
+        return None
+    wide = version == 1
+    need = 4 + (28 if wide else 16) + 2
+    if len(payload) < need:
+        return None
+    at = 4
+    if wide:
+        created, modified, timescale, duration = struct.unpack_from(
+            ">QQIQ", payload, at)
+        at += 28
+    else:
+        created, modified, timescale, duration = struct.unpack_from(
+            ">IIII", payload, at)
+        at += 16
+    packed = struct.unpack_from(">H", payload, at)[0]
+    # the language is three five-bit letters, each offset from 0x60, packed
+    # into one word with the top bit unused
+    language = "".join(chr(0x60 + ((packed >> shift) & 0x1F))
+                       for shift in (10, 5, 0))
+    return {
+        "version": version, "flags": flags,
+        "created": _mp4_time(created), "modified": _mp4_time(modified),
+        "timescale": timescale, "duration": duration,
+        "seconds": duration / timescale if timescale else None,
+        "language": language if language.isalpha() else "",
+    }
+
+
+_HANDLERS = {
+    "soun": "audio", "vide": "video", "hint": "hint", "meta": "metadata",
+    "text": "text", "sbtl": "subtitle", "subt": "subtitle", "clcp": "captions",
+    "tmcd": "timecode", "mdir": "iTunes metadata", "alis": "alias",
+}
+
+
+def parse_hdlr(payload):
+    """The handler: what a track or a meta box actually IS. Without it the box
+    tree says `trak` three times and nothing about which one is the audio."""
+    version, _flags = _full_box(payload)
+    if version is None or len(payload) < 24:
+        return None
+    kind = payload[8:12].decode("latin-1", "replace")
+    name = payload[24:].split(b"\x00", 1)[0]
+    return {"handler": kind, "means": _HANDLERS.get(kind, ""),
+            "name": name.decode("utf-8", "replace")}
+
+
+def parse_elst(payload):
+    """The edit list: which part of the media actually plays.
+
+    This is where gapless playback lives. An AAC encoder puts priming samples
+    at the front of the media, and the edit list is what tells a player to skip
+    them -- so a file whose first entry has a non-zero media_time is not
+    damaged, it is trimmed.
+    """
+    version, flags = _full_box(payload)
+    if version is None or len(payload) < 8:
+        return None
+    count = struct.unpack_from(">I", payload, 4)[0]
+    wide = version == 1
+    step = 20 if wide else 12
+    room = (len(payload) - 8) // step
+    entries = []
+    for i in range(min(count, room, _ELST_ENTRY_CAP)):
+        at = 8 + i * step
+        if wide:
+            duration, media_time = struct.unpack_from(">Qq", payload, at)
+            at += 16
+        else:
+            duration, media_time = struct.unpack_from(">Ii", payload, at)
+            at += 8
+        rate, _frac = struct.unpack_from(">hH", payload, at)
+        entries.append({"duration": duration, "media_time": media_time,
+                        "rate": rate})
+    return {"version": version, "flags": flags, "count": count,
+            "room": room, "entries": entries,
+            "capped": min(count, room) > _ELST_ENTRY_CAP}
+
+
+def parse_stts(payload):
+    """The time-to-sample table. Summing it gives the sample count and the
+    media duration, which is an independent check on mdhd."""
+    version, _flags = _full_box(payload)
+    if version is None or len(payload) < 8:
+        return None
+    count = struct.unpack_from(">I", payload, 4)[0]
+    room = (len(payload) - 8) // 8
+    samples = total = 0
+    deltas = set()
+    for i in range(min(count, room)):
+        n, delta = struct.unpack_from(">II", payload, 8 + i * 8)
+        samples += n
+        total += n * delta
+        if len(deltas) < 8:
+            deltas.add(delta)
+    return {"count": count, "room": room, "samples": samples,
+            "duration": total, "constant": len(deltas) == 1,
+            "delta": min(deltas) if deltas else None}
+
+
+def parse_stsz(payload):
+    """Sample sizes. A uniform size means every frame is the same length,
+    which for audio means constant bit rate."""
+    version, _flags = _full_box(payload)
+    if version is None or len(payload) < 12:
+        return None
+    uniform, count = struct.unpack_from(">II", payload, 4)
+    room = (len(payload) - 12) // 4
+    total = uniform * count if uniform else 0
+    largest = uniform
+    if not uniform:
+        for i in range(min(count, room)):
+            size = struct.unpack_from(">I", payload, 12 + i * 4)[0]
+            total += size
+            largest = max(largest, size)
+    return {"uniform": uniform, "count": count, "room": room,
+            "bytes": total, "largest": largest}
+
+
+def parse_smhd(payload):
+    """The sound media header. One field, and it is the only place a track's
+    stereo balance is written."""
+    version, _flags = _full_box(payload)
+    if version is None or len(payload) < 6:
+        return None
+    return {"balance": _fixed(struct.unpack_from(">h", payload, 4)[0], 8)}
+
+
+def parse_dref(payload):
+    """Data references. A self-contained file has one entry whose flags say
+    "the data is in this file"; anything else points at another file, and a
+    reader that ignores this reports media that is not there.
+    """
+    version, _flags = _full_box(payload)
+    if version is None or len(payload) < 8:
+        return None
+    count = struct.unpack_from(">I", payload, 4)[0]
+    self_contained = True
+    at = 8
+    for _ in range(min(count, _DREF_ENTRY_CAP)):
+        if at + 12 > len(payload):
+            break
+        size = struct.unpack_from(">I", payload, at)[0]
+        entry_flags = int.from_bytes(payload[at + 9:at + 12], "big")
+        if not entry_flags & 0x1:
+            self_contained = False
+        if size < 8:
+            break
+        at += size
+    return {"count": count, "self_contained": self_contained,
+            "capped": count > _DREF_ENTRY_CAP}
 
 
 def sample_entries(data):

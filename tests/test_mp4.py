@@ -227,3 +227,173 @@ def test_stco_entries_annotated_as_xref():
     assert 0x40 in xrefs
     assert "dangling" in stco_chunk["summary"]
     assert any("past EOF" in w for w in stco_chunk["warnings"])
+
+
+# ── `meta` has two incompatible forms ───────────────────────────────
+
+def _meta_iso(child):
+    """ISO-BMFF: a FullBox, so four bytes of version and flags first."""
+    return _box(b"meta", b"\x00\x00\x00\x00" + child)
+
+
+def _meta_qt(child):
+    """QuickTime: a plain box. Apple writes this one in .MOV files."""
+    return _box(b"meta", child)
+
+
+def _hdlr(kind=b"mdta", name=b""):
+    return _box(b"hdlr", b"\x00\x00\x00\x00" + b"\x00" * 4 + kind
+                + b"\x00" * 12 + name + b"\x00")
+
+
+def test_the_iso_and_quicktime_meta_forms_are_both_walked():
+    """Reading the QuickTime form as the ISO one lands four bytes into the
+    first child, whose size then reads as zero -- which reported every Apple
+    .MOV as malformed and threw away its whole metadata tree. Eight of 108
+    real files hit it."""
+    for build in (_meta_iso, _meta_qt):
+        blob = build(_hdlr())
+        kinds = [b["type"] for b in mp4.iter_boxes(blob)]
+        assert b"hdlr" in kinds, "%s did not reach its child" % build.__name__
+        assert not any(b["truncated"] for b in mp4.iter_boxes(blob))
+
+
+def test_the_two_meta_forms_are_told_apart_by_looking():
+    """The four bytes after the header are a box TYPE in the QuickTime form
+    and a box SIZE in the ISO form. A type is printable; a small size is not."""
+    qt = _meta_qt(_hdlr())
+    iso = _meta_iso(_hdlr())
+    assert mp4.meta_children_at(qt, 0, 8, len(qt)) == 8
+    assert mp4.meta_children_at(iso, 0, 8, len(iso)) == 12
+
+
+# ── the boxes that used to be named and left closed ─────────────────
+
+def _mvhd(version=0, timescale=1000, duration=5000):
+    if version == 1:
+        body = (b"\x01\x00\x00\x00" + struct.pack(">QQIQ", 0, 0, timescale,
+                                                   duration))
+    else:
+        body = (b"\x00\x00\x00\x00" + struct.pack(">IIII", 0, 0, timescale,
+                                                   duration))
+    return _box(b"mvhd", body + struct.pack(">Ih", 0x00010000, 0x0100)
+                + b"\x00" * 76)
+
+
+def test_mvhd_decodes_at_both_versions():
+    """Version 1 widens the times to 64 bits. Reading it with the version-0
+    offsets lands every field in the wrong place and still produces numbers,
+    which is why the version byte is checked rather than assumed."""
+    for version in (0, 1):
+        h = mp4.parse_mvhd(_mvhd(version)[8:])
+        assert h["version"] == version
+        assert h["timescale"] == 1000
+        assert h["duration"] == 5000
+        assert abs(h["seconds"] - 5.0) < 1e-9
+        assert h["rate"] == 1.0 and h["volume"] == 1.0
+
+
+def test_an_unset_timestamp_is_not_reported_as_1904():
+    """Boxes count time from 1904. Zero means "not recorded" and is the
+    commonest value, so converting it anyway dates every such file to 1904."""
+    h = mp4.parse_mvhd(_mvhd()[8:])
+    assert h["created"] is None and h["modified"] is None
+
+
+def test_hdlr_says_what_a_track_is():
+    """Without it the tree says `trak` three times and nothing about which one
+    carries the audio."""
+    h = mp4.parse_hdlr(_hdlr(b"soun", b"SoundHandler")[8:])
+    assert h["handler"] == "soun"
+    assert h["means"] == "audio"
+    assert h["name"] == "SoundHandler"
+
+
+def test_elst_reports_the_media_start_that_carries_encoder_delay():
+    """An AAC encoder puts priming samples at the front of the media and the
+    edit list is what tells a player to skip them. A first entry with a
+    non-zero media_time is a trimmed file, not a damaged one."""
+    entry = struct.pack(">IihH", 44100, 1024, 1, 0)
+    h = mp4.parse_elst(b"\x00\x00\x00\x00" + struct.pack(">I", 1) + entry)
+    assert h["count"] == 1
+    assert h["entries"][0]["media_time"] == 1024
+    assert h["entries"][0]["duration"] == 44100
+
+
+def test_an_empty_edit_is_a_negative_media_time():
+    entry = struct.pack(">IihH", 1000, -1, 1, 0)
+    h = mp4.parse_elst(b"\x00\x00\x00\x00" + struct.pack(">I", 1) + entry)
+    assert h["entries"][0]["media_time"] == -1
+
+
+def test_an_elst_claiming_more_entries_than_it_holds_reports_both():
+    """The declared count is kept alongside what the payload can hold, so a
+    short listing never reads as the whole list."""
+    entry = struct.pack(">IihH", 1000, 0, 1, 0)
+    h = mp4.parse_elst(b"\x00\x00\x00\x00" + struct.pack(">I", 9999) + entry)
+    assert h["count"] == 9999
+    assert h["room"] == 1
+    assert len(h["entries"]) == 1
+
+
+def test_stts_sums_to_a_sample_count_and_a_duration():
+    """Summing the table is an independent check on mdhd: a media declaring
+    more seconds than its own samples account for is a real inconsistency."""
+    table = struct.pack(">II", 100, 1024) + struct.pack(">II", 1, 512)
+    h = mp4.parse_stts(b"\x00\x00\x00\x00" + struct.pack(">I", 2) + table)
+    assert h["samples"] == 101
+    assert h["duration"] == 100 * 1024 + 512
+    assert h["constant"] is False
+
+
+def test_a_uniform_stsz_needs_no_table():
+    h = mp4.parse_stsz(b"\x00\x00\x00\x00" + struct.pack(">II", 418, 1000))
+    assert h["uniform"] == 418
+    assert h["count"] == 1000
+    assert h["bytes"] == 418000
+
+
+def test_dref_says_whether_the_media_is_even_in_this_file():
+    """An entry whose flags lack bit 0 points at another file. Ignoring it
+    reports media that is not there."""
+    here = struct.pack(">I", 12) + b"url " + b"\x00\x00\x00\x01"
+    away = struct.pack(">I", 12) + b"url " + b"\x00\x00\x00\x00"
+    assert mp4.parse_dref(b"\x00\x00\x00\x00" + struct.pack(">I", 1)
+                          + here)["self_contained"] is True
+    assert mp4.parse_dref(b"\x00\x00\x00\x00" + struct.pack(">I", 1)
+                          + away)["self_contained"] is False
+
+
+def test_mdhd_language_is_three_packed_five_bit_letters():
+    packed = ((ord("e") - 0x60) << 10) | ((ord("n") - 0x60) << 5) \
+        | (ord("g") - 0x60)
+    body = (b"\x00\x00\x00\x00" + struct.pack(">IIII", 0, 0, 44100, 44100)
+            + struct.pack(">H", packed))
+    h = mp4.parse_mdhd(body)
+    assert h["language"] == "eng"
+    assert h["timescale"] == 44100
+    assert abs(h["seconds"] - 1.0) < 1e-9
+
+
+def test_a_short_box_returns_nothing_rather_than_guessing():
+    for fn in (mp4.parse_mvhd, mp4.parse_tkhd, mp4.parse_mdhd, mp4.parse_hdlr,
+               mp4.parse_elst, mp4.parse_stts, mp4.parse_stsz, mp4.parse_smhd,
+               mp4.parse_dref):
+        assert fn(b"") is None
+        assert fn(b"\x00\x00") is None
+
+
+def test_a_malformed_box_claims_only_the_bytes_that_remain():
+    """A bad header routinely declares a gigabyte inside a file of a few
+    megabytes. Passing that through as the box's size makes the chunk claim
+    bytes that are not there, which the geometry contract rejects -- one real
+    .mp4 in 393 did exactly this. The declared value is kept as evidence."""
+    ftyp = struct.pack(">I", 16) + b"ftypM4A " + b"\x00" * 4
+    bogus = struct.pack(">I", 0x47400030) + b"\xa6\x00\xff\xff" + b"\x00" * 8
+    full = ftyp + bogus
+    bad = [b for b in mp4.iter_boxes(full, file_size=len(full))
+           if b["truncated"]]
+    assert bad, "the bogus box should be reported"
+    assert bad[0]["declared"] == 0x47400030
+    assert bad[0]["size"] == len(full) - bad[0]["offset"]
+    assert bad[0]["offset"] + bad[0]["size"] <= len(full)
