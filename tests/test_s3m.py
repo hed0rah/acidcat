@@ -101,4 +101,23 @@ def test_s3m_missing_eof_marker_warns(tmp_path):
 def test_s3m_parapointer_past_eof_flagged(tmp_path):
     # an instrument parapointer past EOF: invalid header, warning, no crash
     _, warns = wtk.inspect_s3m(_write(tmp_path, _make_s3m(ins_para=0xFFF)))
-    assert any("SCRS/SCRI" in w for w in warns)
+    assert any("past the end" in w for w in warns)
+
+
+def test_s3m_empty_instrument_slot_is_not_a_warning(tmp_path):
+    """An instrument of type 0 is an EMPTY slot, the spec's own word, and it
+    has no tag because there is nothing to tag. The walker warned on every
+    one: 162 warnings across the first 73 files of a real archive, all of
+    them the same legal structure. A zero parapointer is the same thing."""
+    _, warns = wtk.inspect_s3m(_write(tmp_path, _make_s3m(ins_para=0)))
+    assert not any("SCRS" in w or "lacks" in w for w in warns)
+
+
+def test_s3m_typed_instrument_without_a_tag_still_warns(tmp_path):
+    """A slot that CLAIMS a type and then has no tag is worth a warning."""
+    b = bytearray(_make_s3m())
+    h = 0x70
+    b[h] = 1                                       # type 1, PCM
+    b[h + 0x4C:h + 0x50] = b"XXXX"                 # not SCRS
+    _, warns = wtk.inspect_s3m(_write(tmp_path, bytes(b)))
+    assert any("claims type 1" in w for w in warns)

@@ -254,7 +254,9 @@ def parse_s3m(data):
     for para in ins_para:
         hdr = para << 4
         if para == 0 or hdr + 0x50 > len(data):
-            samples.append({"offset": hdr, "valid": False, "is_pcm": False})
+            # a zero paragraph is an empty slot; a header past the end is not
+            samples.append({"offset": hdr, "valid": False, "is_pcm": False,
+                            "type": 0 if para == 0 else -1})
             continue
         tag = data[hdr + 0x4C:hdr + 0x50]
         stype = data[hdr]
@@ -280,7 +282,17 @@ def parse_s3m(data):
 
     for i, s in enumerate(samples, 1):
         if not s.get("valid"):
-            warns.append(f"instrument {i} header lacks an SCRS/SCRI tag")
+            # An instrument of type 0 is an EMPTY slot -- the spec's own word
+            # for it -- and carries no tag because there is nothing to tag.
+            # Warning on it flagged 162 empty slots in the first 73 files of
+            # a real archive as damage. Only a slot that claims a type and
+            # then has no tag is worth saying anything about.
+            if s.get("type", 0) == -1:
+                warns.append(f"instrument {i} header lies past the end of "
+                             f"the file")
+            elif s.get("type", 0) != 0:
+                warns.append(f"instrument {i} claims type {s['type']} but "
+                             f"its header lacks an SCRS/SCRI tag")
         elif s["is_pcm"]:
             if s["packing"] == 1:
                 warns.append(f"smp[{i}] packing=1 (ADPCM): not raw PCM, carve "
