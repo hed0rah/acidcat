@@ -323,6 +323,80 @@ def s3p(keygroups=2, name="SEED PROG"):
     return bytes(out)
 
 
+@seed("psf", ".minigsf")
+def psf(version=0x22, rom=None, tags=True, title="SEED", lib="seed.gsflib"):
+    """Portable Sound Format: a 16-byte header, a zlib program, and a [TAG]
+    block. As a GSF mini by default: a 12-byte GBA header and two bytes of
+    ROM to patch into the library the _lib tag names."""
+    import zlib
+    if rom is None:
+        rom = bytes([0x03, 0x00])
+    if version == 0x22:
+        program = struct.pack("<III", 0x08000000, 0x08001000, len(rom)) + rom
+    else:
+        program = rom
+    comp = zlib.compress(program)
+    head = (b"PSF" + bytes([version])
+            + struct.pack("<III", 0, len(comp), zlib.crc32(comp) & 0xFFFFFFFF))
+    tag = b""
+    if tags:
+        lines = ["_lib=" + lib, "title=" + title, "artist=NOBODY",
+                 "game=SEED GAME", "length=1:00", "fade=5"]
+        tag = b"[TAG]" + "\n".join(lines).encode("utf-8") + b"\n"
+    return head + comp + tag
+
+
+@seed("gbs", ".gbs")
+def gbs(songs=4, title="SEED", author="NOBODY"):
+    """Game Boy Sound System: a 112-byte header and a code blob. The same
+    shape as NSF with nothing reserved."""
+    h = bytearray(0x70)
+    h[0:3] = b"GBS"
+    h[3] = 1
+    h[4] = songs
+    h[5] = 1
+    struct.pack_into("<HHHH", h, 6, 0x0400, 0x0400, 0x0410, 0xFFFE)
+    h[0x10:0x10 + len(title)] = title.encode("ascii")
+    h[0x30:0x30 + len(author)] = author.encode("ascii")
+    h[0x50:0x54] = b"2026"
+    return bytes(h) + bytes([0xC9]) * 64             # RET, 64 times
+
+
+@seed("spc", ".spc")
+def spc(title="SEED", game="SEED GAME", samples=2):
+    """An SPC700 snapshot: 256-byte header with a text ID666 tag, 64 KB of
+    RAM holding a sample directory and a few BRR samples, 128 DSP registers
+    with DIR pointing at that directory, and the two tail regions."""
+    import acidcat.core.formats.spc as S
+    h = bytearray(S.HEADER)
+    h[0:len(S.MAGIC)] = S.MAGIC
+    h[0x21:0x23] = b"&&"
+    h[0x23] = S.HAS_TAG
+    h[0x24] = 30
+    struct.pack_into("<HBBBBB", h, 0x25, 0x0400, 0, 0, 0, 0, 0xEF)
+    h[0x2E:0x2E + len(title)] = title.encode("ascii")
+    h[0x4E:0x4E + len(game)] = game.encode("ascii")
+    h[0x6E:0x72] = b"seed"
+    h[0x9E:0xA8] = b"01/01/2026"
+    h[0xA9:0xAC] = b"120"
+    h[0xAC:0xB1] = b"10000"
+    h[0xB1:0xB5] = b"SEED"
+    h[0xD2] = 2
+    ram = bytearray(S.RAM)
+    page = 0x20                                       # directory at $2000
+    data = 0x3000
+    for i in range(samples):
+        start = data + i * 0x40
+        struct.pack_into("<HH", ram, page * 0x100 + i * 4, start, start)
+        # four BRR blocks, the last with its END bit
+        for b in range(4):
+            ram[start + b * 9] = 0x01 if b == 3 else 0x00
+    dsp = bytearray(S.DSP_SIZE)
+    dsp[S.DSP_DIR] = page
+    dsp[0x4C] = 0x03                                  # voices 0 and 1 keyed on
+    return bytes(h) + bytes(ram) + bytes(dsp) + bytes(0x40) + bytes(S.IPL_SIZE)
+
+
 @seed("pmd", ".m")
 def pmd(title="SEED", composer="NOBODY"):
     """PC-98 PMD: a flag byte, then twelve little-endian words -- eleven

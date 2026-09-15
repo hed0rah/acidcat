@@ -18,8 +18,8 @@ from acidcat.core.walk import (
     ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, caf, chiptune, containers, dmx,
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
-    mp4, mpc, multisample, ncw, ni, ogg, pdx, pmd, rf64, rmid, rx2, serum, sf2, sigmf,
-    svx,
+    mp4, mpc, multisample, ncw, ni, ogg, pdx, pmd, psf, rf64, rmid, rx2, serum, sf2,
+    sigmf, spc, svx,
     tracker,
     dsd, sid, streams, vital, wav, wave64, wt,
 )
@@ -90,6 +90,8 @@ _WALKERS = {
     "amxd": ("Max for Live device", lambda path, deep: ableton.inspect_amxd(path)),
     # containers: they hold other things, so the walk describes what is inside
     # chiptune: the 6502 program that made the music, not the music
+    "gbs": ("Game Boy Sound System",
+            lambda path, deep: chiptune.inspect_gbs(path, deep=deep)),
     "nsf": ("NES Sound Format",
             lambda path, deep: chiptune.inspect_nsf(path, deep)),
     "nsfe": ("NSF extended (chunked)",
@@ -113,6 +115,10 @@ _WALKERS = {
             lambda path, deep: mdx.inspect_mdx(path, deep=deep)),
     "pdx": ("Sharp X68000 ADPCM sample bank (PDX)",
             lambda path, deep: pdx.inspect_pdx(path, deep=deep)),
+    "psf": ("Portable Sound Format (PSF/PSF2/SSF/DSF/USF/GSF/SNSF/QSF)",
+            lambda path, deep: psf.inspect_psf(path, deep=deep)),
+    "spc": ("SNES SPC700 sound snapshot (SPC)",
+            lambda path, deep: spc.inspect_spc(path, deep=deep)),
     "pmd": ("PC-98 Professional Music Driver score (PMD)",
             lambda path, deep: pmd.inspect_pmd(path, deep=deep)),
     "s3p": ("Akai S1000/S3000 program (SysEx dump)",

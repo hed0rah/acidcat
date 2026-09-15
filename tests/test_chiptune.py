@@ -83,9 +83,23 @@ def _w(tmp_path, name, blob):
     return str(p)
 
 
+def _gbs(songs=4, first=1, load=0x0400, init=0x0400, play=0x0410,
+         title="SEED", author="NOBODY", copyright="2026", code=64):
+    """A GBS: the 112-byte header and a code blob. Same shape as NSF."""
+    h = bytearray(0x70)
+    h[0:3] = b"GBS"
+    h[3] = 1
+    h[4], h[5] = songs, first
+    struct.pack_into("<HHHH", h, 6, load, init, play, 0xFFFE)
+    for off, text in ((0x10, title), (0x30, author), (0x50, copyright)):
+        h[off:off + len(text)] = text.encode("latin-1")
+    return bytes(h) + bytes([0xC9]) * code
+
+
 ALL = [("nsf", _nsf, chiptune.inspect_nsf),
        ("nsfe", _nsfe, chiptune.inspect_nsfe),
-       ("sap", _sap, chiptune.inspect_sap)]
+       ("sap", _sap, chiptune.inspect_sap),
+       ("gbs", _gbs, chiptune.inspect_gbs)]
 
 
 # ── the three, held to the same contract ────────────────────────────
@@ -476,6 +490,64 @@ def test_the_three_walkers_all_check_their_magic(tmp_path):
         assert not chunks[0]["fields"], "%s reported fields from junk" % name
 
 
+# ── GBS: NSF with nothing reserved ──────────────────────────────────
+
+def test_gbs_header_decodes(tmp_path):
+    chunks, warns = chiptune.inspect_gbs(_w(tmp_path, "t.gbs", _gbs()))
+    vals = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+    assert vals["songs"] == 4 and vals["firstSong"] == 1
+    assert vals["load"] == "$0400" and vals["play"] == "$0410"
+    assert vals["title"] == "SEED" and vals["author"] == "NOBODY"
+    assert not warns
+
+
+def test_gbs_needs_the_version_byte_to_be_identified(tmp_path):
+    """"GBS" opens ordinary text too. The version byte is checked with it,
+    and every real file is version 1."""
+    blob = bytearray(_gbs())
+    blob[3] = 2
+    assert sniff.sniff(_w(tmp_path, "t.gbs", bytes(blob))) != "gbs"
+    _chunks, warns = chiptune.inspect_gbs(_w(tmp_path, "u.gbs", bytes(blob)))
+    assert any("version 2" in w for w in warns)
+
+
+def test_gbs_addresses_outside_the_cartridge_window_warn(tmp_path):
+    """Load, init and play must fall in $0400-$7FFF, the cartridge ROM window
+    once the boot ROM is paged out. The spec says so in as many words."""
+    _chunks, warns = chiptune.inspect_gbs(_w(tmp_path, "t.gbs", _gbs(load=0x0070)))
+    assert any("outside the cartridge window" in w and "load" in w for w in warns)
+
+
+def test_gbs_code_past_ffff_warns(tmp_path):
+    _chunks, warns = chiptune.inspect_gbs(
+        _w(tmp_path, "t.gbs", _gbs(load=0x7000, code=0x9010)))
+    assert any("past $FFFF" in w for w in warns)
+
+
+def test_gbs_first_song_outside_the_count_warns(tmp_path):
+    _chunks, warns = chiptune.inspect_gbs(_w(tmp_path, "t.gbs", _gbs(songs=3, first=7)))
+    assert any("first song 7" in w for w in warns)
+
+
+def test_gbs_a_full_slot_with_no_nul_is_named_not_run_into(tmp_path):
+    """The three text slots are always 32 bytes. A slot with no NUL is
+    reported, and its text does not run into the next slot."""
+    blob = _gbs(title="X" * 32)
+    chunks, warns = chiptune.inspect_gbs(_w(tmp_path, "t.gbs", blob))
+    vals = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+    assert vals["title"] == "X" * 32
+    assert vals["author"] == "NOBODY"
+    assert any("title fills all 32 bytes" in w for w in warns)
+
+
+def test_gbs_code_chunk_covers_the_rest_and_names_its_range(tmp_path):
+    blob = _gbs(load=0x1000, code=0x200)
+    chunks, _warns = chiptune.inspect_gbs(_w(tmp_path, "t.gbs", blob))
+    code = next(c for c in chunks if c["id"] == "code")
+    assert code["offset"] == 0x70 and code["size"] == 0x200
+    assert "$1000-$11FF" in code["summary"]
+
+
 # ── opt-in: the real corpora ────────────────────────────────────────
 #
 # Everything above this line is synthetic and therefore only proves the walker
@@ -498,6 +570,34 @@ def _corpus(var, exts):
 
 NSF_CORPUS = "ACIDCAT_NSF_CORPUS"
 SAP_CORPUS = "ACIDCAT_SAP_CORPUS"
+GBS_CORPUS = "ACIDCAT_GBS_CORPUS"
+
+
+@pytest.mark.skipif(not os.environ.get(GBS_CORPUS),
+                    reason="set ACIDCAT_GBS_CORPUS to a dir of real .gbs files")
+def test_real_gbs_corpus_walks_completely():
+    from acidcat.core.walk import walk_file
+    files = _corpus(GBS_CORPUS, [".gbs", ".GBS"])
+    assert len(files) >= 30, "only %d files" % len(files)
+    seen = tiled = 0
+    for path in files:
+        if sniff.sniff(path) != "gbs":
+            continue
+        seen += 1
+        _label, chunks, _warns = walk_file(path)
+        size = os.path.getsize(path)
+        geometry.normalize(chunks, size)
+        assert all(geometry.is_trustworthy(c) for c in chunks), path
+        end = 0
+        ok = True
+        for c in sorted(chunks, key=lambda c: c["offset"]):
+            if c["offset"] != end:
+                ok = False
+                break
+            end = c["offset"] + c["extent_len"]
+        tiled += ok and end == size
+    assert seen == len(files), "%d of %d not identified" % (len(files) - seen, len(files))
+    assert tiled == seen, "%d of %d did not tile" % (seen - tiled, seen)
 
 
 @pytest.mark.skipif(not os.environ.get(NSF_CORPUS),

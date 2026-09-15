@@ -27,6 +27,7 @@ from acidcat.core.formats import akai as akaimod
 from acidcat.core.formats import mdx as mdxmod
 from acidcat.core.formats import pdx as pdxmod
 from acidcat.core.formats import pmd as pmdmod
+from acidcat.core.formats import psf as psfmod
 from acidcat.core.formats import sid as sidmod
 from acidcat.core.formats import dsd as dsdmod
 from acidcat.core.formats import tracker as trackermod
@@ -43,11 +44,11 @@ KNOWN_FORMATS = frozenset({
     "8svx", "adg", "adv", "adx", "agr", "aifc", "aiff", "akp", "albank", "alc", "als", "amxd",
     "au",
     "asd", "bfdlac", "bitwig", "brstm",
-    "caf", "cdxa", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gcm", "gf1pat", "hps",
+    "caf", "cdxa", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gbs", "gcm", "gf1pat", "hps",
     "id3-wrapped", "iq", "it", "krz", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus",
+    "okt", "pdx", "pgm", "pmd", "psf", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -123,6 +124,18 @@ def sniff_bytes(head):
     Magic-only: an ID3v2 tag classifies as "mp3" here; use ``sniff`` to
     distinguish a tag that wraps a different container.
     """
+    if head[:3] == b"PSF" and len(head) >= 4 and head[3] in psfmod.VERSIONS:
+        # three letters and a version byte naming one of eight machines.
+        # Checked with the version: "PSF" opens ordinary text too.
+        return "psf"                                    # Portable Sound Format
+    if head[:20] == b"SNES-SPC700 Sound Fi":
+        # the 33-byte magic runs past the 20-byte head; twenty of it is
+        # already more signature than most formats have
+        return "spc"                                    # SNES SPC700 snapshot
+    if head[:3] == b"GBS" and len(head) >= 4 and head[3] == 1:
+        # three letters and a version byte. Checked with the version because
+        # "GBS" opens ordinary text too, and every real file is version 1.
+        return "gbs"                                    # Game Boy Sound System
     if head[:5] == b"NESM\x1a":
         return "nsf"                                    # NES Sound Format (v1 and NSF2)
     if head[:4] == b"NSFE":

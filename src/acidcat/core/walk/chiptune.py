@@ -571,3 +571,106 @@ def _int(s):
         return int(str(s).strip())
     except ValueError:
         return 0
+
+
+# ── GBS: the Game Boy's answer to NSF ───────────────────────────────
+
+_GBS_HEADER = 0x70
+# The three text slots, and where the load/init/play addresses must fall:
+# the Game Boy's cartridge ROM window is $0400-$7FFF once the boot ROM has
+# been paged out, and the spec says so in as many words.
+_GBS_LOAD_LO, _GBS_LOAD_HI = 0x0400, 0x7FFF
+
+
+def inspect_gbs(filepath, deep=False):
+    """A GBS: a 112-byte header, then Game Boy code and data loaded at an
+    address the header names.
+
+    The same shape as NSF -- a header naming init and play routines and a
+    binary blob to run them from -- so the same reader would serve, except
+    that the Game Boy has no expansion chips and no bankswitching in v1, which
+    leaves nothing for the reserved bytes to do. Three 32-byte text slots,
+    three addresses, a stack pointer and two timer bytes, and that is the
+    whole header. Spec: gbsplay's gbsformat.txt, the format's own reference.
+    """
+    size = os.path.getsize(filepath)
+    warns = []
+    with open(filepath, "rb") as fh:
+        raw = fh.read(min(size, _NSF_READ_CAP))
+    if size > _NSF_READ_CAP:
+        warns.append(coverage("read the first %s of %s bytes"
+                              % (format(_NSF_READ_CAP, ","), format(size, ","))))
+    if raw[:3] != b"GBS":
+        return [{"id": "header", "offset": 0, "size": size,
+                 "summary": "not a GBS (signature is not 'GBS')",
+                 "fields": [], "warnings": [], "payload_base": 0}],                ["the first three bytes are not 47 42 53"]
+    if len(raw) < _GBS_HEADER:
+        return [{"id": "header", "offset": 0, "size": size,
+                 "summary": "GBS header truncated at %d of %d bytes"
+                            % (len(raw), _GBS_HEADER),
+                 "fields": [], "warnings": [], "payload_base": 0}],                ["file ends inside the 112-byte header"]
+
+    version, songs, first = raw[3], raw[4], raw[5]
+    load, init, play, sp = struct.unpack_from("<HHHH", raw, 6)
+    tma, tac = raw[0xE], raw[0xF]
+    fields = [
+        _f(0x00, 3, "magic", "GBS"),
+        _f(0x03, 1, "version", version, "1 is the only version defined"),
+        _f(0x04, 1, "songs", songs, "1-255"),
+        _f(0x05, 1, "firstSong", first, "1-based; usually 1"),
+        _f(0x06, 2, "load", _addr(load), "where the code below is placed"),
+        _f(0x08, 2, "init", _addr(init), "called once per song, A = song"),
+        _f(0x0A, 2, "play", _addr(play), "called every tick"),
+        _f(0x0C, 2, "stack", _addr(sp)),
+        _f(0x0E, 1, "timerModulo", tma,
+           "0 with control 0 means play on VBlank, 60 Hz"),
+        _f(0x0F, 1, "timerControl", "0x%02X" % tac),
+    ]
+    for off, name in ((0x10, "title"), (0x30, "author"), (0x50, "copyright")):
+        text, unterminated, dirty, non_ascii = _slot(raw, off)
+        note = ""
+        if non_ascii:
+            note = "not plain ASCII; shown as latin-1"
+        fields.append(_f(off, _STR_SLOT, name, text or "(empty)", note))
+        if unterminated:
+            warns.append("%s fills all 32 bytes with no NUL" % name)
+        if dirty:
+            warns.append("%s has non-NUL bytes after its terminator" % name)
+
+    if version != 1:
+        warns.append("version %d; only 1 is defined" % version)
+    if songs == 0:
+        warns.append("song count is 0")
+    if first == 0 or first > songs:
+        warns.append("first song %d is outside 1..%d" % (first, songs))
+    for name, a in (("load", load), ("init", init), ("play", play)):
+        if not _GBS_LOAD_LO <= a <= _GBS_LOAD_HI:
+            warns.append("%s address %s is outside the cartridge window "
+                         "$0400-$7FFF" % (name, _addr(a)))
+    if init < load or play < load:
+        warns.append("init or play sits below the load address, so it is not "
+                     "in the code this file carries")
+    if tma == 0 and tac != 0:
+        warns.append("timer control is set with a modulo of 0")
+
+    code = size - _GBS_HEADER
+    chunks = [{"id": "header", "offset": 0, "size": _GBS_HEADER,
+               "summary": "GBS v%d, %d song%s%s" % (
+                   version, songs, "" if songs == 1 else "s",
+                   (" -- " + fields[10]["value"]) if fields[10]["value"] != "(empty)" else ""),
+               "fields": fields, "warnings": [], "payload_base": 0,
+               "payload_len": _GBS_HEADER, "extent_len": _GBS_HEADER}]
+    if code > 0:
+        top = load + code - 1
+        chunks.append({"id": "code", "offset": _GBS_HEADER, "size": code,
+                       "summary": "%s bytes of Game Boy code and data, %s-%s"
+                                  % (format(code, ","), _addr(load), _addr(top)),
+                       "fields": [_f(None, 0, "loads_at", _addr(load)),
+                                  _f(None, 0, "ends_at", _addr(top),
+                                     "past $7FFF the spec says a player banks it"
+                                     if top > _GBS_LOAD_HI else "")],
+                       "warnings": [], "payload_base": _GBS_HEADER,
+                       "payload_len": code, "extent_len": code})
+        if top > 0xFFFF:
+            warns.append("the code runs past $FFFF, which no Game Boy can map")
+    return chunks, warns
