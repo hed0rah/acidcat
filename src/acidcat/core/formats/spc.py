@@ -30,6 +30,13 @@ binary (a 4-byte date, a 3-byte count, a 4-byte count) in the same slots. A
 reader tells them apart by looking: text has digits and slashes, binary does
 not. It is a heuristic and the corpus says how well it holds.
 
+AND A THIRD, FROM ONE DUMPER. Files with the v0.20 magic and 0x1B at 0x23,
+dumped July to September 1999, leave the text slots empty and write a
+20-character title at 0x30 -- two bytes late -- and the date at 0xD0 as
+day, month, little-endian year, where the text spelling keeps the disable
+and emulator bytes. Six v0.10 files use the same 0x30 title slot. Read at
+0x2E they are untitled; they are not.
+
 THE SAMPLES ARE FINDABLE. DSP register 0x5D is DIR, the page of RAM holding
 the sample directory: 256 entries of (start, loop) addresses, four bytes each.
 Every entry that points inside RAM is a BRR sample the tune can play, and BRR
@@ -106,7 +113,7 @@ def _looks_like_text_date(blob):
 def parse_header(raw):
     """The 256-byte header and its ID666 tag. Never raises."""
     h = {"ok": False, "why": "", "has_tag": False, "version": None,
-         "magic_version": None,
+         "magic_version": None, "early_title": False,
          "pc": None, "a": None, "x": None, "y": None, "psw": None, "sp": None,
          "tag": {}, "tag_style": None, "emulator": None, "disables": None}
     if not is_spc(raw):
@@ -123,6 +130,12 @@ def parse_header(raw):
     # the slots are read regardless of the flag; see the module docstring
     t = {}
     t["title"] = _text(raw, 0x2E, 32)
+    if not t["title"] and raw[0x2E:0x30] == NUL * 2 and raw[0x30] > 0x20:
+        # the 1999 dumper layout: two more reserved bytes, a 20-character
+        # title at 0x30 (space- or NUL-padded), and nothing else in the
+        # text slots. Everything in the block below is still at its place.
+        t["title"] = _text(raw, 0x30, 20)
+        h["early_title"] = True
     t["game"] = _text(raw, 0x4E, 32)
     t["dumper"] = _text(raw, 0x6E, 16)
     t["comment"] = _text(raw, 0x7E, 32)
@@ -144,6 +157,17 @@ def parse_header(raw):
         # the emulator byte is written as a text digit in this spelling
         e = raw[0xD2]
         h["emulator"] = e - 0x30 if 0x30 <= e <= 0x39 else e
+        if h.get("early_title") and "date" not in t:
+            # the same 1999 dumper wrote its date as packed bytes at 0xD0:
+            # day, month, little-endian year -- where the spec's text layout
+            # has the channel-disable and emulator bytes. It is accepted only
+            # when it reads as a calendar date, and then those two bytes are
+            # not what the spec says they are, so they are withdrawn
+            d, m, y = struct.unpack_from("<BBH", raw, 0xD0)
+            if 1 <= d <= 31 and 1 <= m <= 12 and 1990 <= y <= 2099:
+                t["date"] = "%04d-%02d-%02d" % (y, m, d)
+                h["disables"] = None
+                h["emulator"] = None
     else:
         # Binary spelling: the same slots, packed. Verified on 24 real files
         # (an Akihiko Mori set dumped with ZSNES): seconds is three bytes at

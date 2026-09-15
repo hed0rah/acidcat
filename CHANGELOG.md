@@ -75,7 +75,7 @@ and right after four hundred.
 
 Modland, pulled with `mirror_modland.sh` (index-driven, four workers; a
 crawl fetched 4,000 directory listings before its first file): Nintendo SPC
-36,872 files, Gameboy Sound Format 2,757 (which are GSF, not GBS -- the
+36,872 files (one with a damaged magic), Gameboy Sound Format 2,757 (which are GSF, not GBS -- the
 directory name is not the format, the first bytes are), Screamtracker 3 540.
 All three walkers hold on every file that has landed.
 

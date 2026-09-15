@@ -236,6 +236,13 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <p class="note">Read the binary artist at the text offset and its first letter vanishes:
         "Akihiko Mori" becomes "kihiko Mori". A reader that is one byte off is always one byte off
         in the layout, never in the font.</p>
+        <p class="note"><b>A third spelling, from one dumper.</b> Files with the <code>v0.20</code>
+        magic and <code>0x1B</code> at byte 0x23, dumped in the summer of 1999, leave the text slots
+        empty and put a <b>20-character title at 0x30</b> -- two bytes late -- and the date at
+        <b>0xD0</b> as day, month and a little-endian year, exactly where the text spelling keeps
+        its disable and emulator bytes. Some <code>v0.10</code> files use the same 0x30 title slot,
+        space-padded, with a binary length. A reader that takes the title from 0x2E sees an empty
+        slot and calls these untitled.</p>
         <div id="spc-tag"></div>
       </div>
     </details>

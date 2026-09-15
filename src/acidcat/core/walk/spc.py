@@ -169,10 +169,14 @@ def _header_chunk(h):
         fields.append(_f(None, 0, "tag_style", h["tag_style"],
                          "the date, length and fade are text in one spelling "
                          "and packed numbers in the other; nothing says which"))
-        for key, off, n in (("title", 0x2E, 32), ("game", 0x4E, 32),
+        title_at = (0x30, 20) if h["early_title"] else (0x2E, 32)
+        for key, off, n in (("title",) + title_at, ("game", 0x4E, 32),
                             ("dumper", 0x6E, 16), ("comment", 0x7E, 32)):
             if key in t:
-                fields.append(_f(off, n, key, t[key]))
+                fields.append(_f(off, n, key, t[key],
+                                 "a 1999 dumper's 20-character slot, two "
+                                 "bytes late" if key == "title"
+                                 and h["early_title"] else ""))
         if "artist" in t:
             fields.append(_f(None, 0, "artist", t["artist"]))
         if "date" in t:
