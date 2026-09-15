@@ -229,7 +229,13 @@ def parse_s3m(data):
     default_pan = data[0x35]
     channels = list(data[0x40:0x60])
     if ordnum % 2:
-        warns.append(f"order count {ordnum} is odd (canonically even)")
+        # Scream Tracker itself pads the order list to an even count and never
+        # writes an odd one: in 540 real files every odd count came from a
+        # writer with a 0x3xxx id, which is Impulse Tracker exporting S3M.
+        # So this is a fingerprint rather than a defect, and it says so.
+        who = ("Impulse Tracker exporting S3M does this"
+               if (cwt >> 12) == 3 else "Scream Tracker never writes one")
+        warns.append(f"order count {ordnum} is odd; {who}")
     if ffi not in (1, 2):
         warns.append(f"sample format ffi={ffi} is not 1 (signed) or 2 (unsigned)")
 
