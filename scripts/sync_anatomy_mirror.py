@@ -56,6 +56,11 @@ NEW_CARDS = {
             "recorded message by message. The payload is nibble-split because "
             "SysEx cannot carry a byte with bit 7 set, and three fields that "
             "look like offsets are addresses in the sampler's own memory."),
+    "spc": ("SPC", "#7A5E3D", "#5F4930", "byte + bit",
+            "A Super Nintendo's sound chip, frozen: the CPU registers, all 64 "
+            "KB of its RAM, the DSP's 128 registers. No score to parse; a bank "
+            "of BRR samples the DSP's own registers point at, and a tag whose "
+            "flag byte real files never set."),
     "gbs": ("GBS", "#4E7A5C", "#3D5F48", "byte map",
             "A Game Boy's music cut out of the game: a 112-byte header naming "
             "where to load the code and which routine to call, then the code. "

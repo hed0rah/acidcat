@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>acidcat / spc anatomy</title>
+<link rel="icon" id="acidcat-fav" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNTEyIDUxMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48bWFzayBpZD0iayI+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIGZpbGw9IiMwMDAiLz48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0MC4yMSw0Mi43Mikgc2NhbGUoMC4yKSI+PGNpcmNsZSBjeD0iMTA3OC45NyIgY3k9IjEyNDYuNDEiIHI9Ijg0Ny45NTgiIGZpbGw9IiNmZmYiPjwvY2lyY2xlPjxwYXRoIGQ9Ik04MjMuNzgsNDM2LjY1M2MtMjQ1LDg0IC0zNjAsMjE1IC0zOTMuNzgsMjYzLjk1Yy0zNCw3MCAtMzMsLTEzNSAyNSwtMzQwLjZjMzcsLTEzNSAxMTgsLTMwMCAxNTEuNzgsLTM1OS4zNWM2MCwtNTUgNjAsMzAgMjE3LDQzNi4wNVoiIGZpbGw9IiNmZmYiPjwvcGF0aD48cGF0aCBkPSJNMTMzNC4xNiw0MzYuNjUzYzI0NSw4NCAzNjAsMjE1IDM5My43OCwyNjMuOTVjMzQsNzAgMzMsLTEzNSAtMjUsLTM0MC42Yy0zNywtMTM1IC0xMTgsLTMwMCAtMTUxLjc4LC0zNTkuMzVjLTYwLC01NSAtNjAsMzAgLTIxNyw0MzYuMDVaIiBmaWxsPSIjZmZmIj48L3BhdGg+PGVsbGlwc2UgY3g9Ijc3MiIgY3k9Ijk3NSIgcng9Ijk3IiByeT0iMTM3IiBmaWxsPSIjMDAwIj48L2VsbGlwc2U+PGVsbGlwc2UgY3g9IjEzOTQiIGN5PSI5NzUiIHJ4PSI5NyIgcnk9IjEzNyIgZmlsbD0iIzAwMCI+PC9lbGxpcHNlPjxwYXRoIGQ9Ik01MjAuMTE2LDE1MDUuMjRjMzUwLjMzMSw0MTQuNzQ0IDcyMi4wMzksNDIxLjk2OCAxMTE3LjcyLDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIxNzUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+PC9wYXRoPjwvZz48L21hc2s+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIGZpbGw9IiMxNzE0MGYiIG1hc2s9InVybCgjaykiLz48cGF0aCBkPSJNOTgsMzI0IEw2MCwzMTYiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE3MTQwZiIgc3Ryb2tlLXdpZHRoPSIzMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTk4LDM2MiBMNjAsMzc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNzE0MGYiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik00MTQsMzI0IEw0NTIsMzE2IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNzE0MGYiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik00MTQsMzYyIEw0NTIsMzc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNzE0MGYiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg=="><script>(function(){var l="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNTEyIDUxMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48bWFzayBpZD0iayI+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIGZpbGw9IiMwMDAiLz48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0MC4yMSw0Mi43Mikgc2NhbGUoMC4yKSI+PGNpcmNsZSBjeD0iMTA3OC45NyIgY3k9IjEyNDYuNDEiIHI9Ijg0Ny45NTgiIGZpbGw9IiNmZmYiPjwvY2lyY2xlPjxwYXRoIGQ9Ik04MjMuNzgsNDM2LjY1M2MtMjQ1LDg0IC0zNjAsMjE1IC0zOTMuNzgsMjYzLjk1Yy0zNCw3MCAtMzMsLTEzNSAyNSwtMzQwLjZjMzcsLTEzNSAxMTgsLTMwMCAxNTEuNzgsLTM1OS4zNWM2MCwtNTUgNjAsMzAgMjE3LDQzNi4wNVoiIGZpbGw9IiNmZmYiPjwvcGF0aD48cGF0aCBkPSJNMTMzNC4xNiw0MzYuNjUzYzI0NSw4NCAzNjAsMjE1IDM5My43OCwyNjMuOTVjMzQsNzAgMzMsLTEzNSAtMjUsLTM0MC42Yy0zNywtMTM1IC0xMTgsLTMwMCAtMTUxLjc4LC0zNTkuMzVjLTYwLC01NSAtNjAsMzAgLTIxNyw0MzYuMDVaIiBmaWxsPSIjZmZmIj48L3BhdGg+PGVsbGlwc2UgY3g9Ijc3MiIgY3k9Ijk3NSIgcng9Ijk3IiByeT0iMTM3IiBmaWxsPSIjMDAwIj48L2VsbGlwc2U+PGVsbGlwc2UgY3g9IjEzOTQiIGN5PSI5NzUiIHJ4PSI5NyIgcnk9IjEzNyIgZmlsbD0iIzAwMCI+PC9lbGxpcHNlPjxwYXRoIGQ9Ik01MjAuMTE2LDE1MDUuMjRjMzUwLjMzMSw0MTQuNzQ0IDcyMi4wMzksNDIxLjk2OCAxMTE3LjcyLDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIxNzUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+PC9wYXRoPjwvZz48L21hc2s+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIGZpbGw9IiMxNzE0MGYiIG1hc2s9InVybCgjaykiLz48cGF0aCBkPSJNOTgsMzI0IEw2MCwzMTYiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzE3MTQwZiIgc3Ryb2tlLXdpZHRoPSIzMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTk4LDM2MiBMNjAsMzc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNzE0MGYiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik00MTQsMzI0IEw0NTIsMzE2IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNzE0MGYiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik00MTQsMzYyIEw0NTIsMzc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNzE0MGYiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==",d="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNTEyIDUxMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48bWFzayBpZD0iayI+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIGZpbGw9IiMwMDAiLz48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSg0MC4yMSw0Mi43Mikgc2NhbGUoMC4yKSI+PGNpcmNsZSBjeD0iMTA3OC45NyIgY3k9IjEyNDYuNDEiIHI9Ijg0Ny45NTgiIGZpbGw9IiNmZmYiPjwvY2lyY2xlPjxwYXRoIGQ9Ik04MjMuNzgsNDM2LjY1M2MtMjQ1LDg0IC0zNjAsMjE1IC0zOTMuNzgsMjYzLjk1Yy0zNCw3MCAtMzMsLTEzNSAyNSwtMzQwLjZjMzcsLTEzNSAxMTgsLTMwMCAxNTEuNzgsLTM1OS4zNWM2MCwtNTUgNjAsMzAgMjE3LDQzNi4wNVoiIGZpbGw9IiNmZmYiPjwvcGF0aD48cGF0aCBkPSJNMTMzNC4xNiw0MzYuNjUzYzI0NSw4NCAzNjAsMjE1IDM5My43OCwyNjMuOTVjMzQsNzAgMzMsLTEzNSAtMjUsLTM0MC42Yy0zNywtMTM1IC0xMTgsLTMwMCAtMTUxLjc4LC0zNTkuMzVjLTYwLC01NSAtNjAsMzAgLTIxNyw0MzYuMDVaIiBmaWxsPSIjZmZmIj48L3BhdGg+PGVsbGlwc2UgY3g9Ijc3MiIgY3k9Ijk3NSIgcng9Ijk3IiByeT0iMTM3IiBmaWxsPSIjMDAwIj48L2VsbGlwc2U+PGVsbGlwc2UgY3g9IjEzOTQiIGN5PSI5NzUiIHJ4PSI5NyIgcnk9IjEzNyIgZmlsbD0iIzAwMCI+PC9lbGxpcHNlPjxwYXRoIGQ9Ik01MjAuMTE2LDE1MDUuMjRjMzUwLjMzMSw0MTQuNzQ0IDcyMi4wMzksNDIxLjk2OCAxMTE3LjcyLDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIxNzUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCI+PC9wYXRoPjwvZz48L21hc2s+PHJlY3Qgd2lkdGg9IjUxMiIgaGVpZ2h0PSI1MTIiIGZpbGw9IiNmMmVmZTgiIG1hc2s9InVybCgjaykiLz48cGF0aCBkPSJNOTgsMzI0IEw2MCwzMTYiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyZWZlOCIgc3Ryb2tlLXdpZHRoPSIzMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PHBhdGggZD0iTTk4LDM2MiBMNjAsMzc0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmMmVmZTgiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik00MTQsMzI0IEw0NTIsMzE2IiBmaWxsPSJub25lIiBzdHJva2U9IiNmMmVmZTgiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjxwYXRoIGQ9Ik00MTQsMzYyIEw0NTIsMzc0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmMmVmZTgiIHN0cm9rZS13aWR0aD0iMzIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==",e=document.getElementById("acidcat-fav"),m=matchMedia("(prefers-color-scheme: dark)");function s(){e.setAttribute("href",m.matches?d:l);}try{m.addEventListener("change",s)}catch(x){m.addListener(s)}s();})();</script>
+<script>(function(){try{var m=localStorage.getItem("acidcat-theme");if(!m)m=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.setAttribute("data-theme",m);}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E6E6E1; --panel:#EBEBE6; --ink:#1E201D; --soft:#67685F;
+  --faint:#979889; --line:#CACCC0; --hair:#D7D8CD;
+  /* the small meaningful palette. each hue marks a field kind. */
+  --enum:#7D4A6E;  --enum-soft:#d7d0d1;   /* table-backed value  (green) */
+  --flag:#9A6E3F;  --flag-soft:#E7DCCB;   /* boolean switch      (clay)  */
+  --rsv:#9C9889;   --rsv-soft:rgba(34,32,27,0.03); /* reserved / ignored */
+  --sync:#3A4A55;  --sync-soft:#D6DCE0;   /* structural anchor   (slate) */
+  --ff:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;
+}
+:root[data-theme="dark"]{--paper:#191a17;--panel:#212320;--ink:#e6e6e1;--soft:#abaca1;--faint:#7c7d72;--line:#383a32;--hair:#2b2d26;--enum:#b496ab;--enum-soft:#30232b;--flag:#c3ad92;--flag-soft:#2c271d;--rsv:#bcbaae;--rsv-soft:rgba(230,230,225,0.04);--sync:#979ea0;--sync-soft:#1e2120;}
+:root[data-theme="acid"]{--paper:#0b0912;--panel:#161022;--ink:#f4ecff;--soft:#ccb9f2;--faint:#8f7ec6;--line:#3b2c5c;--hair:#241a3a;--enum:#3fd0ff;--enum-soft:#0f2942;--flag:#ff45a8;--flag-soft:#3a1030;--rsv:#bb8cff;--rsv-soft:rgba(244,236,255,0.05);--sync:#f2e400;--sync-soft:#33300a;}
+:root[data-theme="house-light"]{--paper:#F2F1EE;--panel:#FBFAF6;--ink:#17150F;--soft:#4A4744;--faint:#8C877E;--line:#C9C5BB;--hair:#E4E0D7;--enum:#007870;--enum-soft:#D8E7E5;--flag:#E85000;--flag-soft:#F6E1D4;--sync:#33518C;--sync-soft:#DEE3EF;--rsv:#8C877E;--rsv-soft:rgba(23,21,15,0.04);}
+:root[data-theme="house-dark"]{--paper:#121213;--panel:#1c1c1e;--ink:#ececea;--soft:#a9a9a4;--faint:#6f6f6b;--line:#313135;--hair:#26262a;--enum:#08F9DF;--enum-soft:#0e2a29;--flag:#FF4D00;--flag-soft:#2c1a10;--sync:#7fb2e0;--sync-soft:#16232f;--rsv:#8b8b88;--rsv-soft:rgba(236,236,234,0.05);}.theme-toggle{position:fixed;bottom:0.9rem;right:0.9rem;z-index:50;font-family:var(--ff);font-size:0.56rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--soft);background:var(--panel);border:1px solid var(--line);padding:0.45rem 0.7rem;cursor:pointer;font-weight:400;transition:color .15s,border-color .15s}.theme-toggle:hover{color:var(--enum);border-color:var(--enum)}*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ff);font-weight:300;line-height:1.7;font-size:14px;-webkit-font-smoothing:antialiased}
+::selection{background:var(--enum);color:var(--paper)}
+.sheet{max-width:1040px;margin:0 auto;padding:clamp(1.5rem,4vw,3.25rem) clamp(1.25rem,4vw,3rem) 5rem}
+
+.head{border:1px solid var(--ink);margin-bottom:1.8rem}
+.head .row{display:grid;grid-template-columns:1fr auto;align-items:stretch}
+.head .title{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.9rem 1.1rem}
+.head .title acidcat-toggle{--acidcat-size:64px;color:var(--soft);flex:0 0 auto;transition:color .15s}
+.head .title acidcat-toggle:hover{color:var(--enum)}
+:root[data-theme="acid"] .head .title acidcat-toggle{color:var(--sync)}
+:root[data-theme="acid"] .head .title acidcat-toggle:hover{color:var(--flag)}
+:root[data-theme="house-light"] .head .title acidcat-toggle{color:var(--flag)}
+:root[data-theme="house-dark"] .head .title acidcat-toggle{color:var(--enum)}
+:root[data-theme="house-light"] .head .title acidcat-toggle:hover{color:var(--enum)}
+:root[data-theme="house-dark"] .head .title acidcat-toggle:hover{color:var(--flag)}
+:root[data-theme="house-light"] .head .stamp b{color:var(--enum)}
+:root[data-theme="house-dark"] .head .stamp b{color:var(--flag)}
+:root[data-theme="house-light"] .head .title{border-left:3px solid var(--enum)}
+:root[data-theme="house-dark"] .head .title{border-left:3px solid var(--flag)}
+.head .sysmark{font-size:0.62rem;letter-spacing:0.34em;color:var(--soft)}
+.head h1{font-weight:500;font-size:clamp(1.5rem,4vw,2rem);letter-spacing:0.02em;line-height:1.1;margin-top:0.2rem}
+.head .stamp{border-left:1px solid var(--line);padding:0.9rem 1.1rem;text-align:right;font-size:0.6rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint);display:flex;flex-direction:column;justify-content:center;gap:0.2rem}
+.head .stamp b{color:var(--enum);font-weight:500}
+.head .strip{border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase}
+.head .strip div{padding:0.5rem 1.1rem;border-right:1px solid var(--hair);color:var(--soft)}
+.head .strip div:last-child{border-right:none}
+.head .strip b{color:var(--ink);font-weight:500}
+
+.lede{color:var(--soft);max-width:74ch;margin-bottom:2.2rem;font-size:0.85rem;line-height:1.75}
+.lede b{color:var(--ink);font-weight:500}
+.intro{display:flex;gap:1.4rem;align-items:stretch;margin-bottom:2.2rem}
+.intro .lede{margin-bottom:0}
+/* color key: a swatch of each hue instead of naming the colors in prose */
+.sig{flex:0 0 auto;align-self:stretch;display:flex;flex-direction:row;align-items:center;gap:0.9rem;padding-left:1.5rem;border-left:1px solid var(--hair)}
+.sig .legrows{display:flex;flex-direction:column;gap:0.42rem}
+.sig .siglabel{writing-mode:vertical-rl;text-orientation:mixed;align-self:stretch;display:flex;align-items:center;justify-content:center;font-size:0.5rem;letter-spacing:0.34em;text-transform:uppercase;color:var(--faint);padding-left:0.9rem;border-left:1px solid var(--hair)}
+.sig .row{display:flex;align-items:center;gap:0.4rem;font-size:0.68rem;color:var(--soft);letter-spacing:0.02em;white-space:nowrap}
+.sig .swsep{color:var(--faint);font-size:0.62rem}
+.sig .misnote{font-size:0.66rem;color:var(--soft);line-height:1.7;text-align:center;max-width:11rem}
+/* two boxes per row: the dark (selected) state naming the color, and the light
+   (resting) state naming the meaning, matching how a field looks in the map. */
+.sig .sw{display:inline-flex;align-items:center;justify-content:center;width:6.1rem;height:1.45rem;padding:0;font-size:0.58rem;letter-spacing:0.1em;text-transform:lowercase;flex-shrink:0}
+.sig .sw.dark{color:var(--paper)}
+.sig .sw.light{color:var(--ink);border:1px solid var(--hair)}
+.sig .sw.dark.k-enum{background:var(--enum)} .sig .sw.light.k-enum{background:var(--enum-soft)}
+.sig .sw.dark.k-flag{background:var(--flag)} .sig .sw.light.k-flag{background:var(--flag-soft)}
+.sig .sw.dark.k-sync{background:var(--sync)} .sig .sw.light.k-sync{background:var(--sync-soft)}
+.sig .sw.dark.k-rsv{background:var(--faint)} .sig .sw.light.k-rsv{background:var(--rsv-soft)}
+.tree{font-size:0.8rem;color:var(--soft);line-height:1.85;padding:1rem 1.4rem;border:1px solid var(--line);background:var(--panel);overflow-x:auto;margin-bottom:2rem}
+.tree b{color:var(--ink);font-weight:500}
+footer a{color:inherit;border-bottom:1px solid var(--hair)} footer a:hover{color:var(--enum);border-color:var(--enum)}
+@media(max-width:720px){.intro{display:block}
+/* the key was hidden here while the colours it explains stayed on screen. It reflows instead: label above, swatches wrapping across. */
+.sig{flex-direction:column;align-items:flex-start;align-self:stretch;gap:0.55rem;padding:0.9rem 0 0;margin-top:0.9rem;border-left:0;border-top:1px solid var(--hair)}
+.sig .siglabel{order:-1;writing-mode:horizontal-tb;text-orientation:mixed;align-self:flex-start;justify-content:flex-start;padding:0 0 0.2rem;border-left:0;width:auto}
+.sig .legrows{flex-direction:row;flex-wrap:wrap;gap:0.45rem 0.9rem}
+.sig .misnote{max-width:none;text-align:left}}
+.k-en{color:var(--enum)} .k-fl{color:var(--flag)}
+
+.sec{font-size:0.66rem;letter-spacing:0.26em;text-transform:uppercase;font-weight:600;color:var(--ink);margin:2.6rem 0 0.3rem;display:flex;align-items:center;gap:0.7rem}
+.sec::after{content:"";flex:1;height:1px;background:var(--line)}
+.note{font-size:0.78rem;color:var(--soft);margin:0.5rem 0 1.1rem;max-width:72ch}
+
+.region{border:1px solid var(--line);border-bottom:none;background:var(--panel)}
+.region:last-child{border-bottom:1px solid var(--line)}
+.region>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:1.2rem 1fr auto;gap:0.8rem;align-items:center;padding:0.75rem 1rem;font-size:0.82rem}
+.region>summary::-webkit-details-marker{display:none}
+.region>summary:hover{background:var(--enum-soft)}
+.region .chev{color:var(--enum);transition:transform .18s;font-size:0.7rem}
+.region[open] .chev{transform:rotate(90deg)}
+.region .rname{font-weight:500;letter-spacing:0.02em}
+.region .rspan{font-size:0.64rem;color:var(--faint);letter-spacing:0.08em;text-transform:uppercase}
+.region.opt .rname::after{content:"opt";margin-left:0.6rem;font-size:0.54rem;letter-spacing:0.14em;color:var(--faint);border:1px solid var(--line);padding:1px 4px;vertical-align:middle}
+.region .rbody{padding:0.6rem 1rem 1.2rem 3rem;border-top:1px solid var(--hair)}
+
+.kv{font-size:0.74rem}
+.kv div{display:grid;grid-template-columns:12rem 1fr;gap:1rem;padding:0.32rem 0;border-bottom:1px solid var(--hair)}
+.kv div:last-child{border-bottom:none}
+.kv .k{color:var(--soft)} .kv .v{color:var(--ink)}
+
+.diagram{display:flex;flex-wrap:wrap;gap:12px;margin:0.6rem 0 1.4rem}
+.bytegrp{border:1px solid var(--line);background:var(--panel)}
+.bytegrp .ticks{display:flex;border-bottom:1px solid var(--hair)}
+.bytegrp .ticks span{width:1.55rem;text-align:center;font-size:0.5rem;color:var(--faint);padding:2px 0}
+.bytegrp .brow{display:flex}
+.bit{width:1.55rem;height:1.85rem;display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--soft);border-right:1px solid var(--hair);transition:background .12s,color .12s;cursor:pointer}
+.bit:last-child{border-right:none}
+.bytegrp .hex{text-align:center;font-size:0.6rem;letter-spacing:0.12em;color:var(--ink);padding:3px 0;border-top:1px solid var(--hair);font-weight:500}
+.dbytes{display:flex;flex-wrap:wrap;gap:4px;margin:0.6rem 0 1.4rem}
+.bcol{display:flex;flex-direction:column;align-items:center}
+.bcol .off{font-size:0.5rem;color:var(--faint);margin-bottom:2px}
+.bcell{width:2.5rem;height:1.9rem;display:flex;align-items:center;justify-content:center;font-size:0.78rem;border:1px solid var(--hair);color:var(--soft);transition:background .12s,color .12s;cursor:pointer}
+.fstart{box-shadow:inset 2px 0 0 var(--line)}
+.k-sync{background:var(--sync-soft)} .k-enum{background:var(--enum-soft)}
+.k-flag{background:var(--flag-soft)} .k-rsv{background:var(--rsv-soft)}
+.hi.k-sync{background:var(--sync);color:var(--paper)}
+.hi.k-enum{background:var(--enum);color:var(--paper)}
+.hi.k-flag{background:var(--flag);color:var(--paper)}
+.hi.k-rsv{background:var(--faint);color:var(--paper)}
+.block{display:grid;grid-template-columns:1fr 330px;gap:1.6rem;align-items:stretch}
+.left{min-width:0}
+.detailcol{position:relative}
+@media(max-width:820px){.block{grid-template-columns:1fr}.detailcol{position:static}}
+.fields{border-top:1px solid var(--line)}
+.field{display:grid;grid-template-columns:5rem 1fr auto;gap:0.8rem;align-items:baseline;padding:0.46rem 0;border-bottom:1px solid var(--hair)}
+.field{cursor:pointer}
+.field:hover,.field.active,.field.cued{background:var(--panel)}
+.field .fb{font-size:0.6rem;color:var(--faint)} .field .fn{font-size:0.82rem;color:var(--ink)}
+.field[data-branch] .fn::after{content:"+";margin-left:0.4rem;color:var(--enum);font-weight:500}
+.field.active[data-branch] .fn::after{content:"\2212"}
+.fv{font-size:0.76rem;text-align:right}
+.fv.k-sync{color:var(--sync)} .fv.k-enum{color:var(--enum)} .fv.k-flag{color:var(--flag)} .fv.k-rsv{color:var(--faint)}
+.branch{grid-column:1 / -1;display:none;padding:0.5rem 0 0.2rem 5.8rem}
+.field.active .branch{display:block}
+.branch table{border-collapse:collapse;font-size:0.7rem;width:100%;max-width:28rem}
+.branch td{padding:1px 10px 1px 0;color:var(--soft)} .branch td.k{color:var(--faint);width:3.4rem;text-align:right}
+.branch tr.sel td{color:var(--ink)} .branch tr.sel td.k{color:var(--enum);font-weight:500}
+.detail{position:absolute;inset:0;border:1px solid var(--line);background:var(--panel);padding:1rem 1.05rem;overflow-y:auto}
+@media(max-width:820px){.detail{position:static;height:15rem}}
+.detail .dl{font-size:0.56rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--hair);padding-bottom:0.5rem;margin-bottom:0.6rem;display:flex;justify-content:space-between}
+.detail .dl .kind{color:var(--soft)}
+.detail h3{font-weight:500;font-size:0.98rem;letter-spacing:0.01em}
+.detail .dc{font-size:0.66rem;color:var(--enum);margin:0.25rem 0 0.7rem}
+.detail p{font-size:0.77rem;color:var(--soft);line-height:1.65}
+.detail .dn{font-size:0.67rem;color:var(--ink);margin-top:0.7rem;line-height:1.55;border-top:1px solid var(--hair);padding-top:0.6rem}
+
+footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);display:flex;justify-content:space-between;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);flex-wrap:wrap;gap:0.5rem}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="head">
+    <div class="row">
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>SPC Anatomy</h1></div></div>
+      <div class="stamp"><b>Super Nintendo</b>SPC700 . S-DSP snapshot<br>rev 2026.09</div>
+    </div>
+    <div class="strip">
+      <div>magic <b>33 bytes</b></div>
+      <div>endian <b>little</b></div>
+      <div>container <b>own, fixed</b></div>
+      <div>samples <b>BRR, inside the RAM</b></div>
+    </div>
+  </div>
+
+  <div class="intro">
+    <p class="lede">An <b>.spc</b> is a Super Nintendo's sound chip, frozen. The SNES has a second
+    computer for audio -- the <b>SPC700</b>, with 64 KB of its own RAM and a DSP that plays
+    compressed samples out of it -- and this file is that computer mid-tune: the CPU registers,
+    every byte of RAM, and the DSP's 128 registers. A player loads the image and lets the program
+    run. There is no score to parse. What there is: a tag, a machine state, and a bank of samples
+    the DSP knows how to find.</p>
+    <aside class="sig" aria-label="color key">
+      <div class="legrows">
+        <div class="row"><span class="sw dark k-enum">mauve</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+        <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+      </div>
+      <div class="siglabel">color key</div>
+    </aside>
+  </div>
+
+  <div class="sec">the shape, always the same</div>
+  <p class="note">Every SPC is 66,048 bytes before its optional tail: a 256-byte header, 65,536
+  bytes of RAM, 128 bytes of DSP registers, 64 unused, 64 of the boot ROM area. Then, usually, an
+  <code>xid6</code> chunk carrying the rest of the tag.</p>
+  <div class="kv">
+    <div><span class="k">0x00000</span><span class="v">header and ID666 tag, 256 bytes</span></div>
+    <div><span class="k">0x00100</span><span class="v">SPC700 RAM, 65,536 bytes</span></div>
+    <div><span class="k">0x10100</span><span class="v">DSP registers, 128 bytes</span></div>
+    <div><span class="k">0x10180</span><span class="v">unused, 64 bytes</span></div>
+    <div><span class="k">0x101C0</span><span class="v">IPL ROM area, 64 bytes</span></div>
+    <div><span class="k-en">0x10200</span><span class="v">xid6, if present; in nearly every file made this century</span></div>
+  </div>
+
+  <div class="sec">the header, and the flag that is not one</div>
+  <p class="note">Thirty-three bytes of magic, then three bytes the specification describes as a
+  signature and a tag flag, then the CPU state, then the tag. The bytes are from a real file.</p>
+  <div id="spc-head"></div>
+
+  <div>
+    <details class="region" open>
+      <summary><span class="chev">&#9656;</span><span class="rname">what the spec says, and what files do</span><span class="rspan">three disagreements</span></summary>
+      <div class="rbody">
+        <p class="note">The SPC specification has travelled with every player since 1999, and real
+        files disagree with it in three places. Each is the kind of thing only a pile of files can
+        show.</p>
+        <p class="note"><b>The tag flag.</b> The spec says byte <code>0x23</code> is <code>0x26</code>
+        when an ID666 tag follows and <code>0x27</code> when it does not. Real files carry
+        <code>0x1A</code> there -- bytes <code>0x21</code> to <code>0x23</code> are three DOS
+        end-of-file markers, so a tune printed to a console shows its magic and stops -- and they
+        carry a full tag regardless. A reader that obeys the flag reads every file as untagged.</p>
+        <p class="note"><b>Telling the two spellings apart.</b> The tag's length and fade are text in
+        one spelling and packed numbers in the other, and the spec suggests looking at the date to
+        tell which. Real dumpers leave the date empty in both spellings. The <b>seconds slot</b> is
+        the tell: digits means text, anything else means binary, and an empty slot is text with the
+        length simply not written.</p>
+        <p class="note"><b>The emulator byte.</b> In the text spelling it is written as the character
+        <code>'0'</code>, not the number 0. The spec does not say so.</p>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">the two tag spellings</span><span class="rspan">text . binary</span></summary>
+      <div class="rbody">
+        <p class="note">The title, game, dumper and comment slots are the same in both. From the
+        date onward they differ, and the artist moves by <b>one byte</b>:</p>
+        <div class="kv">
+          <div><span class="k">text</span><span class="v">date as 11 chars at 0x9E, seconds as 3 chars at 0xA9, fade as 5 chars at 0xAC, artist at <b>0xB1</b>, emulator as a digit at 0xD2</span></div>
+          <div><span class="k">binary</span><span class="v">date packed at 0x9E, seconds as 3 bytes at 0xA9, fade as 4 bytes at 0xAC, artist at <b>0xB0</b>, emulator as a number at 0xD1</span></div>
+        </div>
+        <p class="note">Read the binary artist at the text offset and its first letter vanishes:
+        "Akihiko Mori" becomes "kihiko Mori". A reader that is one byte off is always one byte off
+        in the layout, never in the font.</p>
+        <div id="spc-tag"></div>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">finding the samples</span><span class="rspan">DIR . SRCN</span></summary>
+      <div class="rbody">
+        <p class="note">DSP register <code>0x5D</code>, <b>DIR</b>, names a page of RAM holding the
+        <b>sample directory</b>: 256 entries of four bytes, a start address and a loop address each.
+        Every entry that points inside RAM looks like a sample.</p>
+        <p class="note">Most of them are not. The directory is a table the hardware reads by index,
+        and a sound engine leaves it full of whatever was there: addresses from other tunes, from
+        the game's other banks, from nothing. Two thirds of real files have directory entries that
+        overlap each other and the program code. What the DSP actually dereferences is named by the
+        eight <b>SRCN</b> registers, one per voice at <code>0x04 + voice * 0x10</code>: the entry
+        each voice is set to play. Those are the real samples, and those alone.</p>
+        <div id="spc-dir"></div>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">a BRR sample</span><span class="rspan">9-byte blocks</span></summary>
+      <div class="rbody">
+        <p class="note">Samples are <b>Bit Rate Reduction</b>, the SNES's own ADPCM: nine-byte
+        blocks, each a header byte and sixteen 4-bit samples. The header carries the shift, the
+        filter, and two flags: <b>END</b> and <b>LOOP</b>. A sample runs from its start address
+        until a block with END set. Whether it loops is the LOOP bit of that same last block --
+        the directory's loop address says where to, not whether.</p>
+        <div id="spc-brr"></div>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">xid6, where the tag actually is</span><span class="rspan">after the image</span></summary>
+      <div class="rbody">
+        <p class="note">The 256-byte header has room for a title, a game, an artist and a length.
+        Everything else -- publisher, year, disc and track, intro and loop lengths to the
+        1/64000th of a second -- lives in a chunk after the image: <code>xid6</code>, a size, then
+        sub-chunks of a one-byte ID, a one-byte type, and a two-byte length or value, each padded
+        to four bytes. The spec presents it as an optional extension. Nearly every real file has
+        one, and it is where the metadata is.</p>
+        <div id="spc-xid6"></div>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">RSN</span><span class="rspan">not a format</span></summary>
+      <div class="rbody">
+        <p class="note">An <code>.rsn</code> is a RAR archive of SPC files, renamed so a player will
+        open it. It works because every tune from one game shares its engine and most of its
+        samples, and RAR's solid compression stores the shared bytes once.</p>
+      </div>
+    </details>
+
+    <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">byte order</span><span class="rspan">little-endian</span></summary>
+      <div class="rbody">
+        <p class="note">The SPC700 is little-endian and so is everything here: the program counter,
+        the directory entries, the packed tag numbers, the xid6 lengths.</p>
+      </div>
+    </details>
+  </div>
+
+  <footer>
+    <span>acidcat / spc anatomy</span>
+    <span>super nintendo . spc700 . s-dsp . brr samples . id666 and xid6</span>
+  <span><a href="https://hed0rah.github.io">hed0rah</a> &middot; <a href="https://x.com/r3l0z">r3l0z</a></span></footer>
+
+</div>
+
+<script>
+(function(){
+  var KINDS={sync:"structural",enum:"value",flag:"flag",rsv:"reserved"};
+  function hx(b){return b.toString(16).toUpperCase().padStart(2,"0");}
+  function build(mountId, unit, bytes, fields){
+    var mount=document.getElementById(mountId);
+    var N = unit==="bit" ? bytes.length*8 : bytes.length;
+    var owner=new Array(N);
+    fields.forEach(function(f,fi){ for(var i=f.r[0];i<=f.r[1];i++) owner[i]=fi; });
+    var diagram=document.createElement("div");
+    if(unit==="bit"){
+      diagram.className="diagram";
+      for(var bi=0; bi<bytes.length; bi++){
+        var grp=document.createElement("div"); grp.className="bytegrp";
+        var ticks=document.createElement("div"); ticks.className="ticks";
+        var row=document.createElement("div"); row.className="brow";
+        for(var k=0;k<8;k++){
+          var idx=bi*8+k, f=fields[owner[idx]];
+          var t=document.createElement("span"); t.textContent=idx; ticks.appendChild(t);
+          var cell=document.createElement("span"); cell.className="bit k-"+f.k; cell.dataset.idx=idx;
+          if(idx===f.r[0]) cell.classList.add("fstart");
+          cell.textContent=(bytes[bi]>>(7-k))&1; row.appendChild(cell);
+        }
+        var hex=document.createElement("div"); hex.className="hex"; hex.textContent="0x"+hx(bytes[bi]);
+        grp.appendChild(ticks); grp.appendChild(row); grp.appendChild(hex); diagram.appendChild(grp);
+      }
+    } else {
+      diagram.className="dbytes";
+      bytes.forEach(function(b,i){
+        var f=fields[owner[i]];
+        var col=document.createElement("div"); col.className="bcol";
+        var off=document.createElement("div"); off.className="off"; off.textContent="0x"+hx(i); col.appendChild(off);
+        var cell=document.createElement("div"); cell.className="bcell k-"+f.k; cell.dataset.idx=i;
+        if(i===f.r[0]) cell.classList.add("fstart");
+        cell.textContent=hx(b); col.appendChild(cell); diagram.appendChild(col);
+      });
+    }
+    var list=document.createElement("div"); list.className="fields";
+    var aside=document.createElement("aside"); aside.className="detail";
+    aside.setAttribute("role","status"); aside.setAttribute("aria-live","polite");
+    aside.innerHTML="<div class='dl'><span>field detail</span><span class='kind'></span></div>"+
+      "<h3>Hover a field or byte</h3><div class='dc'>"+(unit==="bit"?N+" bits":bytes.length+" bytes")+"</div>"+
+      "<p>Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.</p><div class='dn'></div>";
+    var det={t:aside.querySelector("h3"),c:aside.querySelector(".dc"),b:aside.querySelector("p"),n:aside.querySelector(".dn"),kind:aside.querySelector(".kind")};
+    var cells=[].slice.call(diagram.querySelectorAll("[data-idx]"));
+    var rows=[];
+    function light(a,b){cells.forEach(function(c){var i=+c.dataset.idx;c.classList.toggle("hi",i>=a&&i<=b);});}
+    function clearHi(){cells.forEach(function(c){c.classList.remove("hi");});}
+    function rl(f){ return unit==="bit"
+      ? "bits "+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")
+      : "bytes 0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-0x"+hx(f.r[1]):""); }
+    function show(f){det.t.textContent=f.label;det.c.textContent=rl(f)+"  =  "+f.val;
+      det.b.textContent=f.body;det.n.textContent=f.note||"";det.kind.textContent=KINDS[f.k];}
+    function activeRow(){return list.querySelector(".field.active");}
+    function cue(fi){rows.forEach(function(r){r.classList.remove("cued");});rows[fi].classList.add("cued");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    function restore(){rows.forEach(function(r){r.classList.remove("cued");});var a=activeRow();if(a){var fi=+a.dataset.fi;light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}else clearHi();}
+    function pin(fi){var was=rows[fi].classList.contains("active");rows.forEach(function(r){r.classList.remove("active");});if(was){clearHi();return;}rows[fi].classList.add("active");light(fields[fi].r[0],fields[fi].r[1]);show(fields[fi]);}
+    fields.forEach(function(f,fi){
+      var row=document.createElement("div"); row.className="field"; row.dataset.fi=fi; if(f.branch) row.dataset.branch="1";
+      var lab = unit==="bit" ? ("b"+f.r[0]+(f.r[1]>f.r[0]?"-"+f.r[1]:"")) : ("0x"+hx(f.r[0])+(f.r[1]>f.r[0]?"-"+hx(f.r[1]):""));
+      row.innerHTML="<span class='fb'>"+lab+"</span><span class='fn'>"+f.label+"</span><span class='fv k-"+f.k+"'>"+f.val+"</span>";
+      if(f.branch){
+        var bw=document.createElement("div"); bw.className="branch";
+        bw.innerHTML="<table>"+f.branch.map(function(p,i){return "<tr class='"+(i===f.sel?"sel":"")+"'><td class='k'>"+p[0]+"</td><td>"+p[1]+"</td></tr>";}).join("")+"</table>";
+        row.appendChild(bw);
+      }
+      // keyboard parity: the row is the semantic unit, so it is what takes
+      // focus. The byte cells below stay unfocusable on purpose -- making a
+      // forty-cell grid tabbable buries the list it is an index of.
+      var plain=document.createElement("div"); plain.innerHTML=f.val;
+      row.tabIndex=0;
+      row.setAttribute("role","button");
+      row.setAttribute("aria-label",f.label+", "+lab+", "+(plain.textContent||""));
+      row.addEventListener("mouseenter",function(){cue(fi);});
+      row.addEventListener("focus",function(){cue(fi);});
+      row.addEventListener("blur",restore);
+      row.addEventListener("click",function(){pin(fi);});
+      row.addEventListener("keydown",function(e){
+        if(e.key==="Enter"||e.key===" "){e.preventDefault();pin(fi);}
+        else if(e.key==="Escape"){rows.forEach(function(r){r.classList.remove("active");});clearHi();}
+        else if(e.key==="ArrowDown"||e.key==="ArrowUp"){
+          e.preventDefault();
+          var n=fi+(e.key==="ArrowDown"?1:-1);
+          if(n>=0&&n<rows.length) rows[n].focus();
+        }
+      });
+      rows.push(row); list.appendChild(row);
+    });
+    // bidirectional: hovering or clicking a byte/bit drives the same field
+    cells.forEach(function(c){
+      var fi=owner[+c.dataset.idx];
+      c.addEventListener("mouseenter",function(){cue(fi);});
+      c.addEventListener("click",function(){pin(fi);});
+    });
+    // inspector layout: [ left: diagram + fields ] [ detail, flush + fixed footprint ]
+    var left=document.createElement("div"); left.className="left";
+    left.appendChild(diagram); left.appendChild(list);
+    var dcol=document.createElement("div"); dcol.className="detailcol"; dcol.appendChild(aside);
+    var block=document.createElement("div"); block.className="block";
+    block.appendChild(left); block.appendChild(dcol);
+    block.addEventListener("mouseleave",restore);
+    mount.appendChild(block);
+    // size the pane to the tallest card so nothing ever scrolls; short
+    // sections just leave a little space under the fields (the lesser evil)
+    var maxH=aside.scrollHeight;
+    fields.forEach(function(f){ show(f); if(aside.scrollHeight>maxH) maxH=aside.scrollHeight; });
+    det.t.textContent="Hover a field or byte";
+    det.c.textContent=(unit==="bit"?N+" bits":bytes.length+" bytes");
+    det.b.textContent="Hover any field row or byte to light it and read the decode. Click to pin it; a field marked + opens its table.";
+    det.n.textContent="";
+    dcol.style.minHeight=(maxH+6)+"px";
+  }
+
+
+  // bytes 0x21 through 0x3D of a real file: the three EOF markers, the CPU
+  // state, and the start of the title
+  build("spc-head","byte",
+    [0x1A,0x1A,0x1A, 0x1E, 0x7E,0x08, 0x13, 0x00, 0x01, 0x00, 0xFB, 0x00,0x00,
+     0x4D,0x61,0x69,0x6E,0x20,0x54,0x68,0x65,0x6D,0x65,0x00,0x00,0x00,0x00,0x00,0x00],
+    [
+      {label:"1A 1A 1A",k:"sync",r:[0,2],val:"three DOS EOF marks",
+       body:"The specification describes bytes 0x21-0x22 as a signature 26 26 and byte 0x23 as a tag flag. Every real file measured has 1A 1A 1A: end-of-file markers, so that typing the file to a console shows the 33-byte magic and stops. The flag the spec describes is not something dumpers write.",
+       note:"not a flag. Read the tag slots regardless."},
+      {label:"version",k:"enum",r:[3,3],val:"0x1E = 30",
+       body:"The minor version, 30, matching the v0.30 in the magic string.",
+       note:""},
+      {label:"PC",k:"enum",r:[4,5],val:"$087E",
+       body:"The program counter at the moment of the dump: where the SPC700 was about to execute. A player restores this and the tune continues from exactly here.",
+       note:"little-endian."},
+      {label:"A",k:"sync",r:[6,6],val:"$13",body:"The accumulator.",note:""},
+      {label:"X",k:"sync",r:[7,7],val:"$00",body:"",note:""},
+      {label:"Y",k:"sync",r:[8,8],val:"$01",body:"",note:""},
+      {label:"PSW",k:"sync",r:[9,9],val:"$00",body:"The processor status word: the flags.",note:""},
+      {label:"SP",k:"sync",r:[10,10],val:"$FB",
+       body:"The stack pointer's low byte. The SPC700's stack is always in page 1, so this is $01FB.",
+       note:""},
+      {label:"reserved",k:"rsv",r:[11,12],val:"00 00",body:"Two bytes the spec reserves.",note:""},
+      {label:"title",k:"enum",r:[13,28],val:"Main Theme",
+       body:"The first sixteen bytes of the 32-byte title slot. Text ends at the NUL; the slot does not. Game, dumper and comment follow in slots of their own.",
+       note:"the slot is always 32 bytes."}
+    ]);
+
+  // the length, fade and emulator slots, in the text spelling
+  build("spc-tag","byte",
+    [0x31,0x34,0x30, 0x38,0x30,0x30,0x30,0x00, 0x00, 0x30],
+    [
+      {label:"seconds",k:"enum",r:[0,2],val:"'140'",
+       body:"How long to play before fading, as three text digits. This is the slot that tells the spellings apart: digits means text, packed bytes means binary, all zero means text with nothing written.",
+       note:"at 0xA9. The tell."},
+      {label:"fade",k:"enum",r:[3,7],val:"'8000'",
+       body:"The fade length in milliseconds, as up to five text digits.",
+       note:"at 0xAC."},
+      {label:"(0xD1)",k:"rsv",r:[8,8],val:"00",
+       body:"In the text spelling this byte is the channel-disable mask, zero here. In the binary spelling it is where the emulator byte sits instead.",
+       note:"the two spellings straddle this byte."},
+      {label:"emulator",k:"enum",r:[9,9],val:"'0' = unknown",sel:0,branch:[
+        ["'0' / 0","unknown"],["'1' / 1","ZSNES"],["'2' / 2","Snes9x"]],
+       body:"Which emulator made the dump. Written as the CHARACTER '0' in the text spelling -- 0x30, not 0x00 -- which the spec does not mention and every text-tagged file does.",
+       note:"at 0xD2 in text, 0xD1 in binary."}
+    ]);
+
+  // the first two directory entries, at the page DIR names
+  build("spc-dir","byte",
+    [0x68,0x2B, 0x68,0x2B, 0xB2,0x53, 0x0B,0x6D],
+    [
+      {label:"entry 0 start",k:"enum",r:[0,1],val:"$2B68",
+       body:"Where sample 0 begins in SPC700 RAM. Voice 0's SRCN register names entry 0, so this one is real: the DSP is set to play it.",
+       note:"little-endian; the directory is at page $01, so RAM $0100."},
+      {label:"entry 0 loop",k:"enum",r:[2,3],val:"$2B68",
+       body:"Where sample 0 loops back to. Equal to the start: a full-length loop. Whether it loops at all is a flag in the sample's last block, not this address.",
+       note:"an address, not a flag."},
+      {label:"entry 1 start",k:"sync",r:[4,5],val:"$53B2",body:"Sample 1, which voice 1 is set to play.",note:""},
+      {label:"entry 1 loop",k:"sync",r:[6,7],val:"$6D0B",
+       body:"A loop point well inside the sample: the tail repeats while the attack does not, which is how a sustained instrument is stored.",
+       note:"254 more entries follow. Most are stale."}
+    ]);
+
+  // the first block of sample 0
+  build("spc-brr","bit",[0x52],[
+      {label:"shift",k:"enum",r:[0,3],val:"0101 = 5",
+       body:"The range shift for this block's sixteen nibbles: each is shifted left by this much before the filter. Four bits, 0-12 are meaningful.",
+       note:"the top nibble of the header."},
+      {label:"filter",k:"enum",r:[4,5],val:"00 = 0",
+       body:"Which of four prediction filters to apply. Filter 0 is none: the nibbles are the samples, shifted. The other three predict from the previous one or two samples.",
+       note:""},
+      {label:"LOOP",k:"flag",r:[6,6],val:"1",
+       body:"Set: when this sample reaches its END block, jump to the directory's loop address. Only the last block's copy means anything, but most encoders set it on every block of a looping sample, which is why it is set on this first one.",
+       note:"the loop flag lives HERE, not in the directory."},
+      {label:"END",k:"flag",r:[7,7],val:"0",
+       body:"Clear: this is not the last block. The sample continues into the next nine bytes.",
+       note:"sixteen 4-bit samples follow the header."}
+    ]);
+
+  // the start of the xid6 chunk
+  build("spc-xid6","byte",
+    [0x78,0x69,0x64,0x36, 0x34,0x00,0x00,0x00,
+     0x12,0x00,0x01,0x00,
+     0x14,0x00,0xCA,0x07,
+     0x13,0x01,0x15,0x00, 0x4D,0x65,0x72,0x69],
+    [
+      {label:"xid6",k:"sync",r:[0,3],val:"xid6",body:"The chunk's name. It sits at 0x10200, right after the base image.",note:""},
+      {label:"size",k:"enum",r:[4,7],val:"0x34 = 52",body:"The chunk's payload length, not counting these eight bytes.",note:"little-endian."},
+      {label:"OST track",k:"enum",r:[8,11],val:"id 0x12, type 0: 1",
+       body:"A sub-chunk with its value IN the header: type 0 means the two-byte data field is the value itself. Track 1 of the soundtrack.",
+       note:"id, type, then two bytes of value."},
+      {label:"year",k:"enum",r:[12,15],val:"id 0x14, type 0: 0x07CA = 1994",
+       body:"Copyright year, held in the header the same way.",
+       note:""},
+      {label:"publisher",k:"enum",r:[16,19],val:"id 0x13, type 1, 21 bytes",
+       body:"A string sub-chunk: type 1 means the two-byte field is a LENGTH, and that many bytes of text follow, padded to a multiple of four.",
+       note:"the text starts on the next byte."},
+      {label:"text",k:"sync",r:[20,23],val:"Meri...",
+       body:"The first four of 21 bytes: 'Merit Studios, Ocean'. Then padding to the next 4-byte boundary, then the intro and fade lengths as type-4 integers.",
+       note:"1/64000 s units for the lengths."}
+    ]);
+})();
+</script>
+<script>
+(function () {
+  if (customElements.get('acidcat-toggle')) return;
+
+  const EARL = "M823.78,436.653c-245,84 -360,215 -393.78,263.95c-34,70 -33,-135 25,-340.6c37,-135 118,-300 151.78,-359.35c60,-55 60,30 217,436.05Z";
+  const EARR = "M1334.16,436.653c245,84 360,215 393.78,263.95c34,70 33,-135 -25,-340.6c-37,-135 -118,-300 -151.78,-359.35c-60,-55 -60,30 -217,436.05Z";
+  const WHISK = [
+    "M538.204,1196.91c-92.765,-0 -91.589,-12.14 -183.656,-3.551c-17.861,1.667 -61.995,-13.903 -268.815,-19.883",
+    "M483.602,1285.68c-37.939,14.794 -397.736,49.87 -432.494,53.259",
+    "M538.204,1363.79c-26.557,37.99 -398.31,150.862 -407.023,163.327",
+    "M1660.6,1189.14c22.236,-12.966 144.035,-0.154 363.552,-15.668",
+    "M1660.6,1264.76c202.29,42.443 388.678,51.655 421.623,53.385",
+    "M1603.35,1338.36c184.004,78.804 145.528,54.451 228.58,88.766c112.208,46.36 176.212,72.644 192.215,78.111"
+  ];
+  const MOUTH = "M520.116,1505.24c350.331,414.744 722.039,421.968 1117.72,0";
+  const CURLL = "M553.633,1478.51c-30.725,26.041 -67.034,30.722 -67.034,30.722";
+  const CURLR = "M1608.86,1478.51c30.725,26.041 67.034,30.722 67.034,30.722";
+
+  const stroke = (w) => `fill:none;stroke:currentColor;stroke-width:${w}px;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5`;
+  const whiskers = WHISK.map((d) => `<path d="${d}" style="${stroke(10.27)}"/>`).join('');
+
+  const spiral = (cx, cy) => {
+    const TURNS = 2.75, MAX = 150, steps = Math.round(TURNS * 2 * Math.PI / 0.32);
+    let d = 'M' + cx.toFixed(1) + ',' + cy.toFixed(1);
+    for (let i = 1; i <= steps; i++) {
+      const th = (i / steps) * TURNS * 2 * Math.PI, r = MAX * i / steps;
+      d += ' L' + (cx + r * Math.cos(th)).toFixed(1) + ',' + (cy + r * Math.sin(th)).toFixed(1);
+    }
+    return d;
+  };
+
+  const svg = `
+  <svg viewBox="-45 -70 2250 2250" style="display:block;width:100%;height:100%;overflow:visible">
+    <circle cx="1078.97" cy="1246.41" r="847.958" style="${stroke(21.53)}"/>
+    <path class="ear" d="${EARL}" style="${stroke(21.5)}"/>
+    <path class="ear" d="${EARR}" style="${stroke(21.5)}"/>
+    ${whiskers}
+    <ellipse class="eye" cx="772" cy="975" rx="78" ry="140" fill="currentColor"/>
+    <ellipse class="eye" cx="1394" cy="975" rx="78" ry="140" fill="currentColor"/>
+    <path class="swirl" d="${spiral(772, 975)}"/>
+    <path class="swirl" d="${spiral(1394, 975)}"/>
+    <path class="eye-shut" d="M688,966 q84,90 168,0"/>
+    <path class="eye-shut" d="M1310,966 q84,90 168,0"/>
+    <text class="zzz z1" x="1712" y="612">z</text>
+    <text class="zzz z2" x="1846" y="452">z</text>
+    <text class="zzz z3" x="1992" y="286">Z</text>
+    <path class="tongue" d="M1004,1735 h150 v215 a75,75 0 0 1 -150,0 z" fill="currentColor"/>
+    <path d="${MOUTH}" style="${stroke(28.33)}"/>
+    <path d="${CURLR}" style="${stroke(25.96)}"/>
+    <path d="${CURLL}" style="${stroke(25.96)}"/>
+  </svg>`;
+
+  const css = `
+    :host{display:inline-block;line-height:0}
+    button{
+      -webkit-appearance:none;appearance:none;background:none;border:0;padding:6px;margin:0;
+      cursor:pointer;color:inherit;border-radius:999px;line-height:0;display:inline-flex;
+    }
+    button:focus-visible,.field:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+    /* the field rows are divs with role=button, so the element selector above
+       never reached them and keyboard focus had no visible position */
+    .box{width:var(--acidcat-size,40px);height:var(--acidcat-size,40px)}
+    /* cat holds still: the eyes, Zzz, swirl and tongue carry the three moods */
+    .eye{transition:opacity .28s ease}
+    .eye-shut{fill:none;stroke:currentColor;stroke-width:52;stroke-linecap:round;opacity:0;transition:opacity .28s ease}
+    .zzz{fill:currentColor;font-family:var(--ff,monospace);font-weight:600;opacity:0}
+    .zzz.z1{font-size:150px}.zzz.z2{font-size:205px}.zzz.z3{font-size:270px}
+    .swirl{fill:none;stroke:currentColor;stroke-width:70;stroke-linecap:round;opacity:0;transition:opacity .32s ease;transform-box:fill-box;transform-origin:center}
+    .tongue{transform-box:fill-box;transform-origin:center top;transform:scaleY(0);transition:transform .4s cubic-bezier(.34,1.45,.5,1) .05s}
+    /* dark = asleep: eyes shut, Zzz drifting up */
+    :host([data-state="dark"]) .eye{opacity:0}
+    :host([data-state="dark"]) .eye-shut{opacity:1}
+    :host([data-state="dark"]) .zzz{animation:zfloat 3.2s ease-in-out infinite}
+    :host([data-state="dark"]) .zzz.z2{animation-delay:.5s}
+    :host([data-state="dark"]) .zzz.z3{animation-delay:1s}
+    /* acid = rave: spiral eyes in neon, tongue out */
+    :host([data-state="acid"]) .eye{opacity:0}
+    :host([data-state="acid"]) .swirl{opacity:1;animation:acid-spin 2.6s linear infinite}
+    :host([data-state="acid"]) .swirl:first-of-type{stroke:var(--enum)}
+    :host([data-state="acid"]) .swirl:last-of-type{stroke:var(--flag);animation-direction:reverse}
+    :host([data-state="acid"]) .tongue{transform:scaleY(1)}
+    /* house modes: awake + composed; eyes take the opposite accent from the face (cool/warm inversion) */
+    :host([data-state="house-light"]) .eye{fill:var(--enum)}
+    :host([data-state="house-dark"]) .eye{fill:var(--flag)}
+    @keyframes acid-spin{to{transform:rotate(1turn)}}
+    @keyframes zfloat{0%{opacity:0;transform:translateY(40px)}25%{opacity:.9}60%{opacity:.9}100%{opacity:0;transform:translateY(-90px)}}
+    @media (prefers-reduced-motion:reduce){
+      .eye,.tongue,.swirl,.eye-shut{transition:none}.swirl{animation:none}
+      :host([data-state="dark"]) .zzz{animation:none;opacity:.85}
+    }
+  `;
+
+  const STATES = ['light', 'dark', 'acid', 'house-light', 'house-dark'];
+  class AcidcatToggle extends HTMLElement {
+    connectedCallback() {
+      const root = this.attachShadow({ mode: 'open' });
+      root.innerHTML = `<style>${css}</style><button type="button" aria-label="Cycle theme: light, dark, acid, house light, house dark" title="Theme (click to cycle)"><span class="box">${svg}</span></button>`;
+      this._btn = root.querySelector('button');
+      this._btn.addEventListener('click', () => this.cycle());
+      // keep multiple toggles on one page visually in sync
+      this._sync = (e) => { if (e.target !== this && e.detail && e.detail.state) this.apply(e.detail.state, false, false); };
+      document.addEventListener('acidcat-theme', this._sync);
+
+      let saved = null;
+      try { saved = localStorage.getItem('acidcat-theme'); } catch (e) {}
+      const initial = STATES.indexOf(saved) >= 0 ? saved
+        : (this.hasAttribute('default-dark') || window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      this.apply(initial, false, true);
+    }
+    disconnectedCallback() { if (this._sync) document.removeEventListener('acidcat-theme', this._sync); }
+    get state() { return this.getAttribute('data-state') || 'light'; }
+    cycle() { this.apply(STATES[(STATES.indexOf(this.state) + 1) % STATES.length], true, true); }
+    apply(state, persist, emit) {
+      if (STATES.indexOf(state) < 0) state = 'light';
+      this.setAttribute('data-state', state);
+      document.documentElement.setAttribute('data-theme', state);
+      if (this._btn) {
+        this._btn.setAttribute('aria-pressed', String(state !== 'light'));
+        this._btn.title = 'Theme: ' + state + ' (click to cycle)';
+      }
+      if (persist) { try { localStorage.setItem('acidcat-theme', state); } catch (e) {} }
+      if (emit !== false) this.dispatchEvent(new CustomEvent('acidcat-theme', { bubbles: true, composed: true, detail: { state } }));
+    }
+  }
+  customElements.define('acidcat-toggle', AcidcatToggle);
+
+
+
+})();
+
+</script>
+</body>
+</html>
