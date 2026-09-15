@@ -71,12 +71,17 @@ and right after four hundred.
   Tracker never writes, now names the writer that does: every one in 540
   files came from Impulse Tracker exporting S3M.
 
+- **One S3M in 11,131 sniffed as a SNES cartridge.** The ROM test is a
+  checksum and its complement at 0x7FC0, a 1-in-65,536 coincidence, and it
+  ran before the S3M test, which is a four-byte magic at a fixed offset.
+  One real file won the coincidence. The magic goes first.
+
 ### Measured
 
 Modland, pulled with `mirror_modland.sh` (index-driven, four workers; a
 crawl fetched 4,000 directory listings before its first file): Nintendo SPC
-36,872 files (one with a damaged magic), Gameboy Sound Format 2,757 (which are GSF, not GBS -- the
-directory name is not the format, the first bytes are), Screamtracker 3 540.
+36,872 files (one with a damaged magic), Gameboy Sound Format 23,775 (which are GSF, not GBS -- the
+directory name is not the format, the first bytes are), Screamtracker 3 11,132.
 All three walkers hold on every file that has landed.
 
 ## [1.7.1] - 2026-09-14

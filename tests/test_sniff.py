@@ -229,3 +229,19 @@ class TestZeroedHeadMp3:
         p = tmp_path / "zero.bin"
         p.write_bytes(b"\x00" * 8192)
         assert sniff(str(p)) is None
+
+
+def test_an_s3m_that_happens_to_pass_the_snes_rom_gate_is_still_an_s3m(tmp_path):
+    """The SNES ROM check is a checksum-and-complement coincidence at 0x7FC0;
+    SCRM at 0x2C is a magic. One real modland S3M won the coincidence and was
+    sniffed as a cartridge, so the magic is tested first."""
+    import seeds
+    blob = bytearray(seeds.build("s3m"))
+    blob += bytes(0x10000 - len(blob))
+    blob[0x7FC0 + 0x15] = 0x20
+    blob[0x7FC0 + 0x1C:0x7FC0 + 0x20] = bytes((0x34, 0x12, 0xCB, 0xED))
+    p = tmp_path / "wiiner.s3m"
+    p.write_bytes(bytes(blob))
+    from acidcat.core.infra.sniff import _is_snes_rom
+    assert _is_snes_rom(str(p))
+    assert sniff(str(p)) == "s3m"

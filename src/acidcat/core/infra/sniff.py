@@ -469,6 +469,13 @@ def sniff(filepath):
     # VADPCM samples regardless of the game's bank format
     if fmt is None and head[:4] in (b"\x80\x37\x12\x40", b"\x37\x80\x40\x12", b"\x40\x12\x37\x80"):
         return "n64rom"
+    # S3M's 'SCRM' magic sits at 0x2C (outside the head), a disk-level confirm.
+    # It runs before the MOD check (MOD's offset-1080 heuristic can false-
+    # positive inside S3M pattern data) and before the SNES ROM check, whose
+    # checksum-and-complement test is a 1-in-65,536 coincidence that one real
+    # S3M has already won.
+    if fmt is None and _is_s3m(filepath):
+        return "s3m"
     # a SNES ROM has no leading magic; its internal cartridge header (LoROM 0x7FC0
     # / HiROM 0xFFC0) carries a checksum + complement that xor to 0xFFFF. extract
     # recovers its BRR samples regardless of the game's sample table.
@@ -521,11 +528,6 @@ def sniff(filepath):
     # is load-bearing.
     if fmt is None and _zeroed_head_mp3(filepath, head):
         return "mp3"
-    # S3M's 'SCRM' magic sits at 0x2C (outside the head), a disk-level confirm.
-    # It runs before the MOD check: it is cheaper and more precise, and MOD's
-    # offset-1080 heuristic can false-positive inside S3M pattern data.
-    if fmt is None and _is_s3m(filepath):
-        return "s3m"
     # Scream Tracker 2, the format S3M grew out of. Checked after S3M because
     # SCRM at 0x2C is the stronger signal and an STM has no magic at all --
     # only an EOF marker, a file type and eight free-form characters.
