@@ -56,9 +56,17 @@ def test_a_valid_spc_is_identified(tmp_path):
     assert sniff.sniff(str(_write(tmp_path, _spc()))) == "spc"
 
 
-def test_the_magic_is_thirty_three_bytes_and_all_of_them_count():
+def test_the_magic_is_the_prefix_and_the_version_is_read_not_required():
+    """The spec gives one magic ending v0.30. 43 of 4,999 real files end
+    v0.10 or a bare 0.10 instead -- older dumpers the spec never mentions --
+    and the sniff accepted them while the walker's own check refused them.
+    The 27-byte prefix is the identity; the version is reported as found."""
     assert spcmod.is_spc(spcmod.MAGIC + bytes(300))
-    assert not spcmod.is_spc(spcmod.MAGIC[:-1] + b"X" + bytes(300))
+    old = spcmod.MAGIC_PREFIX + b" v0.10" + bytes(300)
+    older = spcmod.MAGIC_PREFIX + b" 0.10" + bytes(300)
+    assert spcmod.is_spc(old) and spcmod.magic_version(old) == "v0.10"
+    assert spcmod.is_spc(older) and spcmod.magic_version(older) == "0.10"
+    assert not spcmod.is_spc(spcmod.MAGIC_PREFIX[:-1] + b"X" + bytes(300))
     assert not spcmod.is_spc(b"")
 
 

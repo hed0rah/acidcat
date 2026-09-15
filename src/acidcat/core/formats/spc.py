@@ -43,7 +43,13 @@ engine code and most of its samples.
 
 import struct
 
+# The spec gives one magic, "SNES-SPC700 Sound File Data v0.30". Real
+# files carry three: that one (4,956 of 4,999 measured), "v0.10" (34), and a
+# bare "0.10" with no v and no EOF markers after it (9). The prefix is the
+# identity; the version is read from what follows and reported as found.
 MAGIC = b"SNES-SPC700 Sound File Data v0.30"
+MAGIC_PREFIX = b"SNES-SPC700 Sound File Data"
+MAGIC_LEN = 33
 HEADER = 0x100
 RAM = 0x10000
 RAM_AT = 0x100
@@ -71,7 +77,14 @@ BRR_BLOCK = 9
 
 
 def is_spc(head):
-    return len(head) >= len(MAGIC) and head[:len(MAGIC)] == MAGIC
+    return (len(head) >= MAGIC_LEN
+            and head[:len(MAGIC_PREFIX)] == MAGIC_PREFIX)
+
+
+def magic_version(raw):
+    """The version text after the prefix: "v0.30", "v0.10" or "0.10"."""
+    tail = raw[len(MAGIC_PREFIX):MAGIC_LEN]
+    return tail.split(b"\x00", 1)[0].decode("latin-1").strip()
 
 
 def _text(raw, at, n):
@@ -92,6 +105,7 @@ def _looks_like_text_date(blob):
 def parse_header(raw):
     """The 256-byte header and its ID666 tag. Never raises."""
     h = {"ok": False, "why": "", "has_tag": False, "version": None,
+         "magic_version": None,
          "pc": None, "a": None, "x": None, "y": None, "psw": None, "sp": None,
          "tag": {}, "tag_style": None, "emulator": None, "disables": None}
     if not is_spc(raw):
@@ -100,6 +114,7 @@ def parse_header(raw):
     if len(raw) < HEADER:
         h["why"] = "file ends inside the 256-byte header"
         return h
+    h["magic_version"] = magic_version(raw)
     h["has_tag"] = raw[0x23] == HAS_TAG          # the spec's flag, recorded
     h["version"] = raw[0x24]
     h["pc"], h["a"], h["x"], h["y"], h["psw"], h["sp"] = struct.unpack_from(

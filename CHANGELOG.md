@@ -27,9 +27,11 @@ and right after four hundred.
   (real files carry 0x1A, a DOS EOF marker, and a full tag regardless); the
   date as the tell between the two tag spellings (real dumpers leave it
   empty; the seconds slot tells); and the emulator byte, which is a text
-  DIGIT in the text spelling. The binary spelling's layout -- artist one byte
+  DIGIT in the text spelling; and the magic itself, which the spec gives as
+  ending v0.30 and 43 real files end v0.10 or a bare 0.10 instead. The
+  binary spelling's layout -- artist one byte
   earlier at 0xB0 -- was verified on 24 real files, which the spec's own
-  table, with its known typo, could not do. 441 files, all identified, all
+  table, with its known typo, could not do. 4,999 files, all identified, all
   titled, zero crashes. Anatomy page.
 
 - **PSF: Portable Sound Format, eight consoles in one container.** Neill
@@ -73,7 +75,7 @@ and right after four hundred.
 
 Modland, pulled with `mirror_modland.sh` (index-driven, four workers; a
 crawl fetched 4,000 directory listings before its first file): Nintendo SPC
-1,029 files, Gameboy Sound Format 2,757 (which are GSF, not GBS -- the
+4,999 files, Gameboy Sound Format 2,757 (which are GSF, not GBS -- the
 directory name is not the format, the first bytes are), Screamtracker 3 540.
 All three walkers hold on every file that has landed.
 

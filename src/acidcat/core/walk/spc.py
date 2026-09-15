@@ -148,7 +148,9 @@ def _region(cid, at, length, summary):
 def _header_chunk(h):
     t = h["tag"]
     fields = [
-        _f(0x00, 33, "magic", "SNES-SPC700 Sound File Data v0.30"),
+        _f(0x00, 33, "magic", "SNES-SPC700 Sound File Data " + h["magic_version"],
+           "" if h["magic_version"] == "v0.30"
+           else "an older dumper; the spec documents only v0.30"),
         _f(0x23, 1, "tag_flag", "0x%02X" % (0x26 if h["has_tag"] else 0x1A),
            "the spec says 0x26 means a tag follows; real files carry 0x1A "
            "and a tag anyway, so the slots are read regardless"),
