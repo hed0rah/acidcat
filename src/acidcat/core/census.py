@@ -78,6 +78,11 @@ _MAX_DEPTH = 512               # fallback recursion guard when st_ino is unrelia
 from acidcat.core.formats.riff import safe_fourcc as _safe_fourcc
 
 
+# Example paths kept per chunk id. Five is enough to compare specimens and
+# small enough that a 900-id census stays readable.
+CHUNK_EXAMPLES = 5
+
+
 def json_safe_path(path):
     """A path re-derived to guaranteed-valid Unicode text for JSON output: a
     POSIX filename that is not valid UTF-8 arrives here as a surrogate-escaped
@@ -236,7 +241,10 @@ class Census:
             dst, src = getattr(self, attr), getattr(other, attr)
             for k, v in src.items():
                 dst[k] = dst.get(k, 0) + v
-        self.chunk_first = {**other.chunk_first, **self.chunk_first}
+        merged = dict(other.chunk_first)
+        for c, paths in self.chunk_first.items():
+            merged[c] = (merged.get(c, []) + paths)[:CHUNK_EXAMPLES]
+        self.chunk_first = merged
         for k, v in other.fmt_tag_example.items():
             self.fmt_tag_example.setdefault(k, v)
         for name, paths in other.flags.items():
@@ -347,7 +355,13 @@ class Census:
             n += 1
             fourcc = _safe_fourcc(cid)
             self._bump(self.chunk_counts, fourcc)
-            self.chunk_first.setdefault(fourcc, json_safe_path(path))
+            # A few example paths per id rather than one. One path finds a
+            # specimen; a handful lets a reader compare specimens, which is
+            # what measuring an undocumented chunk actually needs, and it
+            # turned every chunk investigation into a fresh corpus walk.
+            got = self.chunk_first.setdefault(fourcc, [])
+            if len(got) < CHUNK_EXAMPLES and (not got or got[-1] != path):
+                got.append(json_safe_path(path))
 
             if cid == b"ds64":
                 # RF64/BW64 carry the real 64-bit data size here (dataSize is a
@@ -424,7 +438,8 @@ class Census:
 
     def result(self, top=None):
         chunks = sorted(self.chunk_counts.items(), key=lambda kv: -kv[1])
-        rare = [[c, n, self.chunk_first.get(c, "")] for c, n in chunks if n <= 5]
+        rare = [[c, n, (self.chunk_first.get(c) or [""])[0]]
+                for c, n in chunks if n <= 5]
         hist = chunks[:top] if top else chunks
         return {
             "files_opened": self.files,
@@ -446,7 +461,7 @@ class Census:
             # question the census had already answered and discarded.
             #
             # Scoped to the histogram, so `--top` bounds this the same way.
-            "chunk_examples": {c: self.chunk_first.get(c, "") for c, _n in hist},
+            "chunk_examples": {c: self.chunk_first.get(c, []) for c, _n in hist},
             "rare_chunks": rare,
             "format_tags": {"0x%04x" % t: n for t, n in
                             sorted(self.fmt_tags.items(), key=lambda kv: -kv[1])},

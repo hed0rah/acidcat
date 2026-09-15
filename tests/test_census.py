@@ -253,9 +253,41 @@ def test_the_histogram_carries_an_example_path_per_chunk(tmp_path):
     cx = census.Census()
     cx.census_file(p)
     res = cx.result()
-    assert res["chunk_examples"]["SyLp"] == census.json_safe_path(p)
+    assert res["chunk_examples"]["SyLp"] == [census.json_safe_path(p)]
     # every id in the histogram has one, so a consumer can rely on it
     assert set(res["chunk_examples"]) == set(res["chunk_histogram"])
+
+
+def test_a_handful_of_examples_not_one(tmp_path):
+    """One path finds a specimen. Measuring an undocumented chunk needs
+    several to compare, and with one recorded every such investigation was a
+    fresh corpus walk. Five are kept, distinct, in the order seen, and the
+    sixth carrier is not."""
+    for i in range(7):
+        _write(tmp_path, "f%d.wav" % i,
+               _wav([_FMT, _chunk(b"SyLp", b"\x00" * 8), _DATA]))
+    cx = census.Census()
+    for i in range(7):
+        cx.census_file(str(tmp_path / ("f%d.wav" % i)))
+    got = cx.result()["chunk_examples"]["SyLp"]
+    assert len(got) == census.CHUNK_EXAMPLES == 5
+    assert len(set(got)) == 5
+    assert got[0].endswith("f0.wav") and got[-1].endswith("f4.wav")
+
+
+def test_examples_survive_a_merge(tmp_path):
+    """Parallel census halves are merged. The examples merge too, capped, so
+    a merged census is not one that silently lost its specimens."""
+    a, b = census.Census(), census.Census()
+    for i in range(4):
+        a.census_file(_write(tmp_path, "a%d.wav" % i,
+                             _wav([_FMT, _chunk(b"SyLp", b"\x00" * 8), _DATA])))
+        b.census_file(_write(tmp_path, "b%d.wav" % i,
+                             _wav([_FMT, _chunk(b"SyLp", b"\x00" * 8), _DATA])))
+    a.merge(b)
+    got = a.result()["chunk_examples"]["SyLp"]
+    assert len(got) == 5
+    assert len(set(got)) == 5
 
 
 def test_examples_are_bounded_by_top_like_the_histogram(tmp_path):
