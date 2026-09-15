@@ -4,6 +4,79 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [1.8.0] - 2026-09-15
+
+Three new formats, one of them eight platforms wide, all verified on Modland
+corpora pulled the same night. And a correction to the method: a walker
+written from a specification is verified only against the specification.
+The SPC one below was wrong three times before a single real file was read,
+and right after four hundred.
+
+### Added
+
+- **SPC: the Super Nintendo's sound chip, frozen.** A 256-byte tag, 64 KB of
+  SPC700 RAM, the DSP's 128 registers. A player loads the image and lets the
+  program run, so there is no score to parse -- and what a reader CAN do is
+  find the samples. DSP register DIR names the page of RAM holding the sample
+  directory, and the eight voices' SRCN registers say which entries are real:
+  the directory names 256 and a sound engine leaves most of them stale,
+  pointing into code and into each other (219 of 332 files). The walker
+  carves only what the voices are set to play, and each is a BRR sample the
+  codec already in the tree decodes. Three places the published spec is
+  wrong, each found by counting on the corpus: the tag flag at byte 0x23
+  (real files carry 0x1A, a DOS EOF marker, and a full tag regardless); the
+  date as the tell between the two tag spellings (real dumpers leave it
+  empty; the seconds slot tells); and the emulator byte, which is a text
+  DIGIT in the text spelling. The binary spelling's layout -- artist one byte
+  earlier at 0xB0 -- was verified on 24 real files, which the spec's own
+  table, with its known typo, could not do. 441 files, all identified, all
+  titled, zero crashes. Anatomy page.
+
+- **PSF: Portable Sound Format, eight consoles in one container.** Neill
+  Corlett's 2002 container for PlayStation dumps, adopted by everyone who
+  needed to ship a program and its RAM for another chip: the version byte
+  names the machine (PSF1, PSF2, Saturn, Dreamcast, N64, GBA, SNES, QSound)
+  and nothing else differs. Sixteen bytes of header, a zlib program with a
+  CRC32 of its own, an optional [TAG] block. The checksum is the gift: every
+  one of 2,757 real files matches, and every program inflates. Minis and
+  libraries: a soundtrack shares one engine and sample set, so each track is
+  a few bytes patched over a library the `_lib` tag names -- on 669 real GBA
+  minis, one or two bytes, the song number. Only the GBA program header is
+  decoded, because only it was documented and verified (509 of 509 files,
+  zero mismatches); every other machine's program is reported as what the
+  container proves and no more. The specification has fallen off the
+  internet; the layout came from a reader that plays the files. Anatomy
+  page, showing a whole 221-byte file.
+
+- **GBS: the Game Boy Sound System.** A 112-byte header and a code blob --
+  three addresses, a stack pointer, two timer bytes, three 32-byte text
+  slots -- the same shape as NSF with nothing reserved, so it lives beside
+  NSF and SAP in the chiptune walker. The load, init and play addresses are
+  checked against the cartridge window the spec names. 36 real files.
+  Anatomy page.
+
+- **`census` keeps five example paths per chunk id**, not one. One path
+  finds a specimen; measuring an undocumented chunk needs several, and with
+  one recorded every such investigation was a fresh corpus walk.
+
+### Fixed
+
+- **S3M: an empty instrument slot is not a missing tag.** Type 0 is the
+  spec's own word for EMPTY, and an empty slot carries no SCRS tag because
+  there is nothing to tag. The walker warned on every one, and the first 73
+  files of Modland's archive produced 162 such warnings, all the same legal
+  structure presented as damage. And an odd order count, which Scream
+  Tracker never writes, now names the writer that does: every one in 540
+  files came from Impulse Tracker exporting S3M.
+
+### Measured
+
+Modland, pulled with `mirror_modland.sh` (index-driven, four workers; a
+crawl fetched 4,000 directory listings before its first file): Nintendo SPC
+1,029 files, Gameboy Sound Format 2,757 (which are GSF, not GBS -- the
+directory name is not the format, the first bytes are), Screamtracker 3 540.
+All three walkers hold on every file that has landed.
+
 ## [1.7.1] - 2026-09-14
 
 One new format, and what doubling a corpus finds. Every walker here was run
