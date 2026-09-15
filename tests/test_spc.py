@@ -76,23 +76,56 @@ def test_the_text_tag_reads_title_game_artist_and_length():
     assert h["emulator"] == 2
 
 
-def test_a_file_declaring_no_tag_carries_none():
-    blob = bytearray(_spc())
+def test_the_specs_tag_flag_is_recorded_and_not_obeyed():
+    """The spec says byte 0x23 is 0x26 for "tag follows" and 0x27 for "no
+    tag". 328 of 328 real files have 0x1A there -- a DOS EOF marker -- and
+    every one carries a full tag. So the flag is reported for what it is and
+    the slots are read regardless; a file with the spec's "no tag" value and
+    a title in the slot still gives up its title."""
+    blob = bytearray(_spc(title="STILL HERE"))
     blob[0x23] = spcmod.NO_TAG
     h = spcmod.parse_header(bytes(blob))
     assert h["ok"] and not h["has_tag"]
-    assert h["tag"] == {}
+    assert h["tag"]["title"] == "STILL HERE"
 
 
-def test_the_two_tag_spellings_are_told_apart_by_the_date():
-    """Text has digits and slashes in the date slot; binary does not. Nothing
-    in the file says which, so this is a heuristic and the corpus test says
-    how well it holds."""
+def test_an_empty_length_slot_is_text_with_nothing_written():
+    """56 real files leave the seconds slot all zero and are otherwise the
+    text layout: artist at 0xB1, emulator as a text digit. Reading them as
+    binary put the artist one byte early and dropped its first letter."""
+    blob = bytearray(_spc())
+    blob[0xA9:0xB1] = bytes(8)
+    h = spcmod.parse_header(bytes(blob))
+    assert h["tag_style"] == "text"
+    assert h["tag"]["artist"] == "SEED"
+    assert "seconds" not in h["tag"]
+
+
+def test_the_binary_spelling_puts_the_artist_at_0xB0():
+    """Verified on 24 real files, not taken from the spec's table (which has
+    a known transcription error): seconds as three bytes at 0xA9, fade as
+    four at 0xAC, artist at 0xB0, emulator a real number at 0xD1."""
+    blob = bytearray(_spc())
+    blob[0x9E:0xD3] = bytes(0xD3 - 0x9E)
+    blob[0xA9:0xAC] = (87).to_bytes(3, "little")
+    struct.pack_into("<I", blob, 0xAC, 6000)
+    blob[0xB0:0xB0 + 12] = b"Akihiko Mori"
+    blob[0xD1] = 1
+    h = spcmod.parse_header(bytes(blob))
+    assert h["tag_style"] == "binary"
+    assert h["tag"]["seconds"] == 87 and h["tag"]["fade_ms"] == 6000
+    assert h["tag"]["artist"] == "Akihiko Mori"
+    assert h["emulator"] == 1
+
+
+def test_the_two_tag_spellings_are_told_apart_by_the_seconds_slot():
+    """The spec suggests the date; real dumpers leave the date empty in both
+    spellings, so it tells you nothing. The seconds slot does: text is
+    digits, binary is not."""
     text = _spc()
     assert spcmod.parse_header(text)["tag_style"] == "text"
     blob = bytearray(text)
-    blob[0x9E:0x9E + 11] = bytes(11)                 # binary: no text date
-    struct.pack_into("<HBB", blob, 0x9E, 2026, 1, 15)
+    blob[0x9E:0x9E + 11] = bytes(11)
     blob[0xA9:0xAC] = (120).to_bytes(3, "little")
     struct.pack_into("<I", blob, 0xAC, 10000)
     h = spcmod.parse_header(bytes(blob))
@@ -138,14 +171,34 @@ def test_the_loop_address_is_not_a_loop_flag(tmp_path):
     assert "loops from the start" in s["summary"]
 
 
-def test_two_directory_entries_to_one_sample_produce_one_chunk(tmp_path):
-    blob = bytearray(_spc(samples=1))
-    page = blob[spcmod.DSP_AT + spcmod.DSP_DIR]
-    base = spcmod.RAM_AT + page * 0x100
-    blob[base + 4:base + 8] = blob[base:base + 4]    # entry 1 == entry 0
+def test_only_the_samples_the_voices_play_become_chunks(tmp_path):
+    """The directory names up to 256 and a sound engine leaves most of them
+    stale: 219 of 332 real files have directory entries that overlap each
+    other, pointing into code and into one another. The eight voices' SRCN
+    registers say which entries are real. Two directory entries, one voice."""
+    blob = bytearray(_spc(samples=2))
+    blob[spcmod.DSP_AT + spcmod.DSP_SRCN + 1 * 0x10] = 0   # voice 1 -> sample 0 too
     p = _write(tmp_path, bytes(blob))
     chunks, _w = walker.inspect_spc(str(p))
-    assert len([c for c in chunks if c["id"].startswith("sample[")]) == 1
+    samples = [c for c in chunks if c["id"].startswith("sample[")]
+    assert [c["id"] for c in samples] == ["sample[0]"]
+    assert "voices 0, 1" in samples[0]["summary"]
+    ram = next(c for c in chunks if c["id"] == "ram")
+    vals = {f["name"]: f["value"] for f in ram["fields"]}
+    assert vals["directory_entries"] == 2 and vals["voice_samples"] == 1
+
+
+def test_two_voices_reading_overlapping_ram_is_said_not_hidden(tmp_path):
+    """14 of 332 real files: a voice starts inside another voice's sample.
+    Both chunks are emitted and the second says so."""
+    blob = bytearray(_spc(samples=2))
+    page = blob[spcmod.DSP_AT + spcmod.DSP_DIR]
+    base = spcmod.RAM_AT + page * 0x100
+    struct.pack_into("<HH", blob, base + 4, 0x3009, 0x3009)   # sample 1 inside sample 0
+    p = _write(tmp_path, bytes(blob))
+    chunks, _w = walker.inspect_spc(str(p))
+    s1 = next(c for c in chunks if c["id"] == "sample[1]")
+    assert any("overlaps sample[0]" in w for w in s1["warnings"])
 
 
 # ── the walk ────────────────────────────────────────────────────────
@@ -225,7 +278,11 @@ def test_real_corpus_walks_completely():
         size = os.path.getsize(path)
         geometry.normalize(chunks, size)
         assert all(geometry.is_trustworthy(c) for c in chunks), path
-        tiled += _tiles(chunks, size)
+        # two voices reading overlapping RAM is real and is WARNED on the
+        # chunk; a file whose only non-tiling is a warned overlap counts
+        if _tiles(chunks, size) or any(
+                "overlaps" in w for c in chunks for w in c["warnings"]):
+            tiled += 1
         head = next(c for c in chunks if c["id"] == "header")
         vals = {f["name"]: f["value"] for f in head["fields"]}
         if "title" in vals:

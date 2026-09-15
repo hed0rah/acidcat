@@ -56,35 +56,41 @@ def inspect_spc(filepath, deep=False):
                                  - spcmod.RAM_AT, "SPC700 RAM, truncated")], \
             warns
 
-    # the RAM, with the samples the DSP can reach carved out of it
-    samples = spcmod.sample_directory(raw)
+    # The RAM, with the samples the VOICES are set to play carved out of it.
+    # The directory names up to 256; most are stale (see voice_sources), so
+    # only the entries the eight SRCN registers name become chunks. The rest
+    # is a count.
+    directory = spcmod.sample_directory(raw)
+    entries = {i: (st, lp) for i, st, lp in directory}
+    sources = spcmod.voice_sources(raw)
+    wanted = sorted({n for n in sources.values() if n in entries})
     ram = _region("ram", spcmod.RAM_AT, spcmod.RAM,
-                  "64 KB of SPC700 RAM: the program, and %d BRR sample%s the "
-                  "DSP can reach" % (len(samples), "" if len(samples) == 1
-                                     else "s"))
+                  "64 KB of SPC700 RAM: the program, %d directory entries, "
+                  "%d sample%s the voices are set to play"
+                  % (len(directory), len(wanted), "" if len(wanted) == 1 else "s"))
     page = raw[spcmod.DSP_AT + spcmod.DSP_DIR]
     ram["fields"] = [
         _f(None, 0, "sample_directory", "$%02X00" % page,
-           "DSP register DIR names this page; 256 entries of start and loop"),
-        _f(None, 0, "samples", len(samples),
-           "directory entries that point inside RAM"),
+           "DSP register DIR names this page; 256 slots of start and loop"),
+        _f(None, 0, "directory_entries", len(directory),
+           "slots pointing inside RAM; most are stale, left by other tunes"),
+        _f(None, 0, "voice_samples", len(wanted),
+           "the entries the eight voices' SRCN registers name"),
     ]
+    for v, n in sources.items():
+        ram["fields"].append(_f(None, 0, "voice[%d]" % v,
+                                "sample %d" % n if n in entries
+                                else "sample %d, not in the directory" % n))
     chunks.append(ram)
 
     listed = 0
-    seen = set()
-    for idx, start, loop in samples:
-        if start in seen:
-            continue
-        seen.add(start)
+    placed = []
+    for idx in wanted:
         if listed >= _SPC_SAMPLE_LIST_CAP:
             break
         listed += 1
+        start, loop = entries[idx]
         length = spcmod.brr_length(raw, start)
-        # The directory names a loop ADDRESS for every sample; whether the
-        # sample loops at all is a flag in its last BRR block. So the address
-        # is reported as what it is, and "from the start" when it equals the
-        # start, which is the common case for a one-shot and a full loop alike.
         loops = spcmod.brr_loops(raw, start, length)
         if loop < start or loop >= start + length:
             note = "loop address $%04X is outside the sample" % loop
@@ -93,20 +99,31 @@ def inspect_spc(filepath, deep=False):
         else:
             note = ("loops from the start" if loop == start
                     else "loops from $%04X" % loop)
-        chunks.append({
+        voices = [str(v) for v, n in sources.items() if n == idx]
+        chunk = {
             "id": "sample[%d]" % idx, "offset": spcmod.RAM_AT + start,
             "size": length,
-            "summary": "BRR sample at $%04X, %d bytes, %s"
-                       % (start, length, note),
+            "summary": "BRR sample at $%04X, %d bytes, %s; voice%s %s"
+                       % (start, length, note, "" if len(voices) == 1 else "s",
+                          ", ".join(voices)),
             "fields": [_f(None, 0, "start", "$%04X" % start, "in SPC700 RAM"),
                        _f(None, 0, "loop", "$%04X" % loop),
                        _f(None, 0, "blocks", length // spcmod.BRR_BLOCK,
-                          "nine bytes each, sixteen samples per block")],
+                          "nine bytes each, sixteen samples per block"),
+                       _f(None, 0, "voices", ", ".join(voices))],
             "warnings": [], "payload_base": spcmod.RAM_AT + start,
-            "payload_len": length, "extent_len": length})
-    if len(seen) > _SPC_SAMPLE_LIST_CAP:
-        note = coverage("listing the first %d of %d samples"
-                        % (_SPC_SAMPLE_LIST_CAP, len(seen)))
+            "payload_len": length, "extent_len": length}
+        for o_start, o_len, o_idx in placed:
+            if start < o_start + o_len and o_start < start + length:
+                chunk["warnings"].append(
+                    "overlaps sample[%d]: two voices reading the same RAM "
+                    "from different points, or a stale entry" % o_idx)
+                break
+        placed.append((start, length, idx))
+        chunks.append(chunk)
+    if len(wanted) > _SPC_SAMPLE_LIST_CAP:
+        note = coverage("listing the first %d of %d voice samples"
+                        % (_SPC_SAMPLE_LIST_CAP, len(wanted)))
         ram["warnings"].append(note)
         warns.append(note)
 
@@ -132,8 +149,9 @@ def _header_chunk(h):
     t = h["tag"]
     fields = [
         _f(0x00, 33, "magic", "SNES-SPC700 Sound File Data v0.30"),
-        _f(0x23, 1, "id666", "present" if h["has_tag"] else "absent",
-           "0x26 or 0x27"),
+        _f(0x23, 1, "tag_flag", "0x%02X" % (0x26 if h["has_tag"] else 0x1A),
+           "the spec says 0x26 means a tag follows; real files carry 0x1A "
+           "and a tag anyway, so the slots are read regardless"),
         _f(0x24, 1, "version_minor", h["version"]),
         _f(0x25, 2, "pc", "$%04X" % h["pc"], "where the SPC700 was stopped"),
         _f(0x27, 1, "a", "$%02X" % h["a"]),
@@ -142,7 +160,9 @@ def _header_chunk(h):
         _f(0x2A, 1, "psw", "$%02X" % h["psw"]),
         _f(0x2B, 1, "sp", "$%02X" % h["sp"], "low byte; the stack is page 1"),
     ]
-    if h["has_tag"]:
+    # the spec's flag byte is reported above and not obeyed: every real file
+    # has 0x1A there and a full tag. If the slots held text, show it.
+    if h["tag"]:
         fields.append(_f(None, 0, "tag_style", h["tag_style"],
                          "the date, length and fade are text in one spelling "
                          "and packed numbers in the other; nothing says which"))

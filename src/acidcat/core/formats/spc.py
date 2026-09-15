@@ -11,8 +11,8 @@ What IS parseable is the tag in front, called ID666, and the DSP registers,
 which say where in RAM the samples live. The layout, from the published spec:
 
     0x000   33   "SNES-SPC700 Sound File Data v0.30"
-    0x021    2   26 26
-    0x023    1   26 = an ID666 tag follows, 27 = it does not
+    0x021    3   1A 1A 1A in every real file (the spec says 26 26 then a
+                 tag flag; see below)
     0x024    1   minor version
     0x025    2   PC        0x027 A   0x028 X   0x029 Y   0x02A PSW   0x02B SP
     0x02E   32   song title            0x04E   32   game title
@@ -56,6 +56,7 @@ BASE_SIZE = 0x10200           # everything before an xid6 chunk
 XID6_AT = BASE_SIZE
 
 HAS_TAG = 0x26
+NUL = bytes(1)
 NO_TAG = 0x27
 
 EMULATORS = {0: "unknown", 1: "ZSNES", 2: "Snes9x"}
@@ -99,39 +100,61 @@ def parse_header(raw):
     if len(raw) < HEADER:
         h["why"] = "file ends inside the 256-byte header"
         return h
-    h["has_tag"] = raw[0x23] == HAS_TAG
+    h["has_tag"] = raw[0x23] == HAS_TAG          # the spec's flag, recorded
     h["version"] = raw[0x24]
     h["pc"], h["a"], h["x"], h["y"], h["psw"], h["sp"] = struct.unpack_from(
         "<HBBBBB", raw, 0x25)
-    if h["has_tag"]:
-        t = h["tag"]
-        t["title"] = _text(raw, 0x2E, 32)
-        t["game"] = _text(raw, 0x4E, 32)
-        t["dumper"] = _text(raw, 0x6E, 16)
-        t["comment"] = _text(raw, 0x7E, 32)
-        date = raw[0x9E:0x9E + 11]
-        if _looks_like_text_date(date):
-            h["tag_style"] = "text"
-            t["date"] = date.rstrip(b"\x00").decode("latin-1")
-            t["seconds"] = _int_text(raw, 0xA9, 3)
-            t["fade_ms"] = _int_text(raw, 0xAC, 5)
-            t["artist"] = _text(raw, 0xB1, 32)
-            h["disables"] = raw[0xD1]
-            h["emulator"] = raw[0xD2]
-        else:
-            # binary spelling: the same slots, packed. Offsets from the spec's
-            # binary-tag table, which shifts the later fields by one byte.
-            h["tag_style"] = "binary"
-            y, m, d = struct.unpack_from("<HBB", raw, 0x9E)[0], raw[0xA0], raw[0xA1]
-            t["date"] = "%04d-%02d-%02d" % (y, m, d) if y else ""
-            t["seconds"] = int.from_bytes(raw[0xA9:0xAC], "little")
-            t["fade_ms"] = struct.unpack_from("<I", raw, 0xAC)[0]
-            t["artist"] = _text(raw, 0xB0, 32)
-            h["disables"] = raw[0xD0]
-            h["emulator"] = raw[0xD1]
-        h["tag"] = {k: v for k, v in t.items() if v not in ("", None)}
+    # the slots are read regardless of the flag; see the module docstring
+    t = {}
+    t["title"] = _text(raw, 0x2E, 32)
+    t["game"] = _text(raw, 0x4E, 32)
+    t["dumper"] = _text(raw, 0x6E, 16)
+    t["comment"] = _text(raw, 0x7E, 32)
+    date = raw[0x9E:0x9E + 11]
+    secs = raw[0xA9:0xAC]
+    # Text is the layout unless the seconds slot holds bytes that are NOT
+    # digits. An EMPTY slot is text with the length unwritten -- 56 of 324
+    # real files, all with a text artist at 0xB1 and a text emulator digit --
+    # and reading them as binary put the artist one byte early and dropped
+    # its first letter. No binary-tagged file has been seen yet.
+    if not any(secs) or _looks_like_text(secs) or _looks_like_text_date(date):
+        h["tag_style"] = "text"
+        if date.rstrip(NUL):
+            t["date"] = date.rstrip(NUL).decode("latin-1")
+        t["seconds"] = _int_text(raw, 0xA9, 3)
+        t["fade_ms"] = _int_text(raw, 0xAC, 5)
+        t["artist"] = _text(raw, 0xB1, 32)
+        h["disables"] = raw[0xD1]
+        # the emulator byte is written as a text digit in this spelling
+        e = raw[0xD2]
+        h["emulator"] = e - 0x30 if 0x30 <= e <= 0x39 else e
+    else:
+        # Binary spelling: the same slots, packed. Verified on 24 real files
+        # (an Akihiko Mori set dumped with ZSNES): seconds is three bytes at
+        # 0xA9, fade four at 0xAC, the artist starts at 0xB0 -- one byte
+        # earlier than in the text layout, and reading it at 0xB1 drops the
+        # first letter -- and the emulator is a real number at 0xD1. The
+        # spec's table for this spelling carries a known transcription error
+        # at the DATE; every binary file measured leaves the date zero, so
+        # that one field is read per the spec and remains unverified.
+        h["tag_style"] = "binary"
+        y, m, d = struct.unpack_from("<HBB", raw, 0x9E)[0], raw[0xA0], raw[0xA1]
+        if y:
+            t["date"] = "%04d-%02d-%02d" % (y, m, d)
+        t["seconds"] = int.from_bytes(raw[0xA9:0xAC], "little") or None
+        t["fade_ms"] = struct.unpack_from("<I", raw, 0xAC)[0] or None
+        t["artist"] = _text(raw, 0xB0, 32)
+        h["disables"] = raw[0xD0]
+        h["emulator"] = raw[0xD1]
+    h["tag"] = {k: v for k, v in t.items() if v not in ("", None)}
     h["ok"] = True
     return h
+
+
+def _looks_like_text(blob):
+    """Digits, or digits then NULs: the text spelling of a number slot."""
+    s = blob.rstrip(NUL)
+    return bool(s) and all(0x30 <= c <= 0x39 for c in s)
 
 
 def _int_text(raw, at, n):
@@ -185,3 +208,25 @@ def brr_loops(raw, start, length):
         return False
     last = RAM_AT + start + length - BRR_BLOCK
     return bool(raw[last] & 0x02)
+
+
+VOICES = 8
+DSP_SRCN = 0x04               # per voice, at 0x04 + voice * 0x10
+
+
+def voice_sources(raw):
+    """Which directory entry each of the eight voices is set to play.
+
+    This is the reliable list. The directory names 256 candidates and a sound
+    engine leaves most of them stale -- pointing into program code, into each
+    other, into whatever a previous tune left there. 219 of 332 real files
+    have overlapping directory entries; only 14 have overlapping entries among
+    the ones the voices are actually set to. So the voices' own SRCN registers
+    say what is real, and the directory says how many slots there are.
+    """
+    if len(raw) < DSP_AT + DSP_SIZE:
+        return {}
+    out = {}
+    for v in range(VOICES):
+        out[v] = raw[DSP_AT + DSP_SRCN + v * 0x10]
+    return out

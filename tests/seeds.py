@@ -394,6 +394,8 @@ def spc(title="SEED", game="SEED GAME", samples=2):
     dsp = bytearray(S.DSP_SIZE)
     dsp[S.DSP_DIR] = page
     dsp[0x4C] = 0x03                                  # voices 0 and 1 keyed on
+    for v in range(min(samples, S.VOICES)):           # voice v plays sample v
+        dsp[S.DSP_SRCN + v * 0x10] = v
     return bytes(h) + bytes(ram) + bytes(dsp) + bytes(0x40) + bytes(S.IPL_SIZE)
 
 
