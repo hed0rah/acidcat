@@ -56,6 +56,17 @@ NEW_CARDS = {
             "recorded message by message. The payload is nibble-split because "
             "SysEx cannot carry a byte with bit 7 set, and three fields that "
             "look like offsets are addresses in the sampler's own memory."),
+    "gbs": ("GBS", "#4E7A5C", "#3D5F48", "byte map",
+            "A Game Boy's music cut out of the game: a 112-byte header naming "
+            "where to load the code and which routine to call, then the code. "
+            "The same idea as NSF and simpler, because the Game Boy has no "
+            "expansion chips and nothing in the header is reserved."),
+    "psf": ("PSF", "#6E4E7A", "#573D60", "byte map",
+            "A console's sound program and the memory it runs in, zlib-"
+            "compressed with a CRC32 of its own. Eight machines share the "
+            "container and differ in one byte. A whole GBA mini is 221 bytes, "
+            "and two of those are the tune: the song number, patched over a "
+            "library file the tag names."),
     "pmd": ("PMD", "#7A4E3D", "#5F3D30", "byte map",
             "A compiled score for the PC-9801's Professional Music Driver, the "
             "format most of the PC-98's game music was written in. MML is the "
