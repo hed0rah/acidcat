@@ -57,8 +57,8 @@ def test_a_valid_spc_is_identified(tmp_path):
 
 
 def test_the_magic_is_the_prefix_and_the_version_is_read_not_required():
-    """The spec gives one magic ending v0.30. 43 of 4,999 real files end
-    v0.10 or a bare 0.10 instead -- older dumpers the spec never mentions --
+    """The spec gives one magic ending v0.30. 1,497 of 36,872 real files end
+    v0.10, v0.20 or a bare 0.10 instead -- older dumpers the spec never mentions --
     and the sniff accepted them while the walker's own check refused them.
     The 27-byte prefix is the identity; the version is reported as found."""
     assert spcmod.is_spc(spcmod.MAGIC + bytes(300))
@@ -238,6 +238,19 @@ def test_an_xid6_extension_is_read(tmp_path):
     vals = {f["name"]: f["value"] for f in x["fields"]}
     assert vals["sub[0x01]"] == "HELLO"
     assert not warns
+
+
+def test_an_xid6_that_declares_more_than_the_file_holds_does_not_raise(tmp_path):
+    """One file in 36,872 declares four bytes of xid6 past the end of the
+    file. Reading the last sub-chunk header off the end of the buffer raised,
+    and the walk degraded to zero chunks."""
+    sub = bytes([0x01, 0x01]) + struct.pack("<H", 5) + b"HELLO\x00\x00\x00"
+    ext = b"xid6" + struct.pack("<I", len(sub) + 4) + sub   # claims 4 more
+    p = _write(tmp_path, _spc() + ext)
+    chunks, warns = walker.inspect_spc(str(p))
+    x = next(c for c in chunks if c["id"] == "xid6")
+    assert {f["name"]: f["value"] for f in x["fields"]}["sub[0x01]"] == "HELLO"
+    assert any("declares" in w and "remain" in w for w in x["warnings"])
 
 
 def test_bytes_after_the_image_that_are_not_xid6_are_named(tmp_path):

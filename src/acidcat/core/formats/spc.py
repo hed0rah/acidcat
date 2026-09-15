@@ -44,9 +44,10 @@ engine code and most of its samples.
 import struct
 
 # The spec gives one magic, "SNES-SPC700 Sound File Data v0.30". Real
-# files carry three: that one (4,956 of 4,999 measured), "v0.10" (34), and a
-# bare "0.10" with no v and no EOF markers after it (9). The prefix is the
-# identity; the version is read from what follows and reported as found.
+# files carry four: that one (35,374 of 36,872 measured), "v0.10" (788),
+# "v0.20" (282), and a bare "0.10" with no v and no EOF markers after it
+# (427). The prefix is the identity; the version is read from what follows
+# and reported as found.
 MAGIC = b"SNES-SPC700 Sound File Data v0.30"
 MAGIC_PREFIX = b"SNES-SPC700 Sound File Data"
 MAGIC_LEN = 33

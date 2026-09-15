@@ -14,6 +14,7 @@ import os
 import struct
 
 from acidcat.core.formats import spc as spcmod
+from acidcat.core.formats.spc import NUL
 from acidcat.core.primitives.notes import coverage
 from acidcat.core.walk.base import Unsupported as _Unsupported
 from acidcat.core.walk.base import _f
@@ -238,7 +239,11 @@ def _xid6(raw, size, warns):
     end = at + length
     n = 0
     xw = []
-    while pos + 4 <= end and n < _SPC_XID6_CAP:
+    # `end` is what the chunk DECLARES; `len(raw)` is what exists. One file
+    # in 36,872 declares four bytes more than it has, and reading the last
+    # sub-chunk header off the end of the buffer raised.
+    avail = min(end, len(raw))
+    while pos + 4 <= avail and n < _SPC_XID6_CAP:
         sid, stype, data = raw[pos], raw[pos + 1], struct.unpack_from("<H", raw, pos + 2)[0]
         n += 1
         if stype == 0:
@@ -246,11 +251,14 @@ def _xid6(raw, size, warns):
                              "value held in the header"))
             pos += 4
         else:
+            body = raw[pos + 4:min(pos + 4 + data, avail)]
+            if len(body) < data:
+                xw.append("sub-chunk 0x%02X declares %d bytes and %d remain"
+                          % (sid, data, len(body)))
             if stype == 1:
-                text = raw[pos + 4:pos + 4 + data].split(b"\x00", 1)[0]
-                value = text.decode("latin-1")
+                value = body.split(NUL, 1)[0].decode("latin-1")
             elif stype == 4:
-                value = struct.unpack_from("<I", raw, pos + 4)[0] if data >= 4 else data
+                value = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else data
             else:
                 value = "type %d, %d bytes" % (stype, data)
             fields.append(_f(pos - at, 4 + data, "sub[0x%02X]" % sid, value,
