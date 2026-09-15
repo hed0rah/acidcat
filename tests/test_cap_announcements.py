@@ -876,6 +876,53 @@ def _mp4_many_refs(tmp_path, n):
     return str(q)
 
 
+def _psf_over_cap(tmp_path, n):
+    """A .psf larger than n bytes. The program is zlib, so zeros would pack
+    to nothing; the ROM is incompressible bytes so the file really is big."""
+    import random
+    import seeds
+    rng = random.Random(20260915)
+    rom = bytes(rng.getrandbits(8) for _ in range(n * 4))
+    q = tmp_path / "big.minigsf"
+    q.write_bytes(seeds.SEEDS["psf"][0](rom=rom))
+    return str(q)
+
+
+def _psf_many_tags(tmp_path, n):
+    """A .psf whose tag block carries n keys past the ten named ones."""
+    import seeds
+    lines = "".join("k%d=v\n" % i for i in range(n + 10))
+    q = tmp_path / "tags.minigsf"
+    q.write_bytes(seeds.SEEDS["psf"][0](tags=False) + b"[TAG]" + lines.encode())
+    return str(q)
+
+
+def _spc_many_samples(tmp_path, n):
+    """An .spc whose directory names n distinct samples."""
+    import seeds
+    q = tmp_path / "many.spc"
+    q.write_bytes(seeds.SEEDS["spc"][0](samples=n))
+    return str(q)
+
+
+def _spc_over_cap(tmp_path, n):
+    """An .spc longer than n bytes: the base image plus a padded tail."""
+    import seeds
+    q = tmp_path / "big.spc"
+    q.write_bytes(seeds.SEEDS["spc"][0]() + bytes(n * 4))
+    return str(q)
+
+
+def _spc_many_xid6(tmp_path, n):
+    """An .spc whose xid6 chunk holds n sub-chunks."""
+    import seeds
+    import struct as _s
+    sub = b"".join(bytes([0x36, 0x00]) + _s.pack("<H", i) for i in range(n))
+    q = tmp_path / "xid6.spc"
+    q.write_bytes(seeds.SEEDS["spc"][0]() + b"xid6" + _s.pack("<I", len(sub)) + sub)
+    return str(q)
+
+
 def _pmd_many_tones(tmp_path, n):
     """A .m with n FM instruments, to cross the tone-listing cap. Built by
     hand because the seed writes one instrument and the layout is fixed."""
@@ -990,6 +1037,16 @@ SWEPT = [
     ("acidcat.core.walk.pmd", "_PMD_READ_CAP", 128, _pmd_over_cap,
      "parsed the first"),
     ("acidcat.core.walk.pmd", "_PMD_TONE_LIST_CAP", 4, _pmd_many_tones,
+     "listing the first"),
+    ("acidcat.core.walk.psf", "_PSF_READ_CAP", 4096, _psf_over_cap,
+     "parsed the first"),
+    ("acidcat.core.walk.psf", "_PSF_TAG_LIST_CAP", 4, _psf_many_tags,
+     "listing the first"),
+    ("acidcat.core.walk.spc", "_SPC_READ_CAP", 0x10300, _spc_over_cap,
+     "parsed the first"),
+    ("acidcat.core.walk.spc", "_SPC_SAMPLE_LIST_CAP", 4, _spc_many_samples,
+     "listing the first"),
+    ("acidcat.core.walk.spc", "_SPC_XID6_CAP", 4, _spc_many_xid6,
      "listing the first"),
     ("acidcat.core.walk.pdx", "_PDX_SLOT_FIELD_CAP", 4, _pdx_many_samples,
      "filled slots"),
