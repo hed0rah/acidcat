@@ -20,6 +20,20 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Added
 
+- **PT3: the ZX Spectrum's AY module, ProTracker 3 and Vortex Tracker.**
+  A score for a chip with three square waves: samples are tables of
+  per-tick settings and ornaments tables of semitone offsets, there is no
+  PCM anywhere, and everything is reached by absolute 16-bit pointers
+  because the file was played in place at a known address. That makes
+  the walk the sorted set of pointers: each region begins where one says
+  and ends where the next begins, named by everything that points at it
+  (two patterns can share a stream; the empty sample is shared by all).
+  Samples and ornaments declare their own size and the walk checks it
+  fits. The position list stores pattern numbers times three, because
+  the Z80 used them as row offsets into the six-byte pattern table. On
+  Modland's first 636: every file tiles, header to end, no gaps. Anatomy
+  page from one 2,048-byte module.
+
 - **VGM: the sound-chip register log, and .vgz around it.** Neither a
   score nor a recording: every byte a game wrote to its sound chips, in
   order, with the waits between, so a player with the same chips plays

@@ -66,6 +66,11 @@ NEW_CARDS = {
             "where to load the code and which routine to call, then the code. "
             "The same idea as NSF and simpler, because the Game Boy has no "
             "expansion chips and nothing in the header is reserved."),
+    "pt3": ("PT3", "#3D6A7A", "#30525F", "byte map",
+            "A score for the ZX Spectrum's AY chip: samples that are tables of "
+            "per-tick settings, ornaments that are semitone offsets, three "
+            "channel streams per pattern, and every one of them reached by an "
+            "absolute 16-bit pointer, so the file tiles by sorting them."),
     "vgm": ("VGM", "#7A6A3D", "#5F5230", "byte map",
             "Every byte a game wrote to its sound chips, in order, with the "
             "time between: a header of chip clocks where a non-zero clock is "

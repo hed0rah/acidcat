@@ -413,6 +413,50 @@ def vgm(version=0x151, chips=None, title="SEED", game="SEED GAME", pcm=None,
     return bytes(h) + bytes(stream) + gd3
 
 
+@seed("pt3", ".pt3")
+def pt3(name="SEED", author="NOBODY", patterns=2, samples=2, ornaments=1,
+        positions=None):
+    """ZX Spectrum ProTracker 3: a 0xC9-byte fixed header, a position list,
+    then a pattern table of three pointers per pattern and the sample,
+    ornament and channel-stream records it points at, all by absolute
+    16-bit offset."""
+    import acidcat.core.formats.pt3 as P
+    if positions is None:
+        positions = list(range(patterns))
+    h = bytearray(P.FIXED_HEADER)
+    h[0:P.SIG_LEN] = b"ProTracker 3.5 compilation of ".ljust(P.SIG_LEN)
+    h[P.NAME_AT:P.NAME_AT + P.NAME_LEN] = name.encode("ascii").ljust(P.NAME_LEN)
+    h[P.BY_AT:P.BY_AT + 4] = b" by "
+    h[P.AUTHOR_AT:P.AUTHOR_AT + P.AUTHOR_LEN] = author.encode("ascii").ljust(P.AUTHOR_LEN)
+    h[P.TONE_TABLE_AT] = 2
+    h[P.DELAY_AT] = 6
+    h[P.POSITIONS_AT] = len(positions)
+    h[P.LOOP_AT] = 0
+    body = bytearray(h) + bytes(p * 3 for p in positions) + bytes([P.POSITION_END])
+    table_at = len(body)
+    body += bytes(patterns * P.CHANNELS * 2)                 # filled below
+    smp_at = []
+    for i in range(samples):
+        smp_at.append(len(body))
+        body += bytes([0, 2]) + bytes(8)                     # loop 0, 2 rows
+    orn_at = []
+    for i in range(ornaments):
+        orn_at.append(len(body))
+        body += bytes([0, 3, 0, 1, 2])                       # loop 0, 3 offsets
+    chan_at = []
+    for i in range(patterns * P.CHANNELS):
+        chan_at.append(len(body))
+        body += bytes([0xB1, 6, 0x50 + i, 0x00])             # a note and the end
+    struct.pack_into("<H", body, P.PATTERNS_PTR_AT, table_at)
+    for i, at in enumerate(smp_at):
+        struct.pack_into("<H", body, P.SAMPLES_AT + (i + 1) * 2, at)
+    for i, at in enumerate(orn_at):
+        struct.pack_into("<H", body, P.ORNAMENTS_AT + i * 2, at)
+    for i, at in enumerate(chan_at):
+        struct.pack_into("<H", body, table_at + i * 2, at)
+    return bytes(body)
+
+
 @seed("spc", ".spc")
 def spc(title="SEED", game="SEED GAME", samples=2):
     """An SPC700 snapshot: 256-byte header with a text ID666 tag, 64 KB of

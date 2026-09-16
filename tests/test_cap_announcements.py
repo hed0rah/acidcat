@@ -949,6 +949,22 @@ def _vgm_many_blocks(tmp_path, n):
     return str(q)
 
 
+def _pt3_over_cap(tmp_path, n):
+    """A .pt3 longer than n bytes: the seed with a tail past the last region."""
+    import seeds
+    q = tmp_path / "big.pt3"
+    q.write_bytes(seeds.SEEDS["pt3"][0]() + bytes(n * 4))
+    return str(q)
+
+
+def _pt3_many_regions(tmp_path, n):
+    """A .pt3 with more than n pointed regions: n patterns is 3n streams."""
+    import seeds
+    q = tmp_path / "many.pt3"
+    q.write_bytes(seeds.SEEDS["pt3"][0](patterns=n))
+    return str(q)
+
+
 def _spc_over_cap(tmp_path, n):
     """An .spc longer than n bytes: the base image plus a padded tail."""
     import seeds
@@ -1088,6 +1104,10 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.spc", "_SPC_READ_CAP", 0x10300, _spc_over_cap,
      "parsed the first"),
+    ("acidcat.core.walk.pt3", "_PT3_READ_CAP", 512, _pt3_over_cap,
+     "parsed the first"),
+    ("acidcat.core.walk.pt3", "_PT3_REGION_LIST_CAP", 4, _pt3_many_regions,
+     "listing the first"),
     ("acidcat.core.walk.vgm", "_VGM_READ_CAP", 512, _vgm_over_cap,
      "parsed the first"),
     ("acidcat.core.walk.vgm", "_VGM_COMMAND_CAP", 64, _vgm_many_commands,

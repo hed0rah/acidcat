@@ -48,7 +48,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "psf", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc", "vgm",
+    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc", "vgm",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -130,6 +130,8 @@ def sniff_bytes(head):
         return "psf"                                    # Portable Sound Format
     if head[:4] == b"Vgm ":
         return "vgm"                                    # Video Game Music register log
+    if head[:13] == b"ProTracker 3." or head[:17] == b"Vortex Tracker II":
+        return "pt3"                                    # ZX Spectrum AY module
     if head[:20] == b"SNES-SPC700 Sound Fi":
         # the 33-byte magic runs past the 20-byte head; twenty of it is
         # already more signature than most formats have
