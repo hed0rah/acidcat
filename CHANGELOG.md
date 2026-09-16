@@ -4,7 +4,26 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
-## [1.8.0] - 2026-09-15
+## [Unreleased]
+
+### Added
+
+- **`extract` decodes PDX banks.** The X68000's samples are OKI MSM6258
+  ADPCM, and 1.7.0 located them without decoding them because there was
+  nothing independent to check a decoder against. There is now: ffmpeg's
+  `adpcm_ima_oki` reads the same nibbles as WAVE format 0x0010, and with
+  ffmpeg's rounding our decoder is bit-exact against it on 200 real
+  samples, which pins the nibble order (low first), the 12-bit clamp, the
+  index table and the scale. The one thing the oracle could not settle it
+  does differently: the step delta. ffmpeg computes `((2d+1)*step) >> 3`;
+  the datasheet sums `step/8 + step/4 + step/2 + step` with each term
+  truncated. The predictor integrates, so they drift 9% RMS apart on real
+  audio, and the corpus picks: with the datasheet's form a recorded drum
+  hit ends within a hundred units of silence, with the other it ends up to
+  1,900 off. The encoders of 1990 modelled the chip. Samples come out at
+  the chip's 15.6 kHz default with a note that the song may set another;
+  aliased slots are reported once.
+
 
 Three new formats, one of them eight platforms wide, all verified on Modland
 corpora pulled the same night. And a correction to the method: a walker

@@ -34,7 +34,8 @@ numbers; it does not slice one.
 The samples themselves are OKI MSM6258V ADPCM: 4 bits per sample, one nibble
 per step, which is the chip the X68000 has. A length is therefore twice the
 number of audio samples it holds, and there is no rate in the file -- the
-player sets it.
+player sets it. codecs/adpcm.decode_oki turns one into PCM, low nibble
+first, with the datasheet's rounding; the choice is argued there.
 
 Identification is arithmetic, like MDX's. Verified over 3,418 real banks
 against 132,305 files of everything else: 3,256 accepted, 0 false positives.

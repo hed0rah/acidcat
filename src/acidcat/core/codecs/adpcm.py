@@ -8,6 +8,7 @@ ADPCM as G.726). This gives acidcat a native IMA/DVI ADPCM decoder so
     IMA / DVI ADPCM   (WAVE format 0x0011)   block-structured
     + a `continuous` variant for the mistagged / block-less streams
     Microsoft ADPCM  (WAVE format 0x0002)   block-structured, coefficient-predicted
+    OKI MSM6258      (WAVE format 0x0010)   the X68000's sample chip; PDX banks
 
 Output is signed 16-bit little-endian, interleaved for stereo.
 """
@@ -43,6 +44,50 @@ def _ima_step(nib, pred, idx):
     pred = clip16(pred + diff)
     idx += _IMA_INDEX[nib]
     return pred, (0 if idx < 0 else 88 if idx > 88 else idx)
+
+
+# OKI MSM6258 (Dialogic / "VOX") ADPCM: the IMA scheme's older sibling. The
+# step table has 49 entries and the output is 12-bit, which is why a PDX
+# sample sounds the way it does. Same nibble arithmetic as IMA, same index
+# adjustments, narrower range. Verified sample-for-sample against ffmpeg's
+# adpcm_ima_oki on real X68000 banks; see tests/test_pdx.py.
+_OKI_STEP = [
+    16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88,
+    97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371,
+    408, 449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411,
+    1552]
+
+
+def _oki_step(nib, pred, idx):
+    step = _OKI_STEP[idx]
+    diff = step >> 3
+    if nib & 1:
+        diff += step >> 2
+    if nib & 2:
+        diff += step >> 1
+    if nib & 4:
+        diff += step
+    if nib & 8:
+        diff = -diff
+    pred += diff
+    pred = -2048 if pred < -2048 else 2047 if pred > 2047 else pred
+    idx += _IMA_INDEX[nib]
+    return pred, (0 if idx < 0 else 48 if idx > 48 else idx)
+
+
+def decode_oki(data, high_first=False):
+    """OKI MSM6258 nibbles, mono, no block structure, predictor from zero.
+    The X68000 feeds the chip the LOW nibble of each byte first; a Dialogic
+    .vox file is the other way round. -> 16-bit LE bytes (12-bit values
+    scaled by 16, as every player does)."""
+    out = bytearray()
+    pred = idx = 0
+    for byte in data:
+        nibs = (byte >> 4, byte & 0x0F) if high_first else (byte & 0x0F, byte >> 4)
+        for nib in nibs:
+            pred, idx = _oki_step(nib, pred, idx)
+            out += struct.pack("<h", pred << 4)
+    return bytes(out)
 
 
 def decode_ima_continuous(data):

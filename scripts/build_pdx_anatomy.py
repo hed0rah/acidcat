@@ -109,7 +109,16 @@ BODY = """<div class="sheet">
           <div><span class="k">audio samples</span><span class="v">length &times; 2</span></div>
           <div><span class="k-en">sample rate</span><span class="v">not in the file; the player sets it</span></div>
           <div><span class="k-en">channels</span><span class="v">not in the file; mono in practice</span></div>
+          <div><span class="k">nibble order</span><span class="v">low nibble of each byte first</span></div>
+          <div><span class="k">step table</span><span class="v">49 entries, 16 to 1552; 12-bit output</span></div>
+          <div><span class="k">step delta</span><span class="v">step/8 + step/4&middot;b0 + step/2&middot;b1 + step&middot;b2, each term truncated</span></div>
+          <div><span class="k">default rate</span><span class="v">15.6 kHz (the chip at 8 MHz / 512); 3.9, 5.2, 7.8, 10.4 also selectable</span></div>
         </div>
+        <p class="note"><b>The delta is the datasheet's, not a shortcut.</b> Some decoders compute
+        the delta as <code>((2&middot;d + 1) &middot; step) &gt;&gt; 3</code>, which is the same thing
+        up to rounding. The predictor integrates, so the rounding is not the same thing: an X68000
+        encoder modelled the chip, and only the per-term form brings a recorded hit back to silence
+        at its end. The other drifts by hundreds of units per sample.</p>
         <p class="note">There is no rate, no loop point, no root key and no name. A bank is an
         addressable pile of nibbles, and everything about how a sample is meant to sound lives in
         the MDX that plays it.</p>

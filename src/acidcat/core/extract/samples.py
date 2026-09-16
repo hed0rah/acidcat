@@ -742,7 +742,37 @@ def _vag_samples(data):
            "note": f"SPU-ADPCM {len(pcm) // 2:,} frames @ {info['rate']} Hz"}
 
 
+# The X68000's MSM6258 is clocked for 15.6 kHz by default and an MDX song
+# may ask the player for 3.9 to 15.6; the bank itself carries no rate, so
+# the default is used and the note says so.
+_PDX_RATE = 15625
+
+
+def _pdx_samples(data):
+    from acidcat.core.formats import pdx as pdxmod
+    from acidcat.core.codecs.adpcm import decode_oki
+    t = pdxmod.parse_table(data, len(data))
+    if not t["ok"]:
+        raise SampleError("pdx: " + t["why"])
+    seen = {}
+    for n, (off, ln) in enumerate(t["slots"]):
+        if not ln:
+            continue
+        if (off, ln) in seen:
+            # a bank aliases one sample to several numbers; the bytes are
+            # extracted once and the alias is reported, not duplicated
+            yield {"name": f"slot{n:03d}", "wav": None,
+                   "note": f"slot {n} is the same bytes as slot {seen[(off, ln)]}"}
+            continue
+        seen[(off, ln)] = n
+        pcm = decode_oki(data[off:off + ln])
+        yield {"name": f"slot{n:03d}", "wav": _wav(pcm, _PDX_RATE),
+               "note": f"OKI MSM6258 ADPCM {ln * 2:,} frames @ {_PDX_RATE} Hz "
+                       "(the chip's default; the song may set another)"}
+
+
 _EXTRACTORS = {
+    "pdx": _pdx_samples,
     "mod": _mod_samples, "xm": _xm_samples, "it": _it_samples,
     "s3m": _s3m_samples, "gf1pat": _gf1pat_samples,
     "8svx": _svx_samples, "ncw": _ncw_samples, "sf2": _sf2_samples,
