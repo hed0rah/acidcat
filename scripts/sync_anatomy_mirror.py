@@ -66,6 +66,11 @@ NEW_CARDS = {
             "where to load the code and which routine to call, then the code. "
             "The same idea as NSF and simpler, because the Game Boy has no "
             "expansion chips and nothing in the header is reserved."),
+    "vgm": ("VGM", "#7A6A3D", "#5F5230", "byte map",
+            "Every byte a game wrote to its sound chips, in order, with the "
+            "time between: a header of chip clocks where a non-zero clock is "
+            "the only presence flag, a byte-code stream of writes and waits, "
+            "and a UTF-16 tag at the end. A .vgz is the same file in gzip."),
     "psf": ("PSF", "#6E4E7A", "#573D60", "byte map",
             "A console's sound program and the memory it runs in, zlib-"
             "compressed with a CRC32 of its own. Eight machines share the "

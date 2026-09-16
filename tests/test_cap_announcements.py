@@ -905,6 +905,50 @@ def _spc_many_samples(tmp_path, n):
     return str(q)
 
 
+def _vgm_over_cap(tmp_path, n):
+    """A .vgm longer than n bytes: the seed with a long run of waits, which
+    are incompressible only in the sense that nothing here compresses."""
+    import struct
+    import seeds
+    raw = bytearray(seeds.SEEDS["vgm"][0]())
+    # pad the command stream with 0x62 waits before the end marker, and
+    # move the GD3 and EOF offsets to match
+    import acidcat.core.formats.vgm as V
+    h = V.parse_header(bytes(raw))
+    end = h["gd3_at"] - 1                          # the 0x66
+    pad = bytes([0x62]) * (n * 4)
+    raw[end:end] = pad
+    struct.pack_into("<I", raw, 0x14, h["gd3_at"] + len(pad) - 0x14)
+    struct.pack_into("<I", raw, 0x04, len(raw) - 0x04)
+    struct.pack_into("<I", raw, 0x18, h["total_samples"] + 735 * len(pad))
+    q = tmp_path / "big.vgm"
+    q.write_bytes(bytes(raw))
+    return str(q)
+
+
+def _vgm_many_commands(tmp_path, n):
+    """A .vgm whose stream holds more than n commands."""
+    return _vgm_over_cap(tmp_path, n)
+
+
+def _vgm_many_blocks(tmp_path, n):
+    """A .vgm whose stream opens with n + 4 data blocks."""
+    import struct
+    import seeds
+    import acidcat.core.formats.vgm as V
+    raw = bytearray(seeds.SEEDS["vgm"][0]())
+    h = V.parse_header(bytes(raw))
+    block = bytes([0x67, 0x66, 0x00]) + struct.pack("<I", 4) + b"\x80" * 4
+    blocks = block * (n + 4)
+    raw[h["data_at"]:h["data_at"]] = blocks
+    struct.pack_into("<I", raw, 0x14, h["gd3_at"] + len(blocks) - 0x14)
+    struct.pack_into("<I", raw, 0x1C, h["loop_at"] + len(blocks) - 0x1C)
+    struct.pack_into("<I", raw, 0x04, len(raw) - 0x04)
+    q = tmp_path / "blocks.vgm"
+    q.write_bytes(bytes(raw))
+    return str(q)
+
+
 def _spc_over_cap(tmp_path, n):
     """An .spc longer than n bytes: the base image plus a padded tail."""
     import seeds
@@ -1044,6 +1088,12 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.spc", "_SPC_READ_CAP", 0x10300, _spc_over_cap,
      "parsed the first"),
+    ("acidcat.core.walk.vgm", "_VGM_READ_CAP", 512, _vgm_over_cap,
+     "parsed the first"),
+    ("acidcat.core.walk.vgm", "_VGM_COMMAND_CAP", 64, _vgm_many_commands,
+     "decoded the first"),
+    ("acidcat.core.walk.vgm", "_VGM_BLOCK_LIST_CAP", 4, _vgm_many_blocks,
+     "listing the first"),
     ("acidcat.core.walk.spc", "_SPC_SAMPLE_LIST_CAP", 4, _spc_many_samples,
      "listing the first"),
     ("acidcat.core.walk.spc", "_SPC_XID6_CAP", 4, _spc_many_xid6,

@@ -372,6 +372,47 @@ def gbs(songs=4, title="SEED", author="NOBODY"):
     return bytes(h) + bytes([0xC9]) * 64             # RET, 64 times
 
 
+@seed("vgm", ".vgm")
+def vgm(version=0x151, chips=None, title="SEED", game="SEED GAME", pcm=None,
+        loop=True):
+    """Video Game Music: a header of chip clocks, a command stream of four
+    PSG writes and some waits, and a GD3 tag. Offsets are relative to their
+    own field, as the spec has them. `pcm` adds a YM2612 data block."""
+    import acidcat.core.formats.vgm as V
+    if chips is None:
+        chips = {"SN76489": 3579545}
+    hdr_size = 0x80 if version >= 0x150 else 0x40
+    h = bytearray(hdr_size)
+    h[0:4] = V.MAGIC
+    struct.pack_into("<I", h, 0x08, version)
+    for off, name, since in V.CHIP_CLOCKS:
+        if name in chips and version >= since and off + 4 <= hdr_size:
+            struct.pack_into("<I", h, off, chips[name])
+    if version >= 0x101:
+        struct.pack_into("<I", h, 0x24, 60)
+    if version >= 0x150:
+        struct.pack_into("<I", h, 0x34, hdr_size - 0x34)
+    stream = bytearray()
+    if pcm is not None:
+        stream += bytes([0x67, 0x66, 0x00]) + struct.pack("<I", len(pcm)) + pcm
+    loop_at = hdr_size + len(stream)
+    stream += bytes([0x50, 0x9F, 0x62, 0x50, 0x80, 0x61, 0xE8, 0x03])   # 735 + 1000
+    stream += bytes([0x50, 0x9F, 0x63, 0x50, 0x80, 0x7F, 0x66])        # 882 + 16
+    total = 735 + 1000 + 882 + 16
+    struct.pack_into("<I", h, 0x18, total)
+    if loop:
+        struct.pack_into("<I", h, 0x1C, loop_at - 0x1C)
+        struct.pack_into("<I", h, 0x20, total)
+    fields = [title, "", game, "", "SEED SYSTEM", "", "NOBODY", "", "2026", "seed", ""]
+    body = "".join(f + "\0" for f in fields).encode("utf-16-le")
+    gd3 = V.GD3_MAGIC + struct.pack("<II", 0x100, len(body)) + body
+    gd3_at = hdr_size + len(stream)
+    struct.pack_into("<I", h, 0x14, gd3_at - 0x14)
+    eof = gd3_at + len(gd3)
+    struct.pack_into("<I", h, 0x04, eof - 0x04)
+    return bytes(h) + bytes(stream) + gd3
+
+
 @seed("spc", ".spc")
 def spc(title="SEED", game="SEED GAME", samples=2):
     """An SPC700 snapshot: 256-byte header with a text ID666 tag, 64 KB of

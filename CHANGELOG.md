@@ -20,6 +20,24 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Added
 
+- **VGM: the sound-chip register log, and .vgz around it.** Neither a
+  score nor a recording: every byte a game wrote to its sound chips, in
+  order, with the waits between, so a player with the same chips plays
+  it back exactly. The header is a table of chip clocks where a non-zero
+  clock is the only presence flag, and the version byte says how much of
+  the table exists (1.00 has two chips, 1.71 has forty); every offset in
+  it is relative to its own field. The command stream is a byte code the
+  walker decodes to its end marker, counting waits and writes per chip
+  and lifting out each data block (the PCM a chip's memory was loaded
+  with) as a chunk of its own; the spec fixes the length of every
+  reserved opcode, so the walk always reaches the end, and on real files
+  it lands exactly on the GD3 tag, whose eleven UTF-16 strings end
+  exactly at EOF. Header sample counts and stream waits agree on all but
+  two of the first 1,583 Modland files; the two say so. Anatomy page from
+  a Master System tune. A .vgz is identified by the magic inside the gzip
+  and walked as one chunk with the same facts, since its offsets belong
+  to the inflated image and not the file.
+
 - **The original Soundtracker module: 15 instruments, no magic.** The
   ancestor of MOD, from 1987, and the one file the tracker walker could
   not open because there is nothing at offset 1080 to read. Identification

@@ -48,7 +48,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "psf", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc",
+    "okt", "pdx", "pgm", "pmd", "psf", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc", "vgm",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -128,6 +128,8 @@ def sniff_bytes(head):
         # three letters and a version byte naming one of eight machines.
         # Checked with the version: "PSF" opens ordinary text too.
         return "psf"                                    # Portable Sound Format
+    if head[:4] == b"Vgm ":
+        return "vgm"                                    # Video Game Music register log
     if head[:20] == b"SNES-SPC700 Sound Fi":
         # the 33-byte magic runs past the 20-byte head; twenty of it is
         # already more signature than most formats have
@@ -517,6 +519,10 @@ def sniff(filepath):
     if fmt is None and head[:2] == b"\x1f\x8b" \
             and filepath.lower().endswith(".xtd") and _is_xtd(filepath):
         return "xtd"
+    # a .vgz is a VGM in gzip and nothing else; confirmed by the magic
+    # inside and not by the extension, since a .vgm.gz is the same thing
+    if fmt is None and head[:2] == b"\x1f\x8b" and _is_vgz(filepath):
+        return "vgm"
     # a free-format MPEG sync (bitrate index 0): sniff_bytes stays strict
     # because 16 bytes cannot confirm it; with the file in hand, accept only
     # when the constant frame length is measurable (a matching second sync).
@@ -738,6 +744,16 @@ def _is_xpn(filepath):
         import zipfile
         with zipfile.ZipFile(filepath) as z:
             return "Expansion.xml" in z.namelist()
+    except Exception:
+        return False
+
+
+def _is_vgz(filepath):
+    """A gzip stream whose decompressed head is the Vgm magic."""
+    import gzip
+    try:
+        with gzip.open(filepath, "rb") as g:
+            return g.read(4) == b"Vgm "
     except Exception:
         return False
 

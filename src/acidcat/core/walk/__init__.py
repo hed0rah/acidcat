@@ -19,7 +19,7 @@ from acidcat.core.walk import (
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
     mp4, mpc, multisample, ncw, ni, ogg, pdx, pmd, psf, rf64, rmid, rx2, serum, sf2,
-    sigmf, spc, svx,
+    sigmf, spc, svx, vgm,
     tracker,
     dsd, sid, streams, vital, wav, wave64, wt,
 )
@@ -119,6 +119,8 @@ _WALKERS = {
             lambda path, deep: psf.inspect_psf(path, deep=deep)),
     "spc": ("SNES SPC700 sound snapshot (SPC)",
             lambda path, deep: spc.inspect_spc(path, deep=deep)),
+    "vgm": ("Video Game Music register log (VGM/VGZ)",
+            lambda path, deep: vgm.inspect_vgm(path, deep=deep)),
     "pmd": ("PC-98 Professional Music Driver score (PMD)",
             lambda path, deep: pmd.inspect_pmd(path, deep=deep)),
     "s3p": ("Akai S1000/S3000 program (SysEx dump)",
