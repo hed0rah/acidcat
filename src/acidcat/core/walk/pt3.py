@@ -58,6 +58,11 @@ def inspect_pt3(filepath, deep=False):
     ]
     if h["tone_table"] not in pt3mod.TONE_TABLES:
         warns.append("tone table %d is not one of the four defined" % h["tone_table"])
+    for kind, i, ptr in h["bad_pointers"][:8]:
+        warns.append("%s %d points at %d, past the end of the file; the module "
+                     "is truncated" % (kind, i, ptr))
+    if len(h["bad_pointers"]) > 8:
+        warns.append("%d more pointers past the end" % (len(h["bad_pointers"]) - 8))
     if h["loop"] >= h["positions"]:
         warns.append("loop position %d is past the last position" % h["loop"])
     title = h["name"] + (" -- " + h["author"] if h["author"] else "")

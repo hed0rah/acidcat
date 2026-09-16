@@ -75,7 +75,7 @@ def parse(raw, filesize):
          "tone_table": 0, "delay": 0, "positions": 0, "loop": 0,
          "patterns_at": 0, "samples": [], "ornaments": [], "position_list": [],
          "header_size": 0, "pattern_count": 0, "pattern_table_size": 0,
-         "channel_streams": [], "ts_footer": False}
+         "channel_streams": [], "ts_footer": False, "bad_pointers": []}
     if len(raw) < FIXED_HEADER + 1 or not is_pt3(raw):
         h["why"] = "no ProTracker 3 signature"
         return h
@@ -113,16 +113,17 @@ def parse(raw, filesize):
     for i in range(npat):
         h["channel_streams"].append(
             struct.unpack_from("<3H", raw, pt + i * CHANNELS * 2))
+    # a pointer outside the file is a truncated module, not a different
+    # format: it is recorded, the region it named is simply absent, and
+    # the walker says so
     for kind, ptrs in (("sample", h["samples"]), ("ornament", h["ornaments"])):
-        for p in ptrs:
+        for i, p in enumerate(ptrs):
             if p and not h["header_size"] <= p < filesize:
-                h["why"] = "a %s pointer (%d) is outside the file" % (kind, p)
-                return h
-    for trio in h["channel_streams"]:
-        for p in trio:
+                h["bad_pointers"].append((kind, i, p))
+    for i, trio in enumerate(h["channel_streams"]):
+        for ch, p in enumerate(trio):
             if not h["header_size"] <= p < filesize:
-                h["why"] = "a channel pointer (%d) is outside the file" % p
-                return h
+                h["bad_pointers"].append(("channel", i * CHANNELS + ch, p))
     if raw[-TS_FOOTER_LEN:-TS_FOOTER_LEN + 4] == TS_FOOTER:
         h["ts_footer"] = True
     h["ok"] = True
@@ -152,15 +153,17 @@ def regions(h, filesize):
     collapse to one region with every name."""
     named = {}
     named.setdefault(h["patterns_at"], []).append(("pattern_table", 0))
+    inside = lambda p: h["header_size"] <= p < filesize
     for i, p in enumerate(h["samples"]):
-        if p:
+        if p and inside(p):
             named.setdefault(p, []).append(("sample", i))
     for i, p in enumerate(h["ornaments"]):
-        if p:
+        if p and inside(p):
             named.setdefault(p, []).append(("ornament", i))
     for i, trio in enumerate(h["channel_streams"]):
         for ch, p in enumerate(trio):
-            named.setdefault(p, []).append(("channel", i * CHANNELS + ch))
+            if inside(p):
+                named.setdefault(p, []).append(("channel", i * CHANNELS + ch))
     out = []
     starts = sorted(named)
     for k, at in enumerate(starts):

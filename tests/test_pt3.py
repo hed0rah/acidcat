@@ -67,10 +67,16 @@ def test_a_position_count_that_disagrees_with_the_list_is_refused():
     assert not h["ok"] and "positions" in h["why"]
 
 
-def test_a_pointer_outside_the_file_is_refused():
+def test_a_pointer_outside_the_file_is_a_truncated_module_not_a_refusal(tmp_path):
+    """One Modland file points an ornament past its own end. The module is
+    still a PT3; the region is absent and the walker says so."""
     blob = bytearray(_pt3())
     struct.pack_into("<H", blob, pt3mod.SAMPLES_AT + 2, 0xFFF0)
-    assert not pt3mod.parse(bytes(blob), len(blob))["ok"]
+    h = pt3mod.parse(bytes(blob), len(blob))
+    assert h["ok"] and h["bad_pointers"] == [("sample", 1, 0xFFF0)]
+    chunks, warns = walker.inspect_pt3(str(_write(tmp_path, bytes(blob))))
+    assert any("truncated" in w for w in warns)
+    assert _tiles(chunks, len(blob))
 
 
 def test_regions_are_the_sorted_pointers_sized_by_the_next():
