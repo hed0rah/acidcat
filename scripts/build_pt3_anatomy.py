@@ -21,7 +21,7 @@ OUT = os.path.join(DOCS, "pt3-anatomy.html")
 BODY = """<div class="sheet">
   <div class="head">
     <div class="row">
-      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>PT3 Anatomy</h1></div></div>
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>PT3 Anatomy</h1></div><acidcat-toggle aria-label="Cycle theme: light, dark, acid, house light, house dark"></acidcat-toggle></div>
       <div class="stamp"><b>ZX Spectrum</b>ProTracker 3 / Vortex Tracker<br>rev 2026.09</div>
     </div>
     <div class="strip">
@@ -40,6 +40,16 @@ BODY = """<div class="sheet">
     address and played in place, so <b>every pointer in it is an absolute offset</b>, 16 bits, and
     the whole file can be tiled by sorting them: each region begins where a pointer says and ends
     where the next one begins.</p>
+    <aside class="sig" aria-label="color key">
+      <div class="legrows">
+        <div class="row"><span class="sw dark k-enum">mauve</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+        <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+      </div>
+      <div class="siglabel">color key</div>
+    </aside>
+  </div>
+
+  <div class="sec">file regions</div>
 
     <details class="region" open>
       <summary><span class="chev">&#9656;</span><span class="rname">the header</span><span class="rspan">0x00 . drawn below</span></summary>
@@ -146,7 +156,6 @@ BODY = """<div class="sheet">
         identified by their pointer arithmetic instead; this is the one that says its name.</p>
       </div>
     </details>
-  </div>
 
   <footer>
     <span>acidcat / pt3 anatomy</span>

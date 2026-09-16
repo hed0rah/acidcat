@@ -21,7 +21,7 @@ OUT = os.path.join(DOCS, "pmd-anatomy.html")
 BODY = """<div class="sheet">
   <div class="head">
     <div class="row">
-      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>PMD Anatomy</h1></div></div>
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>PMD Anatomy</h1></div><acidcat-toggle aria-label="Cycle theme: light, dark, acid, house light, house dark"></acidcat-toggle></div>
       <div class="stamp"><b>NEC PC-9801</b>Professional Music Driver . YM2608<br>rev 2026.09</div>
     </div>
     <div class="strip">

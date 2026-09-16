@@ -21,7 +21,7 @@ OUT = os.path.join(DOCS, "vgm-anatomy.html")
 BODY = """<div class="sheet">
   <div class="head">
     <div class="row">
-      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>VGM Anatomy</h1></div></div>
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>VGM Anatomy</h1></div><acidcat-toggle aria-label="Cycle theme: light, dark, acid, house light, house dark"></acidcat-toggle></div>
       <div class="stamp"><b>Video Game Music</b>a sound-chip register log<br>rev 2026.09</div>
     </div>
     <div class="strip">
@@ -40,6 +40,16 @@ BODY = """<div class="sheet">
     write or wait; and a <b>GD3 tag</b> at the end, in UTF-16, saying what the tune is. The format
     has grown a chip at a time since 2001 and the version byte says how much of the header exists.
     A <b>.vgz</b> is the same file inside gzip and nothing more.</p>
+    <aside class="sig" aria-label="color key">
+      <div class="legrows">
+        <div class="row"><span class="sw dark k-enum">mauve</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+        <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+      </div>
+      <div class="siglabel">color key</div>
+    </aside>
+  </div>
+
+  <div class="sec">file regions</div>
 
     <details class="region" open>
       <summary><span class="chev">&#9656;</span><span class="rname">the header</span><span class="rspan">0x00 . drawn below</span></summary>
@@ -117,7 +127,6 @@ BODY = """<div class="sheet">
         what is inside.</p>
       </div>
     </details>
-  </div>
 
   <footer>
     <span>acidcat / vgm anatomy</span>

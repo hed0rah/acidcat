@@ -30,7 +30,7 @@ OUT = os.path.join(DOCS, "voc-anatomy.html")
 BODY = """<div class="sheet">
   <div class="head">
     <div class="row">
-      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>VOC Anatomy</h1></div></div>
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>VOC Anatomy</h1></div><acidcat-toggle aria-label="Cycle theme: light, dark, acid, house light, house dark"></acidcat-toggle></div>
       <div class="stamp"><b>Creative Voice File</b>Sound Blaster . 1990<br>rev 2026.09</div>
     </div>
     <div class="strip">

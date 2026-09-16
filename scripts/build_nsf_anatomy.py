@@ -21,7 +21,7 @@ OUT = os.path.join(DOCS, "nsf-anatomy.html")
 BODY = """<div class="sheet">
   <div class="head">
     <div class="row">
-      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>NSF Anatomy</h1></div></div>
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>NSF Anatomy</h1></div><acidcat-toggle aria-label="Cycle theme: light, dark, acid, house light, house dark"></acidcat-toggle></div>
       <div class="stamp"><b>Nintendo NES / Famicom</b>2A03 APU . 6502<br>rev 2026.08</div>
     </div>
     <div class="strip">

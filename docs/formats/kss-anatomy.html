@@ -157,7 +157,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
 <div class="sheet">
   <div class="head">
     <div class="row">
-      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>KSS Anatomy</h1></div></div>
+      <div class="title"><div class="tt"><div class="sysmark">ACIDCAT . FILE FORMAT REFERENCE</div><h1>KSS Anatomy</h1></div><acidcat-toggle aria-label="Cycle theme: light, dark, acid, house light, house dark"></acidcat-toggle></div>
       <div class="stamp"><b>MSX . Master System</b>Z80 sound rip<br>rev 2026.09</div>
     </div>
     <div class="strip">
@@ -175,6 +175,16 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     rip. After the header comes the <b>init data</b>, loaded at the load address, then any number
     of <b>banks</b> the driver switches through, 8 or 16 KB each. A file may end inside its last
     bank; the player fills the rest with zero, and nearly half of them do.</p>
+    <aside class="sig" aria-label="color key">
+      <div class="legrows">
+        <div class="row"><span class="sw dark k-enum">mauve</span><span class="swsep">&#8594;</span><span class="sw light k-enum">value</span></div>
+        <div class="row"><span class="sw dark k-sync">slate</span><span class="swsep">&#8594;</span><span class="sw light k-sync">structural</span></div>
+      </div>
+      <div class="siglabel">color key</div>
+    </aside>
+  </div>
+
+  <div class="sec">file regions</div>
 
     <details class="region" open>
       <summary><span class="chev">&#9656;</span><span class="rname">the header</span><span class="rspan">0x00 . drawn below</span></summary>
@@ -210,7 +220,6 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <p class="note">Four bytes at zero, one of two spellings.</p>
       </div>
     </details>
-  </div>
 
   <footer>
     <span>acidcat / kss anatomy</span>

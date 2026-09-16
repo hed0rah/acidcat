@@ -180,3 +180,28 @@ def test_the_colour_key_survives_a_narrow_screen(page):
     assert ".sig{display:none}" not in t, (
         f"{page.name} hides the colour key on mobile but keeps the colours")
     assert "@media(max-width:720px)" in t, f"{page.name} lost its mobile rules"
+
+
+# ── the shell every page shares ─────────────────────────────────────
+
+@pytest.mark.parametrize("page", _pages(), ids=lambda p: p.name)
+def test_every_page_carries_the_toggle_and_keeps_regions_out_of_the_intro(page):
+    """Seventeen generated pages shipped without the acidcat-toggle (the
+    mascot and theme cycler), and four had their region blocks inside the
+    flex intro, which rendered them as columns. The intro is the lede and
+    the colour key; the regions come after the first section heading."""
+    raw = page.read_text(encoding="utf-8")
+    assert "<acidcat-toggle" in raw, f"{page.name} has no theme toggle / mascot"
+    i = raw.find('<div class="intro">')
+    if i < 0:
+        return
+    j = raw.find("</details>", i)
+    k = raw.find('class="sig"', i)
+    assert 0 <= k < (j if j >= 0 else len(raw)), (
+        f"{page.name}: the intro has no colour-key aside before its first region")
+    first_details = raw.find("<details", i)
+    first_sec = raw.find('<div class="sec">', i)
+    if first_details >= 0:
+        assert 0 <= first_sec < first_details, (
+            f"{page.name}: a <details> region sits inside the flex intro; it "
+            f"renders as a column")
