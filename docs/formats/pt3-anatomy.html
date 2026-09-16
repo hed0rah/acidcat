@@ -233,6 +233,26 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     </details>
 
     <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">Pro Tracker 2</span><span class="rspan">the same file, no signature</span></summary>
+      <div class="rbody">
+        <p class="note">PT2, the tracker before, is the same design with the header the other way
+        round and nothing at offset zero to read:</p>
+        <div class="kv">
+          <div><span class="k">0x00</span><span class="v">delay, positions, loop: one byte each</span></div>
+          <div><span class="k">0x03</span><span class="v">32 sample pointers, then 16 ornament pointers at 0x43</span></div>
+          <div><span class="k">0x63</span><span class="v">pattern table pointer</span></div>
+          <div><span class="k">0x65</span><span class="v">30-character name</span></div>
+          <div><span class="k">0x83</span><span class="v">position list, plain pattern numbers, ended by 0xFF</span></div>
+          <div><span class="k">sample row</span><span class="v">3 bytes, not 4</span></div>
+        </div>
+        <p class="note">With nothing to sniff, a PT2 is identified by its arithmetic: the position
+        count and the list agree, every pointer lands inside the file, and the first pointed
+        region begins exactly where the position list ends. A file that fails any of those is
+        not called a PT2, which means a PT2 cut short is refused rather than guessed at.</p>
+      </div>
+    </details>
+
+    <details class="region">
       <summary><span class="chev">&#9656;</span><span class="rname">identification</span><span class="rspan">text at zero</span></summary>
       <div class="rbody">
         <p class="note"><code>ProTracker 3.</code> or <code>Vortex Tracker II</code> at offset

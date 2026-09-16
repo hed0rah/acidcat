@@ -30,34 +30,59 @@ def inspect_pt3(filepath, deep=False):
     if size > _PT3_READ_CAP:
         warns.append(coverage("file is %d bytes; parsed the first %d, which is "
                               "all a 16-bit pointer can reach" % (size, _PT3_READ_CAP)))
-    if not pt3mod.is_pt3(raw):
-        raise _Unsupported("no ProTracker 3 signature")
-    h = pt3mod.parse(raw, len(raw))
+    if pt3mod.is_pt3(raw):
+        h = pt3mod.parse(raw, len(raw))
+    else:
+        h = pt3mod.parse_pt2(raw, len(raw))
+        if not h["ok"]:
+            raise _Unsupported("no ProTracker 3 signature, and not a PT2 by "
+                               "arithmetic: " + h["why"])
     if not h["ok"]:
         raise _Unsupported(h["why"])
 
     used_samples = sum(1 for p in h["samples"] if p)
-    fields = [
-        _f(0x00, pt3mod.SIG_LEN, "signature", h["signature"]),
-        _f(pt3mod.NAME_AT, pt3mod.NAME_LEN, "name", h["name"] or "(empty)"),
-        _f(pt3mod.AUTHOR_AT, pt3mod.AUTHOR_LEN, "author", h["author"] or "(empty)"),
-        _f(pt3mod.TONE_TABLE_AT, 1, "tone_table", h["tone_table"],
-           pt3mod.TONE_TABLES.get(h["tone_table"], "undefined")),
-        _f(pt3mod.DELAY_AT, 1, "delay", h["delay"], "ticks per row"),
-        _f(pt3mod.POSITIONS_AT, 1, "positions", h["positions"]),
-        _f(pt3mod.LOOP_AT, 1, "loop", h["loop"], "position to return to"),
-        _f(pt3mod.PATTERNS_PTR_AT, 2, "pattern_table", "0x%04X" % h["patterns_at"],
-           "%d patterns, three pointers each" % h["pattern_count"]),
-        _f(pt3mod.SAMPLES_AT, 64, "samples", "%d of 32 used" % used_samples),
-        _f(pt3mod.ORNAMENTS_AT, 32, "ornaments",
-           "%d of 16 used" % sum(1 for p in h["ornaments"] if p)),
-        _f(pt3mod.POSITION_LIST_AT, h["header_size"] - pt3mod.POSITION_LIST_AT,
-           "position_list", " ".join(str(p) for p in h["position_list"][:32])
-           + (" ..." if len(h["position_list"]) > 32 else ""),
-           "pattern numbers, stored times three, 0xFF-ended"),
-    ]
-    if h["tone_table"] not in pt3mod.TONE_TABLES:
-        warns.append("tone table %d is not one of the four defined" % h["tone_table"])
+    if h["kind"] == "pt3":
+        fields = [
+            _f(0x00, pt3mod.SIG_LEN, "signature", h["signature"]),
+            _f(pt3mod.NAME_AT, pt3mod.NAME_LEN, "name", h["name"] or "(empty)"),
+            _f(pt3mod.AUTHOR_AT, pt3mod.AUTHOR_LEN, "author", h["author"] or "(empty)"),
+            _f(pt3mod.TONE_TABLE_AT, 1, "tone_table", h["tone_table"],
+               pt3mod.TONE_TABLES.get(h["tone_table"], "undefined")),
+            _f(pt3mod.DELAY_AT, 1, "delay", h["delay"], "ticks per row"),
+            _f(pt3mod.POSITIONS_AT, 1, "positions", h["positions"]),
+            _f(pt3mod.LOOP_AT, 1, "loop", h["loop"], "position to return to"),
+            _f(pt3mod.PATTERNS_PTR_AT, 2, "pattern_table", "0x%04X" % h["patterns_at"],
+               "%d patterns, three pointers each" % h["pattern_count"]),
+            _f(pt3mod.SAMPLES_AT, 64, "samples", "%d of 32 used" % used_samples),
+            _f(pt3mod.ORNAMENTS_AT, 32, "ornaments",
+               "%d of 16 used" % sum(1 for p in h["ornaments"] if p)),
+            _f(pt3mod.POSITION_LIST_AT, h["header_size"] - pt3mod.POSITION_LIST_AT,
+               "position_list", " ".join(str(p) for p in h["position_list"][:32])
+               + (" ..." if len(h["position_list"]) > 32 else ""),
+               "pattern numbers, stored times three, 0xFF-ended"),
+        ]
+        if h["tone_table"] not in pt3mod.TONE_TABLES:
+            warns.append("tone table %d is not one of the four defined" % h["tone_table"])
+    else:
+        fields = [
+            _f(None, 0, "layout", "Pro Tracker 2",
+               "no signature; identified because the counts agree, every "
+               "pointer is inside the file, and the first region starts "
+               "where the header ends"),
+            _f(pt3mod.PT2_DELAY_AT, 1, "delay", h["delay"], "ticks per row"),
+            _f(pt3mod.PT2_POSITIONS_AT, 1, "positions", h["positions"]),
+            _f(pt3mod.PT2_LOOP_AT, 1, "loop", h["loop"], "position to return to"),
+            _f(pt3mod.PT2_SAMPLES_AT, 64, "samples", "%d of 32 used" % used_samples),
+            _f(pt3mod.PT2_ORNAMENTS_AT, 32, "ornaments",
+               "%d of 16 used" % sum(1 for p in h["ornaments"] if p)),
+            _f(pt3mod.PT2_PATTERNS_PTR_AT, 2, "pattern_table", "0x%04X" % h["patterns_at"],
+               "%d patterns, three pointers each" % h["pattern_count"]),
+            _f(pt3mod.PT2_NAME_AT, pt3mod.PT2_NAME_LEN, "name", h["name"] or "(empty)"),
+            _f(pt3mod.PT2_POSITION_LIST_AT, h["header_size"] - pt3mod.PT2_POSITION_LIST_AT,
+               "position_list", " ".join(str(p) for p in h["position_list"][:32])
+               + (" ..." if len(h["position_list"]) > 32 else ""),
+               "pattern numbers, 0xFF-ended"),
+        ]
     for kind, i, ptr in h["bad_pointers"][:8]:
         warns.append("%s %d points at %d, past the end of the file; the module "
                      "is truncated" % (kind, i, ptr))
@@ -111,7 +136,7 @@ def _region(raw, h, at, n, names, warns):
         return c
     if "sample" in kinds:
         idx = [i for k, i in names if k == "sample"]
-        s = pt3mod.sample_size(raw, at)
+        s = pt3mod.sample_size(raw, at, h["sample_row"])
         c = {"id": "smp[%d]" % idx[0] if len(idx) == 1 else "smp[%s]" % ",".join(map(str, idx)),
              "offset": at, "size": n, "fields": [], "warnings": [], "payload_base": at}
         if s is None:
@@ -119,10 +144,12 @@ def _region(raw, h, at, n, names, warns):
             warns.append("sample %s has no room for its two-byte head" % idx)
             return c
         loop, length, want = s
-        c["summary"] = "sample, %d rows of 4 bytes%s" % (
-            length, ", looping at %d" % loop if loop < length else "")
+        row = h["sample_row"]
+        c["summary"] = "sample, %d rows of %d bytes%s" % (
+            length, row, ", looping at %d" % loop if loop < length else "")
         c["fields"] = [_f(0, 1, "loop", loop), _f(1, 1, "length", length, "rows"),
-                       _f(2, min(length * 4, n - 2), "rows", "%d x (tone, noise, volume, amplitude)" % length)]
+                       _f(2, min(length * row, n - 2), "rows",
+                          "%d x (flags, volume, tone offset)" % length)]
         if want > n:
             c["warnings"].append("declares %d bytes and %d fit before the next region" % (want, n))
             warns.append("sample %s runs into the next region" % idx)

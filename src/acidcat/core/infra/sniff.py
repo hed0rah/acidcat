@@ -477,6 +477,11 @@ def sniff(filepath):
     # VADPCM samples regardless of the game's bank format
     if fmt is None and head[:4] in (b"\x80\x37\x12\x40", b"\x37\x80\x40\x12", b"\x40\x12\x37\x80"):
         return "n64rom"
+    # a PT2 has no signature: the counts agree, every pointer is inside the
+    # file and the first region begins where the header ends. Gated on the
+    # extension the world uses for them, like PMD.
+    if fmt is None and filepath.lower().endswith(".pt2") and _is_pt2(filepath):
+        return "pt3"
     # S3M's 'SCRM' magic sits at 0x2C (outside the head), a disk-level confirm.
     # It runs before the MOD check (MOD's offset-1080 heuristic can false-
     # positive inside S3M pattern data) and before the SNES ROM check, whose
@@ -751,6 +756,17 @@ def _is_xpn(filepath):
         with zipfile.ZipFile(filepath) as z:
             return "Expansion.xml" in z.namelist()
     except Exception:
+        return False
+
+
+def _is_pt2(filepath):
+    import os
+    from acidcat.core.formats import pt3 as pt3mod
+    try:
+        with open(filepath, "rb") as f:
+            raw = f.read(65536)
+        return pt3mod.parse_pt2(raw, os.path.getsize(filepath))["ok"]
+    except OSError:
         return False
 
 

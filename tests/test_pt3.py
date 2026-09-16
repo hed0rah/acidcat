@@ -140,6 +140,42 @@ def test_bytes_nothing_points_at_are_a_chunk(tmp_path):
     assert _tiles(chunks, len(blob))
 
 
+# ── PT2 ─────────────────────────────────────────────────────────────
+
+def _pt2(**kw):
+    return seeds.SEEDS["pt2"][0](**kw)
+
+
+def test_a_pt2_is_identified_by_arithmetic_under_its_extension(tmp_path):
+    """No signature: counts agree, pointers inside, first region at the
+    header's end. 2,700 of 2,706 real files; the six refused are cut."""
+    p = _write(tmp_path, _pt2(), "a.pt2")
+    assert sniff.sniff(str(p)) == "pt3"
+    chunks, warns = walker.inspect_pt3(str(p))
+    assert _tiles(chunks, os.path.getsize(p))
+    assert not warns
+    head = {f["name"]: f for f in chunks[0]["fields"]}
+    assert head["layout"]["value"] == "Pro Tracker 2"
+    assert head["name"]["value"] == "SEED" and head["name"]["off"] == 0x65
+    smp = next(c for c in chunks if c["id"] == "smp[1]")
+    assert "rows of 3 bytes" in smp["summary"]
+
+
+def test_a_pt2_whose_first_region_is_not_at_the_header_end_is_refused():
+    blob = _pt2()
+    h = pt3mod.parse_pt2(blob, len(blob))
+    assert h["ok"]
+    # move every region one byte later without moving the header's end
+    shifted = blob[:h["header_size"]] + b"\x00" + blob[h["header_size"]:]
+    assert not pt3mod.parse_pt2(shifted, len(shifted))["ok"]
+
+
+def test_a_pt2_with_a_pointer_outside_is_refused_because_nothing_else_says_pt2():
+    blob = bytearray(_pt2())
+    struct.pack_into("<H", blob, pt3mod.PT2_SAMPLES_AT + 2, 0xFFF0)
+    assert not pt3mod.parse_pt2(bytes(blob), len(blob))["ok"]
+
+
 @pytest.mark.parametrize("n", [10, 0x60, 0xC8, 0xD0])
 def test_truncation_at_any_depth_does_not_raise(tmp_path, n):
     from acidcat.core.walk.base import Unsupported
@@ -156,7 +192,7 @@ def test_real_corpus_walks_completely():
     from acidcat.core.walk import walk_file
     root = os.environ["ACIDCAT_PT3_CORPUS"]
     files = [os.path.join(r, f) for r, _d, fn in os.walk(root) for f in fn
-             if f.lower().endswith(".pt3")]
+             if f.lower().endswith((".pt3", ".pt2"))]
     assert len(files) >= 50
     seen = tiled = 0
     for path in files:
@@ -168,5 +204,5 @@ def test_real_corpus_walks_completely():
         geometry.normalize(chunks, size)
         assert all(geometry.is_trustworthy(c) for c in chunks), path
         tiled += _tiles(chunks, size)
-    assert seen >= len(files) * 0.95, "%d of %d not identified" % (len(files) - seen, len(files))
+    assert seen >= len(files) * 0.98, "%d of %d not identified" % (len(files) - seen, len(files))
     assert tiled == seen, "%d of %d did not tile" % (seen - tiled, seen)

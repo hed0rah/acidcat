@@ -32,6 +32,23 @@ pointer says and ends where the next thing begins.
 
 Spec: the Vortex Tracker II source and ayfly's pt3 loader. A "TS" file
 is two modules back to back for Turbo Sound, with a footer naming both.
+
+PT2, the tracker before it, is the same idea with no signature and the
+header the other way round:
+
+    0x00    1   delay
+    0x01    1   number of positions
+    0x02    1   loop position
+    0x03   64   32 sample pointers
+    0x43   32   16 ornament pointers
+    0x63    2   pointer to the pattern table
+    0x65   30   name
+    0x83   ...  position list, plain pattern numbers, ended by 0xFF
+
+and a sample row is 3 bytes. With nothing to sniff, a PT2 is identified
+by its arithmetic: the counts agree, every pointer lands inside the
+file, and the first pointed region begins exactly where the position
+list ends. Every real file measured does that.
 """
 
 import struct
@@ -58,6 +75,17 @@ TS_FOOTER_LEN = 16
 
 TONE_TABLES = {0: "PT 3.3 and below", 1: "Sound Tracker", 2: "ASM / PSC",
                3: "Real Sound"}
+SAMPLE_ROW = 4
+
+PT2_DELAY_AT = 0x00
+PT2_POSITIONS_AT = 0x01
+PT2_LOOP_AT = 0x02
+PT2_SAMPLES_AT = 0x03
+PT2_ORNAMENTS_AT = 0x43
+PT2_PATTERNS_PTR_AT = 0x63
+PT2_NAME_AT, PT2_NAME_LEN = 0x65, 30
+PT2_POSITION_LIST_AT = 0x83
+PT2_SAMPLE_ROW = 3
 
 
 def _text(raw, at, n):
@@ -68,14 +96,19 @@ def is_pt3(head):
     return any(head.startswith(s) for s in SIGNATURES)
 
 
+def _empty():
+    return {"ok": False, "why": "", "kind": "pt3", "signature": "", "name": "",
+            "author": "", "tone_table": 0, "delay": 0, "positions": 0, "loop": 0,
+            "patterns_at": 0, "samples": [], "ornaments": [], "position_list": [],
+            "header_size": 0, "pattern_count": 0, "pattern_table_size": 0,
+            "channel_streams": [], "ts_footer": False, "bad_pointers": [],
+            "sample_row": SAMPLE_ROW}
+
+
 def parse(raw, filesize):
     """Read the header and every pointer. Never raises; `ok` says whether
     the module holds together."""
-    h = {"ok": False, "why": "", "signature": "", "name": "", "author": "",
-         "tone_table": 0, "delay": 0, "positions": 0, "loop": 0,
-         "patterns_at": 0, "samples": [], "ornaments": [], "position_list": [],
-         "header_size": 0, "pattern_count": 0, "pattern_table_size": 0,
-         "channel_streams": [], "ts_footer": False, "bad_pointers": []}
+    h = _empty()
     if len(raw) < FIXED_HEADER + 1 or not is_pt3(raw):
         h["why"] = "no ProTracker 3 signature"
         return h
@@ -103,6 +136,53 @@ def parse(raw, filesize):
     if any(b % CHANNELS for b in raw[POSITION_LIST_AT:end]):
         h["why"] = "a position is not a multiple of three"
         return h
+    return _finish(h, raw, filesize)
+
+
+def parse_pt2(raw, filesize):
+    """PT2: no signature, so the arithmetic is the identification. `ok`
+    only when every count agrees, every pointer is inside the file, and
+    the first pointed region starts exactly where the header ends."""
+    h = _empty()
+    h["kind"] = "pt2"
+    h["sample_row"] = PT2_SAMPLE_ROW
+    if len(raw) < PT2_POSITION_LIST_AT + 2:
+        h["why"] = "too short for a PT2 header"
+        return h
+    h["signature"] = "Pro Tracker 2"
+    h["delay"] = raw[PT2_DELAY_AT]
+    h["positions"] = raw[PT2_POSITIONS_AT]
+    h["loop"] = raw[PT2_LOOP_AT]
+    h["samples"] = list(struct.unpack_from("<%dH" % SAMPLES, raw, PT2_SAMPLES_AT))
+    h["ornaments"] = list(struct.unpack_from("<%dH" % ORNAMENTS, raw, PT2_ORNAMENTS_AT))
+    h["patterns_at"] = struct.unpack_from("<H", raw, PT2_PATTERNS_PTR_AT)[0]
+    h["name"] = _text(raw, PT2_NAME_AT, PT2_NAME_LEN)
+    end = raw.find(bytes([POSITION_END]), PT2_POSITION_LIST_AT,
+                   PT2_POSITION_LIST_AT + MAX_POSITIONS + 1)
+    if end < 0 or end - PT2_POSITION_LIST_AT != h["positions"] or not h["positions"]:
+        h["why"] = "the position count and the list do not agree"
+        return h
+    if not 1 <= h["delay"] or h["loop"] >= h["positions"]:
+        h["why"] = "delay or loop out of range"
+        return h
+    h["position_list"] = list(raw[PT2_POSITION_LIST_AT:end])
+    h["header_size"] = end + 1
+    h = _finish(h, raw, filesize)
+    if not h["ok"]:
+        return h
+    if h["bad_pointers"]:
+        h["ok"] = False
+        h["why"] = "a pointer lands outside the file"
+        return h
+    first = min([h["patterns_at"]] + [p for p in h["samples"] + h["ornaments"] if p]
+                + [q for t in h["channel_streams"] for q in t])
+    if first != h["header_size"]:
+        h["ok"] = False
+        h["why"] = "the first pointed region is not at the header's end"
+    return h
+
+
+def _finish(h, raw, filesize):
     npat = (max(h["position_list"]) + 1) if h["position_list"] else 0
     h["pattern_count"] = npat
     h["pattern_table_size"] = npat * CHANNELS * 2
@@ -130,12 +210,13 @@ def parse(raw, filesize):
     return h
 
 
-def sample_size(raw, at):
-    """(loop, length, bytes) of the sample record at `at`; a row is 4 bytes."""
+def sample_size(raw, at, row=SAMPLE_ROW):
+    """(loop, length, bytes) of the sample record at `at`; a row is 4 bytes
+    in PT3 and 3 in PT2."""
     if at + 2 > len(raw):
         return None
     loop, length = raw[at], raw[at + 1]
-    return loop, length, 2 + length * 4
+    return loop, length, 2 + length * row
 
 
 def ornament_size(raw, at):

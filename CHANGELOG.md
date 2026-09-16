@@ -45,8 +45,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   Samples and ornaments declare their own size and the walk checks it
   fits. The position list stores pattern numbers times three, because
   the Z80 used them as row offsets into the six-byte pattern table. On
-  Modland's first 636: every file tiles, header to end, no gaps. Anatomy
-  page from one 2,048-byte module.
+  Modland's 7,376: every file tiles, header to end, no gaps. Anatomy
+  page from one 2,048-byte module. **Pro Tracker 2** is read by the same
+  walker: the header the other way round, 3-byte sample rows, and no
+  signature, so it is identified by arithmetic under its extension (the
+  counts agree, every pointer is inside the file, the first region begins
+  where the header ends); 2,700 of 2,706 real files, the six refused cut
+  short.
 
 - **VGM: the sound-chip register log, and .vgz around it.** Neither a
   score nor a recording: every byte a game wrote to its sound chips, in

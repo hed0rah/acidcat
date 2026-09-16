@@ -488,6 +488,43 @@ def pt3(name="SEED", author="NOBODY", patterns=2, samples=2, ornaments=1,
     return bytes(body)
 
 
+@seed("pt2", ".pt2", sniffs_as="pt3")
+def pt2(name="SEED", patterns=2, samples=2, ornaments=1, positions=None):
+    """ZX Spectrum Pro Tracker 2: the PT3 layout with no signature, the
+    header the other way round, and 3-byte sample rows. Sniffs as pt3."""
+    import acidcat.core.formats.pt3 as P
+    if positions is None:
+        positions = list(range(patterns))
+    h = bytearray(P.PT2_POSITION_LIST_AT)
+    h[P.PT2_DELAY_AT] = 6
+    h[P.PT2_POSITIONS_AT] = len(positions)
+    h[P.PT2_LOOP_AT] = 0
+    h[P.PT2_NAME_AT:P.PT2_NAME_AT + P.PT2_NAME_LEN] = name.encode("ascii").ljust(P.PT2_NAME_LEN)
+    body = bytearray(h) + bytes(positions) + bytes([P.POSITION_END])
+    table_at = len(body)
+    body += bytes(patterns * P.CHANNELS * 2)
+    smp_at = []
+    for i in range(samples):
+        smp_at.append(len(body))
+        body += bytes([0, 2]) + bytes(6)
+    orn_at = []
+    for i in range(ornaments):
+        orn_at.append(len(body))
+        body += bytes([0, 3, 0, 1, 2])
+    chan_at = []
+    for i in range(patterns * P.CHANNELS):
+        chan_at.append(len(body))
+        body += bytes([0xB1, 6, 0x50 + i, 0x00])
+    struct.pack_into("<H", body, P.PT2_PATTERNS_PTR_AT, table_at)
+    for i, at in enumerate(smp_at):
+        struct.pack_into("<H", body, P.PT2_SAMPLES_AT + (i + 1) * 2, at)
+    for i, at in enumerate(orn_at):
+        struct.pack_into("<H", body, P.PT2_ORNAMENTS_AT + i * 2, at)
+    for i, at in enumerate(chan_at):
+        struct.pack_into("<H", body, table_at + i * 2, at)
+    return bytes(body)
+
+
 @seed("spc", ".spc")
 def spc(title="SEED", game="SEED GAME", samples=2):
     """An SPC700 snapshot: 256-byte header with a text ID666 tag, 64 KB of
