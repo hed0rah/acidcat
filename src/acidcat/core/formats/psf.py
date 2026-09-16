@@ -27,6 +27,11 @@ and does not pretend a mini is a whole tune.
 WHAT THE PROGRAM IS depends on the machine, and only the platforms whose
 program header is documented are decoded past "a zlib blob of N bytes":
 
+    2SF (0x24)   8 bytes: load offset, length -- then DS ROM bytes. The
+                 reserved area, when used, is a "SAVE" block: zlib size,
+                 CRC32, zlib; inflated it is (offset, length, data) again,
+                 a patch into the emulator's save state. A mini's program
+                 is two bytes (the song number) and its SAVE patch four.
     GSF (0x22)   12 bytes: entry point, load offset, length -- then a GBA
                  ROM image of exactly that length. Verified on 509 files,
                  zero mismatches. A mini's ROM is one or two bytes: the song
@@ -66,10 +71,20 @@ VERSIONS = {
 
 # The GBA program header inside a GSF, after inflation.
 GSF_PROGRAM_HEADER = 12
+# The DS program header inside a 2SF: the same without the entry point,
+# (offset, size) then the ROM bytes. 3,283 of 3,283 real files consistent.
+TWOSF_PROGRAM_HEADER = 8
+# A 2SF's reserved area, when present, is a save-state patch: "SAVE", the
+# zlib size, its CRC32, the zlib stream; inflated, (offset, size, data)
+# again. 219 of 219 real files, all inflate, 214 CRCs match.
+SAVE_MARK = b"SAVE"
+SAVE_HEADER = 12
 
 # A program that inflates past this is not one any of these machines can
-# address, and a forged size field must not make us allocate it.
-INFLATE_CAP = 64 * 1024 * 1024
+# address: 512 MB is the largest DS cartridge. Inflation is streamed and
+# counted, never held, so the cap bounds time and not memory.
+INFLATE_CAP = 512 * 1024 * 1024
+_INFLATE_STEP = 1024 * 1024
 # Tag lines a reader will decode. Real files carry a dozen; the bound is
 # for a crafted tag block, and the count read is reported regardless.
 TAG_LINE_CAP = 256
@@ -85,7 +100,7 @@ def parse(raw, filesize):
          "reserved_at": HEADER, "reserved_size": 0,
          "program_at": 0, "program_size": 0, "crc": 0, "crc_ok": None,
          "tags_at": None, "tags": {}, "libs": [], "tag_lines": 0,
-         "inflated_size": None, "gsf": None}
+         "inflated_size": None, "gsf": None, "save": None}
     if len(raw) < HEADER or raw[:3] != MAGIC:
         h["why"] = "no PSF magic"
         return h
@@ -104,9 +119,11 @@ def parse(raw, filesize):
         return h
 
     prog = raw[h["program_at"]:h["program_at"] + cs]
-    if len(prog) == cs:
+    if cs and len(prog) == cs:
         h["crc_ok"] = (zlib.crc32(prog) & 0xFFFFFFFF) == crc
         h["inflated_size"], h["gsf"] = _inflate(prog, v)
+    if v == 0x24 and rs >= SAVE_HEADER:
+        h["save"] = _save_block(raw[HEADER:HEADER + rs])
 
     tags_at = h["program_at"] + cs
     h["tags_at"] = tags_at
@@ -122,21 +139,70 @@ def _inflate(prog, version):
     Returns (inflated size or None, gsf dict or None). The whole ROM is not
     kept: a GBA library inflates to 16 MB and the walker needs its header.
     """
-    d = zlib.decompressobj()
-    try:
-        out = d.decompress(prog, INFLATE_CAP + 1)
-    except zlib.error:
+    size, out = _inflate_counting(prog)
+    if size is None:
         return None, None
-    if len(out) > INFLATE_CAP:
-        return None, None
-    size = len(out)
     gsf = None
     if version == 0x22 and size >= GSF_PROGRAM_HEADER:
         entry, offset, length = struct.unpack_from("<III", out, 0)
         gsf = {"entry": entry, "offset": offset, "length": length,
                "rom_bytes": size - GSF_PROGRAM_HEADER,
                "consistent": size == GSF_PROGRAM_HEADER + length}
+    elif version == 0x24 and size >= TWOSF_PROGRAM_HEADER:
+        offset, length = struct.unpack_from("<II", out, 0)
+        gsf = {"entry": None, "offset": offset, "length": length,
+               "rom_bytes": size - TWOSF_PROGRAM_HEADER,
+               "consistent": size == TWOSF_PROGRAM_HEADER + length}
     return size, gsf
+
+
+def _inflate_counting(z, keep=16):
+    """Inflate a stream a megabyte at a time, keeping only the first `keep`
+    bytes and the total. A DS library inflates to 64 MB and a cartridge can
+    be 512; nothing that large is ever held. Returns (size, head), or
+    (None, b"") if the stream is not zlib or runs past INFLATE_CAP."""
+    d = zlib.decompressobj()
+    total, head = 0, b""
+    try:
+        piece = d.decompress(z, _INFLATE_STEP)
+        while piece:
+            if len(head) < keep:
+                head += piece[:keep - len(head)]
+            total += len(piece)
+            if total > INFLATE_CAP:
+                return None, b""
+            piece = d.decompress(d.unconsumed_tail, _INFLATE_STEP)
+        if not d.eof:
+            piece = d.flush()
+            total += len(piece)
+            if len(head) < keep:
+                head += piece[:keep - len(head)]
+    except zlib.error:
+        return None, b""
+    return total, head
+
+
+def _save_block(blk):
+    """The 2SF reserved area. Returns a dict, `ok` False if it is not a
+    SAVE block. Inflated content is bounded like the program."""
+    sv = {"ok": False, "size": 0, "crc_ok": None, "inflated_size": None,
+          "offset": None, "length": None, "consistent": None}
+    if blk[:4] != SAVE_MARK:
+        return sv
+    size, crc = struct.unpack_from("<II", blk, 4)
+    z = blk[SAVE_HEADER:SAVE_HEADER + size]
+    sv["ok"] = True
+    sv["size"] = size
+    sv["fits"] = SAVE_HEADER + size == len(blk)
+    sv["crc_ok"] = len(z) == size and (zlib.crc32(z) & 0xFFFFFFFF) == crc
+    size, out = _inflate_counting(z)
+    if size is None:
+        return sv
+    sv["inflated_size"] = size
+    if size >= 8:
+        sv["offset"], sv["length"] = struct.unpack_from("<II", out, 0)
+        sv["consistent"] = size == 8 + sv["length"]
+    return sv
 
 
 def _tags(blob):

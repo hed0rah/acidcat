@@ -324,20 +324,30 @@ def s3p(keygroups=2, name="SEED PROG"):
 
 
 @seed("psf", ".minigsf")
-def psf(version=0x22, rom=None, tags=True, title="SEED", lib="seed.gsflib"):
+def psf(version=0x22, rom=None, tags=True, title="SEED", lib="seed.gsflib",
+        save=None):
     """Portable Sound Format: a 16-byte header, a zlib program, and a [TAG]
     block. As a GSF mini by default: a 12-byte GBA header and two bytes of
-    ROM to patch into the library the _lib tag names."""
+    ROM to patch into the library the _lib tag names. `save` (2SF) is the
+    bytes of a save-state patch placed in the reserved area as a SAVE block;
+    `rom=b""` writes no program at all."""
     import zlib
     if rom is None:
         rom = bytes([0x03, 0x00])
     if version == 0x22:
         program = struct.pack("<III", 0x08000000, 0x08001000, len(rom)) + rom
+    elif version == 0x24:
+        program = struct.pack("<II", 0x000D0F40, len(rom)) + rom
     else:
         program = rom
-    comp = zlib.compress(program)
+    comp = zlib.compress(program) if rom else b""
+    reserved = b""
+    if save is not None:
+        z = zlib.compress(struct.pack("<II", 0xE8, len(save)) + save)
+        reserved = b"SAVE" + struct.pack("<II", len(z), zlib.crc32(z) & 0xFFFFFFFF) + z
     head = (b"PSF" + bytes([version])
-            + struct.pack("<III", 0, len(comp), zlib.crc32(comp) & 0xFFFFFFFF))
+            + struct.pack("<III", len(reserved), len(comp),
+                          zlib.crc32(comp) & 0xFFFFFFFF if comp else 0)) + reserved
     tag = b""
     if tags:
         lines = ["_lib=" + lib, "title=" + title, "artist=NOBODY",

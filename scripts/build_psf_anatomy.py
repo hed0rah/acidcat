@@ -68,6 +68,8 @@ BODY = """<div class="sheet">
           <div><span class="k">0x21</span><span class="v">USF, Nintendo 64</span></div>
           <div><span class="k">0x22</span><span class="v">GSF, Game Boy Advance</span></div>
           <div><span class="k">0x23</span><span class="v">SNSF, Super Nintendo</span></div>
+          <div><span class="k">0x24</span><span class="v">2SF, Nintendo DS</span></div>
+          <div><span class="k-en">0x25</span><span class="v">NCSF, Nintendo DS (Nitro Composer)</span></div>
           <div><span class="k-en">0x41</span><span class="v">QSF, Capcom QSound arcade boards</span></div>
         </div>
         <p class="note">The letters alone are not enough to identify a file: <code>PSF</code> opens
@@ -122,6 +124,26 @@ BODY = """<div class="sheet">
     </details>
 
     <details class="region">
+      <summary><span class="chev">&#9656;</span><span class="rname">the DS program and its SAVE block</span><span class="rspan">2SF only . 8 bytes + a reserved area</span></summary>
+      <div class="rbody">
+        <p class="note">A <b>2SF</b> program is the GBA layout without the entry point: two little-endian
+        words, <b>offset</b> and <b>length</b>, then that many bytes of DS ROM. A library holds the
+        whole cartridge image, up to 64 MB inflated; a mini holds two bytes, the song number, at an
+        offset inside it.</p>
+        <p class="note">2SF is the one machine that uses the header's <b>reserved area</b>. When present
+        it is a <b>SAVE</b> block: the four letters, a little-endian zlib size, the CRC32 of the zlib
+        stream, then the stream. Inflated, it has the same shape as the program: <b>offset</b>,
+        <b>length</b>, data. It is a patch into the emulator's save state; a mini's is four bytes, and
+        a mini may carry a SAVE patch and a tag and <i>no program at all</i>, the library holding
+        everything else.</p>
+        <div class="kv">
+          <div><span class="k">program</span><span class="v">u32 offset, u32 length, ROM</span></div>
+          <div><span class="k">reserved</span><span class="v">"SAVE", u32 zlib size, u32 CRC32, zlib &rarr; u32 offset, u32 length, data</span></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="region">
       <summary><span class="chev">&#9656;</span><span class="rname">the tag block</span><span class="rspan">[TAG] . key=value</span></summary>
       <div class="rbody">
         <p class="note">Optional, at the end, marked by five literal bytes. Then one <code>key=value</code>
@@ -171,7 +193,7 @@ BUILDS = """
        body:"Three letters. Not enough on their own -- ordinary text can open this way -- so the version byte is part of the identification.",
        note:"50 53 46."},
       {label:"version",k:"enum",r:[3,3],val:"0x22 = GSF",sel:5,branch:[
-        ["0x01","PlayStation"],["0x02","PlayStation 2"],["0x11","Saturn"],["0x12","Dreamcast"],["0x21","Nintendo 64"],["0x22","Game Boy Advance"],["0x23","Super Nintendo"],["0x41","QSound"]],
+        ["0x01","PlayStation"],["0x02","PlayStation 2"],["0x11","Saturn"],["0x12","Dreamcast"],["0x21","Nintendo 64"],["0x22","Game Boy Advance"],["0x23","Super Nintendo"],["0x24","Nintendo DS"],["0x25","Nintendo DS (Nitro Composer)"],["0x41","QSound"]],
        body:"Which machine the program runs on. This is the only byte in the container that differs between platforms; everything after it is laid out the same for all eight.",
        note:"the whole difference between a .psf and a .minigsf."},
       {label:"reserved size",k:"sync",r:[4,7],val:"0",

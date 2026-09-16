@@ -38,8 +38,16 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 - **PSF: Nintendo DS (2SF, version 0x24) and Nitro Composer (NCSF, 0x25).**
   Found by a census of the Modland index against what acidcat sniffs: the
   second-largest directory the reader did not open held 31,118 files, and
-  the reason was one missing row in the version table. The container was
-  already read in full.
+  the reason was one missing row in the version table. Then, on 4,210 of
+  them: the DS program header is the GBA one without its entry point
+  (offset, length, ROM; consistent on every file that inflates), and 2SF
+  is the one machine that uses the reserved area, as a SAVE block (zlib
+  size, CRC32, zlib) that inflates to another (offset, length, data): a
+  patch into the emulator's save state, four bytes for a mini. Two real
+  minis carry a patch, a tag and no program at all, which the walker used
+  to call a program that does not inflate. Inflation is now streamed and
+  counted rather than held, so a 64 MB DS library reads in a megabyte of
+  memory and the cap can be the largest cartridge instead of a guess.
 
 - **`extract` decodes PDX banks.** The X68000's samples are OKI MSM6258
   ADPCM, and 1.7.0 located them without decoding them because there was
