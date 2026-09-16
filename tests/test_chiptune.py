@@ -84,13 +84,15 @@ def _w(tmp_path, name, blob):
 
 
 def _gbs(songs=4, first=1, load=0x0400, init=0x0400, play=0x0410,
-         title="SEED", author="NOBODY", copyright="2026", code=64):
+         title="SEED", author="NOBODY", copyright="2026", code=64,
+         tma=0, tac=0):
     """A GBS: the 112-byte header and a code blob. Same shape as NSF."""
     h = bytearray(0x70)
     h[0:3] = b"GBS"
     h[3] = 1
     h[4], h[5] = songs, first
     struct.pack_into("<HHHH", h, 6, load, init, play, 0xFFFE)
+    h[0x0E], h[0x0F] = tma, tac
     for off, text in ((0x10, title), (0x30, author), (0x50, copyright)):
         h[off:off + len(text)] = text.encode("latin-1")
     return bytes(h) + bytes([0xC9]) * code
@@ -518,10 +520,27 @@ def test_gbs_addresses_outside_the_cartridge_window_warn(tmp_path):
     assert any("outside the cartridge window" in w and "load" in w for w in warns)
 
 
-def test_gbs_code_past_ffff_warns(tmp_path):
-    _chunks, warns = chiptune.inspect_gbs(
+def test_gbs_code_past_7fff_is_banked_not_impossible(tmp_path):
+    """The spec puts everything past $7FFF into 16 KB ROM banks mapped at
+    $4000 by a write to $2000. 124 of 916 real files are larger than the
+    address space, and an earlier reading called every one impossible."""
+    chunks, warns = chiptune.inspect_gbs(
         _w(tmp_path, "t.gbs", _gbs(load=0x7000, code=0x9010)))
-    assert any("past $FFFF" in w for w in warns)
+    assert not any("FFFF" in w for w in warns)
+    code = next(c for c in chunks if c["id"] == "code")
+    banks = next(f for f in code["fields"] if f["name"] == "banks")
+    # $7000 + $9010 - 1 = $10010 -> $8810 past the window -> 3 banks + bank 0
+    assert banks["value"] == 4
+
+
+def test_gbs_timer_modulo_zero_is_a_period_of_256(tmp_path):
+    """TMA is what the timer reloads to, so 0 is the slowest setting, not an
+    error. 181 of 916 real files use it."""
+    chunks, warns = chiptune.inspect_gbs(_w(tmp_path, "t.gbs", _gbs(tma=0, tac=0x04)))
+    assert not any("modulo" in w for w in warns)
+    head = next(c for c in chunks if c["id"] == "header")
+    note = next(f for f in head["fields"] if f["name"] == "timerModulo")["note"]
+    assert "period of 256" in note and "16.0 Hz" in note     # 4194304 / (1024 * 256)
 
 
 def test_gbs_first_song_outside_the_count_warns(tmp_path):

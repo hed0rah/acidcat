@@ -6,6 +6,18 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- **GBS: a file bigger than the address space is banked, not impossible;
+  a timer modulo of 0 is the slowest period, not an error.** Both warnings
+  came from reading the header as if the Game Boy had 64 KB and nothing
+  else. The spec puts everything past $7FFF into 16 KB ROM banks switched
+  in at $4000 through the cartridge's $2000 register, and the timer
+  reloads to TMA, so its period is 256 - TMA. On Modland's 916 GBS files
+  (1.8.0 was verified on 36) the two warnings fired 124 and 181 times,
+  every one on a legal file. The walker now reports the bank count and
+  the play rate the two bytes work out to.
+
 ### Added
 
 - **The original Soundtracker module: 15 instruments, no magic.** The

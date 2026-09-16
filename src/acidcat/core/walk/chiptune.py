@@ -582,16 +582,29 @@ _GBS_HEADER = 0x70
 _GBS_LOAD_LO, _GBS_LOAD_HI = 0x0400, 0x7FFF
 
 
+_GBS_DIVIDER = {0: 1024, 1: 16, 2: 64, 3: 256}
+
+
+def _gbs_timer_note(tma, tac):
+    """What the two timer bytes mean, from the spec's formula."""
+    if not tac & 0x04:
+        return "timer off: play runs on VBlank, 60 Hz"
+    hz = 4194304 / (_GBS_DIVIDER[tac & 3] * (256 - tma))
+    return "play runs on the timer, %.1f Hz (modulo %d is a period of %d)" % (
+        hz, tma, 256 - tma)
+
+
 def inspect_gbs(filepath, deep=False):
     """A GBS: a 112-byte header, then Game Boy code and data loaded at an
     address the header names.
 
     The same shape as NSF -- a header naming init and play routines and a
     binary blob to run them from -- so the same reader would serve, except
-    that the Game Boy has no expansion chips and no bankswitching in v1, which
-    leaves nothing for the reserved bytes to do. Three 32-byte text slots,
-    three addresses, a stack pointer and two timer bytes, and that is the
-    whole header. Spec: gbsplay's gbsformat.txt, the format's own reference.
+    that the Game Boy has no expansion chips and no bank table: anything past
+    $7FFF is simply the next 16 KB ROM bank, and a player maps it in through
+    the cartridge's $2000 register. Three 32-byte text slots, three
+    addresses, a stack pointer and two timer bytes, and that is the whole
+    header. Spec: gbsplay's gbsformat.txt, the format's own reference.
     """
     size = os.path.getsize(filepath)
     warns = []
@@ -622,9 +635,9 @@ def inspect_gbs(filepath, deep=False):
         _f(0x08, 2, "init", _addr(init), "called once per song, A = song"),
         _f(0x0A, 2, "play", _addr(play), "called every tick"),
         _f(0x0C, 2, "stack", _addr(sp)),
-        _f(0x0E, 1, "timerModulo", tma,
-           "0 with control 0 means play on VBlank, 60 Hz"),
-        _f(0x0F, 1, "timerControl", "0x%02X" % tac),
+        _f(0x0E, 1, "timerModulo", tma, _gbs_timer_note(tma, tac)),
+        _f(0x0F, 1, "timerControl", "0x%02X" % tac,
+           "bit 2 enables the timer; bits 0-1 pick the divider"),
     ]
     for off, name in ((0x10, "title"), (0x30, "author"), (0x50, "copyright")):
         text, unterminated, dirty, non_ascii = _slot(raw, off)
@@ -650,8 +663,6 @@ def inspect_gbs(filepath, deep=False):
     if init < load or play < load:
         warns.append("init or play sits below the load address, so it is not "
                      "in the code this file carries")
-    if tma == 0 and tac != 0:
-        warns.append("timer control is set with a modulo of 0")
 
     code = size - _GBS_HEADER
     chunks = [{"id": "header", "offset": 0, "size": _GBS_HEADER,
@@ -667,10 +678,19 @@ def inspect_gbs(filepath, deep=False):
                                   % (format(code, ","), _addr(load), _addr(top)),
                        "fields": [_f(None, 0, "loads_at", _addr(load)),
                                   _f(None, 0, "ends_at", _addr(top),
-                                     "past $7FFF the spec says a player banks it"
-                                     if top > _GBS_LOAD_HI else "")],
+                                     "an address in the last ROM bank, not "
+                                     "the CPU's; see banks" if top > 0x7FFF
+                                     else "")],
                        "warnings": [], "payload_base": _GBS_HEADER,
                        "payload_len": code, "extent_len": code})
-        if top > 0xFFFF:
-            warns.append("the code runs past $FFFF, which no Game Boy can map")
+        if top > 0x7FFF:
+            # the spec's banking: bytes past $7FFF go into 16 KB ROM banks
+            # from bank 1, mapped at $4000-$7FFF by a write to $2000. A
+            # file larger than the address space is the normal case for a
+            # whole game's music, not damage.
+            banks = 1 + -(-(top - 0x7FFF) // 0x4000)
+            chunks[-1]["fields"].append(
+                _f(None, 0, "banks", banks,
+                   "16 KB ROM banks; bank 0 at the load address, the rest "
+                   "switched in at $4000 by writing to $2000"))
     return chunks, warns

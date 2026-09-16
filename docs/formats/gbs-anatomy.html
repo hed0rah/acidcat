@@ -214,8 +214,9 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
         <b>every VBlank</b>, 59.7 times a second, which is what nearly every game did. Non-zero values
         program the Game Boy's hardware timer instead, for engines that ran faster than the frame.</p>
         <div class="kv">
-          <div><span class="k">TMA</span><span class="v">the timer's modulo, what it reloads to</span></div>
-          <div><span class="k">TAC</span><span class="v">the timer's control: enable and clock select</span></div>
+          <div><span class="k">TMA</span><span class="v">the timer's modulo, what it reloads to; the period is 256 &minus; TMA ticks, so 0 is the slowest, not off</span></div>
+          <div><span class="k">TAC</span><span class="v">bit 2 enables the timer; bits 0-1 pick the divider: 1024, 16, 64, 256</span></div>
+          <div><span class="k">rate</span><span class="v">4194304 / (divider &times; (256 &minus; TMA)) Hz when enabled; VBlank when not</span></div>
         </div>
       </div>
     </details>
@@ -237,8 +238,11 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       <div class="rbody">
         <p class="note">No per-song titles, no lengths, no expansion-chip flags, no bankswitching
         table. An NSF header has all four. The Game Boy's sound is four channels on one chip with no
-        variants, and the engine's own code handles any banking, so there was nothing for the header
-        to say. The song count and the first song are the whole of the per-song information.</p>
+        variants, and banking needs no table: the code is loaded from the load address up to $7FFF,
+        and whatever is left fills 16 KB ROM banks from bank 1, which the engine maps in at
+        $4000-$7FFF by writing a bank number to $2000, the way an MBC1 cartridge does. A file
+        larger than the address space is the normal shape of a whole game's music. The song count
+        and the first song are the whole of the per-song information.</p>
       </div>
     </details>
 
