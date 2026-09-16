@@ -4,6 +4,22 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Added
+
+- **STC: the ZX Spectrum Sound Tracker module, the ancestor of PT2 and
+  PT3.** No magic. Twenty-seven bytes of pointers, then samples (99 bytes
+  each), a positions block, ornaments (33 each), a 0xFF-ended pattern
+  table of three stream pointers per pattern, and the streams. The blocks
+  come in a fixed order with fixed record sizes, so identification is the
+  arithmetic: whole records up to the positions block, a positions block
+  that ends exactly at the ornaments, a table that ends at 0xFF, every
+  stream pointer past it. Records carry their own numbers, so gaps in the
+  numbering are legal. Fifty-one of Modland's 832 carry a line of author
+  text between the ornaments and the table, reported as a comment. All
+  832 tile. On the PT3 anatomy page as its own section.
+
 ## [1.8.1] - 2026-09-16
 
 ### Fixed

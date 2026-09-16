@@ -525,6 +525,42 @@ def pt2(name="SEED", patterns=2, samples=2, ornaments=1, positions=None):
     return bytes(body)
 
 
+@seed("stc", ".stc")
+def stc(samples=2, ornaments=1, patterns=2, comment=b"", ident=b"SONG BY ST COMPILE"):
+    """ZX Spectrum Sound Tracker: a 27-byte header of pointers, 99-byte
+    samples, a positions block, 33-byte ornaments, a 0xFF-ended pattern
+    table of three pointers each, then the channel streams."""
+    import acidcat.core.formats.stc as S
+    body = bytearray(S.HEADER)
+    body[0] = 6
+    body[S.IDENT_AT:S.IDENT_AT + S.IDENT_LEN] = ident.ljust(S.IDENT_LEN)
+    for i in range(samples):
+        body += bytes([i + 1]) + bytes(96) + bytes([0, 0])
+    pos_at = len(body)
+    body += bytes([patterns - 1]) + b"".join(bytes([i, 0]) for i in range(patterns))
+    orn_at = len(body)
+    for i in range(ornaments):
+        body += bytes([i]) + bytes(32)
+    body += comment
+    pat_at = len(body)
+    table = bytearray()
+    for i in range(patterns):
+        table += bytes([i]) + bytes(6)
+    table += bytes([S.PATTERN_END])
+    body += table
+    streams = []
+    for i in range(patterns * S.CHANNELS):
+        streams.append(len(body))
+        body += bytes([0x60 + i, 0xFF])
+    for i in range(patterns):
+        for ch in range(S.CHANNELS):
+            struct.pack_into("<H", body, pat_at + i * S.PATTERN_ENTRY + 1 + ch * 2,
+                             streams[i * S.CHANNELS + ch])
+    struct.pack_into("<HHH", body, S.POSITIONS_PTR_AT, pos_at, orn_at, pat_at)
+    struct.pack_into("<H", body, S.SIZE_AT, len(body))
+    return bytes(body)
+
+
 @seed("spc", ".spc")
 def spc(title="SEED", game="SEED GAME", samples=2):
     """An SPC700 snapshot: 256-byte header with a text ID666 tag, 64 KB of

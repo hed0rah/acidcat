@@ -48,7 +48,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc", "vgm",
+    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc", "stc", "vgm",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -482,6 +482,11 @@ def sniff(filepath):
     # extension the world uses for them, like PMD.
     if fmt is None and filepath.lower().endswith(".pt2") and _is_pt2(filepath):
         return "pt3"
+    # STC has no magic either: pointers in order, whole 99-byte sample
+    # records, a positions block that ends at the ornaments, a pattern table
+    # ended by 0xFF. Gated on the extension, like PT2.
+    if fmt is None and filepath.lower().endswith(".stc") and _is_stc(filepath):
+        return "stc"
     # S3M's 'SCRM' magic sits at 0x2C (outside the head), a disk-level confirm.
     # It runs before the MOD check (MOD's offset-1080 heuristic can false-
     # positive inside S3M pattern data) and before the SNES ROM check, whose
@@ -766,6 +771,17 @@ def _is_pt2(filepath):
         with open(filepath, "rb") as f:
             raw = f.read(65536)
         return pt3mod.parse_pt2(raw, os.path.getsize(filepath))["ok"]
+    except OSError:
+        return False
+
+
+def _is_stc(filepath):
+    import os
+    from acidcat.core.formats import stc as stcmod
+    try:
+        with open(filepath, "rb") as f:
+            raw = f.read(65536)
+        return stcmod.parse(raw, os.path.getsize(filepath))["ok"]
     except OSError:
         return False
 

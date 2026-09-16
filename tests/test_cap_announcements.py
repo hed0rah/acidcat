@@ -996,6 +996,21 @@ def _kss_many_banks(tmp_path, n):
     return str(q)
 
 
+def _stc_over_cap(tmp_path, n):
+    import seeds
+    q = tmp_path / "big.stc"
+    q.write_bytes(seeds.SEEDS["stc"][0]() + bytes(n * 4))
+    return str(q)
+
+
+def _stc_many_records(tmp_path, n):
+    """An .stc with more than n records: n patterns is 3n streams."""
+    import seeds
+    q = tmp_path / "many.stc"
+    q.write_bytes(seeds.SEEDS["stc"][0](patterns=n))
+    return str(q)
+
+
 def _spc_over_cap(tmp_path, n):
     """An .spc longer than n bytes: the base image plus a padded tail."""
     import seeds
@@ -1142,6 +1157,10 @@ SWEPT = [
     ("acidcat.core.walk.chiptune", "_KSS_READ_CAP", 512, _kss_over_cap,
      "read the first"),
     ("acidcat.core.walk.chiptune", "_KSS_BANK_LIST_CAP", 2, _kss_many_banks,
+     "listing the first"),
+    ("acidcat.core.walk.stc", "_STC_READ_CAP", 512, _stc_over_cap,
+     "parsed the first"),
+    ("acidcat.core.walk.stc", "_STC_LIST_CAP", 4, _stc_many_records,
      "listing the first"),
     ("acidcat.core.walk.pt3", "_PT3_READ_CAP", 512, _pt3_over_cap,
      "parsed the first"),

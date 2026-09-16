@@ -19,7 +19,7 @@ from acidcat.core.walk import (
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
     mp4, mpc, multisample, ncw, ni, ogg, pdx, pmd, psf, pt3, rf64, rmid, rx2, serum, sf2,
-    sigmf, spc, svx, vgm,
+    sigmf, spc, stc, svx, vgm,
     tracker,
     dsd, sid, streams, vital, wav, wave64, wt,
 )
@@ -127,6 +127,8 @@ _WALKERS = {
             lambda path, deep: vgm.inspect_vgm(path, deep=deep)),
     "pt3": ("ZX Spectrum ProTracker 3 / Vortex Tracker module (PT3)",
             lambda path, deep: pt3.inspect_pt3(path, deep=deep)),
+    "stc": ("ZX Spectrum Sound Tracker module (STC)",
+            lambda path, deep: stc.inspect_stc(path, deep=deep)),
     "pmd": ("PC-98 Professional Music Driver score (PMD)",
             lambda path, deep: pmd.inspect_pmd(path, deep=deep)),
     "s3p": ("Akai S1000/S3000 program (SysEx dump)",
