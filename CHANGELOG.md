@@ -6,6 +6,18 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [1.8.2] - 2026-09-16
 
+### Fixed
+
+- **Seventeen anatomy pages had lost their shell.** Every page built by a
+  generator script since SID was missing the acidcat toggle (the mascot
+  and the theme cycler), because the first script dropped it from the
+  title block and each later script copied that block; four of them
+  (HES, KSS, PT3, VGM) also had their region blocks inside the flex intro,
+  which rendered them as columns with the byte maps on end. The builders
+  are fixed, the pages regenerated, and a fleet test now refuses a page
+  without the toggle, without the colour key, or with a region in the
+  intro.
+
 ### Added
 
 - **STC: the ZX Spectrum Sound Tracker module, the ancestor of PT2 and
