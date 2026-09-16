@@ -694,3 +694,191 @@ def inspect_gbs(filepath, deep=False):
                    "16 KB ROM banks; bank 0 at the load address, the rest "
                    "switched in at $4000 by writing to $2000"))
     return chunks, warns
+
+
+# ── HES: PC Engine / TurboGrafx-16 ────────────────────────────────────────
+
+_HES_HEADER = 0x20
+_HES_BLOCK_HEADER = 0x10
+_HES_DATA = b"DATA"
+# A HuC6280 has a 2 MB physical space; nothing a block can load past it.
+_HES_READ_CAP = 2 * 1024 * 1024
+# Data blocks listed. Every real file measured has one.
+_HES_BLOCK_LIST_CAP = 64
+
+
+def inspect_hes(filepath, deep=False):
+    """A HES: the PC Engine's music cut out of the game, NSF-shaped.
+
+    A 0x10-byte header: "HESM", a version, the first track, the address
+    the player calls with a track number, and eight bytes that preset the
+    HuC6280's MPR bank registers, which is how a 21-bit machine maps 8 KB
+    pages into a 16-bit space. Then a DATA block: tag, size, address, four
+    unused bytes, and the bytes. The address field reads 0x20 in every
+    file measured, which is where the block's own bytes begin, so it is
+    reported as the field and no more is claimed of it. Spec: the format's
+    own hes.txt and game_music_emu's reader.
+    """
+    from acidcat.core.walk.base import Unsupported
+    size = os.path.getsize(filepath)
+    warns = []
+    with open(filepath, "rb") as fh:
+        raw = fh.read(min(size, _HES_READ_CAP))
+    if size > _HES_READ_CAP:
+        warns.append(coverage("file is %d bytes; read the first %d" % (size, _HES_READ_CAP)))
+    if raw[:4] != b"HESM" or len(raw) < _HES_HEADER:
+        raise Unsupported("no HESM header")
+    version, first = raw[4], raw[5]
+    init = struct.unpack_from("<H", raw, 6)[0]
+    mpr = raw[8:16]
+    fields = [
+        _f(0x00, 4, "magic", "HESM"),
+        _f(0x04, 1, "version", version),
+        _f(0x05, 1, "firstTrack", first),
+        _f(0x06, 2, "init", _addr(init), "called with the track number"),
+        _f(0x08, 8, "mpr", " ".join("%02X" % b for b in mpr),
+           "the eight 8 KB page registers, MPR0-MPR7, as the player presets them"),
+    ]
+    chunks = [{"id": "header", "offset": 0, "size": _HES_BLOCK_HEADER,
+               "summary": "HES v%d, first track %d" % (version, first),
+               "fields": fields, "warnings": [], "payload_base": 0}]
+    pos = _HES_BLOCK_HEADER
+    n = 0
+    while pos + _HES_BLOCK_HEADER <= len(raw) and raw[pos:pos + 4] == _HES_DATA:
+        if n >= _HES_BLOCK_LIST_CAP:
+            warns.append(coverage("listing the first %d data blocks" % _HES_BLOCK_LIST_CAP))
+            break
+        bsize, baddr = struct.unpack_from("<II", raw, pos + 4)
+        have = max(min(bsize, size - pos - _HES_BLOCK_HEADER), 0)
+        c = {"id": "DATA" if n == 0 else "DATA[%d]" % n, "offset": pos,
+             "size": _HES_BLOCK_HEADER + have,
+             "summary": "%s bytes of HuC6280 code and data" % format(have, ","),
+             # the 16-byte block header sits before the payload; unpositioned
+             # fields with an xref, as the contract has it
+             "fields": [_f(None, 4, "size", bsize, "", xref=pos + 4),
+                        _f(None, 4, "address", "0x%08X" % baddr,
+                           "the spec's load address", xref=pos + 8),
+                        _f(None, 4, "unused", raw[pos + 12:pos + 16].hex(), "",
+                           xref=pos + 12)],
+             "warnings": [], "payload_base": pos + _HES_BLOCK_HEADER, "payload_len": have}
+        if have < bsize:
+            c["warnings"].append("declares %s bytes and the file holds %s"
+                                 % (format(bsize, ","), format(have, ",")))
+            warns.append("the data block declares more than the file holds")
+        chunks.append(c)
+        pos += _HES_BLOCK_HEADER + have
+        n += 1
+        if have < bsize:
+            break
+    if n == 0:
+        warns.append("no DATA block follows the header")
+    if pos < size:
+        chunks.append({"id": "trailing", "offset": pos, "size": size - pos,
+                       "summary": "%d bytes after the last data block" % (size - pos),
+                       "fields": [], "warnings": [], "payload_base": pos})
+    return chunks, warns
+
+
+# ── KSS: MSX and Master System ────────────────────────────────────────────
+
+_KSS_HEADER = 0x10
+_KSS_MAGICS = (b"KSCC", b"KSSX")
+_KSS_BANK_8K = 8192
+_KSS_BANK_16K = 16384
+# A Z80 with a megabyte of banks is the largest real file measured by a
+# wide margin; 16 MB reads any of them.
+_KSS_READ_CAP = 16 * 1024 * 1024
+# Banks listed as chunks. The extra-bank count is seven bits.
+_KSS_BANK_LIST_CAP = 128
+_KSS_CHIP_BITS = [(0x01, "FMPAC (YM2413)"), (0x02, "FM unit"),
+                  (0x04, "SN76489 (Sega mode)"), (0x08, "RAM mode"),
+                  (0x10, "MSX-AUDIO (Y8950)")]
+
+
+def inspect_kss(filepath, deep=False):
+    """A KSS: a Z80 sound driver and its data for the MSX, or in Sega mode
+    the Master System, with the banks it switches through.
+
+    Sixteen bytes: "KSCC" (or "KSSX", which adds an extension the byte at
+    0x0E sizes), then the load address and length of the init data, the
+    init and play addresses, the first bank number, an extra-bank byte
+    whose top bit picks 8 KB banks over 16 KB and whose low seven bits
+    count them, a reserved byte, and chip flags. The init data comes
+    first, then the banks in order. A file may END INSIDE ITS LAST BANK:
+    the player zero-fills, and nearly half of real files do it, so it is a
+    fact on the bank and not a warning. Spec: libkss's reader.
+    """
+    from acidcat.core.walk.base import Unsupported
+    size = os.path.getsize(filepath)
+    warns = []
+    with open(filepath, "rb") as fh:
+        raw = fh.read(min(size, _KSS_READ_CAP))
+    if size > _KSS_READ_CAP:
+        warns.append(coverage("file is %d bytes; read the first %d" % (size, _KSS_READ_CAP)))
+    if raw[:4] not in _KSS_MAGICS or len(raw) < _KSS_HEADER:
+        raise Unsupported("no KSCC/KSSX header")
+    extended = raw[:4] == b"KSSX"
+    load, ilen, init, play = struct.unpack_from("<HHHH", raw, 4)
+    start_bank, ebanks, extra, chips = raw[12], raw[13], raw[14], raw[15]
+    banks = ebanks & 0x7F
+    bank_size = _KSS_BANK_8K if ebanks & 0x80 else _KSS_BANK_16K
+    hdr = _KSS_HEADER + (extra if extended else 0)
+    chip_names = [name for bit, name in _KSS_CHIP_BITS if chips & bit] or ["PSG only"]
+    fields = [
+        _f(0x00, 4, "magic", raw[:4].decode("ascii"),
+           "KSSX carries an extension the byte at 0x0E sizes" if extended else ""),
+        _f(0x04, 2, "load", _addr(load), "where the init data is placed"),
+        _f(0x06, 2, "initLength", ilen, "bytes of init data"),
+        _f(0x08, 2, "init", _addr(init), "called with the song number in A"),
+        _f(0x0A, 2, "play", _addr(play), "called every tick"),
+        _f(0x0C, 1, "startBank", start_bank),
+        _f(0x0D, 1, "extraBanks", "0x%02X" % ebanks,
+           "%d bank%s of %d KB" % (banks, "" if banks == 1 else "s", bank_size // 1024)
+           if banks else "none"),
+        _f(0x0E, 1, "extension", extra, "bytes of extended header" if extended else "reserved"),
+        _f(0x0F, 1, "chips", "0x%02X" % chips, ", ".join(chip_names)),
+    ]
+    chunks = [{"id": "header", "offset": 0, "size": _KSS_HEADER,
+               "summary": "KSS, %s, init at %s, %d bank%s"
+                          % (", ".join(chip_names), _addr(init), banks,
+                             "" if banks == 1 else "s"),
+               "fields": fields, "warnings": [], "payload_base": 0}]
+    if extended and extra:
+        ext = raw[_KSS_HEADER:hdr]
+        chunks.append({"id": "extension", "offset": _KSS_HEADER, "size": len(ext),
+                       "summary": "KSSX extension, %d bytes" % len(ext),
+                       "fields": [_f(0, len(ext), "bytes", ext.hex(" "),
+                                     "reserved by the extended header; zero in "
+                                     "nearly every file")],
+                       "warnings": [], "payload_base": _KSS_HEADER})
+    pos = min(hdr, size)
+    have = min(ilen, max(size - pos, 0))
+    c = {"id": "init", "offset": pos, "size": have,
+         "summary": "%s bytes of init data at %s" % (format(have, ","), _addr(load)),
+         "fields": [_f(None, 0, "declared", ilen)],
+         "warnings": [], "payload_base": pos}
+    if have < ilen:
+        c["fields"].append(_f(None, 0, "present", have, "the file ends inside it"))
+    chunks.append(c)
+    pos += have
+    listed = 0
+    for i in range(banks):
+        if pos >= size:
+            break
+        if listed >= _KSS_BANK_LIST_CAP:
+            warns.append(coverage("listing the first %d of %d banks" % (_KSS_BANK_LIST_CAP, banks)))
+            break
+        n = min(bank_size, size - pos)
+        chunks.append({"id": "bank[%d]" % (start_bank + i), "offset": pos, "size": n,
+                       "summary": "bank %d, %s bytes%s" % (
+                           start_bank + i, format(n, ","),
+                           " of %d; the file ends inside it and a player zero-fills"
+                           % bank_size if n < bank_size else ""),
+                       "fields": [], "warnings": [], "payload_base": pos})
+        pos += n
+        listed += 1
+    if pos < size:
+        chunks.append({"id": "trailing", "offset": pos, "size": size - pos,
+                       "summary": "%d bytes after the last bank" % (size - pos),
+                       "fields": [], "warnings": [], "payload_base": pos})
+    return chunks, warns

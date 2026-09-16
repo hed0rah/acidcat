@@ -356,6 +356,37 @@ def psf(version=0x22, rom=None, tags=True, title="SEED", lib="seed.gsflib",
     return head + comp + tag
 
 
+@seed("hes", ".hes")
+def hes(code=64, first=1, declared=None):
+    """PC Engine HES: a 16-byte header, then one DATA block with a 16-byte
+    header of its own. `declared` overrides the block's size field."""
+    h = bytearray(0x10)
+    h[0:4] = b"HESM"
+    h[4], h[5] = 0, first
+    struct.pack_into("<H", h, 6, 0xE100)
+    h[8:16] = bytes([0xFF, 0xF8, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00])
+    blk = b"DATA" + struct.pack("<II", code if declared is None else declared, 0x20) + bytes(4)
+    return bytes(h) + blk + bytes([0xEA]) * code
+
+
+@seed("kss", ".kss")
+def kss(extended=False, init_len=64, banks=1, bank_size=8192, chips=0x00,
+        short_by=0):
+    """MSX KSS: 16-byte header, an optional 16-byte KSSX extension, the
+    init data, then the banks. `short_by` cuts the last bank, which real
+    files do and players zero-fill."""
+    h = bytearray(0x10)
+    h[0:4] = b"KSSX" if extended else b"KSCC"
+    struct.pack_into("<HHHH", h, 4, 0x8000, init_len, 0x8000, 0x8010)
+    h[12] = 0
+    h[13] = (banks & 0x7F) | (0x80 if bank_size == 8192 else 0)
+    h[14] = 0x10 if extended else 0
+    h[15] = chips
+    body = bytes(h) + (bytes(16) if extended else b"")
+    body += bytes([0xC9]) * init_len + bytes([0x00]) * (banks * bank_size)
+    return body[:len(body) - short_by] if short_by else body
+
+
 @seed("gbs", ".gbs")
 def gbs(songs=4, title="SEED", author="NOBODY"):
     """Game Boy Sound System: a 112-byte header and a code blob. The same

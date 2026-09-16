@@ -92,6 +92,10 @@ _WALKERS = {
     # chiptune: the 6502 program that made the music, not the music
     "gbs": ("Game Boy Sound System",
             lambda path, deep: chiptune.inspect_gbs(path, deep=deep)),
+    "hes": ("PC Engine HES",
+            lambda path, deep: chiptune.inspect_hes(path, deep=deep)),
+    "kss": ("MSX / Master System KSS",
+            lambda path, deep: chiptune.inspect_kss(path, deep=deep)),
     "nsf": ("NES Sound Format",
             lambda path, deep: chiptune.inspect_nsf(path, deep)),
     "nsfe": ("NSF extended (chunked)",

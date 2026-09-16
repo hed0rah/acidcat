@@ -66,6 +66,15 @@ NEW_CARDS = {
             "where to load the code and which routine to call, then the code. "
             "The same idea as NSF and simpler, because the Game Boy has no "
             "expansion chips and nothing in the header is reserved."),
+    "hes": ("HES", "#7A3D5A", "#5F3046", "byte map",
+            "A PC Engine game's music with the game removed: sixteen bytes "
+            "naming the call address and presetting the HuC6280's eight page "
+            "registers, then a DATA block of the engine and its data."),
+    "kss": ("KSS", "#5A7A3D", "#465F30", "byte map",
+            "An MSX (or, in Sega mode, Master System) Z80 sound driver: "
+            "sixteen bytes of addresses and chip flags, the init data, then "
+            "the banks it switches through, the last of which the file may "
+            "end inside."),
     "pt3": ("PT3", "#3D6A7A", "#30525F", "byte map",
             "A score for the ZX Spectrum's AY chip: samples that are tables of "
             "per-tick settings, ornaments that are semitone offsets, three "

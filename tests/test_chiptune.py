@@ -714,3 +714,128 @@ def test_the_walker_refuses_files_that_only_wear_the_extension():
         assert not chunks[0]["fields"], (
             "%s is not an NSF but the walker described one" % os.path.basename(p))
         assert warns, os.path.basename(p)
+
+
+# ── HES ─────────────────────────────────────────────────────────────
+
+def _hes(**kw):
+    import seeds
+    return seeds.SEEDS["hes"][0](**kw)
+
+
+def _kss(**kw):
+    import seeds
+    return seeds.SEEDS["kss"][0](**kw)
+
+
+def test_hes_is_a_header_and_one_data_block_that_tile(tmp_path):
+    p = _w(tmp_path, "t.hes", _hes(code=100))
+    assert sniff.sniff(p) == "hes"
+    chunks, warns = chiptune.inspect_hes(p)
+    assert [c["id"] for c in chunks] == ["header", "DATA"]
+    assert chunks[1]["offset"] == 0x10 and chunks[1]["size"] == 0x10 + 100
+    assert chunks[1]["payload_base"] == 0x20
+    head = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+    assert head["init"] == "$E100" and head["mpr"].startswith("FF F8")
+    assert not warns
+
+
+def test_hes_block_that_declares_more_than_the_file_holds_is_said(tmp_path):
+    """Seven of 421 real files declare a whole ROM and hold a page of it."""
+    p = _w(tmp_path, "t.hes", _hes(code=100, declared=589824))
+    chunks, warns = chiptune.inspect_hes(p)
+    assert chunks[1]["size"] == 0x10 + 100
+    assert any("declares more" in w for w in warns)
+
+
+def test_hes_bytes_after_the_block_are_a_chunk(tmp_path):
+    p = _w(tmp_path, "t.hes", _hes(code=100) + bytes(9))
+    chunks, _w2 = chiptune.inspect_hes(p)
+    assert chunks[-1]["id"] == "trailing" and chunks[-1]["size"] == 9
+
+
+# ── KSS ─────────────────────────────────────────────────────────────
+
+def test_kss_header_init_and_banks_tile(tmp_path):
+    p = _w(tmp_path, "t.kss", _kss(init_len=64, banks=2, bank_size=8192, chips=0x01))
+    assert sniff.sniff(p) == "kss"
+    chunks, warns = chiptune.inspect_kss(p)
+    assert [c["id"] for c in chunks] == ["header", "init", "bank[0]", "bank[1]"]
+    assert chunks[1]["offset"] == 0x10 and chunks[1]["size"] == 64
+    assert chunks[2]["size"] == 8192 and chunks[3]["offset"] + 8192 == 0x10 + 64 + 16384
+    assert "FMPAC" in chunks[0]["summary"]
+    assert not warns
+
+
+def test_kss_bank_size_bit_is_8k_when_set(tmp_path):
+    """Measured: 209 real files add up with the bit meaning 8 KB, 165 with
+    it meaning 16 KB, and the 8 KB reading leaves no file with bytes
+    after the banks that are not a real tail."""
+    p = _w(tmp_path, "t.kss", _kss(banks=1, bank_size=16384))
+    chunks, _w2 = chiptune.inspect_kss(p)
+    assert chunks[-1]["id"] == "bank[0]" and chunks[-1]["size"] == 16384
+
+
+def test_kss_may_end_inside_its_last_bank_without_a_warning(tmp_path):
+    """170 of 385 real files do; the player zero-fills."""
+    p = _w(tmp_path, "t.kss", _kss(banks=2, bank_size=8192, short_by=5000))
+    chunks, warns = chiptune.inspect_kss(p)
+    assert chunks[-1]["id"] == "bank[1]" and chunks[-1]["size"] == 8192 - 5000
+    assert "zero-fills" in chunks[-1]["summary"]
+    assert not warns
+
+
+def test_kssx_extension_is_its_own_chunk(tmp_path):
+    p = _w(tmp_path, "t.kss", _kss(extended=True))
+    chunks, _w2 = chiptune.inspect_kss(p)
+    assert chunks[1]["id"] == "extension" and chunks[1]["offset"] == 0x10 and chunks[1]["size"] == 16
+    assert chunks[2]["id"] == "init" and chunks[2]["offset"] == 0x20
+
+
+@pytest.mark.parametrize("fmt,n", [("hes", 5), ("hes", 0x18), ("hes", 0x21),
+                                   ("kss", 5), ("kss", 0x11), ("kss", 0x30)])
+def test_hes_kss_truncation_does_not_raise(tmp_path, fmt, n):
+    from acidcat.core.walk.base import Unsupported
+    blob = (_hes() if fmt == "hes" else _kss())[:n]
+    fn = chiptune.inspect_hes if fmt == "hes" else chiptune.inspect_kss
+    try:
+        fn(_w(tmp_path, "t." + fmt, blob))
+    except Unsupported:
+        pass
+
+
+@pytest.mark.skipif(not os.environ.get("ACIDCAT_HES_CORPUS"),
+                    reason="set ACIDCAT_HES_CORPUS to a dir of real .hes files")
+def test_real_hes_corpus_walks_completely():
+    _sweep(os.environ["ACIDCAT_HES_CORPUS"], ".hes", "hes")
+
+
+@pytest.mark.skipif(not os.environ.get("ACIDCAT_KSS_CORPUS"),
+                    reason="set ACIDCAT_KSS_CORPUS to a dir of real .kss files")
+def test_real_kss_corpus_walks_completely():
+    _sweep(os.environ["ACIDCAT_KSS_CORPUS"], ".kss", "kss")
+
+
+def _sweep(root, ext, fmt):
+    from acidcat.core.infra import geometry
+    from acidcat.core.walk import walk_file
+    files = [os.path.join(r, f) for r, _d, fn in os.walk(root) for f in fn
+             if f.lower().endswith(ext)]
+    assert len(files) >= 50
+    seen = tiled = 0
+    for path in files:
+        if sniff.sniff(path) != fmt:
+            continue
+        seen += 1
+        _label, chunks, _warns = walk_file(path)
+        size = os.path.getsize(path)
+        geometry.normalize(chunks, size)
+        assert all(geometry.is_trustworthy(c) for c in chunks), path
+        pos = 0
+        for c in sorted(chunks, key=lambda c: c["offset"]):
+            if c["offset"] != pos:
+                break
+            pos += c["size"]
+        tiled += pos == size
+    assert seen == len(files), "%d of %d not identified" % (len(files) - seen, len(files))
+    assert tiled == seen, "%d of %d did not tile" % (seen - tiled, seen)

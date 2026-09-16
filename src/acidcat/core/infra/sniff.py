@@ -44,8 +44,8 @@ KNOWN_FORMATS = frozenset({
     "8svx", "adg", "adv", "adx", "agr", "aifc", "aiff", "akp", "albank", "alc", "als", "amxd",
     "au",
     "asd", "bfdlac", "bitwig", "brstm",
-    "caf", "cdxa", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gbs", "gcm", "gf1pat", "hps",
-    "id3-wrapped", "iq", "it", "krz", "labx", "med", "midi", "midi2", "mod",
+    "caf", "cdxa", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gbs", "gcm", "gf1pat", "hes", "hps",
+    "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
     "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc", "vgm",
@@ -130,6 +130,10 @@ def sniff_bytes(head):
         return "psf"                                    # Portable Sound Format
     if head[:4] == b"Vgm ":
         return "vgm"                                    # Video Game Music register log
+    if head[:4] == b"HESM":
+        return "hes"                                    # PC Engine sound
+    if head[:4] in (b"KSCC", b"KSSX"):
+        return "kss"                                    # MSX / Master System sound
     if head[:13] == b"ProTracker 3." or head[:17] == b"Vortex Tracker II":
         return "pt3"                                    # ZX Spectrum AY module
     if head[:20] == b"SNES-SPC700 Sound Fi":

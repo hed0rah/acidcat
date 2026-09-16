@@ -20,6 +20,20 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Added
 
+- **HES and KSS: the PC Engine and the MSX, NSF-shaped.** A HES is
+  sixteen bytes naming the call address and presetting the HuC6280's
+  eight page registers, then a DATA block: tag, size, address, the bytes.
+  The address field holds 0x20 in every one of Modland's 421 files, which
+  is where the block's own bytes begin, so it is reported as the field and
+  not read as a ROM address; seven blocks declare a whole cartridge and
+  hold a page. A KSS is sixteen bytes of addresses, a bank byte (bit 7 set
+  means 8 KB banks, and read the other way a third of real files stop
+  adding up) and chip flags, then the init data and the banks; a file may
+  end inside its last bank and the player zero-fills, which 170 of 392 do,
+  so it is a fact on the bank and not a warning. KSSX adds a sixteen-byte
+  extension that is zero in nearly every file and is shown, not named.
+  Both tile on every Modland file. Anatomy pages.
+
 - **PT3: the ZX Spectrum's AY module, ProTracker 3 and Vortex Tracker.**
   A score for a chip with three square waves: samples are tables of
   per-tick settings and ornaments tables of semitone offsets, there is no
@@ -97,6 +111,7 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   the chip's 15.6 kHz default with a note that the song may set another;
   aliased slots are reported once.
 
+## [1.8.0] - 2026-09-15
 
 Three new formats, one of them eight platforms wide, all verified on Modland
 corpora pulled the same night. And a correction to the method: a walker

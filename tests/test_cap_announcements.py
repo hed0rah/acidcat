@@ -965,6 +965,37 @@ def _pt3_many_regions(tmp_path, n):
     return str(q)
 
 
+def _hes_over_cap(tmp_path, n):
+    import seeds
+    q = tmp_path / "big.hes"
+    q.write_bytes(seeds.SEEDS["hes"][0](code=n * 4))
+    return str(q)
+
+
+def _hes_many_blocks(tmp_path, n):
+    """A .hes with n + 2 DATA blocks."""
+    import struct
+    import seeds
+    blk = b"DATA" + struct.pack("<II", 8, 0x20) + bytes(4) + bytes(8)
+    q = tmp_path / "blocks.hes"
+    q.write_bytes(seeds.SEEDS["hes"][0](code=0) + blk * (n + 2))
+    return str(q)
+
+
+def _kss_over_cap(tmp_path, n):
+    import seeds
+    q = tmp_path / "big.kss"
+    q.write_bytes(seeds.SEEDS["kss"][0](banks=1, bank_size=16384) + bytes(n * 4))
+    return str(q)
+
+
+def _kss_many_banks(tmp_path, n):
+    import seeds
+    q = tmp_path / "banks.kss"
+    q.write_bytes(seeds.SEEDS["kss"][0](banks=n + 2, bank_size=8192))
+    return str(q)
+
+
 def _spc_over_cap(tmp_path, n):
     """An .spc longer than n bytes: the base image plus a padded tail."""
     import seeds
@@ -1104,6 +1135,14 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.spc", "_SPC_READ_CAP", 0x10300, _spc_over_cap,
      "parsed the first"),
+    ("acidcat.core.walk.chiptune", "_HES_READ_CAP", 512, _hes_over_cap,
+     "read the first"),
+    ("acidcat.core.walk.chiptune", "_HES_BLOCK_LIST_CAP", 2, _hes_many_blocks,
+     "listing the first"),
+    ("acidcat.core.walk.chiptune", "_KSS_READ_CAP", 512, _kss_over_cap,
+     "read the first"),
+    ("acidcat.core.walk.chiptune", "_KSS_BANK_LIST_CAP", 2, _kss_many_banks,
+     "listing the first"),
     ("acidcat.core.walk.pt3", "_PT3_READ_CAP", 512, _pt3_over_cap,
      "parsed the first"),
     ("acidcat.core.walk.pt3", "_PT3_REGION_LIST_CAP", 4, _pt3_many_regions,
