@@ -39,6 +39,86 @@ def test_mod_detect_and_walk(tmp_path):
     assert not warns
 
 
+def _make_mod15(samples=((b"ST-01:DigDug", 10),), patterns=1, trailing=0,
+                tempo=120, loop=(0, 1)):
+    """The 15-instrument Soundtracker layout: 20-byte title, 15 headers,
+    song length, tempo, 128 orders, patterns at 600. No magic anywhere."""
+    title = b"OLD".ljust(20, b"\x00")
+    hdrs = []
+    for i in range(15):
+        name, words = samples[i] if i < len(samples) else (b"", 0)
+        hdrs.append(name.ljust(22, b"\x00") + struct.pack(">H", words)
+                    + bytes([0, 64]) + struct.pack(">HH", *loop))
+    order = bytes(range(patterns)).ljust(128, b"\x00")
+    body = title + b"".join(hdrs) + bytes([patterns, tempo]) + order
+    assert len(body) == 600
+    body += b"\x00" * (1024 * patterns)
+    for _name, words in samples:
+        body += bytes(range(words * 2))
+    return body + b"\x00" * trailing
+
+
+def test_a_15_instrument_module_is_identified_by_arithmetic(tmp_path):
+    """No magic: 600 + patterns * 1024 + samples has to be the file size.
+    1,914 of 1,935 real ones add up; zero false positives in 214,483 files
+    that are not one."""
+    p = tmp_path / "old.mod"
+    p.write_bytes(_make_mod15())
+    assert sniff.sniff(str(p)) == "mod"
+    chunks, warns = wtk.inspect_mod(str(p))
+    head = chunks[0]
+    assert "Soundtracker MOD, 15 instruments" in head["summary"]
+    fields = {f["name"]: f for f in head["fields"]}
+    assert fields["instruments"]["value"] == 15
+    assert fields["song_length"]["off"] == 470
+    assert fields["tempo"]["off"] == 471 and fields["tempo"]["value"] == 120
+    assert "magic" not in fields
+    assert chunks[1]["id"] == "order" and chunks[1]["offset"] == 472
+    smp = [c for c in chunks if c["id"].startswith("smp")]
+    assert len(smp) == 1 and smp[0]["offset"] == 600 + 1024 and smp[0]["size"] == 20
+    assert not warns
+
+
+def test_the_pattern_count_comes_from_every_order_slot():
+    """121 of 1,935 real files keep patterns past the song length."""
+    from acidcat.core.formats import tracker as tk
+    blob = bytearray(_make_mod15(patterns=3))
+    blob[470] = 1                                  # song plays one position
+    assert tk.is_mod15(bytes(blob), len(blob))
+    assert tk.parse_mod(bytes(blob))["num_patterns"] == 3
+
+
+def test_a_size_that_does_not_add_up_is_not_a_module(tmp_path):
+    from acidcat.core.formats import tracker as tk
+    good = _make_mod15()
+    assert tk.is_mod15(good, len(good))
+    assert not tk.is_mod15(good, len(good) - 1)              # truncated
+    assert not tk.is_mod15(good, len(good) + 1025)           # too much after
+    assert tk.is_mod15(good, len(good) + 1024)               # a little is tolerated
+    bad = bytearray(good)
+    bad[20 + 25] = 65                                        # volume past 64
+    assert not tk.is_mod15(bytes(bad), len(bad))
+    # a real ProTracker file is never read as the old layout
+    assert not tk.is_mod15(_make_mod(), len(_make_mod()))
+
+
+def test_trailing_bytes_are_said_on_the_container(tmp_path):
+    p = tmp_path / "old.mod"
+    p.write_bytes(_make_mod15(trailing=8))
+    chunks, _w = wtk.inspect_mod(str(p))
+    assert any("8 bytes after the last sample" in w for w in chunks[0]["warnings"])
+
+
+def test_the_old_layout_keeps_its_repeat_point_in_bytes():
+    """Ultimate Soundtracker wrote bytes, ProTracker words. 858 real looped
+    samples fit only as bytes; none fit only as words."""
+    from acidcat.core.formats import tracker as tk
+    old = tk.parse_mod(_make_mod15(loop=(6, 2)))
+    assert old["samples"][0]["loop_start"] == 6
+    new = tk.parse_mod(_make_mod())
+    assert new["instruments"] == 31
+
+
 # ── XM ─────────────────────────────────────────────────────────────
 
 def _make_xm():
@@ -242,3 +322,34 @@ class TestScreamTracker2:
                                             "volume": 200}}))
         chunks, _w = wtk.inspect_stm(str(p))
         assert any("outside the 0-64 range" in w for w in chunks[1]["warnings"])
+
+
+# ── the real thing ──────────────────────────────────────────────────
+
+import os
+import pytest
+
+
+@pytest.mark.skipif(not os.environ.get("ACIDCAT_SOUNDTRACKER_CORPUS"),
+                    reason="set ACIDCAT_SOUNDTRACKER_CORPUS to a dir of 15-instrument .mod files")
+def test_real_soundtracker_corpus_walks_completely():
+    """Modland's Soundtracker directory: 1,935 files. 1,914 add up (or carry
+    under 1 KB after the last sample); 4 are ProTracker files with a tag;
+    the rest are truncated or carry more than 1 KB of trailing bytes."""
+    from acidcat.core.infra import geometry
+    from acidcat.core.walk import walk_file
+    root = os.environ["ACIDCAT_SOUNDTRACKER_CORPUS"]
+    files = [os.path.join(r, f) for r, _d, fn in os.walk(root) for f in fn
+             if f.lower().endswith(".mod")]
+    assert len(files) >= 100
+    seen = old = 0
+    for path in files:
+        if sniff.sniff(path) != "mod":
+            continue
+        seen += 1
+        _label, chunks, _w = walk_file(path)
+        geometry.normalize(chunks, os.path.getsize(path))
+        assert all(geometry.is_trustworthy(c) for c in chunks), path
+        old += any(f["name"] == "instruments" for f in chunks[0]["fields"])
+    assert seen >= len(files) * 0.98, "%d of %d not identified" % (len(files) - seen, len(files))
+    assert old >= seen - 10, "%d read as ProTracker" % (seen - old)

@@ -1,4 +1,5 @@
-"""Tracker-module parsers: ProTracker MOD, FastTracker II XM, Impulse Tracker IT.
+"""Tracker-module parsers: ProTracker MOD (and its 15-instrument Soundtracker
+ancestor), FastTracker II XM, Impulse Tracker IT.
 
 These three formats are "song + instrument bank + concatenated PCM": a header,
 a pattern order table, pattern data, then sample descriptors whose PCM lives
@@ -52,19 +53,82 @@ def is_mod(data):
         or (magic[:3] == b"TDZ" and magic[3:4].isdigit())
 
 
-def parse_mod(data):
-    """Parse a ProTracker MOD. Returns a dict: title, channels, magic,
-    song_length, restart, order (list), num_patterns, pattern_data_off,
-    samples (each with name/length/finetune/volume/loop + resolved offset),
-    and warnings."""
+# The original Soundtracker module (Karsten Obarski, 1987) and its clones
+# up to NoiseTracker: 15 instruments, no magic, always four channels. The
+# 31-instrument layout with the tag at 1080 is the same file with sixteen
+# more instrument headers pushed in front of the order table, which is why
+# every offset below is derived from the instrument count.
+MOD15_INSTRUMENTS = 15
+MOD15_PATTERNS_AT = 600                    # 20 + 15 * 30 + 1 + 1 + 128
+MOD15_TRAILING_CAP = 1024                  # bytes after the last sample still accepted
+
+
+def _mod_layout(instruments):
+    """(song_length_at, patterns_at) for a 15- or 31-instrument module."""
+    at = 20 + instruments * 30
+    return at, at + 2 + 128 + (4 if instruments == 31 else 0)
+
+
+def mod15_expected_size(data):
+    """The size a 15-instrument module of this header must have, or None if
+    the header cannot be one. Identification is arithmetic because there is
+    no magic: 600 bytes of header, 1,024 per pattern, then the samples,
+    and the total has to land on the file's end. Zero false positives over
+    214,483 files that are not one; 1,914 of 1,935 real ones accepted."""
+    if len(data) < MOD15_PATTERNS_AT:
+        return None
+    total = 0
+    for i in range(MOD15_INSTRUMENTS):
+        off = 20 + i * 30
+        length, _ft, vol = struct.unpack_from(">HBB", data, off + 22)
+        if vol > 64:
+            return None
+        total += length * 2
+    song_length = data[470]
+    order = data[472:600]
+    if not 1 <= song_length <= 128 or max(order) > 127:
+        return None
+    # the pattern count comes from all 128 slots, not the song length:
+    # 121 of 1,935 real files keep patterns past the end of the song, and
+    # every player stores them
+    return MOD15_PATTERNS_AT + (max(order) + 1) * 1024 + total
+
+
+def is_mod15(data, filesize):
+    """True for a 15-instrument Soundtracker module. Needs the file size,
+    not just the head: the arithmetic is the identification. A file with a
+    31-instrument magic is never one."""
+    if len(data) >= 1084 and is_mod(data):
+        return False
+    want = mod15_expected_size(data)
+    return want is not None and 0 <= filesize - want <= MOD15_TRAILING_CAP
+
+
+def parse_mod(data, instruments=None):
+    """Parse a ProTracker MOD, or a 15-instrument Soundtracker one. Returns
+    a dict: title, channels, magic, instruments, song_length, restart,
+    order (list), num_patterns, pattern_data_off, samples (each with
+    name/length/finetune/volume/loop + resolved offset), and warnings.
+
+    `instruments` is 31 or 15; None picks 31 when the magic is there and 15
+    when the arithmetic holds, else 31 (a damaged ProTracker file is the
+    likelier reading and the caller has already decided it is a MOD)."""
     warns = []
+    if instruments is None:
+        instruments = 15 if (not is_mod(data)
+                             and is_mod15(data, len(data))) else 31
     title = _c(data[:20])
     samples = []
-    for i in range(31):
+    for i in range(instruments):
         off = 20 + i * 30
         length = struct.unpack_from(">H", data, off + 22)[0] * 2  # stored in words
-        loop_start = struct.unpack_from(">H", data, off + 26)[0] * 2
+        loop_start = struct.unpack_from(">H", data, off + 26)[0]
         loop_len = struct.unpack_from(">H", data, off + 28)[0] * 2
+        # Soundtracker wrote the repeat point in BYTES; ProTracker in words.
+        # Measured on 1,535 looped samples: 858 fit only as bytes, none fit
+        # only as words.
+        if instruments == 31:
+            loop_start *= 2
         samples.append({
             "name": _c(data[off:off + 22]),
             "length": length,
@@ -74,13 +138,19 @@ def parse_mod(data):
             "loop_len": loop_len,
             "hdr_off": off,
         })
-    song_length = data[950]
-    restart = data[951]
-    order = list(data[952:952 + 128])
-    magic = data[1080:1084]
-    channels = _mod_channels(magic)
+    song_length_at, pattern_data_off = _mod_layout(instruments)
+    song_length = data[song_length_at]
+    # byte 951 is the restart position in ProTracker; in the 15-instrument
+    # layout the same byte is Ultimate Soundtracker's TEMPO, 120 by default
+    restart = data[song_length_at + 1]
+    order = list(data[song_length_at + 2:song_length_at + 2 + 128])
+    if instruments == 31:
+        magic = data[1080:1084]
+        channels = _mod_channels(magic)
+    else:
+        magic = b""
+        channels = 4
     num_patterns = (max(order) + 1) if order else 0
-    pattern_data_off = 1084
     pattern_bytes = num_patterns * 64 * channels * 4
     cur = pattern_data_off + pattern_bytes
     for s in samples:
@@ -91,6 +161,7 @@ def parse_mod(data):
     return {
         "kind": "mod", "title": title, "channels": channels,
         "magic": magic.decode("latin-1", errors="replace"),
+        "instruments": instruments,
         "song_length": song_length, "restart": restart, "order": order,
         "num_patterns": num_patterns, "pattern_data_off": pattern_data_off,
         "sample_data_off": pattern_data_off + pattern_bytes,

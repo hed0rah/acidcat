@@ -182,10 +182,10 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <details class="region" open>
       <summary><span class="chev">&#9656;</span><span class="rname">ProTracker MOD</span><span class="rspan">.mod . no signature</span></summary>
       <div class="rbody">
-        <p class="note">The oldest and the trickiest to detect. Everything before offset 1080 is fixed by position: a 20-byte title, 31 sample descriptors of 30 bytes each, a song length and restart byte, then a 128-entry order table. The audio location is stored nowhere; it is computed from the number of patterns (one greater than the highest index in the order table) times the pattern size (64 rows x channels x 4 bytes). That layout, and the offset-1080 tag, belong to the 31-sample format only: the original 15-sample Soundtracker MOD had neither, its patterns starting at offset 600 (0x258) with no magic anywhere -- the genuinely headerless case a detector falls back to heuristics for.</p>
+        <p class="note">The oldest and the trickiest to detect. Everything before offset 1080 is fixed by position: a 20-byte title, 31 sample descriptors of 30 bytes each, a song length and restart byte, then a 128-entry order table. The audio location is stored nowhere; it is computed from the number of patterns (one greater than the highest index in the order table) times the pattern size (64 rows x channels x 4 bytes). That layout, and the offset-1080 tag, belong to the 31-sample format only: the original 15-sample Soundtracker MOD had neither, its patterns starting at offset 600 (0x258) with no magic anywhere. It is still identifiable, by arithmetic rather than signature: 600 bytes of header, 1,024 bytes per pattern (the count is one more than the highest index in <i>all 128</i> order slots, not just the ones the song plays), then the samples, and the sum has to land on the end of the file. Two more differences from the 31-sample layout: the byte after the song length is Ultimate Soundtracker's <b>tempo</b> (120 by default), not a restart position, and a sample's repeat point is in <b>bytes</b>, where ProTracker stores words.</p>
         <div class="kv">
           <div><span class="k">detection</span><span class="v">4-byte magic at offset 1080: M.K. (4ch, standardly read as coders Mahoney &amp; Kaktus), M!K! (&gt;64 patterns), 6CHN / 8CHN / 16CH (wider), FLT4 (Startrekker; FLT8 is NOT detected)</span></div>
-          <div><span class="k">15-sample MOD</span><span class="v">the original Soundtracker: no 1080 tag at all, header 480 bytes shorter, patterns at 0x258 -- confirmed only by heuristics</span></div>
+          <div><span class="k">15-sample MOD</span><span class="v">the original Soundtracker: no 1080 tag at all, header 480 bytes shorter, patterns at 0x258; confirmed when 600 + patterns &times; 1024 + sample bytes equals the file size</span></div>
           <div><span class="k">sample descriptor</span><span class="v">30 bytes: name[22] . length(u16 BE, in words) . finetune . volume . loop start/len</span></div>
           <div><span class="k">finetune</span><span class="v">low nibble only, signed -8..+7, each step 1/8 semitone (indexes an alternate period table)</span></div>
           <div><span class="k">loop length</span><span class="v">words like length; a value of 1 (2 bytes) is the "no loop" sentinel, not a 2-byte loop</span></div>
@@ -253,7 +253,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
           <div><span class="k">read</span><span class="v">title/tracker/version, channel and pattern counts, tempo, and the sample list</span></div>
           <div><span class="k">byte offset</span><span class="v">each sample carries its resolved range; the raw PCM lifts straight out of it</span></div>
           <div><span class="k">IT pointers</span><span class="v">offset-table entries and the IMPS sample pointer are both xrefs into the file</span></div>
-          <div><span class="k">MOD detection</span><span class="v">no leading magic, so a MOD is confirmed only by the offset-1080 tell</span></div>
+          <div><span class="k">MOD detection</span><span class="v">no leading magic, so a MOD is confirmed by the offset-1080 tell, or for the 15-sample layout by its size adding up</span></div>
         </div>
       </div>
     </details>

@@ -8,6 +8,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Added
 
+- **The original Soundtracker module: 15 instruments, no magic.** The
+  ancestor of MOD, from 1987, and the one file the tracker walker could
+  not open because there is nothing at offset 1080 to read. Identification
+  is arithmetic, the way MDX and PDX are found: 600 bytes of header, 1,024
+  per pattern (counted over all 128 order slots, since a tenth of real
+  files keep patterns past the song's end), then the samples, and the
+  total lands on the file size. Zero false positives over 214,483 files
+  that are not one; 1,914 of Modland's 1,935 accepted, the rest truncated
+  or ProTracker files filed there. Two things the layout does differently
+  and the corpus confirmed: the byte after the song length is Ultimate
+  Soundtracker's tempo (120, in every file that has one), and a sample's
+  repeat point is in bytes, not words (858 loops fit only that way). Sniffs
+  as `mod`; `inspect` says which layout; `extract` pulls the ST-01 disk
+  samples out by name.
+
 - **PSF: Nintendo DS (2SF, version 0x24) and Nitro Composer (NCSF, 0x25).**
   Found by a census of the Modland index against what acidcat sniffs: the
   second-largest directory the reader did not open held 31,118 files, and

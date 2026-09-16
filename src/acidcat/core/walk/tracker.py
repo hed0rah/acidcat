@@ -43,28 +43,49 @@ _STM_INSTRUMENT_CAP = 31
 def inspect_mod(filepath):
     with open(filepath, "rb") as f:
         data = f.read(min(os.path.getsize(filepath), 64 * 1024 * 1024))
-    if not tk.is_mod(data):
-        raise Unsupported("no MOD magic at offset 1080")
+    size = os.path.getsize(filepath)
+    if not tk.is_mod(data) and not tk.is_mod15(data, size):
+        raise Unsupported("no MOD magic at offset 1080, and the 15-instrument "
+                          "arithmetic does not hold")
     m = tk.parse_mod(data)
     used = sum(1 for s in m["samples"] if s["length"])
+    old = m["instruments"] == 15
+    song_length_at = 20 + m["instruments"] * 30
+    head = [_f(0x00, 20, "title", m["title"])]
+    if old:
+        head.append(_f(None, 0, "instruments", 15,
+                       "the original Soundtracker layout: no magic, four "
+                       "channels, identified because the header adds up to "
+                       "the file size"))
+    else:
+        head.append(_f(0x438, 4, "magic", m["magic"], f"{m['channels']} channels"))
+    head.append(_f(song_length_at, 1, "song_length", m["song_length"], "positions"))
+    if old:
+        # Ultimate Soundtracker kept its tempo here, 120 by default; the
+        # restart position is a ProTracker reading of the same byte
+        head.append(_f(song_length_at + 1, 1, "tempo", m["restart"],
+                       "120 is the default" if m["restart"] == 120 else ""))
+    else:
+        head.append(_f(song_length_at + 1, 1, "restart", m["restart"]))
     chunks = [{
         "id": "MOD", "offset": 0, "size": len(data),
-        "summary": f"ProTracker MOD, {m['channels']}ch ({m['magic']}), "
-                   f"{m['num_patterns']} patterns, {used} samples"
+        "summary": (f"Soundtracker MOD, 15 instruments, 4ch, " if old else
+                    f"ProTracker MOD, {m['channels']}ch ({m['magic']}), ")
+                   + f"{m['num_patterns']} patterns, {used} samples"
                    + (f" -- '{m['title']}'" if m["title"] else ""),
-        "fields": [
-            _f(0x00, 20, "title", m["title"]),
-            _f(0x438, 4, "magic", m["magic"], f"{m['channels']} channels"),
-            _f(950, 1, "song_length", m["song_length"], "positions"),
-            _f(951, 1, "restart", m["restart"]),
-        ],
+        "fields": head,
         "warnings": [], "payload_base": 0,
     }, {
-        "id": "order", "offset": 952, "size": 128,
+        "id": "order", "offset": song_length_at + 2, "size": 128,
         "summary": f"pattern order, {m['song_length']} positions",
         "fields": [_f(0, 128, "order", _order_field(m["order"]))],
-        "warnings": [], "payload_base": 952,
+        "warnings": [], "payload_base": song_length_at + 2,
     }]
+    if old and size > m["sample_data_off"] + sum(s["length"] for s in m["samples"]):
+        end = m["sample_data_off"] + sum(s["length"] for s in m["samples"])
+        chunks[0]["warnings"].append(
+            f"{size - end} bytes after the last sample; the header accounts "
+            f"for {end:,} of {size:,}")
     for i, s in enumerate(m["samples"]):
         if not s["length"]:
             continue
@@ -87,7 +108,9 @@ def inspect_mod(filepath):
                    xref=s["hdr_off"] + 22),
                 _f(None, 1, "finetune", s["finetune"], xref=s["hdr_off"] + 24),
                 _f(None, 1, "volume", s["volume"], xref=s["hdr_off"] + 25),
-                _f(None, 2, "loop_start", s["loop_start"], xref=s["hdr_off"] + 26),
+                _f(None, 2, "loop_start", s["loop_start"],
+                   "bytes; Soundtracker wrote bytes, ProTracker words"
+                   if old else "", xref=s["hdr_off"] + 26),
                 _f(None, 2, "loop_len", s["loop_len"], xref=s["hdr_off"] + 28),
             ],
             "warnings": [], "payload_base": s["offset"],

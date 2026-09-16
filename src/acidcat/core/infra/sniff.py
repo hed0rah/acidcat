@@ -612,10 +612,15 @@ def _is_snes_rom(filepath):
 
 
 def _is_mod(filepath):
+    """A ProTracker module by its magic at 1080, or a 15-instrument
+    Soundtracker one by arithmetic: no magic, so the header's pattern count
+    and sample lengths have to add up to the file's size."""
+    import os
     from acidcat.core.formats import tracker as tkmod
     try:
         with open(filepath, "rb") as f:
-            return tkmod.is_mod(f.read(1084))
+            head = f.read(1084)
+        return tkmod.is_mod(head) or tkmod.is_mod15(head, os.path.getsize(filepath))
     except OSError:
         return False
 

@@ -620,6 +620,13 @@ def mod():
     return _call("test_tracker", "_make_mod")
 
 
+@seed("mod15", ".mod", sniffs_as="mod")
+def mod15():
+    """The 15-instrument Soundtracker ancestor of MOD: no magic, so the
+    header has to add up to the file size. Sniffs as `mod`."""
+    return _call("test_tracker", "_make_mod15")
+
+
 @seed("xm", ".xm")
 def xm():
     """FastTracker II: `Extended Module: ` magic, a header whose declared size is
