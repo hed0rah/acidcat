@@ -20,10 +20,12 @@ blocks in a fixed order, then the channel streams:
     ...          channel streams, sized by the next pointer
 
 Every pointer is an absolute offset. Records carry their own number, so
-sample 9 can follow sample 7 with nothing between. Identification is
-arithmetic: the pointers are in order, the sample area is a whole number
-of records, the positions block ends exactly at the ornaments, the
-pattern table ends at 0xFF, and every stream pointer lands past it.
+sample 9 can follow sample 7 with nothing between. Some compilers put
+the ornaments BEFORE the positions block; both orders are read, and each
+block ends where the next begins. Identification is arithmetic: the
+samples come first and are a whole number of records, the positions
+block ends exactly at the block after it, the pattern table comes last
+and ends at 0xFF, and every stream pointer lands past it.
 
 Spec: the ST Song Compiler's own layout as read by zxtune and ayfly.
 """
@@ -62,7 +64,8 @@ def parse(raw, filesize):
     h = {"ok": False, "why": "", "delay": 0, "positions_at": 0, "ornaments_at": 0,
          "patterns_at": 0, "identifier": "", "size": 0, "samples": [],
          "positions": [], "ornaments": [], "ornaments_end": 0, "comment": "",
-         "patterns": [], "pattern_table_end": 0, "header_size": HEADER}
+         "patterns": [], "pattern_table_end": 0, "header_size": HEADER,
+         "ornaments_first": False, "positions_end": 0, "gap_at": 0}
     if len(raw) < HEADER + 1:
         h["why"] = "too short for a header"
         return h
@@ -71,13 +74,15 @@ def parse(raw, filesize):
     h["positions_at"], h["ornaments_at"], h["patterns_at"] = pos, orn, pat
     h["identifier"] = _text(raw, IDENT_AT, IDENT_LEN)
     h["size"] = struct.unpack_from("<H", raw, SIZE_AT)[0]
-    if not HEADER <= pos < orn < pat < filesize:
+    first = min(pos, orn)
+    if not (HEADER <= first and pos != orn and max(pos, orn) < pat < filesize):
         h["why"] = "the three pointers are not in order inside the file"
         return h
-    if (pos - HEADER) % SAMPLE_RECORD or (pos - HEADER) // SAMPLE_RECORD > MAX_SAMPLES:
+    h["ornaments_first"] = orn < pos
+    if (first - HEADER) % SAMPLE_RECORD or (first - HEADER) // SAMPLE_RECORD > MAX_SAMPLES:
         h["why"] = "the sample area is not a whole number of 99-byte records"
         return h
-    for i in range((pos - HEADER) // SAMPLE_RECORD):
+    for i in range((first - HEADER) // SAMPLE_RECORD):
         at = HEADER + i * SAMPLE_RECORD
         if at + SAMPLE_RECORD > len(raw):
             break
@@ -86,12 +91,15 @@ def parse(raw, filesize):
     if pos >= len(raw):
         h["why"] = "the positions block is past the read"
         return h
+    pos_end = pat if h["ornaments_first"] else orn
     count = raw[pos] + 1
-    if pos + 1 + 2 * count != orn:
-        h["why"] = "the positions block does not end at the ornaments"
+    if pos + 1 + 2 * count != pos_end:
+        h["why"] = "the positions block does not end at the block after it"
         return h
     h["positions"] = [(raw[pos + 1 + 2 * i], raw[pos + 2 + 2 * i]) for i in range(count)]
-    n_orn = (pat - orn) // ORNAMENT_RECORD
+    h["positions_end"] = pos_end
+    orn_limit = pos if h["ornaments_first"] else pat
+    n_orn = (orn_limit - orn) // ORNAMENT_RECORD
     if n_orn > MAX_ORNAMENTS:
         h["why"] = "more than 32 ornaments"
         return h
@@ -101,7 +109,10 @@ def parse(raw, filesize):
             break
         h["ornaments"].append({"at": at, "number": raw[at]})
     h["ornaments_end"] = orn + n_orn * ORNAMENT_RECORD
-    gap = raw[h["ornaments_end"]:pat]
+    # anything between the last fixed block and the pattern table
+    tail_from = pos_end if h["ornaments_first"] else h["ornaments_end"]
+    h["gap_at"] = tail_from
+    gap = raw[tail_from:pat]
     if gap and _printable(gap):
         h["comment"] = gap.decode("latin-1").rstrip()
     q = pat

@@ -71,7 +71,7 @@ def inspect_stc(filepath, deep=False):
                                   _f(98, 1, "repeat_len", s["repeat_len"])],
                        "warnings": [], "payload_base": s["at"]})
     pos = h["positions_at"]
-    chunks.append({"id": "positions", "offset": pos, "size": h["ornaments_at"] - pos,
+    chunks.append({"id": "positions", "offset": pos, "size": h["positions_end"] - pos,
                    "summary": "%d positions" % len(h["positions"]),
                    "fields": [_f(0, 1, "count", len(h["positions"]), "stored as count - 1"),
                               _f(1, 2 * len(h["positions"]), "list",
@@ -89,15 +89,19 @@ def inspect_stc(filepath, deep=False):
                        "fields": [_f(0, 1, "number", o["number"]),
                                   _f(1, 32, "offsets", "32 signed bytes")],
                        "warnings": [], "payload_base": o["at"]})
-    gap = h["patterns_at"] - h["ornaments_end"]
+    gap = h["patterns_at"] - h["gap_at"]
     if gap > 0:
         chunks.append({"id": "comment" if h["comment"] else "unpointed",
-                       "offset": h["ornaments_end"], "size": gap,
+                       "offset": h["gap_at"], "size": gap,
                        "summary": ("text the compiler left here: " + h["comment"])
                                   if h["comment"] else
-                                  "%d bytes between the ornaments and the pattern table" % gap,
+                                  "%d bytes before the pattern table" % gap,
                        "fields": [_f(0, gap, "text", h["comment"])] if h["comment"] else [],
-                       "warnings": [], "payload_base": h["ornaments_end"]})
+                       "warnings": [], "payload_base": h["gap_at"]})
+    if h["ornaments_first"]:
+        chunks[0]["fields"].append(_f(None, 0, "block_order", "samples, ornaments, positions",
+                                      "this compiler put the ornaments first"))
+        chunks.sort(key=lambda c: c["offset"])
     pat = h["patterns_at"]
     rows = ["%d: %s" % (p["number"], " ".join("0x%04X" % s for s in p["streams"]))
             for p in h["patterns"][:8]]

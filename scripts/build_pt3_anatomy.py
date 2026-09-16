@@ -132,8 +132,9 @@ BODY = """<div class="sheet">
           <div><span class="k">pattern table</span><span class="v">7 bytes each: number, three stream pointers; ended by 0xFF</span></div>
         </div>
         <p class="note">Records carry their own numbers, so sample 9 can follow sample 7 with nothing
-        between. Some compilers leave a line of text between the ornaments and the pattern table;
-        it is the author's, and it is reported as a comment.</p>
+        between. Some compilers write the ornaments before the positions block; the pointers say
+        which, and each block ends where the next begins either way. Some leave a line of text
+        before the pattern table; it is the author's, and it is reported as a comment.</p>
       </div>
     </details>
 

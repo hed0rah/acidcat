@@ -16,9 +16,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   arithmetic: whole records up to the positions block, a positions block
   that ends exactly at the ornaments, a table that ends at 0xFF, every
   stream pointer past it. Records carry their own numbers, so gaps in the
-  numbering are legal. Fifty-one of Modland's 832 carry a line of author
-  text between the ornaments and the table, reported as a comment. All
-  832 tile. On the PT3 anatomy page as its own section.
+  numbering are legal. Two block orders exist: most compilers put the
+  positions before the ornaments, 24 of Modland's 3,636 the other way
+  round, and each block ends where the next begins in both. A line of
+  author text sometimes sits before the pattern table, reported as a
+  comment. 3,627 of 3,636 identified, all tiling; the nine refused have
+  a pointer outside the file. On the PT3 anatomy page as its own section.
 
 ## [1.8.1] - 2026-09-16
 

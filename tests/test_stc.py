@@ -96,6 +96,24 @@ def test_text_between_the_ornaments_and_the_table_is_a_comment(tmp_path):
     assert _tiles(chunks, os.path.getsize(p))
 
 
+def test_ornaments_before_positions_is_a_variant_the_reader_takes(tmp_path):
+    """24 of 3,636 real files: samples, then ornaments, then positions."""
+    raw = _stc(samples=1, ornaments=2, patterns=2)
+    h = stcmod.parse(raw, len(raw))
+    pos_block = raw[h["positions_at"]:h["ornaments_at"]]
+    orn_block = raw[h["ornaments_at"]:h["patterns_at"]]
+    blob = bytearray(raw[:h["positions_at"]] + orn_block + pos_block + raw[h["patterns_at"]:])
+    struct.pack_into("<HH", blob, stcmod.POSITIONS_PTR_AT,
+                     h["positions_at"] + len(orn_block), h["positions_at"])
+    h2 = stcmod.parse(bytes(blob), len(blob))
+    assert h2["ok"] and h2["ornaments_first"]
+    assert h2["positions"] == h["positions"] and len(h2["ornaments"]) == 2
+    chunks, warns = walker.inspect_stc(str(_write(tmp_path, bytes(blob))))
+    assert _tiles(chunks, len(blob))
+    assert [c["id"] for c in chunks][:5] == ["header", "smp[1]", "orn[0]", "orn[1]", "positions"]
+    assert not warns
+
+
 def test_a_size_field_that_disagrees_is_said(tmp_path):
     blob = bytearray(_stc())
     struct.pack_into("<H", blob, stcmod.SIZE_AT, 8536)
