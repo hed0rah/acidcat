@@ -48,7 +48,8 @@ def test_identification_needs_a_known_version_byte(tmp_path):
 
 @pytest.mark.parametrize("version,short", [
     (0x01, "PSF1"), (0x02, "PSF2"), (0x11, "SSF"), (0x12, "DSF"),
-    (0x21, "USF"), (0x22, "GSF"), (0x23, "SNSF"), (0x41, "QSF")])
+    (0x21, "USF"), (0x22, "GSF"), (0x23, "SNSF"), (0x24, "2SF"), (0x25, "NCSF"),
+    (0x41, "QSF")])
 def test_every_machine_is_named(tmp_path, version, short):
     h = psfmod.parse(_psf(version=version, rom=b"\x00" * 16), 10 ** 6)
     assert h["ok"] and h["platform"][0] == short

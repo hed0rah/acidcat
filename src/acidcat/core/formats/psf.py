@@ -59,6 +59,8 @@ VERSIONS = {
     0x21: ("USF", "Nintendo 64"),
     0x22: ("GSF", "Game Boy Advance"),
     0x23: ("SNSF", "Super Nintendo"),
+    0x24: ("2SF", "Nintendo DS"),             # 31,118 on Modland; found by a census
+    0x25: ("NCSF", "Nintendo DS"),            # Nitro Composer; listed, not yet seen
     0x41: ("QSF", "Capcom QSound"),
 }
 

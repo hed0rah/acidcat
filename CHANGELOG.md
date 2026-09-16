@@ -8,6 +8,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Added
 
+- **PSF: Nintendo DS (2SF, version 0x24) and Nitro Composer (NCSF, 0x25).**
+  Found by a census of the Modland index against what acidcat sniffs: the
+  second-largest directory the reader did not open held 31,118 files, and
+  the reason was one missing row in the version table. The container was
+  already read in full.
+
 - **`extract` decodes PDX banks.** The X68000's samples are OKI MSM6258
   ADPCM, and 1.7.0 located them without decoding them because there was
   nothing independent to check a decoder against. There is now: ffmpeg's
