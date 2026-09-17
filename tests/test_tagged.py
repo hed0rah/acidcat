@@ -34,7 +34,7 @@ def has_fixture(name):
 
 
 class TestIsTaggedFormat:
-    @pytest.mark.parametrize("ext", TAGGED_EXTENSIONS)
+    @pytest.mark.parametrize("ext", sorted(TAGGED_EXTENSIONS))
     def test_known_extensions(self, tmp_path, ext):
         p = tmp_path / f"test{ext}"
         p.write_bytes(b"")

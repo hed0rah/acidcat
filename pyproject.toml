@@ -96,6 +96,10 @@ crypto = ["cryptography>=42"]
 # kind of tool, and construction tooling should never arrive because a
 # convenience extra swept it in. Ask for the lab by name.
 all = ["acidcat[analysis,mcp-http,tui,crypto]"]
+# What a contributor and CI need to run the suite. xdist is here because the
+# suite is 4,500 tests and half an hour serial; the slow half (TUI pilots,
+# fuzz sweeps) is independent per test and parallelises cleanly.
+dev = ["pytest>=8,<9", "pytest-cov>=5,<7", "pytest-xdist>=3.5,<4", "pyyaml>=6,<7"]
 
 [project.scripts]
 acidcat = "acidcat.cli:main"
@@ -120,9 +124,14 @@ testpaths = ["tests"]
 # -rs so skipped tests explain themselves. A bare `pytest -q` reported "114
 # skipped" with no way to learn what went uncovered, which is the same silent
 # gap this project spent a week removing from its own output.
-addopts = "-rs"
+# --dist loadgroup so the xdist_group markers conftest applies (every TUI
+# pilot on one worker, the memory profiles on another) are honoured when
+# the suite is run with -n. Without -n it changes nothing.
+addopts = "-rs --dist loadgroup"
 markers = [
     "corpus: needs a local specimen corpus that is not in the repository",
+    "xdist_group: pytest-xdist's own marker, applied by conftest to keep the TUI pilots on one worker",
+    "slow: over ten seconds on its own (TUI pilots, memory profiles, read-cap adversaries); run with the full suite, skip in the edit loop with -m 'not slow'",
 ]
 filterwarnings = [
     "error::DeprecationWarning:acidcat.*",

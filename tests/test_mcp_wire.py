@@ -23,6 +23,9 @@ import sys
 
 import pytest
 
+# ten seconds and up per test: run in the full suite, skipped in the edit loop
+pytestmark = pytest.mark.slow
+
 pytest.importorskip("mcp")
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

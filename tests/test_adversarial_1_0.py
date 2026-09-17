@@ -231,6 +231,7 @@ def _flac(tmp_path, name, mb, rate=44100):
     return p
 
 
+@pytest.mark.slow
 def test_a_clean_flac_larger_than_the_read_cap_is_not_reported_damaged(tmp_path):
     """The cap was manufacturing the evidence.
 
@@ -249,6 +250,7 @@ def test_a_clean_flac_larger_than_the_read_cap_is_not_reported_damaged(tmp_path)
         f"a pristine FLAC past the cap was reported damaged\n{r.stdout}{r.stderr}")
 
 
+@pytest.mark.slow
 def test_damage_past_the_read_cap_is_found(tmp_path):
     """--deep is documented as costing a full read, and capping it at 64 MB
     contradicted that while leaving the tail of every large file unverified.

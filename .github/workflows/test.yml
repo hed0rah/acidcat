@@ -155,7 +155,7 @@ jobs:
           # contributor without it gets a skip -- and this job got one
           # too, on the first run after the cross-check was wired in.
           # The guard below caught it, which is what it is for.
-          pip install -e ".[analysis,mcp,tui,crypto]" -e ./lab pytest pytest-cov pyyaml
+          pip install -e ".[analysis,mcp,tui,crypto,dev]" -e ./lab
       - name: Fetch the Kaitai format specs
         # The cross-check in tests/test_kaitai_cross_check.py is the only test
         # in this repo that measures acidcat against a specification nobody

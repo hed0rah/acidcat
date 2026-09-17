@@ -26,6 +26,9 @@ pytest.importorskip("textual")
 
 from conftest import CORPUS_WAV as WAV
 
+# ten seconds and up per test: run in the full suite, skipped in the edit loop
+pytestmark = pytest.mark.slow
+
 ROW_COLUMNS = 76          # what _hex_rows actually emits; see render.py
 
 

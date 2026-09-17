@@ -2340,7 +2340,10 @@ class AcidcatTUI(App):
             t.append(f" {marker}{i + 1:>2} ", style=f"bold {ACCENT}" if
                      i == self._finding_idx else DIM)
             t.append(f"{sev:<7}", style=f"bold {SEV.get(sev, SOFT)}")
-            t.append(f"0x{f.get('offset', 0):08x} ", style=DIM)
+            # a finding about the file as a whole (a check that could not
+            # run) has no offset; it used to crash this panel on 08x
+            off = f.get("offset")
+            t.append(f"0x{off:08x} " if isinstance(off, int) else "  --      ", style=DIM)
             t.append(f"{f.get('message', '')}\n", style=FG)
         panel.update(t)
         self._scroll_finding_into_view()
@@ -3571,10 +3574,13 @@ class AcidcatTUI(App):
             return
         self._finding_idx = (self._finding_idx + 1) % len(self.findings)
         f = self.findings[self._finding_idx]
-        off = f.get("offset", 0)
-        self._jump_to_offset(
-            off, 1, f"finding {self._finding_idx + 1}/{len(self.findings)}: "
-            f"{f.get('message', '')[:60]}")
+        off = f.get("offset")
+        label = (f"finding {self._finding_idx + 1}/{len(self.findings)}: "
+                 f"{f.get('message', '')[:60]}")
+        if isinstance(off, int):
+            self._jump_to_offset(off, 1, label)
+        else:
+            self.notify(label + " (no offset: it is about the whole file)")
         self._render_anomalies()
 
     def action_yank(self):

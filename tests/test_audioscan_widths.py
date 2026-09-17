@@ -105,6 +105,7 @@ def test_16bit_buried_in_noise_is_located_where_it_sits():
     assert best["end"] <= len(lead) + len(audio) + audioscan.DEFAULT_WINDOW
 
 
+@pytest.mark.slow
 def test_peak_memory_does_not_scale_with_input():
     """Regression: the first version sliced `data[offset::stride]` for the whole
     buffer once per reading, copying half the input twice -- +256 MB on a scan

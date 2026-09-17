@@ -137,6 +137,7 @@ def test_short_input_skips_the_bulk_path():
     assert A.scan(small) == _pure(small)
 
 
+@pytest.mark.slow
 def test_peak_memory_is_flat_in_input_size():
     """Regression: the vectorized path first held every window's arrays at once,
     which cost ~46x the input -- 1.4 GB for a 32 MB file, and an out-of-memory

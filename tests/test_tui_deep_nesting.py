@@ -33,6 +33,9 @@ pytest.importorskip("textual")
 from acidcat.tui_app.app import AcidcatTUI      # noqa: E402
 from conftest import measured, quiet            # noqa: E402
 
+# ten seconds and up per test: run in the full suite, skipped in the edit loop
+pytestmark = pytest.mark.slow
+
 
 def _run(scenario):
     asyncio.run(scenario())

@@ -124,15 +124,21 @@ def _run(args):
     """
     import os
     import tempfile
+    # a file of its own per call, not one shared name: under pytest-xdist
+    # eight workers ran this at once and read each other's half-written files
     args.output_format = "json"
-    args.output = os.path.join(tempfile.gettempdir(),
-                               "_acidcat_query_test.json")
-    if os.path.isfile(args.output):
-        os.remove(args.output)
-    rc = query_cmd.run(args)
-    assert rc == 0
-    with open(args.output, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    fd, args.output = tempfile.mkstemp(prefix="_acidcat_query_test_", suffix=".json")
+    os.close(fd)
+    try:
+        rc = query_cmd.run(args)
+        assert rc == 0
+        with open(args.output, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    finally:
+        try:
+            os.remove(args.output)
+        except OSError:
+            pass
     return data if isinstance(data, list) else [data]
 
 

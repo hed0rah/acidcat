@@ -107,6 +107,36 @@ docs/              architecture.md (detailed), format anatomy pages
 internal_docs/     design + review notes (gitignored, local-only)
 ```
 
+## Testing: which tier runs when
+
+The suite is 4,500 tests: half an hour serial, three minutes with
+`pytest -n 8` (the `dev` extra brings pytest-xdist; `pyproject` sets
+`--dist loadgroup` so `tests/conftest.py` can pin every TUI pilot to one
+worker and the memory profiles to another, without which they time out
+under contention). Three tiers, by what changed:
+
+| tier | when | command | time |
+|---|---|---|---|
+| scoped | a walker, codec, command or page changed | `python scripts/tests_for.py --run` | under a minute |
+| quick | anything wider, before a commit | `pytest -n 8 -m "not slow"` | ~2 min |
+| full | the release commit, and CI on every push | `source scripts/corpus_env.sh; pytest -n 8` | ~3 min local, plus the corpora |
+
+`tests_for.py` maps `git diff` to tests: a walker to its own file plus the
+fleet sweeps keyed on its name (fuzz, cap ledger, sniff, seeds, geometry)
+and the doc guards; a page or builder to the anatomy fleet; anything it
+cannot map, or a change to `sniff.py`, `walk/__init__.py`, `geometry.py`
+or `seeds.py`, to the full suite. It prints why it chose each part.
+
+`@pytest.mark.slow` marks the TUI pilots, the memory profiles, the read-cap
+adversaries and the MCP wire test; a test earns it at ten seconds. The
+corpus tests need `ACIDCAT_<FMT>_CORPUS` and skip without it, and a skipped
+corpus test is a green run that checked no real file, so the release run
+sources `scripts/corpus_env.sh` and includes every corpus for every format
+touched since the last release. Docs-only and test-only commits after a
+green release run do not re-trigger it. CI runs the full tier with coverage
+on three operating systems and three Pythons; it is the second opinion, not
+the first.
+
 ## Where to go deeper
 
 - Field model + walker contract: `core/walk/base.py`

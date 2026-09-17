@@ -378,3 +378,21 @@ async def press_until(pilot, key, cond, attempts=4, tries=40, step=0.1):
         if await until(pilot, cond, tries=tries, step=step):
             return True
     return cond()
+
+
+# ── running in parallel ──────────────────────────────────────────────
+#
+# The suite is half an hour serial and two minutes under pytest-xdist, but
+# only if the Textual pilots do not compete for the CPU: twenty-four of them
+# at once time out, and a few hang. So every TUI test is pinned to one
+# worker group, and so are the two memory-profile tests, which measure peak
+# RSS and cannot share a process with anything else. `--dist loadgroup` is
+# what honours the groups; pyproject sets it.
+
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        name = item.fspath.basename
+        if name.startswith("test_tui") or name.startswith("test_viz"):
+            item.add_marker(pytest.mark.xdist_group("tui"))
+        elif name.startswith("test_audioscan") and "memory" in item.name:
+            item.add_marker(pytest.mark.xdist_group("memory"))

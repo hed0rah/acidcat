@@ -17,6 +17,9 @@ import pytest
 
 from acidcat.tui_app.app import AcidcatTUI
 
+# ten seconds and up per test: run in the full suite, skipped in the edit loop
+pytestmark = pytest.mark.slow
+
 
 def _run_capture(coro_factory):
     """asyncio.run for a scenario that returns a value.

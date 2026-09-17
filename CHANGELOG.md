@@ -4,6 +4,31 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Changed
+
+- **The suite runs in three minutes instead of thirty.** `pytest-xdist` is
+  in a new `dev` extra and the rule is `pytest -n 8`; every TUI pilot is
+  pinned to one worker and the memory profiles to another (twenty-four
+  pilots at once timed out, and some hung), one test parametrised over a
+  set is now sorted so workers agree on what they collected, and one
+  fixture that wrote a fixed temp-file name now takes its own. A `slow`
+  marker names the thirty tests over ten seconds; `scripts/tests_for.py`
+  maps a diff to the tests that can see it and says why; and
+  `scripts/corpus_env.sh` exports every corpus path from one root. The
+  rule, in ARCHITECTURE.md: scoped in the edit loop, quick before a
+  commit, full on the release commit and in CI.
+
+### Fixed
+
+- **A forensics finding with no offset crashed the TUI.** The anomaly
+  runner reports a check that could not run as a finding about the whole
+  file, offset None. The findings panel formatted it as a hex address and
+  died; the jump key would have too. Found by the parallel run, which
+  pushed a check into a MemoryError and produced exactly that finding.
+  The panel shows a dash and the jump says what it cannot jump to.
+
 ## [1.8.2] - 2026-09-16
 
 ### Fixed

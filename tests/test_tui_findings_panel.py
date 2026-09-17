@@ -123,3 +123,26 @@ def test_zoom_declines_on_the_panel_instead_of_raising(noisy):
             assert app._zoom is None, "the panel should not have zoomed"
             assert app.is_running, "z crashed the app"
     _run(scenario)
+
+
+def test_a_finding_with_no_offset_neither_crashes_the_panel_nor_the_jump(noisy):
+    """The anomaly runner reports a check that could not run as a finding
+    with offset None: it is about the whole file. Under parallel test load
+    a MemoryError produced one, and the panel died formatting None as 08x.
+    The jump key must not crash on it either."""
+    async def scenario():
+        app = AcidcatTUI(noisy)
+        async with app.run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            app.findings = [{"severity": "warn", "offset": None, "rule": "check_failed",
+                             "message": "the x check could not run (MemoryError)"}] \
+                + list(app.findings)
+            app._finding_idx = -1
+            app._render_anomalies()
+            await pilot.press("f")
+            await pilot.pause()
+            assert app._finding_idx == 0
+            await pilot.press("f")
+            await pilot.pause()
+            assert app._finding_idx == 1
+    _run(scenario)
