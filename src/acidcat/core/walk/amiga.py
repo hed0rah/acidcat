@@ -151,8 +151,17 @@ def inspect_okt(filepath):
             summary = f"initial speed/tempo: {_bu16(p, 0)}"
         elif cid in (b"SLEN", b"PLEN") and len(p) >= 2:
             summary = f"{'pattern count' if cid == b'SLEN' else 'song length'}: {_bu16(p, 0)}"
-        chunks.append({"id": cid_s, "offset": off, "size": size,
-                       "summary": summary, "fields": fields, "warnings": []})
+        c = {"id": cid_s, "offset": off, "size": size,
+             "summary": summary, "fields": fields, "warnings": []}
+        have = max(0, len(b) - (off + 8))
+        if size > have:
+            # a chunk that declares more than the file holds: say so and
+            # own only what is there, so its payload stays inside the file
+            c["warnings"].append("declares %d bytes; %d remain in the file" % (size, have))
+            c["size"] = have
+            c["payload_len"] = have
+            c["payload_base"] = off + 8
+        chunks.append(c)
     bits = []
     if channels:
         bits.append(f"{channels} voices")

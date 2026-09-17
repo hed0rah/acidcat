@@ -1,5 +1,6 @@
 """Tests for the Amiga music-format walkers (SMUS, OKT, MED, Future Composer)."""
 
+import os
 import struct
 
 from acidcat.core.infra import sniff as sniffmod
@@ -115,3 +116,16 @@ def test_a_chunk_walk_that_stops_at_the_cap_says_so():
         assert any("cap" in w for w in warns), warns
     finally:
         os.unlink(path)
+
+
+def test_okt_chunk_that_declares_more_than_the_file_holds_owns_what_is_there(tmp_path):
+    """A modland Oktalyzer module's PBOD declares 2,050 bytes with 1,758
+    left in the file. The chunk used to keep its declared size and reach
+    past the file in silence; the fleet geometry sweep caught it."""
+    cmod = _chunk(b"CMOD", struct.pack(">HHHH", 1, 0, 1, 0))
+    pbod = b"PBOD" + struct.pack(">I", 2050) + b"\x00" * 100
+    p = _write(tmp_path, "cut.okt", b"OKTASONG" + cmod + pbod)
+    _label, chunks, _w = walk_file(p)
+    c = next(c for c in chunks if c["id"] == "PBOD")
+    assert c["size"] == 100 and c["offset"] + 8 + c["size"] == os.path.getsize(p)
+    assert any("declares 2050" in w for w in c["warnings"])

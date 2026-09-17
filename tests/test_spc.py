@@ -275,6 +275,25 @@ def test_an_xid6_extension_is_read(tmp_path):
     vals = {f["name"]: f["value"] for f in x["fields"]}
     assert vals["sub[0x01]"] == "HELLO"
     assert not warns
+    # field offsets are relative to payload_base, which is past the 8-byte
+    # header; the first sub-chunk begins at 0, and the size field, which
+    # sits in the header, is unpositioned with an xref. The fleet geometry
+    # sweep over the hunt corpus caught these as chunk-relative.
+    sub0 = next(f for f in x["fields"] if f["name"] == "sub[0x01]")
+    assert sub0["off"] == 0 and sub0["len"] == 4 + 5
+    size = next(f for f in x["fields"] if f["name"] == "size")
+    assert size["off"] is None and size["xref"] == x["offset"] + 4
+
+
+def test_an_xid6_sub_chunk_that_declares_more_than_the_block_holds_is_clamped(tmp_path):
+    sub = bytes([0x07, 0x01]) + struct.pack("<H", 4000) + b"comment"
+    ext = b"xid6" + struct.pack("<I", len(sub)) + sub
+    p = _write(tmp_path, _spc() + ext)
+    chunks, warns = walker.inspect_spc(str(p))
+    x = next(c for c in chunks if c["id"] == "xid6")
+    f = next(f for f in x["fields"] if f["name"] == "sub[0x07]")
+    assert f["off"] + f["len"] <= x["payload_len"]
+    assert any("declares 4000" in w for w in x["warnings"])
 
 
 def test_an_xid6_that_declares_more_than_the_file_holds_does_not_raise(tmp_path):

@@ -238,7 +238,9 @@ def _xid6(raw, size, warns):
         return [_region("trailing", at, n, "%d bytes, not xid6" % n)]
     declared = struct.unpack_from("<I", raw, at + 4)[0]
     length = min(8 + declared, size - at)
-    fields = [_f(0x04, 4, "size", declared)]
+    # the size sits in the 8-byte header, before payload_base: unpositioned
+    # with an xref, as the contract has it for header fields
+    fields = [_f(None, 4, "size", declared, "", xref=at + 4)]
     pos = at + 8
     end = at + length
     n = 0
@@ -251,7 +253,7 @@ def _xid6(raw, size, warns):
         sid, stype, data = raw[pos], raw[pos + 1], struct.unpack_from("<H", raw, pos + 2)[0]
         n += 1
         if stype == 0:
-            fields.append(_f(pos - at, 4, "sub[0x%02X]" % sid, data,
+            fields.append(_f(pos - at - 8, 4, "sub[0x%02X]" % sid, data,
                              "value held in the header"))
             pos += 4
         else:
@@ -265,7 +267,8 @@ def _xid6(raw, size, warns):
                 value = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else data
             else:
                 value = "type %d, %d bytes" % (stype, data)
-            fields.append(_f(pos - at, 4 + data, "sub[0x%02X]" % sid, value,
+            # the field spans what is there, not what the sub-chunk declares
+            fields.append(_f(pos - at - 8, 4 + len(body), "sub[0x%02X]" % sid, value,
                              _XID6_IDS.get(sid, "")))
             pos += 4 + ((data + 3) & ~3)
     if n >= _SPC_XID6_CAP:

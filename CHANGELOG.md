@@ -35,6 +35,15 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **Two geometry slips the fleet sweep found on the new pulls.** SPC's
+  xid6 sub-chunk fields carried offsets relative to the chunk instead of
+  its payload (the recurring bug class), and a sub-chunk that declared
+  more than the block held spanned the declared length; an Oktalyzer
+  chunk that declared more than the file held kept its declared size and
+  reached past the file in silence. Each now owns what is there and says
+  what was declared. Found the first time `scripts/corpus_env.sh` pointed
+  the whole-corpus geometry sweep at everything on the hunt drive.
+
 - **A forensics finding with no offset crashed the TUI.** The anomaly
   runner reports a check that could not run as a finding about the whole
   file, offset None. The findings panel formatted it as a hex address and
