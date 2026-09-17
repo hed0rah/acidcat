@@ -561,6 +561,43 @@ def stc(samples=2, ornaments=1, patterns=2, comment=b"", ident=b"SONG BY ST COMP
     return bytes(body)
 
 
+@seed("s98", ".s98")
+def s98(version=3, title="SEED", devices=((4, 7987200),), writes=4, big_wait=300):
+    """PC-98 register log. v3 by default: header, device table, a dump of
+    writes and syncs ended by 0xFD, then the [S98] tag. version=1 puts a
+    plain-text title before the dump at the next 128-byte boundary."""
+    import acidcat.core.formats.s98 as S
+    h = bytearray(S.HEADER)
+    h[0:4] = b"S98%d" % version
+    struct.pack_into("<III", h, 4, 10, 1000, 0)
+    if version >= 3:
+        table = bytearray()
+        for dtype, clock in devices:
+            table += struct.pack("<4I", dtype, clock, 0, 0)
+        struct.pack_into("<I", h, 0x1C, len(devices))
+        dump_at = S.HEADER + len(table)
+        stream = bytes([0x00, 0x28, 0x80] * writes) + bytes([S.SYNC_1, S.SYNC_1, S.SYNC_N]) \
+            + _varint(big_wait - 2) + bytes([S.END])
+        tag = S.TAG_MARK + ("title=%s\ngame=SEED GAME\n" % title).encode("shift_jis")
+        struct.pack_into("<III", h, 0x10, dump_at + len(stream), dump_at, 0)
+        return bytes(h) + bytes(table) + stream + tag
+    text = title.encode("shift_jis").ljust(0x80 - S.HEADER, b"\x00")
+    stream = bytes([0x00, 0x28, 0x80] * writes) + bytes([S.SYNC_1, S.SYNC_1, S.SYNC_N]) \
+        + _varint(big_wait - 2) + bytes([S.END])
+    struct.pack_into("<III", h, 0x10, S.HEADER, 0x80, 0)
+    return bytes(h) + text + stream
+
+
+def _varint(v):
+    out = bytearray()
+    while True:
+        b = v & 0x7F
+        v >>= 7
+        out.append(b | (0x80 if v else 0))
+        if not v:
+            return bytes(out)
+
+
 @seed("spc", ".spc")
 def spc(title="SEED", game="SEED GAME", samples=2):
     """An SPC700 snapshot: 256-byte header with a text ID666 tag, 64 KB of

@@ -1011,6 +1011,20 @@ def _stc_many_records(tmp_path, n):
     return str(q)
 
 
+def _s98_over_cap(tmp_path, n):
+    """An .s98 longer than n bytes: the v1 seed with a long tail of syncs
+    before its end marker."""
+    import seeds
+    raw = seeds.SEEDS["s98"][0](version=1)
+    q = tmp_path / "big.s98"
+    q.write_bytes(raw[:-1] + b"\xff" * (n * 4) + b"\xfd")
+    return str(q)
+
+
+def _s98_many_commands(tmp_path, n):
+    return _s98_over_cap(tmp_path, n)
+
+
 def _spc_over_cap(tmp_path, n):
     """An .spc longer than n bytes: the base image plus a padded tail."""
     import seeds
@@ -1158,6 +1172,10 @@ SWEPT = [
      "read the first"),
     ("acidcat.core.walk.chiptune", "_KSS_BANK_LIST_CAP", 2, _kss_many_banks,
      "listing the first"),
+    ("acidcat.core.walk.s98", "_S98_READ_CAP", 512, _s98_over_cap,
+     "parsed the first"),
+    ("acidcat.core.walk.s98", "_S98_COMMAND_CAP", 64, _s98_many_commands,
+     "decoded the first"),
     ("acidcat.core.walk.stc", "_STC_READ_CAP", 512, _stc_over_cap,
      "parsed the first"),
     ("acidcat.core.walk.stc", "_STC_LIST_CAP", 4, _stc_many_records,

@@ -6,6 +6,19 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **S98: the PC-98 register log, and the X1's and the OPM's.** The VGM idea
+  from the Japanese PC scene: a header of timer and offsets, a v3 device
+  table naming the chips and their clocks, a dump of writes and syncs
+  walked to its end marker, and a `[S98]` tag of key=value lines in
+  Shift-JIS. v1 keeps a plain title before the dump and runs the dump to
+  the end of the file; v3 puts the tag after; the tag offset says which.
+  The sync count after 0xFE is a 7-bit varint in every version: a reading
+  of "one byte in v1" walks 200 real files into the middle of a command.
+  5,109 of Modland's 5,112, all tiling; the twenty with no end marker are
+  said. Anatomy page from a Sharp X1 tune.
+
 ### Changed
 
 - **The suite runs in three minutes instead of thirty.** `pytest-xdist` is

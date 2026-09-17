@@ -48,7 +48,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "sap", "serum", "sf2", "sigmf", "smus", "spc", "stc", "vgm",
+    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sigmf", "smus", "spc", "stc", "vgm",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -132,6 +132,8 @@ def sniff_bytes(head):
         return "vgm"                                    # Video Game Music register log
     if head[:4] == b"HESM":
         return "hes"                                    # PC Engine sound
+    if head[:3] == b"S98" and head[3:4] in (b"1", b"2", b"3"):
+        return "s98"                                    # PC-98 register log
     if head[:4] in (b"KSCC", b"KSSX"):
         return "kss"                                    # MSX / Master System sound
     if head[:13] == b"ProTracker 3." or head[:17] == b"Vortex Tracker II":

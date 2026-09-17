@@ -80,6 +80,11 @@ NEW_CARDS = {
             "per-tick settings, ornaments that are semitone offsets, three "
             "channel streams per pattern, and every one of them reached by an "
             "absolute 16-bit pointer, so the file tiles by sorting them."),
+    "s98": ("S98", "#6A7A3D", "#525F30", "byte map",
+            "The VGM idea from the Japanese PC scene: every write to the "
+            "PC-98 FM and PSG chips with the time between, a device table "
+            "naming the chips, and a key=value tag. v1 keeps its title before "
+            "the dump; v3 its tag after. The sync count is a 7-bit varint in both."),
     "vgm": ("VGM", "#7A6A3D", "#5F5230", "byte map",
             "Every byte a game wrote to its sound chips, in order, with the "
             "time between: a header of chip clocks where a non-zero clock is "
