@@ -343,7 +343,7 @@ class TestTheHuntCorpusWalks:
             f"{len(HUNT_RAISED)} real file(s) made a walker raise:\n" + "\n".join(
                 f"  {os.path.basename(p)}: {e}" for p, e in HUNT_RAISED[:10]))
 
-    def test_the_sweep_actually_reached_real_files(self):
+    def test_the_sweep_actually_reached_real_files(self, walked):
         """The control, and the reason the assertion above means anything.
 
         `ACIDCAT_HUNT_CORPUS` pointed at a path that does not exist, or at an
@@ -354,6 +354,7 @@ class TestTheHuntCorpusWalks:
         So when the variable is set, the sweep has to show it walked something.
         When it is not set, there is nothing to check and saying so is honest;
         the seeds and fixtures are the floor, and they are asserted elsewhere."""
+        del walked                                   # the sweep must have run first
         if not os.environ.get("ACIDCAT_HUNT_CORPUS"):
             pytest.skip("ACIDCAT_HUNT_CORPUS not set; seeds and fixtures are the floor")
         assert HUNT_WALKED, (

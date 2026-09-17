@@ -396,3 +396,8 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.xdist_group("tui"))
         elif name.startswith("test_audioscan") and "memory" in item.name:
             item.add_marker(pytest.mark.xdist_group("memory"))
+        elif name == "test_chunk_geometry.py":
+            # the hunt-corpus sweep runs once per process and its "did it
+            # reach any file" check reads that shared count; split across
+            # workers, the check ran on a process that had swept nothing
+            item.add_marker(pytest.mark.xdist_group("geometry"))
