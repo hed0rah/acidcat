@@ -177,6 +177,17 @@ def main():
     if not os.path.isdir(MIRROR):
         print("mirror not found at %s" % MIRROR)
         return 2
+    if args.write:
+        # the mirror repo carries other projects on other branches; a page
+        # written while one of those is checked out is committed onto it.
+        # That happened once. Refuse unless the mirror is on main.
+        import subprocess
+        branch = subprocess.run(["git", "-C", MIRROR, "rev-parse", "--abbrev-ref", "HEAD"],
+                                capture_output=True, text=True).stdout.strip()
+        if branch != "main":
+            print("the mirror is on branch %r, not main; nothing written. "
+                  "Check out main there first." % branch)
+            return 2
 
     updated, added = sync_pages(args.write)
     p, s, carded, stamped = index_state()
