@@ -80,6 +80,10 @@ NEW_CARDS = {
             "per-tick settings, ornaments that are semitone offsets, three "
             "channel streams per pattern, and every one of them reached by an "
             "absolute 16-bit pointer, so the file tiles by sorting them."),
+    "cmf": ("CMF", "#7A4E3D", "#5F3D30", "byte map",
+            "A Standard MIDI track with its OPL2 patches packed in front: "
+            "Creative's 1991 format for the Sound Blaster, where sixteen bytes "
+            "of FM registers per instrument stand in for a General MIDI bank."),
     "s98": ("S98", "#6A7A3D", "#525F30", "byte map",
             "The VGM idea from the Japanese PC scene: every write to the "
             "PC-98 FM and PSG chips with the time between, a device table "

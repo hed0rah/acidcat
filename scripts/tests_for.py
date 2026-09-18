@@ -45,6 +45,7 @@ SHARED_WALKERS = {
     "apple": ["aiff", "caf", "apple"],
     "pt3": ["pt3", "pt2"],
     "psf": ["psf"],
+    "midi": ["midi", "cmf"],
     "amiga": ["amiga", "svx"],
 }
 

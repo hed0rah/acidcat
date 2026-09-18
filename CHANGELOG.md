@@ -4,6 +4,22 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Added
+
+- **CMF: the Creative Music File, a MIDI track with its OPL2 patches in
+  front.** A little-endian header of offsets, the sixteen-byte FM patches
+  (two operators, interleaved, then feedback and connection), and an SMF
+  track the MIDI walker's own scanner reads: notes, channels, tempo, End
+  of Track. Each patch is a chunk, so it can be carved. Three findings
+  from Modland's 459: 372 end with one stray 0xFF after End of Track,
+  which the writer left and the walker names; the three text strings sit
+  wherever their offsets say, and one file points its title and composer
+  into the event stream, which is reported rather than read as text; and
+  a 1.0 header has no instrument count, so the count is what fits between
+  the offsets. All 459 tile. Anatomy page.
+
 ## [1.8.3] - 2026-09-17
 
 ### Added

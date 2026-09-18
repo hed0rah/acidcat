@@ -15,7 +15,7 @@ import tempfile
 from acidcat.core.infra import geometry
 from acidcat.core.infra import sniff as sniffmod
 from acidcat.core.walk import (
-    ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, caf, chiptune, containers, dmx,
+    ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, caf, chiptune, cmf, containers, dmx,
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
     mp4, mpc, multisample, ncw, ni, ogg, pdx, pmd, psf, pt3, s98, rf64, rmid, rx2, serum, sf2,
@@ -127,6 +127,8 @@ _WALKERS = {
             lambda path, deep: vgm.inspect_vgm(path, deep=deep)),
     "s98": ("PC-98 sound-chip register log (S98)",
             lambda path, deep: s98.inspect_s98(path, deep=deep)),
+    "cmf": ("Creative Music File, AdLib OPL2 (CMF)",
+            lambda path, deep: cmf.inspect_cmf(path, deep=deep)),
     "pt3": ("ZX Spectrum ProTracker 3 / Vortex Tracker module (PT3)",
             lambda path, deep: pt3.inspect_pt3(path, deep=deep)),
     "stc": ("ZX Spectrum Sound Tracker module (STC)",

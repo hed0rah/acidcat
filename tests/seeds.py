@@ -598,6 +598,38 @@ def _varint(v):
             return bytes(out)
 
 
+@seed("cmf", ".cmf")
+def cmf(version=0x101, instruments=2, title="SEED", notes=4, terminator=True):
+    """Creative Music File: a CTMF header, optional title after it, 16-byte
+    OPL2 patches, then an SMF-style track ending on End of Track, and the
+    writer's stray 0xFF after it."""
+    import acidcat.core.formats.cmf as C
+    hdr = C.HEADER_V11 if version >= 0x101 else C.HEADER_V10
+    h = bytearray(hdr)
+    h[0:4] = C.MAGIC
+    body = bytearray()
+    title_at = 0
+    if title:
+        title_at = hdr
+        body += title.encode("cp437") + b"\x00"
+    inst_at = hdr + len(body)
+    for i in range(instruments):
+        body += bytes([0x01, 0x11, 0x4F, 0x00, 0xF1, 0xD2, 0x53, 0x74, 0x00, 0x00, 0x06]) + bytes(5)
+    music_at = hdr + len(body)
+    track = bytearray()
+    for i in range(notes):
+        track += bytes([0x00, 0x90, 60 + i, 0x7F, 0x30, 0x80, 60 + i, 0x40])
+    track += bytes([0x00, 0xFF, 0x2F, 0x00])
+    body += track
+    if terminator:
+        body += b"\xff"
+    struct.pack_into("<8H", h, 4, version, inst_at, music_at, 48, 96, title_at, 0, 0)
+    h[0x14] = 1
+    if version >= 0x101:
+        struct.pack_into("<HH", h, 0x24, instruments, 120)
+    return bytes(h) + bytes(body)
+
+
 @seed("spc", ".spc")
 def spc(title="SEED", game="SEED GAME", samples=2):
     """An SPC700 snapshot: 256-byte header with a text ID666 tag, 64 KB of

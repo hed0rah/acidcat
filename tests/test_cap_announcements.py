@@ -1025,6 +1025,20 @@ def _s98_many_commands(tmp_path, n):
     return _s98_over_cap(tmp_path, n)
 
 
+def _cmf_over_cap(tmp_path, n):
+    import seeds
+    q = tmp_path / "big.cmf"
+    q.write_bytes(seeds.SEEDS["cmf"][0]() + bytes(n * 4))
+    return str(q)
+
+
+def _cmf_many_instruments(tmp_path, n):
+    import seeds
+    q = tmp_path / "many.cmf"
+    q.write_bytes(seeds.SEEDS["cmf"][0](instruments=n + 2))
+    return str(q)
+
+
 def _spc_over_cap(tmp_path, n):
     """An .spc longer than n bytes: the base image plus a padded tail."""
     import seeds
@@ -1171,6 +1185,10 @@ SWEPT = [
     ("acidcat.core.walk.chiptune", "_KSS_READ_CAP", 512, _kss_over_cap,
      "read the first"),
     ("acidcat.core.walk.chiptune", "_KSS_BANK_LIST_CAP", 2, _kss_many_banks,
+     "listing the first"),
+    ("acidcat.core.walk.cmf", "_CMF_READ_CAP", 512, _cmf_over_cap,
+     "parsed the first"),
+    ("acidcat.core.walk.cmf", "_CMF_INSTRUMENT_LIST_CAP", 2, _cmf_many_instruments,
      "listing the first"),
     ("acidcat.core.walk.s98", "_S98_READ_CAP", 512, _s98_over_cap,
      "parsed the first"),

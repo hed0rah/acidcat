@@ -44,7 +44,7 @@ KNOWN_FORMATS = frozenset({
     "8svx", "adg", "adv", "adx", "agr", "aifc", "aiff", "akp", "albank", "alc", "als", "amxd",
     "au",
     "asd", "bfdlac", "bitwig", "brstm",
-    "caf", "cdxa", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gbs", "gcm", "gf1pat", "hes", "hps",
+    "caf", "cdxa", "cmf", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gbs", "gcm", "gf1pat", "hes", "hps",
     "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
@@ -132,6 +132,8 @@ def sniff_bytes(head):
         return "vgm"                                    # Video Game Music register log
     if head[:4] == b"HESM":
         return "hes"                                    # PC Engine sound
+    if head[:4] == b"CTMF":
+        return "cmf"                                    # Creative Music File (AdLib)
     if head[:3] == b"S98" and head[3:4] in (b"1", b"2", b"3"):
         return "s98"                                    # PC-98 register log
     if head[:4] in (b"KSCC", b"KSSX"):

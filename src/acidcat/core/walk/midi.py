@@ -48,6 +48,7 @@ def _scan_track(trk, ctx, collect=False):
     copyright = None
     time_sig = key_sig = None
     has_eot = False
+    eot_end = None                     # where the End of Track meta ends
     unknown_meta = {}
     events = []
     n_events = 0
@@ -107,6 +108,7 @@ def _scan_track(trk, ctx, collect=False):
                 detail = text[:48]
             elif etype == 0x2F:
                 has_eot = True
+                eot_end = pos
             if etype not in _META_NAMES:
                 # SMF tells a READER to skip meta types it does not know, and
                 # that is why they are worth naming: a writer can put anything
@@ -179,7 +181,7 @@ def _scan_track(trk, ctx, collect=False):
             "channels": channels, "tempos": tempos, "names": names,
             "copyright": copyright, "time_sig": time_sig, "key_sig": key_sig,
             "has_eot": has_eot, "events": events, "n_events": n_events,
-            "sysex": sysex, "unknown_meta": unknown_meta}
+            "sysex": sysex, "unknown_meta": unknown_meta, "eot_end": eot_end}
 
 
 # a few common MIDI manufacturer ids (System Exclusive id table); enough to name
