@@ -21,6 +21,38 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   number from a timer read plays a different tune otherwise. The dumped
   echo ring is played as found rather than cleared. A 30-second preview
   renders in about 20 seconds.
+- **YM: the Atari ST's register dumps, and the LHA they ship in.** A YM is
+  what a player routine wrote to the YM2149 each frame, stored column by
+  column and packed in an LHA archive. acidcat now reads LHA level-0
+  members and decodes -lh5- itself (LZSS with per-block Huffman tables,
+  no new dependency), and refuses any body whose CRC-16 does not match.
+  YM2, YM3, YM3b, YM5 and YM6 are decoded: frames, clock and rate, loop,
+  digidrums, the three strings, which voices ever sound; a bare YM is laid
+  out region by region, a packed one walks the LHA header field by field
+  and describes the tune inside. Modland's 4,958: all but five walk and
+  tile, every body matching its CRC; the five are ST-Sound's MIX1 and
+  YMT1/YMT2 sample types, which are not register dumps and are refused by
+  name. YM4 has no specimen and is refused rather than guessed at.
+  Anatomy page.
+- **SNDH: Atari ST music as its own 68000 player, and Pack-Ice.** The
+  three entry branches (with their targets), the tag header from SNDH to
+  HDNS, then the player. Pack-Ice 2.3/2.4 ('ICE!') is decoded here, read
+  backwards from the end of the file, and the result must come out at the
+  stated length with SNDH where it belongs; byte for byte the same as an
+  independent depacker's on all 5,430 packed files of Modland's 5,484, all
+  of which walk and tile. The tags are read the
+  way files write them, which is not always the spec's way: the default
+  subtune is '!#' not '#!', subtune names are offsets from the tag's
+  start (after a pad byte when the tag sits on an odd address), and a
+  header from before v2 has no HDNS and simply stops where the code
+  begins. Earlier 'Ice!' streams are refused. Anatomy page.
+
+### Fixed
+
+- **Six anatomy pages drew some fields uncoloured and unnamed.** The
+  CMF, HES, KSS, PT3, S98 and VGM maps used field kinds (ptr, size, pad)
+  the page engine does not know; they are now structural or reserved,
+  and a fleet test refuses a kind the engine cannot draw.
 
 ## [1.8.4] - 2026-09-18
 

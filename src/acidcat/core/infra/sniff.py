@@ -48,7 +48,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sigmf", "smus", "spc", "stc", "vgm",
+    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sigmf", "smus", "sndh", "spc", "stc", "vgm", "ym",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -130,6 +130,14 @@ def sniff_bytes(head):
         return "psf"                                    # Portable Sound Format
     if head[:4] == b"Vgm ":
         return "vgm"                                    # Video Game Music register log
+    if head[12:16] == b"SNDH" or head[:4] in (b"ICE!", b"Ice!"):
+        # an SNDH tag after three entry branches, or Pack-Ice, in which
+        # nearly every SNDH ships; the walker unpacks it and refuses
+        # packed data that is not SNDH
+        return "sndh"                                   # Atari ST music (68000 player)
+    if head[:4] in (b"YM2!", b"YM3!", b"YM3b", b"YM4!", b"YM5!", b"YM6!") or (
+            head[:4] in (b"MIX1", b"YMT1", b"YMT2") and head[4:12] == b"LeOnArD!"):
+        return "ym"                                     # ST-Sound YM2149 register dump
     if head[:4] == b"HESM":
         return "hes"                                    # PC Engine sound
     if head[:4] == b"CTMF":
@@ -388,6 +396,18 @@ def _zeroed_head_mp3(filepath, head):
     return len(nxt) == 4 and mp3mod.decode_frame_header(nxt) is not None
 
 
+def _lha_holds_ym(filepath):
+    from acidcat.core.codecs import lha
+    try:
+        with open(filepath, "rb") as f:
+            raw = f.read(2 + 255)
+        h = lha.parse_header(raw)
+    except (OSError, lha.LhaError):
+        return False
+    return h["checksum_ok"] and (h["name"].lower().endswith(".ym")
+                                 or filepath.lower().endswith(".ym"))
+
+
 def sniff(filepath):
     """Sniff a file on disk. Same ids as ``sniff_bytes`` plus
     "id3-wrapped" for an ID3v2 tag around a non-MP3 container."""
@@ -403,6 +423,13 @@ def sniff(filepath):
         # A real stream has a second frame exactly frame_length away; one lucky
         # byte pair does not. Costs one 4-byte read, and only on this path.
         fmt = None
+    # An LHA archive is how nearly every .ym ships, but LHA holds anything:
+    # an .lzh of NSF files has the same five bytes at offset 2. The level
+    # byte sits just past the shared head, so this reads the member header
+    # itself and claims it only when it is the level-0 kind ST-Sound
+    # writes, its checksum holds, and the member or the file is a .ym.
+    if fmt is None and head[2:7] in (b"-lh5-", b"-lh0-") and _lha_holds_ym(filepath):
+        return "ym"                                    # ST-Sound YM in LHA
     # a .cue may open with REM/CATALOG lines before FILE; trust the extension
     if fmt is None and filepath.lower().endswith(".cue"):
         return "cue"

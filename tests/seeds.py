@@ -1365,3 +1365,82 @@ def iq():
     """A bare IQ capture: no header at all, interleaved unsigned 8-bit I/Q. The
     extension carries the sample format, which is the whole identification."""
     return bytes(range(256)) * 8
+
+
+@seed("ym", ".ym")
+def ym(version=b"YM5!", frames=4, drums=(b"\x80" * 8,), interleaved=True,
+       title="SEED", packed=False):
+    """ST-Sound YM register dump. YM5/YM6 by default: header, digidrums, three
+    strings, 16 registers a frame, End!. version=b"YM3!" is the bare 14-register
+    form. packed=True wraps it in a stored (-lh0-) LHA level-0 member, which is
+    the wrapper's header path without needing a compressor."""
+    if version in (b"YM2!", b"YM3!", b"YM3b"):
+        body = version + bytes([(k * 7 + f) & 0x0F for k in range(14) for f in range(frames)])
+        if version == b"YM3b":
+            body += struct.pack(">I", 1)
+    else:
+        body = bytearray(version + b"LeOnArD!")
+        body += struct.pack(">IIHIHIH", frames, 1 if interleaved else 0, len(drums),
+                            2000000, 50, 0, 0)
+        for d in drums:
+            body += struct.pack(">I", len(d)) + d
+        body += title.encode("latin-1") + b"\x00SEED AUTHOR\x00\x00"
+        regs = [[0] * 16 for _ in range(frames)]
+        for f in range(frames):
+            regs[f][0], regs[f][7], regs[f][8] = (f + 1) & 0xFF, 0x3E, 0x0F
+        if interleaved:
+            body += bytes(regs[f][k] for k in range(16) for f in range(frames))
+        else:
+            body += bytes(regs[f][k] for f in range(frames) for k in range(16))
+        body += b"End!"
+        body = bytes(body)
+    if not packed:
+        return body
+    return lha_member(body, name=b"SEED.YM")
+
+
+def lha_member(data, name=b"SEED", method=b"-lh0-", packed_body=None):
+    """An LHA level-0 archive of one member, plus the terminating zero byte.
+    Stored unless `packed_body` (with `method`) is given."""
+    from acidcat.core.codecs.lha import crc16
+    body = data if packed_body is None else packed_body
+    h = bytearray(method + struct.pack("<IIIBB", len(body), len(data), 0x2B7C8000, 0x20, 0)
+                  + bytes([len(name)]) + name + struct.pack("<H", crc16(data)))
+    return bytes([len(h), sum(h) & 0xFF]) + bytes(h) + body + b"\x00"
+
+
+@seed("sndh", ".sndh")
+def sndh(title="SEED", subtunes=2, hdns=True, packed=False):
+    """Atari ST SNDH: three BRA.W entries, the tag header, a player that is
+    three RTS. packed=True wraps it in a Pack-Ice stream that is one literal
+    run -- valid ICE without needing the packer."""
+    tags = (b"SNDH" + b"TITL" + title.encode("latin-1") + b"\x00COMMSEED COMPOSER\x00"
+            + b"##%02d" % subtunes + b"!#01" + b"TC50\x00"
+            + b"TIME" + struct.pack(">%dH" % subtunes, *range(60, 60 + subtunes)))
+    if hdns:
+        tags += b"\x00" * (len(tags) & 1) + b"HDNS"
+    else:
+        tags += b"\x00" * ((12 + len(tags)) & 1)
+    player_at = 12 + len(tags)
+    entries = b"".join(struct.pack(">Hh", 0x6000, player_at + 2 * i - (4 * i + 2))
+                       for i in range(3))
+    image = entries + tags + b"\x4e\x75" * 3
+    if not packed:
+        return image
+    return ice_literal(image)
+
+
+def ice_literal(image):
+    """A Pack-Ice stream that stores `image` as one literal run of 15-269
+    bytes. Read backwards: a marker-carrying bit byte, two more bit bytes,
+    the literals. Bits: literal, long run, 11, 11, 111, the count less 15,
+    then the picture flag, 0."""
+    n = len(image)
+    assert 15 <= n <= 269
+    bits = [1] * 9 + [(n - 15) >> (7 - i) & 1 for i in range(8)] + [0]
+    bits += [0] * (24 - 1 - len(bits))
+    b1 = int("".join(map(str, bits[0:7])), 2) << 1 | 1
+    b2 = int("".join(map(str, bits[7:15])), 2)
+    b3 = int("".join(map(str, bits[15:23])), 2)
+    body = image + bytes([b3, b2, b1])
+    return b"ICE!" + struct.pack(">II", 12 + len(body), n) + body

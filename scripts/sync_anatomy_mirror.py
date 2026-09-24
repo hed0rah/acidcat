@@ -80,6 +80,14 @@ NEW_CARDS = {
             "per-tick settings, ornaments that are semitone offsets, three "
             "channel streams per pattern, and every one of them reached by an "
             "absolute 16-bit pointer, so the file tiles by sorting them."),
+    "ym": ("YM", "#3D7A6A", "#305F52", "byte map",
+           "What a player routine wrote to the Atari ST's YM2149, one frame of "
+           "registers per tick, stored column by column so it packs, inside an "
+           "LHA level-0 archive whose -lh5- body and CRC are drawn too."),
+    "sndh": ("SNDH", "#4E3D7A", "#3D305F", "byte map",
+             "Atari ST music as its own 68000 player: three entry branches, a "
+             "tag header from SNDH to HDNS, then the code, nearly always inside "
+             "a Pack-Ice stream that is read from the end backwards."),
     "cmf": ("CMF", "#7A4E3D", "#5F3D30", "byte map",
             "A Standard MIDI track with its OPL2 patches packed in front: "
             "Creative's 1991 format for the Sound Blaster, where sixteen bytes "

@@ -121,6 +121,13 @@ class Reason(enum.Enum):
 # covered, if anywhere. An exemption pointing at another test is a redirect; one
 # pointing at nothing is a hole.
 EXEMPT = {
+    ("acidcat.core.formats.sndh", "_TEXT_MAX"):
+        (Reason.FIELD_SANITY, "how far an SNDH text tag may run before its "
+                              "NUL. A tag longer than that is reported as "
+                              "having no terminator and the header stops "
+                              "there, which is the announcement; real tags are "
+                              "a few dozen bytes. Covered by the corpus walk in "
+                              "tests/test_sndh.py"),
     ("acidcat.core.walk.apple", "_RESU_INFLATE_CAP"):
         (Reason.RESOURCE_LIMIT, "an inflate bound on a zlib payload, so a "
                                 "crafted ResU cannot expand without limit. "
@@ -1150,7 +1157,33 @@ def _nsfe_over_cap(tmp_path, n):
     return str(q)
 
 
+def _ym_over_cap(tmp_path, n):
+    """A bare YM longer than n bytes: the seed with enough frames."""
+    import seeds
+    q = tmp_path / "big.ym"
+    q.write_bytes(seeds.SEEDS["ym"][0](frames=n))
+    return str(q)
+
+
+def _ym_many_drums(tmp_path, n):
+    import seeds
+    q = tmp_path / "drums.ym"
+    q.write_bytes(seeds.SEEDS["ym"][0](drums=(bytes([0x80]) * 4,) * (n + 2)))
+    return str(q)
+
+
+def _sndh_over_cap(tmp_path, n):
+    """A bare SNDH longer than n bytes: the seed with a long player."""
+    import seeds
+    q = tmp_path / "big.sndh"
+    q.write_bytes(seeds.SEEDS["sndh"][0]() + bytes(n * 2))
+    return str(q)
+
+
 SWEPT = [
+    ("acidcat.core.walk.sndh", "_SNDH_READ_CAP", 512, _sndh_over_cap, "parsed the first"),
+    ("acidcat.core.walk.ym", "_YM_READ_CAP", 512, _ym_over_cap, "parsed the first"),
+    ("acidcat.core.walk.ym", "_YM_DRUM_LIST_CAP", 4, _ym_many_drums, "listing the first"),
     # (module that READS the constant, name, patched value, builder, says)
     ("acidcat.core.walk.svx", "_CHUNK_CAP", 4, _svx_many_chunks, "cap"),
     ("acidcat.core.walk.amiga", "_CHUNK_CAP", 4, _smus_many_chunks, "cap"),

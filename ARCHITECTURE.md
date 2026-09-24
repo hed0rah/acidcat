@@ -28,10 +28,10 @@ unchanged.
    `aiff`, `mp3`, `mp4`, `flac`, `ni`, `tracker`, `sf2`, ...),
    `core/primitives/` (shared byte readers), `core/codecs/` (ADPCM, BRR, VADPCM
    and friends), `core/containers/` (disc images and archives),
-   `core/infra/` (`sniff.py` -- 90 recognized formats, `fieldcodec.py` -- the
+   `core/infra/` (`sniff.py` -- 92 recognized formats, `fieldcodec.py` -- the
    enc-language, `geometry.py` -- which bytes a chunk occupies, `mapped.py`,
    `render.py`).
-2. **Walkers** -- `core/walk/*.py`: 55 walkers behind one dispatcher, serving 86
+2. **Walkers** -- `core/walk/*.py`: 57 walkers behind one dispatcher, serving 88
    registered format labels, each emitting the field model. **The correctness oracle and the
    default.** Dispatch: `core/walk/__init__.py::walk_file`.
 3. **Declarative engine** -- `core/grammar/`: format descriptors as data plus one
@@ -77,11 +77,11 @@ unchanged.
 
 ```
 src/acidcat/
-  core/            193 modules
-    formats/       per-format byte decoders (33)
-    walk/          55 walker modules -> 86 format labels (56)
+  core/            199 modules
+    formats/       per-format byte decoders (35)
+    walk/          57 walker modules -> 88 format labels (58)
     primitives/    shared byte readers (6)
-    codecs/        sample-data decoders + the 6510/SID and SPC700/S-DSP players (19)
+    codecs/        sample-data decoders, unpackers, the 6510/SID and SPC700/S-DSP players (21)
     containers/    disc images and archives (5)
     infra/         sniff, fieldcodec, mmap, rendering (9)
     forensics/     anomalies, entropy/viz, audioscan, provenance (19)
@@ -95,7 +95,7 @@ src/acidcat/
   mcp_server/      schema, handlers, transport (19 tools)
   tui_app/         Textual inspector/editor
   util/            small shared helpers
-  cli.py  explorer.py  tui_theme.py  __init__.py     (250 modules in total)
+  cli.py  explorer.py  tui_theme.py  __init__.py     (256 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,
