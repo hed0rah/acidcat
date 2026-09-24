@@ -4,6 +4,24 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Added
+
+- **SPC playback: the SPC700 and the S-DSP, run.** An .spc holds no audio,
+  only the sound unit frozen mid-tune, so `p` in the TUI now resumes the
+  CPU where the dump stopped and turns what its driver writes into sound:
+  all 256 opcodes with their cycle counts, the three timers, the DSP's
+  BRR decode, Gaussian interpolation, ADSR and GAIN envelopes, noise,
+  pitch modulation and echo, at 32 kHz stereo. Checked sample by sample
+  against blargg's Snes_Spc on 200 random Modland snapshots: median
+  correlation 1.0000, 192 above 0.99, none failing to run. The phases a
+  dump does not carry (the timer base clock, the envelope rate counter)
+  follow the established players, since a driver that seeds a random
+  number from a timer read plays a different tune otherwise. The dumped
+  echo ring is played as found rather than cleared. A 30-second preview
+  renders in about 20 seconds.
+
 ## [1.8.4] - 2026-09-18
 
 ### Added

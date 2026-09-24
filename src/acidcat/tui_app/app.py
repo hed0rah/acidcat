@@ -1333,6 +1333,54 @@ class AcidcatTUI(App):
                               {"rate": info["sample_rate"], "channels": 1},
                               label)
 
+    _SPC_PREVIEW_SECONDS = 30.0
+
+    def _play_spc(self):
+        """Run the snapshot's music driver and play what the DSP makes.
+
+        Like a SID, an .spc holds no audio: it is the sound CPU frozen with
+        its driver and samples in RAM. Rendering costs a little under the
+        audio's duration, so it runs in a worker, like the SID path.
+        """
+        from acidcat.core.codecs import spc_render
+        if not play.have_audio():
+            self.notify("no audio player found (install ffmpeg for ffplay)",
+                        severity="warning")
+            return
+        try:
+            with open(self.work, "rb") as fh:
+                raw = fh.read()
+        except OSError as e:
+            self.notify(f"could not read the snapshot: {e}", severity="warning")
+            return
+        can, why = spc_render.can_render(raw)
+        if not can:
+            self.notify(f"this snapshot cannot be run here: {why}",
+                        severity="warning")
+            return
+        self.notify("running the SPC700 driver and the S-DSP ...")
+        self.run_worker(lambda: self._spc_work(raw), thread=True)
+
+    def _spc_work(self, raw):
+        from acidcat.core.codecs import spc_render
+        try:
+            pcm, info = spc_render.render(
+                raw, seconds=self._SPC_PREVIEW_SECONDS, fade_ms=0)
+        except spc_render.CannotRender as e:
+            self.call_from_thread(self.notify, f"cannot play this snapshot: {e}",
+                                  severity="warning")
+            return
+        except Exception as e:                       # noqa: BLE001
+            self.call_from_thread(self.notify, f"render failed: {e}",
+                                  severity="error")
+            return
+        label = info["title"] or "SPC tune"
+        if info["game"]:
+            label += f" ({info['game']})"
+        self.call_from_thread(self._play_pcm, pcm,
+                              {"rate": info["sample_rate"], "channels": 2},
+                              label)
+
     def _extract_disc(self, entries):
         default = os.path.join(os.path.dirname(os.path.abspath(self._disc_src)),
                                os.path.splitext(os.path.basename(self._disc_src))[0]
@@ -3080,6 +3128,9 @@ class AcidcatTUI(App):
         # which would be looking for something that is not there.
         if "sid tune" in (self.fmt or "").lower():
             self._play_sid()
+            return
+        if "spc700 sound snapshot" in (self.fmt or "").lower():
+            self._play_spc()
             return
         # A compressed container has no raw PCM anywhere in it, so the whole
         # "which chunk is the audio" question does not apply -- there is no
