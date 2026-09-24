@@ -354,13 +354,13 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     [
       {label:"magic",k:"sync",r:[0,3],val:"\"CTMF\"",body:"Four bytes.",note:""},
       {label:"version",k:"enum",r:[4,5],val:"0x0101 = 1.1",body:"BCD, low byte first: 01 01. 1.0 is 00 01.",note:""},
-      {label:"instruments at",k:"ptr",r:[6,7],val:"0x0028 = 40",body:"Right after this header.",note:""},
-      {label:"music at",k:"ptr",r:[8,9],val:"0x0088 = 136",body:"40 + 6 patches of 16 = 136.",note:""},
+      {label:"instruments at",k:"sync",r:[6,7],val:"0x0028 = 40",body:"Right after this header.",note:""},
+      {label:"music at",k:"sync",r:[8,9],val:"0x0088 = 136",body:"40 + 6 patches of 16 = 136.",note:""},
       {label:"ticks per quarter",k:"enum",r:[10,11],val:"48",body:"The MIDI division.",note:""},
       {label:"ticks per second",k:"enum",r:[12,13],val:"96",body:"The clock the player runs the track at.",note:"120 BPM at 48/quarter."},
-      {label:"title, composer, remarks",k:"pad",r:[14,19],val:"0, 0, 0",body:"No strings in this file.",note:"offsets when present."},
+      {label:"title, composer, remarks",k:"rsv",r:[14,19],val:"0, 0, 0",body:"No strings in this file.",note:"offsets when present."},
       {label:"channels used",k:"enum",r:[20,35],val:"1, 2, 4, 5",body:"One byte per MIDI channel, non-zero for used. A player can skip the others.",note:""},
-      {label:"instrument count",k:"size",r:[36,37],val:"6",body:"1.1 only.",note:""},
+      {label:"instrument count",k:"sync",r:[36,37],val:"6",body:"1.1 only.",note:""},
       {label:"tempo",k:"enum",r:[38,39],val:"120 BPM",body:"1.1 only.",note:""}
     ]);
 
@@ -374,7 +374,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
       {label:"sustain/release",k:"enum",r:[6,7],val:"0x53 / 0x74",body:"",note:""},
       {label:"waveform",k:"enum",r:[8,9],val:"0 / 0",body:"Both sine.",note:""},
       {label:"feedback/conn",k:"enum",r:[10,10],val:"0x06 = feedback 3, FM",body:"Bit 0 clear: the modulator modulates the carrier. Bits 1-3: feedback 3.",note:""},
-      {label:"reserved",k:"pad",r:[11,15],val:"0",body:"Five bytes.",note:""}
+      {label:"reserved",k:"rsv",r:[11,15],val:"0",body:"Five bytes.",note:""}
     ]);
 
   // the first events of the track

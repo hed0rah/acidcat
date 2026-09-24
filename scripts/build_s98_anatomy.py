@@ -108,11 +108,11 @@ BUILDS = """
       {label:"magic",k:"sync",r:[0,3],val:"\\"S983\\"",body:"Three letters and the version as a text digit: 3.",note:"53 39 38 33."},
       {label:"timer numerator",k:"enum",r:[4,7],val:"1",body:"With the denominator below: one sync is 1 / 1000 s.",note:""},
       {label:"timer denominator",k:"enum",r:[8,11],val:"0 = default 1000",body:"Zero means the default.",note:""},
-      {label:"compression",k:"pad",r:[12,15],val:"0",body:"Defined, never used.",note:""},
-      {label:"tag offset",k:"ptr",r:[16,19],val:"0x076C = 1900",body:"Past the dump: this is a v3 layout. In a v1 file this points at 0x20, the title before the dump.",note:"which layout, by where it points."},
-      {label:"dump offset",k:"ptr",r:[20,23],val:"0x80 = 128",body:"Where the byte code begins. 0x20 + two 16-byte device entries is 0x40; the rest to 0x80 is zero padding.",note:""},
-      {label:"loop offset",k:"ptr",r:[24,27],val:"0 = no loop",body:"An offset inside the dump to return to, or zero.",note:""},
-      {label:"devices",k:"size",r:[28,31],val:"2",body:"How many 16-byte device entries follow.",note:"v3 only."},
+      {label:"compression",k:"rsv",r:[12,15],val:"0",body:"Defined, never used.",note:""},
+      {label:"tag offset",k:"sync",r:[16,19],val:"0x076C = 1900",body:"Past the dump: this is a v3 layout. In a v1 file this points at 0x20, the title before the dump.",note:"which layout, by where it points."},
+      {label:"dump offset",k:"sync",r:[20,23],val:"0x80 = 128",body:"Where the byte code begins. 0x20 + two 16-byte device entries is 0x40; the rest to 0x80 is zero padding.",note:""},
+      {label:"loop offset",k:"sync",r:[24,27],val:"0 = no loop",body:"An offset inside the dump to return to, or zero.",note:""},
+      {label:"devices",k:"sync",r:[28,31],val:"2",body:"How many 16-byte device entries follow.",note:"v3 only."},
       {label:"device 0",k:"enum",r:[32,47],val:"type 1 = YM2149 PSG @ 4 MHz",body:"Type, clock in Hz, pan, reserved. Opcodes 0x00 and 0x01 write to it.",note:"0x3D0900 = 4,000,000."},
       {label:"device 1",k:"enum",r:[48,63],val:"type 5 = YM2151 OPM @ 4 MHz",body:"The second device: opcodes 0x02 and 0x03.",note:""}
     ]);
@@ -123,8 +123,8 @@ BUILDS = """
     [
       {label:"write",k:"sync",r:[0,2],val:"device 1, reg 0x1F = 0",body:"Opcode 0x02: device 1 (the OPM), port 0. Then the register and the value. The tune opens by clearing the chip's registers downward.",note:"three bytes."},
       {label:"writes",k:"enum",r:[3,11],val:"regs 0x1E, 0x1D, 0x1C = 0",body:"Three more, the same shape.",note:""},
-      {label:"sync n",k:"size",r:[12,14],val:"0xFE, varint 0x165 -> 359 syncs",body:"0xE5 has bit 7 set, so 0x02 follows: 0x65 + (0x02 << 7) = 357, plus 2 = 359 syncs of 1 ms. A reader that takes one byte here lands inside the next command and misreads everything after.",note:"low seven bits first."},
-      {label:"sync",k:"size",r:[15,15],val:"0xFF = 1 sync",body:"One tick.",note:""}
+      {label:"sync n",k:"sync",r:[12,14],val:"0xFE, varint 0x165 -> 359 syncs",body:"0xE5 has bit 7 set, so 0x02 follows: 0x65 + (0x02 << 7) = 357, plus 2 = 359 syncs of 1 ms. A reader that takes one byte here lands inside the next command and misreads everything after.",note:"low seven bits first."},
+      {label:"sync",k:"sync",r:[15,15],val:"0xFF = 1 sync",body:"One tick.",note:""}
     ]);
 
   // the start of the tag block

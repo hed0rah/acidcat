@@ -205,3 +205,17 @@ def test_every_page_carries_the_toggle_and_keeps_regions_out_of_the_intro(page):
         assert 0 <= first_sec < first_details, (
             f"{page.name}: a <details> region sits inside the flex intro; it "
             f"renders as a column")
+
+
+@pytest.mark.parametrize("page", _pages(), ids=lambda p: p.name)
+def test_every_field_kind_is_one_the_page_can_draw(page):
+    """The engine colours and names four kinds. A field of any other kind
+    draws uncoloured with a blank kind label; six pages shipped fields of
+    kind ptr, size and pad that way."""
+    raw = page.read_text(encoding="utf-8")
+    m = re.search(r"var KINDS=\{([^}]*)\}", raw)
+    if not m:
+        return
+    kinds = set(re.findall(r"(\w+):", m.group(1)))
+    used = set(re.findall(r'\bk:\s*"(\w+)"', raw))
+    assert used <= kinds, f"{page.name} uses kinds {sorted(used - kinds)} the engine cannot draw"
