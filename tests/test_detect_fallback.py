@@ -55,6 +55,9 @@ def test_a_folder_name_key_is_found_on_this_path_too(tmp_path):
 def test_nothing_recoverable_still_reports_failure(tmp_path):
     """The other half: `failed` must keep meaning something. A file with no
     parseable name and no decodable audio has genuinely produced no answer."""
+    # `failed` is the verdict after librosa tried and could not decode; without
+    # the analysis extra the function never gets that far
+    pytest.importorskip("librosa")
     got = estimate_librosa_metadata(_undecodable(tmp_path, "nameless.wav"))
     assert got["estimated_bpm"] is None
     assert got["estimated_key"] is None
@@ -71,6 +74,9 @@ def test_a_partial_answer_is_not_reported_as_total_failure(tmp_path):
     the first 4,000 files in a real corpus are named that way and all parse as
     None). Using an unsupported shape here would test the parser, not this.
     """
+    # `failed` is the verdict after librosa tried and could not decode; without
+    # the analysis extra the function never gets that far
+    pytest.importorskip("librosa")
     got = estimate_librosa_metadata(_undecodable(tmp_path, "174_beat.wav"))
     assert got["estimated_bpm"] == 174
     assert got["bpm_source"] == "filename"

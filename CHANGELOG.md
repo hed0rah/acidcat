@@ -24,6 +24,9 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 - **An anomaly finding in a text field gave a relative offset.** The
   control-bytes rule reported the field's offset within its chunk as if it
   were a file offset; it now points at the tag.
+- **Two test modules failed instead of skipping without the `analysis`
+  extra** (`test_concealment`, and two `test_detect_fallback` cases that
+  test librosa's decode-failure path).
 
 ### Changed
 
