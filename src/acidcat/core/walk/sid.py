@@ -115,11 +115,11 @@ def _header_chunk(h, raw, magic, version, hdr_len, deep):
                          "not present", "the header declares v%d but the file "
                          "is too short to hold the v2 tail" % version))
 
-    fields.append(_f(0, 0, "songlengthMD5", sidmod.songlength_md5(raw),
+    fields.append(_f(None, 0, "songlengthMD5", sidmod.songlength_md5(raw),
                      "MD5 of the whole file; the HVSC Songlengths.md5 key"))
 
     if deep and h["songs"]:
-        fields.append(_f(0, 0, "speed table", _speed_table(h),
+        fields.append(_f(None, 0, "speed table", _speed_table(h),
                          "per subtune, from the speed bits"))
 
     return {"id": "header", "offset": 0, "size": hdr_len,
@@ -218,14 +218,14 @@ def _data_chunk(h, raw):
                          "little-endian, inside the C64 data -- the header is "
                          "big-endian, this is not", enc="<H",
                          raw=h["effective_load"]))
-    fields.append(_f(0, 0, "memory", "%s-%s"
+    fields.append(_f(None, 0, "memory", "%s-%s"
                      % (_addr(h["effective_load"]), _addr(h["memory_end"])),
                      "where the image sits in C64 memory (%d bytes)"
                      % h["code_length"]))
-    fields.append(_f(0, 0, "init", _addr(h["effective_init"]),
+    fields.append(_f(None, 0, "init", _addr(h["effective_init"]),
                      _entry_note(h, h["effective_init"])))
     if h["play_address"]:
-        fields.append(_f(0, 0, "play", _addr(h["play_address"]),
+        fields.append(_f(None, 0, "play", _addr(h["play_address"]),
                          _entry_note(h, h["play_address"])))
 
     summary = ("C64 memory image, %d bytes at %s"

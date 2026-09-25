@@ -238,9 +238,9 @@ def _xid6(raw, size, warns):
         return [_region("trailing", at, n, "%d bytes, not xid6" % n)]
     declared = struct.unpack_from("<I", raw, at + 4)[0]
     length = min(8 + declared, size - at)
-    # the size sits in the 8-byte header, before payload_base: unpositioned
-    # with an xref, as the contract has it for header fields
-    fields = [_f(None, 4, "size", declared, "", xref=at + 4)]
+    # the size sits in the 8-byte header, before payload_base: a negative
+    # offset from it
+    fields = [_f(-4, 4, "size", declared, "")]
     pos = at + 8
     end = at + length
     n = 0

@@ -4,6 +4,37 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Fixed
+
+- **Seven chunks whose fields pointed at the wrong bytes.** Every field is
+  now read back from the bytes it claims, on every seed and on the hunt
+  corpus, and seven walkers failed: their fields were inside the chunk, so
+  every bounds check passed, but at the wrong place. KRZ objects (4 bytes
+  off, and their sample, keymap and program bodies by a further header),
+  the VGM GD3 tag (12), DSDIFF's FRM8 (12), the RMID data chunk (8) and the
+  PSF tag block (5) measured from the chunk start while declaring a payload
+  base past their header; GF1 patches declared no base, so the default
+  (offset + 8) moved every field 8 bytes; Ogg placed its derived codec name
+  on the page's capture pattern. DSDIFF's PROP sample rate spanned its whole
+  local chunk, so its `>I` annotation could never be verified or edited.
+  What the TUI highlighted, `od` annotated and the editor would have
+  written for all of these was the neighbouring bytes.
+
+### Changed
+
+- **One way to say where a field is.** A field in its chunk's own header
+  (an id, a size word) has a negative offset from the payload base instead
+  of being unpositioned with an `xref`; a field that describes a chunk but
+  is stored elsewhere (a MOD or XM sample's header, far from its PCM) is
+  positioned and marked `remote`; `off=None` is the only spelling of "no
+  position" (69 derived values were written at offset 0, length 0); and
+  `xref` only ever means "points to". `inspect` prints a header field's
+  offset as `-0x0008`. New fleet tests pin all four rules and a ledger of
+  the nine fields whose value is a transform of their bytes (a count stored
+  minus one, 16.16 fixed point, ASCII digits), which may only shrink.
+
 ## [1.8.5] - 2026-09-24
 
 ### Added

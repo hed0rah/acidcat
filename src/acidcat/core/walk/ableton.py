@@ -152,17 +152,17 @@ def inspect_asd(filepath):
            else "equals the source audio's total frame count"),
     ]
     if h["max_step"]:
-        grid_fields.append(_f(0, 0, "max_step", f"{h['max_step']:,} frames",
+        grid_fields.append(_f(None, 0, "max_step", f"{h['max_step']:,} frames",
                               "grid steps are capped at 30 ms of audio, which "
                               "is what pins the sample rate"))
     if rate:
-        grid_fields.append(_f(0, 0, "inferred_rate", f"{rate:,} Hz",
+        grid_fields.append(_f(None, 0, "inferred_rate", f"{rate:,} Hz",
                               "exact" if h["rate_exact"] else
                               "lower bound; a short file may never reach the cap"))
         # Same split as above: the rate can be known while the duration is not,
         # so this field is gated on the value it actually prints.
         if dur is not None:
-            grid_fields.append(_f(0, 0, "duration", f"{dur:.3f} s",
+            grid_fields.append(_f(None, 0, "duration", f"{dur:.3f} s",
                                   ("last_position / inferred_rate -- a LOWER "
                                    "BOUND, the grid is truncated")
                                   if h["truncated"]
@@ -190,17 +190,17 @@ def inspect_asd(filepath):
         notable = [n for n in abmod.NOTABLE_FIELDS if n in present]
 
         obj_fields = [
-            _f(0, 0, "declared_fields", f"{len(present)} distinct",
+            _f(None, 0, "declared_fields", f"{len(present)} distinct",
                "the SCHEMA, not the contents -- see below"),
-            _f(0, 0, "note", "declared != stored",
+            _f(None, 0, "note", "declared != stored",
                "this schema is shared with the Live Set, so it names clip "
                "settings the sidecar does not carry. LoopEnd is declared here "
                "and absent from 91% of files whose Set states a real one: loop "
                "points belong to a clip, and one audio file can back many "
                "clips. What the sidecar holds is per-file ANALYSIS"),
-            _f(0, 0, "declared_classes", f"{len(set(classes))} distinct",
+            _f(None, 0, "declared_classes", f"{len(set(classes))} distinct",
                "u8 length + ASCII name"),
-            _f(0, 0, "sections", _sections(present),
+            _f(None, 0, "sections", _sections(present),
                "optional sections, not versions -- 62% of files declare both "
                "the beat-tracking and overview sets, so they cannot be "
                "generations of one another"),
@@ -208,7 +208,7 @@ def inspect_asd(filepath):
         for n in notable:
             tag = tags.get(n)
             kind = abmod.TYPE_TAGS.get(tag, "unknown")
-            obj_fields.append(_f(0, 0, n, kind, f"type tag 0x{tag:02x}"))
+            obj_fields.append(_f(None, 0, n, kind, f"type tag 0x{tag:02x}"))
         chunks.append({
             "id": "objects", "offset": body_off, "size": size - body_off,
             "summary": (f"object tree, {len(present)} typed fields across "
@@ -258,7 +258,7 @@ def inspect_asd(filepath):
                     note = (f"tempo MOVES across this clip: {len(spans)} spans "
                             f"from {lo:g} to {hi:g} BPM. Live stores this "
                             f"mapping, not a number")
-                wf.append(_f(0, 0, "derived_tempo", tempo_txt, note))
+                wf.append(_f(None, 0, "derived_tempo", tempo_txt, note))
             chunks.append({
                 "id": "warp", "offset": raw.find(abmod.WARP_MARKER_NAME),
                 "size": len(marks) * abmod.WARP_MARKER_SIZE,
@@ -278,9 +278,9 @@ def inspect_asd(filepath):
                    + (f" = {first / rate:.3f} s" if rate else "")),
                 _f(0, 4, "last", f"{last:,} frames"
                    + (f" = {last / rate:.3f} s" if rate else "")),
-                _f(0, 0, "positions", ", ".join(f"{p:,}" for p in on["positions"][:12])
+                _f(None, 0, "positions", ", ".join(f"{p:,}" for p in on["positions"][:12])
                    + (" ..." if on["count"] > 12 else "")),
-                _f(0, 0, "energies", ", ".join(f"{e:g}" for e in on["energies"][:8])
+                _f(None, 0, "energies", ", ".join(f"{e:g}" for e in on["energies"][:8])
                    + (" ..." if on["count"] > 8 else ""),
                    "TransitionEnergies, one per onset"),
             ]
@@ -319,9 +319,9 @@ def inspect_asd(filepath):
                    "read from the file, not inferred"),
             ]
             if per:
-                ovf.append(_f(0, 0, "bin_samples", f"{per:,}",
+                ovf.append(_f(None, 0, "bin_samples", f"{per:,}",
                               "1 << the log2 above"))
-                ovf.append(_f(0, 0, "bins", f"{bins:,}",
+                ovf.append(_f(None, 0, "bins", f"{bins:,}",
                               "total_frames / bin_samples"))
             if not ov["consistent"]:
                 warns.append(
@@ -383,12 +383,12 @@ def inspect_ableton_xml(filepath, fmt_id="als"):
         warns.append("<Ableton> root element carries no attributes")
 
     ratio = (len(xml) / size) if size else 0
-    fields = [_f(0, 0, k, v) for k, v in attrs.items()]
+    fields = [_f(None, 0, k, v) for k, v in attrs.items()]
     child = abmod.root_child(xml[:4096])
     if child:
-        fields.append(_f(0, 0, "root_child", child,
+        fields.append(_f(None, 0, "root_child", child,
                          "the element inside <Ableton>; it names the document type"))
-    fields.append(_f(0, 0, "decompressed", f"{len(xml):,} bytes",
+    fields.append(_f(None, 0, "decompressed", f"{len(xml):,} bytes",
                      f"{ratio:.1f}x the {size:,} bytes on disk"))
     root = {"id": "Ableton", "offset": 0, "size": size,
             "summary": (f"{label}, written by "
@@ -396,7 +396,7 @@ def inspect_ableton_xml(filepath, fmt_id="als"):
             "fields": fields, "warnings": [], "payload_base": 0}
 
     counts = [(lab, xml.count(tag)) for tag, lab in _COUNTED]
-    body_fields = [_f(0, 0, lab, f"{n:,}") for lab, n in counts if n]
+    body_fields = [_f(None, 0, lab, f"{n:,}") for lab, n in counts if n]
     body = {"id": "content", "offset": 0, "size": size,
             "summary": ", ".join(f"{n:,} {lab}" for lab, n in counts if n)
                        or "no recognised Live elements",

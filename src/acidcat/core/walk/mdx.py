@@ -157,7 +157,7 @@ def _header_chunk(raw, h):
         fields.append(_f(h["base"] + 2 + i * 2, 2, "channel %s" % name,
                          "0x%04X" % rel, "-> 0x%04X" % absol,
                          enc=">H", raw=rel, xref=absol))
-    fields.append(_f(0, 0, "channelCount", h["channels"], kind))
+    fields.append(_f(None, 0, "channelCount", h["channels"], kind))
     return {"id": "header", "offset": 0, "size": end, "summary": summary,
             "fields": fields, "warnings": [], "payload_base": 0}
 
@@ -175,7 +175,7 @@ def _voice_chunk(raw, h, voices, deep):
     # 26 bytes -- real bytes, which nothing else claims. Sizing the chunk to
     # the region accounts for them; the field below says how many are spare.
     span = max(0, _voice_region_end(raw, h) - off)
-    fields = [_f(0, 0, "voices", voices,
+    fields = [_f(None, 0, "voices", voices,
                  "%d bytes each; these are OPM register values, not an "
                  "abstraction over them" % mdxmod.VOICE_SIZE)]
     rows = []
@@ -195,7 +195,7 @@ def _voice_chunk(raw, h, voices, deep):
                                    % (v["feedback"], v["connect"],
                                       v["slot_mask"], v["tl"], v["ks_ar"])})
     if voices > 8 and not deep:
-        fields.append(_f(0, 0, "more", "%d further voices" % (voices - 8),
+        fields.append(_f(None, 0, "more", "%d further voices" % (voices - 8),
                          "shown with deep inspection"))
     spare = span - voices * mdxmod.VOICE_SIZE
     if spare:

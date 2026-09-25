@@ -19,6 +19,21 @@ A **field** is built with `_f(off, len, name, value, note)` from
 `raw` when the field can be re-encoded byte-for-byte, and `xref` when it is a
 pointer into the file.
 
+Where a field is, in one rule: its bytes are at `payload_base + off`.
+
+- A field in the chunk's own header (its id, its size word) has a **negative**
+  `off`: a RIFF chunk's id is at `-8`.
+- A field that describes this chunk but is stored somewhere else (a MOD
+  sample's name in the module header) is positioned the same way and passes
+  `remote=True`.
+- A value with no bytes of its own (a count, a duration, a decoded name) is
+  `off=None`, never `(0, 0)`.
+- `xref` only ever means "this field points there".
+
+`test_chunk_geometry.py` reads every positioned field back from its bytes on
+every seed. A value that is a transform of its bytes (a count stored minus
+one) goes in its `KNOWN_TRANSFORMS` ledger with the reason.
+
 **Walkers degrade, they do not raise.** `walk_file` enforces this at the one
 boundary every consumer shares, turning an unexpected exception into zero
 chunks plus a warning. Do not rely on that: raise `AbletonError`-style

@@ -368,9 +368,15 @@ class TestTheHuntCorpusWalks:
 
 
 class TestFieldsLandInsideTheirChunk:
-    def test_no_positioned_field_escapes_its_payload(self, walked):
+    def test_no_positioned_field_escapes_its_chunk(self, walked):
         """The check that would have caught the generic_walk header defect on
-        the day it was written, rather than on the day someone measured it."""
+        the day it was written, rather than on the day someone measured it.
+
+        Measured against the EXTENT, not the payload: a header field (a RIFF
+        id, a block's size word) sits before payload_base with a negative
+        offset and is still the chunk's own byte. A field marked `remote`
+        describes this chunk but is stored elsewhere (a MOD sample's name in
+        the module header) and is checked against the file instead."""
         from acidcat.core.infra.fieldcodec import _field_abs
         bad = []
         for path, label, chunks, warns in walked:
@@ -379,21 +385,159 @@ class TestFieldsLandInsideTheirChunk:
                 off, size = c.get("offset"), c.get("size")
                 if not isinstance(off, int) or not isinstance(size, int):
                     continue
-                base, size = geometry.payload_of(c)
-                if base + size > fsize:        # already covered above
+                base, plen = geometry.payload_of(c)
+                if base + plen > fsize:        # already covered above
                     continue
+                lo, ext = geometry.extent_of(c)
                 for fl in c.get("fields") or []:
                     if fl.get("off") is None:
                         continue
                     at = _field_abs(c, fl)
                     end = at + (fl.get("len") or 0)
-                    if at < base or end > base + size:
+                    if fl.get("remote"):
+                        ok = 0 <= at and end <= fsize
+                    else:
+                        ok = lo <= at and end <= lo + ext
+                    if not ok:
                         bad.append((label, str(c.get("id")), fl["name"],
-                                    at, base, size, os.path.basename(path)))
+                                    at, lo, ext, os.path.basename(path)))
         assert not bad, (
             "fields outside the chunk that declares them:\n" + "\n".join(
-                f"  {lab} {cid!r}.{nm!r} at 0x{at:x}, payload 0x{b:x}+{s}"
+                f"  {lab} {cid!r}.{nm!r} at 0x{at:x}, extent 0x{b:x}+{s}"
                 f" ({fn})" for lab, cid, nm, at, b, s, fn in bad[:8]))
+
+    def test_unpositioned_has_one_spelling(self, walked):
+        """`off=None` is the only way to say "no byte position". A field at
+        (0, 0) reads as a zero-length field at the payload start, which is a
+        position; 69 derived values were spelled that way."""
+        bad = [(label, str(c.get("id")), fl["name"])
+               for path, label, chunks, warns in walked
+               for c in chunks for fl in c.get("fields") or []
+               if fl.get("off") == 0 and fl.get("len") == 0]
+        assert not bad, "fields at (0, 0) that mean unpositioned:\n" + "\n".join(
+            f"  {lab} {cid!r}.{nm!r}" for lab, cid, nm in bad[:8])
+
+    def test_xref_is_only_ever_a_pointer(self, walked):
+        """An unpositioned field whose length is not zero, carrying an xref, is
+        the old workaround for "this field lives there": the value has bytes,
+        so it should say where they are with `off` (negative for a header
+        field, `remote` for one stored elsewhere) and keep xref for pointing."""
+        bad = [(label, str(c.get("id")), fl["name"])
+               for path, label, chunks, warns in walked
+               for c in chunks for fl in c.get("fields") or []
+               if fl.get("off") is None and fl.get("len") and "xref" in fl]
+        assert not bad, "xref used as a location:\n" + "\n".join(
+            f"  {lab} {cid!r}.{nm!r}" for lab, cid, nm in bad[:8])
+
+
+# (walker label, chunk id with [n] indices removed, field) -> why the value is
+# not the stored number. Shrink only, and every entry is a transform a reader
+# needs to know about: 2.0 gives each one a declared `xform`
+# (docs/contract/node-v1.md section 6.2) and this ledger empties.
+KNOWN_TRANSFORMS = {
+    ("Kurzweil K2000/K2500/K2600 bank", "type1", "blocksize"): "stored negative",
+    ("ProTracker MOD", "smp[]", "loop_len"): "stored in words",
+    ("MP4/M4A", "mp4a", "sample_rate"): "16.16 fixed point",
+    ("ScreamTracker 3 S3M", "S3M", "master_volume"): "bit 7 is the stereo flag",
+    ("Akai MPC2000 sound", "SND", "channels"): "0 mono, 1 stereo",
+    ("Atari ST SNDH tune (68000 player, usually Pack-Ice packed)", "header",
+     "subtunes"): "ASCII decimal digits after the tag",
+    ("Atari ST SNDH tune (68000 player, usually Pack-Ice packed)", "header",
+     "default_subtune"): "ASCII decimal digits after the tag",
+    ("ZX Spectrum Sound Tracker module (STC)", "positions", "count"): "stored count - 1",
+    ("Video Game Music register log (VGM/VGZ)", "header", "eof"):
+        "relative to its own offset",
+}
+
+
+def _stored_ints(b):
+    return {int.from_bytes(b, o, signed=s) for o in ("little", "big")
+            for s in (False, True)}
+
+
+def _mismatches(walked):
+    """(key, why, file) for every positioned field whose value is not what its
+    bytes decode to, ledgered or not."""
+    import re
+    from acidcat.core.infra import fieldcodec
+    from acidcat.core.infra.fieldcodec import _field_abs
+    bad = []
+    for path, label, chunks, warns in walked:
+        with io.open(path, "rb") as fh:
+            data = fh.read()
+        for c in chunks:
+            cid = re.sub(r"\[\d+\]", "[]", str(c.get("id")).strip())
+            for fl in c.get("fields") or []:
+                at, n = _field_abs(c, fl), fl.get("len") or 0
+                if at is None or not n or at < 0 or at + n > len(data):
+                    continue
+                b, v = data[at:at + n], fl.get("value")
+                key = (label, cid, fl["name"])
+                enc = fl.get("enc")
+                bf = fieldcodec.parse_bitfield(enc)
+                if bf:
+                    delta, clen, bitpos, width, bias = bf
+                    box = data[at + delta:at + delta + clen]
+                    if len(box) < clen:
+                        continue
+                    got = fieldcodec.bitfield_extract(box, bitpos, width, bias)
+                    want = fl.get("raw", v)
+                    if got == want:
+                        continue
+                    why = f"enc {enc}: bits say {got!r}, field says {want!r}"
+                elif enc and enc.startswith("bits"):
+                    continue        # bitsmap/bitsdyn: the value is a label
+                elif enc:
+                    try:
+                        got = fieldcodec.decode_value(enc, b)
+                    except Exception as e:
+                        got = e
+                    want = fl.get("raw", v)
+                    if isinstance(got, float) or got == want:
+                        continue
+                    why = f"enc {enc}: bytes say {got!r}, field says {want!r}"
+                elif (isinstance(v, int) and not isinstance(v, bool)
+                      and n in (1, 2, 3, 4, 8)):
+                    if v in _stored_ints(b):
+                        continue
+                    why = f"value {v!r}, bytes {b.hex()}"
+                elif (isinstance(v, str) and len(v) == n and n >= 4
+                      and v.isascii() and v.isprintable()
+                      and all(32 <= x < 127 for x in b)):
+                    if b.decode("ascii") == v:
+                        continue
+                    why = f"text {v!r}, bytes {b!r}"
+                else:
+                    continue
+                bad.append((key, why, os.path.basename(path)))
+    return bad
+
+
+class TestFieldsSayWhatTheirBytesSay:
+    """Read every positioned field back from its bytes.
+
+    The bounds tests above cannot see a field that is inside its chunk but at
+    the wrong place: five chunks measured their field offsets from the chunk
+    start while declaring a payload_base past the header (KRZ objects, VGM Gd3,
+    DSDIFF FRM8, RMID data, PSF tags), GF1 patches never declared theirs, and
+    Ogg put a derived codec name on the page magic. Every one passed every
+    geometry test. Reading the value back finds them."""
+
+    def test_every_positioned_value_is_its_bytes(self, walked):
+        bad = [m for m in _mismatches(walked) if m[0] not in KNOWN_TRANSFORMS]
+        assert not bad, (
+            "fields whose value is not their bytes (a displaced offset, or a "
+            "transform to add to KNOWN_TRANSFORMS with its reason):\n"
+            + "\n".join(f"  {k} {why} ({fn})" for k, why, fn in bad[:12]))
+
+    def test_the_ledger_only_names_real_transforms(self, walked):
+        """Shrink only: every entry must still be a value that differs from its
+        bytes somewhere in the walked corpus, so a fixed walker, or one that
+        gains a codec annotation, takes its entry out with it."""
+        live = {m[0] for m in _mismatches(walked)}
+        stale = [k for k in KNOWN_TRANSFORMS if k not in live]
+        assert not stale, "KNOWN_TRANSFORMS entries that now read back true:\n" + \
+            "\n".join(f"  {k}" for k in stale)
 
 
 # (walker label, chunk id) -> the sibling it collides with. Shrink only.

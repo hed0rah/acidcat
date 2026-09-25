@@ -240,7 +240,10 @@ def _dsdiff_prop(payload):
         n += 1
         if cid == b"FS  " and len(body) >= 4:
             rate = struct.unpack_from(">I", body, 0)[0]
-            fields.append(_f(pos, 12 + size, "sample_rate", f"{rate:,}",
+            # the field is the rate word itself, after the local chunk's
+            # 12-byte header: spanning the whole local chunk, its >I enc
+            # described 16 bytes and could never be verified or edited
+            fields.append(_f(pos + 12, 4, "sample_rate", f"{rate:,}",
                              rate_name(rate), enc=">I", raw=rate))
             bits.append(rate_name(rate) or f"{rate:,} Hz")
         elif cid == b"CHNL" and len(body) >= 2:
@@ -497,12 +500,14 @@ def inspect_dsdiff(filepath, ctx=None):
         chunks.append({
             "id": "FRM8", "offset": 0, "size": declared,
             "summary": f"DSDIFF, {declared:,} bytes",
-            "fields": [_f(0x00, 4, "magic", "FRM8",
+            # offsets from payload_base (12): the id and size are header
+            # fields before it, the form type is the payload's first word
+            "fields": [_f(-12, 4, "magic", "FRM8",
                           "IFF with 64-bit sizes"),
-                       _f(0x04, 8, "size", f"{declared:,}",
+                       _f(-8, 8, "size", f"{declared:,}",
                           "counts everything after this 12-byte header",
                           enc=">Q", raw=declared),
-                       _f(0x0C, 4, "form_type",
+                       _f(0, 4, "form_type",
                           head[12:16].decode("latin-1"))],
             "warnings": [], "payload_base": 12, "payload_len": declared,
             "extent_len": 12 + declared})

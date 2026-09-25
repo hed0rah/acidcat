@@ -142,9 +142,9 @@ def inspect_vgm(filepath, deep=False):
             "id": "block[%d]" % i, "offset": at - 7, "size": 7 + blen,
             "summary": "%s, %s bytes" % (kind, format(blen, ",")),
             # the 7-byte block header sits before the payload this chunk
-            # reads from, so its fields are unpositioned with an xref
-            "fields": [_f(None, 1, "type", "0x%02X" % btype, kind, xref=at - 5),
-                       _f(None, 4, "length", blen, "", xref=at - 4)],
+            # reads from, so its fields have negative offsets from it
+            "fields": [_f(-5, 1, "type", "0x%02X" % btype, kind),
+                       _f(-4, 4, "length", blen, "")],
             "warnings": [], "payload_base": at, "payload_len": blen})
         pos = at + blen
     if w["end"] > pos:
@@ -157,9 +157,10 @@ def inspect_vgm(filepath, deep=False):
     if gd3 and gd3["ok"]:
         chunks.append({"id": "Gd3", "offset": h["gd3_at"], "size": gd3["size"],
                        "summary": "GD3 tag" + title,
-                       "fields": [_f(0, 4, "magic", "Gd3 "),
-                                  _f(4, 4, "version", "0x%08X" % gd3["version"]),
-                                  _f(8, 4, "length", gd3["length"], "bytes of UTF-16")]
+                       # the 12-byte tag header precedes the UTF-16 payload
+                       "fields": [_f(-12, 4, "magic", "Gd3 "),
+                                  _f(-8, 4, "version", "0x%08X" % gd3["version"]),
+                                  _f(-4, 4, "length", gd3["length"], "bytes of UTF-16")]
                                  + _gd3_fields(gd3),
                        "warnings": [], "payload_base": h["gd3_at"] + 12,
                        "payload_len": gd3["length"]})

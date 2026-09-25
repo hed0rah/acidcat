@@ -68,10 +68,10 @@ def inspect_cue(filepath, deep=False):
     audio = [t for t in tracks if str(t.get("type", "")).upper() == "AUDIO"]
 
     fields = [
-        _f(0, 0, "tracks", len(tracks)),
-        _f(0, 0, "audioTracks", len(audio),
+        _f(None, 0, "tracks", len(tracks)),
+        _f(None, 0, "audioTracks", len(audio),
            "the ones a ripper would take; the rest are data"),
-        _f(0, 0, "binaries", len(files),
+        _f(None, 0, "binaries", len(files),
            "the sheet indexes into these; it contains no audio itself"),
     ]
     if unnamed:
@@ -82,7 +82,7 @@ def inspect_cue(filepath, deep=False):
         here = os.path.join(os.path.dirname(os.path.abspath(filepath)),
                             os.path.basename(name))
         present = os.path.isfile(here)
-        fields.append(_f(0, 0, "file", os.path.basename(name),
+        fields.append(_f(None, 0, "file", os.path.basename(name),
                          "present beside the sheet" if present
                          else "NOT found beside the sheet"))
         if not present:
@@ -92,7 +92,7 @@ def inspect_cue(filepath, deep=False):
 
     for t in tracks:
         lba = t.get("start_lba", 0)
-        fields.append(_f(0, 0, "track %02d" % t["num"],
+        fields.append(_f(None, 0, "track %02d" % t["num"],
                          "%s at %s" % (str(t.get("type", "?")).upper(), _msf(lba)),
                          "sector %s, %.1f s in" % (format(lba, ","),
                                                    lba / float(_SECTORS_PER_SECOND))))
@@ -142,9 +142,9 @@ def inspect_gcm(filepath, deep=False):
         _f(0x424, 4, "fstOffset", "0x%08X" % fst_off,
            "the file-system table", enc=">I", raw=fst_off, xref=fst_off),
         _f(0x428, 4, "fstSize", format(fst_size, ","), enc=">I", raw=fst_size),
-        _f(0, 0, "files", format(len(entries), ","),
+        _f(None, 0, "files", format(len(entries), ","),
            "read from the FST; the image itself is not loaded"),
-        _f(0, 0, "audioFiles", format(len(tunes), ","),
+        _f(None, 0, "audioFiles", format(len(tunes), ","),
            "by extension: %s" % ", ".join(audio_ext)),
     ]
     if fst_off >= size:
@@ -153,11 +153,11 @@ def inspect_gcm(filepath, deep=False):
         warns.append("no files could be read from the file-system table")
 
     for e in tunes[:12] if not deep else tunes:
-        fields.append(_f(0, 0, os.path.basename(str(e.get("path", "?"))),
+        fields.append(_f(None, 0, os.path.basename(str(e.get("path", "?"))),
                          "%s bytes" % format(e.get("size", 0), ","),
                          "at 0x%08X" % e.get("offset", 0)))
     if len(tunes) > 12 and not deep:
-        fields.append(_f(0, 0, "more", "%d further audio file(s)" % (len(tunes) - 12),
+        fields.append(_f(None, 0, "more", "%d further audio file(s)" % (len(tunes) - 12),
                          "shown with deep inspection"))
 
     return [{"id": "header", "offset": 0, "size": min(0x440, size),
@@ -230,15 +230,15 @@ def inspect_cdxa(filepath, deep=False):
         _f(0, 12, "sync", "00 FF x10 00", "every sector opens with this mark"),
         _f(0x0F, 1, "mode", info["mode"],
            "Mode2 carries the 8-byte XA subheader; Mode1 does not"),
-        _f(0, 0, "sectorSize", format(cdxa.SECTOR, ","), "raw, sync and headers included"),
-        _f(0, 0, "sectors", format(total, ",")),
-        _f(0, 0, "discTime", _msf(total), "at 75 sectors per second"),
-        _f(0, 0, "sectorsExamined", format(scanned, ","),
+        _f(None, 0, "sectorSize", format(cdxa.SECTOR, ","), "raw, sync and headers included"),
+        _f(None, 0, "sectors", format(total, ",")),
+        _f(None, 0, "discTime", _msf(total), "at 75 sectors per second"),
+        _f(None, 0, "sectorsExamined", format(scanned, ","),
            "the whole image" if scanned >= total
            else "of %s; the rest was not read" % format(total, ",")),
-        _f(0, 0, "audioSectors", format(audio_sectors, ","),
+        _f(None, 0, "audioSectors", format(audio_sectors, ","),
            "submode bit 0x04, within the sectors examined"),
-        _f(0, 0, "xaStreams", len(counts),
+        _f(None, 0, "xaStreams", len(counts),
            "one per (file, channel) pair; a stream is interleaved, not contiguous"),
     ]
 
@@ -255,13 +255,13 @@ def inspect_cdxa(filepath, deep=False):
     for key in sorted(counts, key=lambda k: -counts[k])[:16 if not deep else None]:
         best = max(codings[key].items(), key=lambda kv: kv[1])[0]
         c = cdxa.coding_of(best)
-        fields.append(_f(0, 0, "file %d ch %d" % key,
+        fields.append(_f(None, 0, "file %d ch %d" % key,
                          "%s sector(s)" % format(counts[key], ","),
                          "%s, %s Hz, %d-bit ADPCM"
                          % ("stereo" if c["stereo"] else "mono",
                             format(c["rate"], ","), c["bits"])))
     if len(counts) > 16 and not deep:
-        fields.append(_f(0, 0, "more", "%d further stream(s)" % (len(counts) - 16),
+        fields.append(_f(None, 0, "more", "%d further stream(s)" % (len(counts) - 16),
                          "shown with deep inspection"))
 
     body = total * cdxa.SECTOR
