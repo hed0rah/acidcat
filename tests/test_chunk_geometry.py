@@ -436,7 +436,6 @@ class TestFieldsLandInsideTheirChunk:
 # (docs/contract/node-v1.md section 6.2) and this ledger empties.
 KNOWN_TRANSFORMS = {
     ("ProTracker MOD", "smp[]", "loop_len"): "stored in words",
-    ("ProTracker MOD", "smp[]", "loop_start"): "stored in words",
     ("MP4/M4A", "mp4a", "sample_rate"): "16.16 fixed point",
     ("ScreamTracker 3 S3M", "S3M", "master_volume"): "bit 7 is the stereo flag",
     ("Akai MPC2000 sound", "SND", "channels"): "0 mono, 1 stereo",
@@ -447,6 +446,13 @@ KNOWN_TRANSFORMS = {
     ("ZX Spectrum Sound Tracker module (STC)", "positions", "count"): "stored count - 1",
     ("Video Game Music register log (VGM/VGZ)", "header", "eof"):
         "relative to its own offset",
+}
+
+# Transforms only the real-file corpora exhibit: the seeds hold these values at
+# zero, where a stored and a transformed number agree. Allowed everywhere, and
+# checked for staleness only when the hunt corpus was walked.
+CORPUS_TRANSFORMS = {
+    ("ProTracker MOD", "smp[]", "loop_start"): "stored in words",
 }
 
 
@@ -524,7 +530,8 @@ class TestFieldsSayWhatTheirBytesSay:
     geometry test. Reading the value back finds them."""
 
     def test_every_positioned_value_is_its_bytes(self, walked):
-        bad = [m for m in _mismatches(walked) if m[0] not in KNOWN_TRANSFORMS]
+        bad = [m for m in _mismatches(walked)
+               if m[0] not in KNOWN_TRANSFORMS and m[0] not in CORPUS_TRANSFORMS]
         assert not bad, (
             "fields whose value is not their bytes (a displaced offset, or a "
             "transform to add to KNOWN_TRANSFORMS with its reason):\n"
@@ -535,7 +542,10 @@ class TestFieldsSayWhatTheirBytesSay:
         bytes somewhere in the walked corpus, so a fixed walker, or one that
         gains a codec annotation, takes its entry out with it."""
         live = {m[0] for m in _mismatches(walked)}
-        stale = [k for k in KNOWN_TRANSFORMS if k not in live]
+        ledger = dict(KNOWN_TRANSFORMS)
+        if os.environ.get("ACIDCAT_HUNT_CORPUS"):
+            ledger.update(CORPUS_TRANSFORMS)
+        stale = [k for k in ledger if k not in live]
         assert not stale, "KNOWN_TRANSFORMS entries that now read back true:\n" + \
             "\n".join(f"  {k}" for k in stale)
 
