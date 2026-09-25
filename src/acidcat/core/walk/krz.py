@@ -136,7 +136,8 @@ def _object(b, pos, block_len):
     tcode = hash_ >> 10
     oid = hash_ & 0x3FF
     tname = _TYPES.get(tcode, f"type{tcode}")
-    name = b[pos + 10:pos + 10 + 16].split(b"\x00")[0].decode("ascii", "replace").strip()
+    stored = b[pos + 10:pos + 10 + 16].split(b"\x00")[0]
+    name = stored.decode("ascii", "replace").strip()
     data = pos + 8 + ofs                            # object-specific data start
 
     # Offsets below are written from the block start (header) and from `data`
@@ -145,12 +146,14 @@ def _object(b, pos, block_len):
     # They were emitted unrebased, which put every KRZ object field 4 bytes
     # (header) or 4 + ofs bytes (body) away from its bytes.
     fields = [
-        _f(0x00, 4, "blocksize", block_len, "block bytes (stored negative)"),
+        _f(0x00, 4, "blocksize", block_len, "block bytes (stored negative)",
+           enc=">i", raw=-block_len),
         _f(0x04, 2, "hash", f"0x{hash_:04x}", f"type {tcode}, id {oid}",
            enc=">H", raw=hash_),
         _f(0x06, 2, "obj_size", obj_size),
         _f(0x08, 2, "name_ofs", ofs),
-        _f(0x0A, len(name) or 1, "name", name or "(unnamed)"),
+        # the field covers the stored bytes; the value is trimmed
+        _f(0x0A, len(stored) or 1, "name", name or "(unnamed)"),
     ]
     n_header = len(fields)
     warns = []

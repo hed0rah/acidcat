@@ -253,8 +253,9 @@ def _xid6(raw, size, warns):
         sid, stype, data = raw[pos], raw[pos + 1], struct.unpack_from("<H", raw, pos + 2)[0]
         n += 1
         if stype == 0:
-            fields.append(_f(pos - at - 8, 4, "sub[0x%02X]" % sid, data,
-                             "value held in the header"))
+            # the value is the header's 16-bit length slot, after id and type
+            fields.append(_f(pos - at - 8 + 2, 2, "sub[0x%02X]" % sid, data,
+                             "value held in the header", enc="<H", raw=data))
             pos += 4
         else:
             body = raw[pos + 4:min(pos + 4 + data, avail)]
@@ -263,8 +264,15 @@ def _xid6(raw, size, warns):
                           % (sid, data, len(body)))
             if stype == 1:
                 value = body.split(NUL, 1)[0].decode("latin-1")
+            elif stype == 4 and len(body) >= 4:
+                value = struct.unpack_from("<I", body, 0)[0]
+                # an integer sub-chunk: the field is the value, after the header
+                fields.append(_f(pos - at - 8 + 4, 4, "sub[0x%02X]" % sid, value,
+                                 _XID6_IDS.get(sid, ""), enc="<I", raw=value))
+                pos += 4 + ((data + 3) & ~3)
+                continue
             elif stype == 4:
-                value = struct.unpack_from("<I", body, 0)[0] if len(body) >= 4 else data
+                value = data
             else:
                 value = "type %d, %d bytes" % (stype, data)
             # the field spans what is there, not what the sub-chunk declares

@@ -120,7 +120,8 @@ def _chunk(cid, cid_s, pos, size, p, avail, vh):
 
     if cid_s in _TEXT_CHUNKS:
         text = _dtext(p)
-        fields.append(_f(0x00, avail, "text", text or "(empty)",
+        # an empty chunk has no text bytes to point at
+        fields.append(_f(0x00 if avail else None, avail, "text", text or "(empty)",
                          _TEXT_CHUNKS[cid_s]))
         summary = f"{_TEXT_CHUNKS[cid_s]}: {text}" if text else _TEXT_CHUNKS[cid_s]
 

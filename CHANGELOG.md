@@ -21,6 +21,16 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   local chunk, so its `>I` annotation could never be verified or edited.
   What the TUI highlighted, `od` annotated and the editor would have
   written for all of these was the neighbouring bytes.
+- **Four more, found only on real files.** Running the same read-back over
+  the real-file corpora caught cases the seeds never reach. The Ableton
+  sidecar's overview values sat on the sentinel they are found by, not the
+  words before it, and its warp markers were all placed at the chunk's
+  first byte (the marker count is now marked as derived, since it counts
+  decoded records). A Kurzweil object's name field was shorter than its
+  stored name when the name had leading spaces, and its block size is now
+  declared as the signed word it is. An SPC xid6 integer sub-chunk spanned
+  its header as well as its value. An empty 8SVX text chunk now has no
+  position rather than a zero-length one at offset 0.
 - **An anomaly finding in a text field gave a relative offset.** The
   control-bytes rule reported the field's offset within its chunk as if it
   were a file offset; it now points at the tag.

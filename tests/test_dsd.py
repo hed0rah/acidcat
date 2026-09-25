@@ -467,10 +467,13 @@ def _tiles(chunks, size):
         if not children:
             leaves.append((c["offset"], c["extent_len"]))
             continue
-        owned = c.get("payload_base", c["offset"]) - c["offset"]
+        header = c.get("payload_base", c["offset"]) - c["offset"]
+        owned = header
         for f in c.get("fields", []):
+            # a field sits at payload_base + off, so it reaches header + off + len
+            # from the chunk's start
             if f.get("off") is not None and f.get("len"):
-                owned = max(owned, f["off"] + f["len"])
+                owned = max(owned, header + f["off"] + f["len"])
         if owned > 0:
             leaves.append((c["offset"], owned))
     end = 0

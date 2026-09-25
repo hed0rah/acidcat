@@ -247,10 +247,15 @@ def inspect_asd(filepath):
             varies = spans and (hi - lo) > 0.05      # ignore rounding jitter
             tempo_txt = (f"{lo:g}-{hi:g} BPM over {len(spans)} spans"
                          if varies else (f"{bpm:g} BPM" if bpm else ""))
-            wf = [_f(0, 4, "count", len(marks), "warp markers")]
+            base = raw.find(abmod.WARP_MARKER_NAME)
+            end = base + len(marks) * abmod.WARP_MARKER_SIZE
+            # the count is how many records decoded, not a stored number
+            wf = [_f(None, 0, "count", len(marks), "warp markers")]
             for m in marks[:8]:
-                wf.append(_f(0, 16, f"marker[{m['id']}]",
-                             f"{m['sec']:.6f} s = beat {m['beat']:g}"))
+                wf.append(_f(m["at"] - base, 20, f"marker[{m['id']}]",
+                             f"{m['sec']:.6f} s = beat {m['beat']:g}",
+                             "u32 id, f64 seconds, f64 beat",
+                             remote=not base <= m["at"] < end))
             if bpm:
                 note = ("beats per second between two markers x 60; Live "
                         "stores this mapping, not the number")
@@ -310,13 +315,19 @@ def inspect_asd(filepath):
             per = ov["bin_samples"]
             bins = ((h["total_frames"] + per - 1) // per
                     if (h["total_frames"] and per) else 0)
+            # the three values sit before the sentinel this chunk is anchored
+            # on, at the offsets overview_trailer reads them from
+            enc = h["order"] + "I"
             ovf = [
-                _f(0, 4, "channels", ov["channels"],
-                   "verified against the source audio on 419/419 specimens"),
-                _f(0, 4, "bytes_per_bin", ov["bytes_per_bin"],
-                   "channels x 2 -- one int16 per channel per bin"),
-                _f(0, 4, "samples_per_bin_log2", ov["samples_per_bin_log2"],
-                   "read from the file, not inferred"),
+                _f(-8, 4, "channels", ov["channels"],
+                   "verified against the source audio on 419/419 specimens",
+                   enc=enc, raw=ov["channels"], remote=True),
+                _f(-26, 4, "bytes_per_bin", ov["bytes_per_bin"],
+                   "channels x 2 -- one int16 per channel per bin",
+                   enc=enc, raw=ov["bytes_per_bin"], remote=True),
+                _f(-12, 4, "samples_per_bin_log2", ov["samples_per_bin_log2"],
+                   "read from the file, not inferred",
+                   enc=enc, raw=ov["samples_per_bin_log2"], remote=True),
             ]
             if per:
                 ovf.append(_f(None, 0, "bin_samples", f"{per:,}",

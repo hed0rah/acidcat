@@ -435,8 +435,8 @@ class TestFieldsLandInsideTheirChunk:
 # needs to know about: 2.0 gives each one a declared `xform`
 # (docs/contract/node-v1.md section 6.2) and this ledger empties.
 KNOWN_TRANSFORMS = {
-    ("Kurzweil K2000/K2500/K2600 bank", "type1", "blocksize"): "stored negative",
     ("ProTracker MOD", "smp[]", "loop_len"): "stored in words",
+    ("ProTracker MOD", "smp[]", "loop_start"): "stored in words",
     ("MP4/M4A", "mp4a", "sample_rate"): "16.16 fixed point",
     ("ScreamTracker 3 S3M", "S3M", "master_volume"): "bit 7 is the stereo flag",
     ("Akai MPC2000 sound", "SND", "channels"): "0 mono, 1 stereo",
