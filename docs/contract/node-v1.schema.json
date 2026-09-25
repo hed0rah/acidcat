@@ -1,0 +1,994 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hed0rah/acidcat/docs/contract/node-v1.schema.json",
+  "title": "acidcat Document, contract v1",
+  "description": "DRAFT 2026-09-25. See node-v1.md for the intent behind every key. Additional properties are allowed everywhere: consumers must ignore keys they do not know.",
+  "type": "object",
+  "required": [
+    "contract",
+    "producer",
+    "format",
+    "file",
+    "layers",
+    "nodes",
+    "findings",
+    "limits",
+    "typing"
+  ],
+  "properties": {
+    "contract": {
+      "const": 1
+    },
+    "producer": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "format": {
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "forced": {
+          "type": "boolean"
+        },
+        "family": {
+          "type": "string"
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "size"
+      ],
+      "properties": {
+        "size": {
+          "$ref": "#/$defs/uint"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/fileLayer"
+        }
+      ],
+      "items": {
+        "$ref": "#/$defs/layer"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "limits": {
+      "$ref": "#/$defs/limits"
+    },
+    "typing": {
+      "$ref": "#/$defs/typing"
+    }
+  },
+  "$defs": {
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "layerId": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nodeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "enum": [
+        "declared",
+        "inferred"
+      ]
+    },
+    "fileLayer": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "length"
+      ],
+      "properties": {
+        "id": {
+          "const": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "file"
+        },
+        "length": {
+          "$ref": "#/$defs/uint"
+        }
+      }
+    },
+    "layer": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "length"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/layerId"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "derived"
+          ]
+        },
+        "length": {
+          "$ref": "#/$defs/uint"
+        },
+        "parent": {
+          "$ref": "#/$defs/layerId"
+        },
+        "from_node": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "parent_off",
+              "len"
+            ],
+            "properties": {
+              "parent_off": {
+                "$ref": "#/$defs/uint"
+              },
+              "len": {
+                "$ref": "#/$defs/uint"
+              },
+              "layer_off": {
+                "$ref": "#/$defs/uint"
+              }
+            }
+          }
+        },
+        "mapping": {
+          "enum": [
+            "opaque",
+            "exact"
+          ]
+        },
+        "decoder": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "params": {
+              "type": "object"
+            }
+          }
+        },
+        "length_known": {
+          "type": "boolean"
+        },
+        "truncated_at": {
+          "$ref": "#/$defs/uint"
+        },
+        "crypto": {
+          "enum": [
+            "none",
+            "format"
+          ]
+        },
+        "verdict": {
+          "type": "object",
+          "required": [
+            "result",
+            "method"
+          ],
+          "properties": {
+            "result": {
+              "enum": [
+                "verified",
+                "length-only",
+                "unverified",
+                "failed-shown"
+              ]
+            },
+            "method": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "derived"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "parent",
+          "from_node",
+          "sources",
+          "mapping",
+          "decoder",
+          "length_known",
+          "crypto",
+          "verdict"
+        ],
+        "if": {
+          "properties": {
+            "mapping": {
+              "const": "exact"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "sources": {
+              "items": {
+                "required": [
+                  "parent_off",
+                  "len",
+                  "layer_off"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "byteLoc": {
+      "type": "object",
+      "required": [
+        "layer",
+        "off",
+        "len"
+      ],
+      "properties": {
+        "kind": {
+          "const": "bytes"
+        },
+        "layer": {
+          "$ref": "#/$defs/layerId"
+        },
+        "off": {
+          "$ref": "#/$defs/uint"
+        },
+        "len": {
+          "$ref": "#/$defs/uint"
+        }
+      }
+    },
+    "pathLoc": {
+      "type": "object",
+      "required": [
+        "kind",
+        "layer",
+        "syntax",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "const": "path"
+        },
+        "layer": {
+          "$ref": "#/$defs/layerId"
+        },
+        "syntax": {
+          "enum": [
+            "json-pointer",
+            "xml-steps"
+          ]
+        },
+        "path": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "off": {
+          "$ref": "#/$defs/uint"
+        },
+        "len": {
+          "$ref": "#/$defs/uint"
+        }
+      }
+    },
+    "locator": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/pathLoc"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/byteLoc"
+            },
+            {
+              "not": {
+                "properties": {
+                  "kind": {
+                    "const": "path"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^(u8|i8|[ui](16|24|32|64)(le|be)|f(32|64)(le|be)|f80be|fourcc|ascii|cstring|utf16(le|be)|latin1|utf8|synchsafe|varint:(midi|leb128|s98)|bits:[1-8]:[0-9]+:[1-9][0-9]*|bytes|display|derived)$"
+    },
+    "xform": {
+      "type": "string",
+      "pattern": "^(add\\(-?[0-9]+\\)|neg|mul\\(-?[0-9]+\\)|fixed\\([0-9]+\\.[0-9]+\\)|ascii-dec|rel\\((self|node)\\)|mask\\(0x[0-9a-fA-F]+\\))(;(add\\(-?[0-9]+\\)|neg|mul\\(-?[0-9]+\\)|fixed\\([0-9]+\\.[0-9]+\\)|ascii-dec|rel\\((self|node)\\)|mask\\(0x[0-9a-fA-F]+\\)))*$"
+    },
+    "field": {
+      "type": "object",
+      "required": [
+        "name",
+        "key",
+        "type",
+        "type_source",
+        "value",
+        "display",
+        "note"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/locator"
+        },
+        "type": {
+          "$ref": "#/$defs/type"
+        },
+        "type_source": {
+          "enum": [
+            "declared",
+            "enc",
+            "inferred",
+            "none"
+          ]
+        },
+        "xform": {
+          "$ref": "#/$defs/xform"
+        },
+        "value": {},
+        "display": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "string"
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "ptr": {
+          "$ref": "#/$defs/byteLoc"
+        },
+        "derived_from": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "remote": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "derived"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "at"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "display"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "type_source": {
+                "const": "none"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "derived_from"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "at"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "caps": {
+      "type": "object",
+      "properties": {
+        "audio": {
+          "type": "object",
+          "required": [
+            "codec",
+            "rate",
+            "channels",
+            "bits",
+            "source",
+            "fields"
+          ],
+          "properties": {
+            "codec": {
+              "type": "string"
+            },
+            "rate": {
+              "$ref": "#/$defs/uint"
+            },
+            "channels": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "bits": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "frames": {
+              "$ref": "#/$defs/uint"
+            },
+            "float": {
+              "type": "boolean"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "decode": {
+          "type": "object",
+          "required": [
+            "format",
+            "source"
+          ],
+          "properties": {
+            "format": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            }
+          }
+        },
+        "render": {
+          "type": "object",
+          "required": [
+            "engine",
+            "source"
+          ],
+          "properties": {
+            "engine": {
+              "enum": [
+                "sid",
+                "spc",
+                "ym"
+              ]
+            },
+            "subtunes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "default": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            }
+          }
+        },
+        "carve": {
+          "type": "object",
+          "required": [
+            "ext",
+            "source"
+          ],
+          "properties": {
+            "ext": {
+              "type": "string",
+              "pattern": "^\\.[A-Za-z0-9]+$"
+            },
+            "what": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            }
+          }
+        },
+        "descend": {
+          "type": "object",
+          "required": [
+            "source"
+          ],
+          "properties": {
+            "layer": {
+              "$ref": "#/$defs/layerId"
+            },
+            "format": {
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "layer"
+              ]
+            },
+            {
+              "required": [
+                "format"
+              ]
+            }
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "required": [
+            "profile",
+            "source"
+          ],
+          "properties": {
+            "profile": {
+              "enum": [
+                "wav",
+                "aiff",
+                "tagged",
+                "vital"
+              ]
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            }
+          }
+        }
+      }
+    },
+    "rows": {
+      "type": "object",
+      "required": [
+        "total",
+        "kept",
+        "cap",
+        "items"
+      ],
+      "properties": {
+        "total": {
+          "$ref": "#/$defs/uint"
+        },
+        "kept": {
+          "$ref": "#/$defs/uint"
+        },
+        "cap": {
+          "$ref": "#/$defs/uint"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "at": {
+                "$ref": "#/$defs/byteLoc"
+              }
+            }
+          }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "geometry",
+        "summary",
+        "fields",
+        "children",
+        "caps"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "container",
+            "chunk",
+            "record",
+            "table",
+            "array",
+            "audio",
+            "code",
+            "text",
+            "padding",
+            "unwalked"
+          ]
+        },
+        "extent": {
+          "$ref": "#/$defs/byteLoc"
+        },
+        "payload": {
+          "$ref": "#/$defs/byteLoc"
+        },
+        "geometry": {
+          "enum": [
+            "declared",
+            "defaulted",
+            "invalid",
+            "unpositioned"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/field"
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "caps": {
+          "$ref": "#/$defs/caps"
+        },
+        "rows": {
+          "$ref": "#/$defs/rows"
+        },
+        "origin": {
+          "enum": [
+            "walker",
+            "normaliser"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "geometry": {
+                "enum": [
+                  "unpositioned",
+                  "invalid"
+                ]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "extent"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "extent",
+              "payload"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "unwalked"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "origin": {
+                "const": "normaliser"
+              }
+            },
+            "required": [
+              "origin"
+            ]
+          }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "kind",
+        "code",
+        "severity",
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "defect",
+            "coverage",
+            "environment",
+            "info",
+            "error"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+        },
+        "severity": {
+          "enum": [
+            "alert",
+            "warn",
+            "notice",
+            "info"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "node": {
+          "$ref": "#/$defs/nodeId"
+        },
+        "at": {
+          "$ref": "#/$defs/locator"
+        },
+        "cap": {
+          "type": "object",
+          "required": [
+            "name",
+            "limit",
+            "used"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "limit": {
+              "$ref": "#/$defs/uint"
+            },
+            "used": {
+              "$ref": "#/$defs/uint"
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "coverage"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "cap"
+        ]
+      }
+    },
+    "typing": {
+      "type": "object",
+      "required": [
+        "fields",
+        "positioned",
+        "typed_declared",
+        "typed_enc",
+        "typed_inferred",
+        "caps_declared",
+        "caps_inferred",
+        "nodes",
+        "nodes_unwalked",
+        "findings_legacy"
+      ],
+      "properties": {
+        "fields": {
+          "$ref": "#/$defs/uint"
+        },
+        "positioned": {
+          "$ref": "#/$defs/uint"
+        },
+        "typed_declared": {
+          "$ref": "#/$defs/uint"
+        },
+        "typed_enc": {
+          "$ref": "#/$defs/uint"
+        },
+        "typed_inferred": {
+          "$ref": "#/$defs/uint"
+        },
+        "caps_declared": {
+          "$ref": "#/$defs/uint"
+        },
+        "caps_inferred": {
+          "$ref": "#/$defs/uint"
+        },
+        "nodes": {
+          "$ref": "#/$defs/uint"
+        },
+        "nodes_unwalked": {
+          "$ref": "#/$defs/uint"
+        },
+        "findings_legacy": {
+          "$ref": "#/$defs/uint"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": [
+        "read_bytes",
+        "chunk_payload",
+        "inflate_bytes",
+        "work_steps",
+        "list_rows",
+        "frame_rows",
+        "depth",
+        "decode",
+        "hit"
+      ],
+      "properties": {
+        "read_bytes": {
+          "$ref": "#/$defs/uint"
+        },
+        "chunk_payload": {
+          "$ref": "#/$defs/uint"
+        },
+        "inflate_bytes": {
+          "$ref": "#/$defs/uint"
+        },
+        "work_steps": {
+          "$ref": "#/$defs/uint"
+        },
+        "list_rows": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "frame_rows": {
+          "$ref": "#/$defs/uint"
+        },
+        "depth": {
+          "$ref": "#/$defs/uint"
+        },
+        "decode": {
+          "type": "boolean"
+        },
+        "hit": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}
