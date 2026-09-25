@@ -8,8 +8,10 @@ WAV files. The gates that fixed it (sector shape, and structural discontinuity
 with the neighbourhood) are what these tests exist to protect.
 """
 
-import numpy as np
 import pytest
+
+# the sample-level checks build signals with numpy (the analysis extra)
+np = pytest.importorskip("numpy")
 
 from acidcat.core.forensics import concealment as C
 
