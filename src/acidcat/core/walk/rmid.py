@@ -64,8 +64,9 @@ def inspect_rmid(filepath, deep=False):
     # the extent ran eight bytes past the file.
     chunks.append({"id": "data", "offset": midi_off - 8, "size": midi_len,
                    "summary": f"wrapped SMF, {midi_len:,} bytes",
-                   "fields": [_f(0x00, 4, "chunk", "data"),
-                              _f(0x04, 4, "size", f"{midi_len:,}")],
+                   # the id and size are the header, before payload_base
+                   "fields": [_f(-8, 4, "chunk", "data"),
+                              _f(-4, 4, "size", f"{midi_len:,}")],
                    "warnings": [], "payload_base": midi_off})
 
     inner = data[midi_off:midi_off + midi_len]

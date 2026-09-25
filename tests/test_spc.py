@@ -277,12 +277,13 @@ def test_an_xid6_extension_is_read(tmp_path):
     assert not warns
     # field offsets are relative to payload_base, which is past the 8-byte
     # header; the first sub-chunk begins at 0, and the size field, which
-    # sits in the header, is unpositioned with an xref. The fleet geometry
-    # sweep over the hunt corpus caught these as chunk-relative.
+    # sits in the header, is at -4 from it. The fleet geometry sweep over the
+    # hunt corpus caught these as chunk-relative.
     sub0 = next(f for f in x["fields"] if f["name"] == "sub[0x01]")
     assert sub0["off"] == 0 and sub0["len"] == 4 + 5
     size = next(f for f in x["fields"] if f["name"] == "size")
-    assert size["off"] is None and size["xref"] == x["offset"] + 4
+    assert size["off"] == -4 and "xref" not in size
+    assert x["payload_base"] + size["off"] == x["offset"] + 4
 
 
 def test_an_xid6_sub_chunk_that_declares_more_than_the_block_holds_is_clamped(tmp_path):

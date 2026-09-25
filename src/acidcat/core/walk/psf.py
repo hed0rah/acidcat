@@ -191,7 +191,8 @@ def _program_chunk(h, short, is_lib):
 
 def _tag_chunk(h, raw, at, length):
     t = h["tags"]
-    fields = [_f(0x00, 5, "marker", "[TAG]"),
+    # the marker is the header, before payload_base (at + 5)
+    fields = [_f(-5, 5, "marker", "[TAG]"),
               _f(None, 0, "lines", h["tag_lines"])]
     for lib in h["libs"]:
         fields.append(_f(None, 0, "_lib", lib, "the library this mini loads over"))

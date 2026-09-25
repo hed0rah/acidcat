@@ -229,7 +229,7 @@ def inspect_nsf(filepath, deep=False):
 
     if banked:
         pad = load & 0x0FFF
-        fields.append(_f(0, 0, "romPadding", format(pad, ","),
+        fields.append(_f(None, 0, "romPadding", format(pad, ","),
                          "loadAddress & 0x0FFF while banked"))
 
     # ── validity, weighted rather than absolute ──────────────────────
@@ -384,7 +384,7 @@ def inspect_nsfe(filepath, deep=False):
                          "played by anything that does not understand it" % u)
 
     head = [_f(0, 4, "magic", "NSFE"),
-            _f(0, 0, "chunks", len(fields),
+            _f(None, 0, "chunks", len(fields),
                "length comes before the FourCC, the reverse of RIFF")]
     return [{"id": "chunks", "offset": 0, "size": size,
              "summary": "NSFe, %d chunk(s)" % len(fields),
@@ -454,28 +454,28 @@ def inspect_sap(filepath, deep=False):
     fields.append(_f(0, 5, "magic", "SAP CR LF", "five bytes, and that is all of it"))
     for tag in ("NAME", "AUTHOR", "DATE"):
         if tag in tags:
-            fields.append(_f(0, 0, tag.lower(), tags[tag].strip('"') or "(empty)"))
+            fields.append(_f(None, 0, tag.lower(), tags[tag].strip('"') or "(empty)"))
     if typ:
-        fields.append(_f(0, 0, "type", typ,
+        fields.append(_f(None, 0, "type", typ,
                          _SAP_TYPES.get(typ, "not a defined player type")))
     songs = _int(tags.get("SONGS", "1"))
-    fields.append(_f(0, 0, "songs", songs, "omitted when 1"))
+    fields.append(_f(None, 0, "songs", songs, "omitted when 1"))
     if "DEFSONG" in tags:
-        fields.append(_f(0, 0, "defSong", _int(tags["DEFSONG"]), "0-based"))
+        fields.append(_f(None, 0, "defSong", _int(tags["DEFSONG"]), "0-based"))
     for tag in ("INIT", "PLAYER", "MUSIC", "COVOX"):
         if tag in tags:
-            fields.append(_f(0, 0, tag.lower(), "$" + tags[tag].strip().upper(),
+            fields.append(_f(None, 0, tag.lower(), "$" + tags[tag].strip().upper(),
                              "hex address"))
     if "FASTPLAY" in tags:
         fp = _int(tags["FASTPLAY"])
-        fields.append(_f(0, 0, "fastplay", fp,
+        fields.append(_f(None, 0, "fastplay", fp,
                          "scanlines between PLAYER calls; 312 is PAL 50 Hz"))
     for flag in ("STEREO", "NTSC"):
         if flag in tags:
-            fields.append(_f(0, 0, flag.lower(), "yes",
+            fields.append(_f(None, 0, flag.lower(), "yes",
                              "dual POKEY" if flag == "STEREO" else "NTSC timing"))
     if times:
-        fields.append(_f(0, 0, "times", len(times), "one TIME line per subsong"))
+        fields.append(_f(None, 0, "times", len(times), "one TIME line per subsong"))
 
     if not typ:
         warns.append("no TYPE tag, and there is no documented default")
@@ -561,7 +561,7 @@ def _sap_blocks(raw, pos, end, deep, base=0):
                          "space rather than RAM" % (n, start))
         pos += 4 + length
     if n > 16 and not deep:
-        fields.append(_f(0, 0, "more", "%d further block(s)" % (n - 16),
+        fields.append(_f(None, 0, "more", "%d further block(s)" % (n - 16),
                          "shown with deep inspection"))
     return fields, warns
 
@@ -753,13 +753,13 @@ def inspect_hes(filepath, deep=False):
         c = {"id": "DATA" if n == 0 else "DATA[%d]" % n, "offset": pos,
              "size": _HES_BLOCK_HEADER + have,
              "summary": "%s bytes of HuC6280 code and data" % format(have, ","),
-             # the 16-byte block header sits before the payload; unpositioned
-             # fields with an xref, as the contract has it
-             "fields": [_f(None, 4, "size", bsize, "", xref=pos + 4),
-                        _f(None, 4, "address", "0x%08X" % baddr,
-                           "the spec's load address", xref=pos + 8),
-                        _f(None, 4, "unused", raw[pos + 12:pos + 16].hex(), "",
-                           xref=pos + 12)],
+             # the 16-byte block header sits before the payload, so its
+             # fields have negative offsets from it
+             "fields": [_f(4 - _HES_BLOCK_HEADER, 4, "size", bsize, ""),
+                        _f(8 - _HES_BLOCK_HEADER, 4, "address", "0x%08X" % baddr,
+                           "the spec's load address"),
+                        _f(12 - _HES_BLOCK_HEADER, 4, "unused",
+                           raw[pos + 12:pos + 16].hex(), "")],
              "warnings": [], "payload_base": pos + _HES_BLOCK_HEADER, "payload_len": have}
         if have < bsize:
             c["warnings"].append("declares %s bytes and the file holds %s"

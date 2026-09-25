@@ -90,28 +90,28 @@ def inspect_mod(filepath):
         if not s["length"]:
             continue
         looped = "looped" if s["loop_len"] > 2 else "one-shot"
+        h, base = s["hdr_off"], s["offset"]
         chunks.append({
             "id": f"smp[{i + 1}]", "offset": s["offset"], "size": s["length"],
             "summary": f"{s['name'] or '(unnamed)'}  {s['length']:,} bytes 8-bit PCM, "
                        f"vol {s['volume']}, {looped}",
             # These describe the sample HEADER, which sits in the 1084-byte file
-            # header, not beside the PCM this chunk covers. Positioned with an
-            # absolute offset while the chunk declares payload_base at the PCM,
-            # they were added to that base and every one pointed past the file
-            # (the XM walker carried the identical bug, fixed the same way).
-            # Unpositioned with an xref is what the contract offers for a value
-            # that lives somewhere else.
+            # header, not beside the PCM this chunk covers. They are remote
+            # fields: off is relative to the PCM like every other offset, so it
+            # is negative and lands on the header's real bytes. (Positioned as
+            # absolute offsets they once pointed past the file; the XM walker
+            # carried the same bug.)
             "fields": [
-                _f(None, 22, "name", s["name"],
-                   f"header @ 0x{s['hdr_off']:08x}", xref=s["hdr_off"]),
-                _f(None, 2, "length", f"{s['length']:,}", "bytes",
-                   xref=s["hdr_off"] + 22),
-                _f(None, 1, "finetune", s["finetune"], xref=s["hdr_off"] + 24),
-                _f(None, 1, "volume", s["volume"], xref=s["hdr_off"] + 25),
-                _f(None, 2, "loop_start", s["loop_start"],
+                _f(h - base, 22, "name", s["name"],
+                   f"header @ 0x{h:08x}", remote=True),
+                _f(h + 22 - base, 2, "length", f"{s['length']:,}", "bytes",
+                   remote=True),
+                _f(h + 24 - base, 1, "finetune", s["finetune"], remote=True),
+                _f(h + 25 - base, 1, "volume", s["volume"], remote=True),
+                _f(h + 26 - base, 2, "loop_start", s["loop_start"],
                    "bytes; Soundtracker wrote bytes, ProTracker words"
-                   if old else "", xref=s["hdr_off"] + 26),
-                _f(None, 2, "loop_len", s["loop_len"], xref=s["hdr_off"] + 28),
+                   if old else "", remote=True),
+                _f(h + 28 - base, 2, "loop_len", s["loop_len"], remote=True),
             ],
             "warnings": [], "payload_base": s["offset"],
         })
@@ -169,22 +169,18 @@ def inspect_xm(filepath):
                 "summary": f"{name}  {sm['length']:,} bytes {bits} delta-PCM "
                            f"(instrument '{ins['name']}')",
                 # These describe the sample HEADER, which in XM lives in the
-                # instrument block and not beside the PCM this chunk covers.
-                # They were positioned with absolute offsets while the chunk
-                # declares payload_base at the PCM -- and a field offset is
-                # relative to that base everywhere else, so the two were added
-                # together and every one of them pointed into open water.
-                # Unpositioned with an xref is what the contract offers for a
-                # value that genuinely lives somewhere else.
+                # instrument block and not beside the PCM this chunk covers:
+                # remote fields, off relative to the PCM like every other
+                # offset and therefore negative, landing on the real bytes.
                 "fields": [
-                    _f(None, 4, "length", f"{sm['length']:,}",
-                       f"bytes (header @ 0x{sm['hdr_off']:08x})",
-                       xref=sm["hdr_off"]),
-                    _f(None, 1, "type", f"0x{sm['type']:02x}", bits,
-                       xref=sm["hdr_off"] + 14),
-                    _f(None, 22, "name", sm["name"],
-                       f"header @ 0x{sm['hdr_off'] + 18:08x}",
-                       xref=sm["hdr_off"] + 18),
+                    _f(sm["hdr_off"] - sm["offset"], 4, "length",
+                       f"{sm['length']:,}",
+                       f"bytes (header @ 0x{sm['hdr_off']:08x})", remote=True),
+                    _f(sm["hdr_off"] + 14 - sm["offset"], 1, "type",
+                       f"0x{sm['type']:02x}", bits, remote=True),
+                    _f(sm["hdr_off"] + 18 - sm["offset"], 22, "name",
+                       sm["name"], f"header @ 0x{sm['hdr_off'] + 18:08x}",
+                       remote=True),
                 ],
                 "warnings": [], "payload_base": sm["offset"],
             })

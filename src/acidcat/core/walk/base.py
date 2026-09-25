@@ -6,7 +6,15 @@ id, offset, size, summary, fields, warnings, and optionally payload_base
 default offset+8) and rows (a per-element listing for --frames).
 
 A field is a dict: off (relative to the payload base), len, name, value,
-note. Build one with ``_f``. The helpers keep their historical
+note. Build one with ``_f``.
+
+Where a field is: its absolute offset is always payload_base + off. A field in
+the chunk's own header (a RIFF id, a block's size word) has a NEGATIVE off: it
+sits before the payload but inside the chunk's extent. A field that describes
+this chunk but is stored somewhere else (a MOD sample's name in the module
+header, far from the PCM this chunk covers) is marked remote=True, and its off
+still resolves to its real bytes. off=None is the one spelling of "no byte
+position"; xref is only ever a pointer, never "this field lives there". The helpers keep their historical
 underscore names from commands/inspect.py so the move stays mechanical.
 """
 
@@ -37,8 +45,12 @@ _ID3_READ_CAP = 16 * 1024 * 1024
 # bytes before trusting them (a wrong annotation must never write blind).
 
 
-def _f(off, length, name, value, note="", enc=None, raw=None, xref=None):
+def _f(off, length, name, value, note="", enc=None, raw=None, xref=None,
+       remote=False):
     d = {"off": off, "len": length, "name": name, "value": value, "note": note}
+    if remote:
+        # stored outside this chunk's extent; off still locates the bytes
+        d["remote"] = True
     if enc is not None:
         d["enc"] = enc
     if raw is not None:

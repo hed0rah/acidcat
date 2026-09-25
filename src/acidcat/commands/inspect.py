@@ -255,7 +255,10 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
             for fl in c["fields"]:
                 note = p("dim", f"  {fl['note']}") if fl["note"] else ""
                 # derived stats (midi track facts) carry no byte offset
-                off_col = f"+0x{fl['off']:04x}" if fl["off"] is not None else "      "
+                # a header field sits before the payload: a negative offset
+                o = fl["off"]
+                off_col = ((f"-0x{-o:04x}" if o < 0 else f"+0x{o:04x}")
+                           if o is not None else "       ")
                 off_col = p("dim", off_col)
                 val = p("val", f"{fl['value']!s:<14}")
                 if args.show_hex and fl["off"] is not None:

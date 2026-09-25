@@ -83,6 +83,10 @@ def inspect_gf1pat(filepath):
                enc="<H", raw=struct.unpack_from("<H", b, 85)[0]),
         ],
         "warnings": [],
+        # the field offsets above are file offsets: this header has no
+        # id+size prefix, and without a declared base the default (offset + 8)
+        # put every field eight bytes past its bytes
+        "payload_base": 0,
     }]
     for i, s in enumerate(info["samples"], 1):
         bits = "16-bit" if s["bits16"] else "8-bit"

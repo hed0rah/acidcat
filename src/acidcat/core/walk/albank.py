@@ -118,7 +118,7 @@ def _walk_bank(d, bo, bi, deep):
                              "event": "ADPCM" if wtype == 0 else "RAW16" if wtype == 1 else str(wtype),
                              "detail": f"tbl base 0x{base:X} len {wlen}"
                                        + (f" book order {order} npred {npred}" if wtype == 0 else "")})
-    chunk["fields"].append(_f(0, 0, "waveforms", f"{adpcm + raw} ({adpcm} VADPCM, {raw} raw16)"))
+    chunk["fields"].append(_f(None, 0, "waveforms", f"{adpcm + raw} ({adpcm} VADPCM, {raw} raw16)"))
     if deep:
         chunk["rows"] = rows
     return chunk

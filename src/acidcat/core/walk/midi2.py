@@ -90,17 +90,17 @@ def inspect_midi2(filepath, deep=False):
     clip = {"id": "clip", "offset": 8, "size": max(0, consumed - 8),
             "payload_base": 8, "warnings": [], "fields": []}
     fl = clip["fields"]
-    fl.append(_f(0, 0, "resolution", f"{tpq} ticks/quarter" if tpq else "(no DCTPQ)",
+    fl.append(_f(None, 0, "resolution", f"{tpq} ticks/quarter" if tpq else "(no DCTPQ)",
                  "DCTPQ; mandatory per spec"))
     if bpm:
-        fl.append(_f(0, 0, "tempo", f"{bpm:.3f} BPM", f"{tempo_10ns} x 10ns per quarter"))
+        fl.append(_f(None, 0, "tempo", f"{bpm:.3f} BPM", f"{tempo_10ns} x 10ns per quarter"))
     if timesig:
-        fl.append(_f(0, 0, "time_signature", timesig))
-    fl.append(_f(0, 0, "events", f"{n_events} ({n_notes} note)"))
+        fl.append(_f(None, 0, "time_signature", timesig))
+    fl.append(_f(None, 0, "events", f"{n_events} ({n_notes} note)"))
     if dur is not None:
-        fl.append(_f(0, 0, "duration", f"{dur:.2f} s", f"{nticks} ticks total"))
+        fl.append(_f(None, 0, "duration", f"{dur:.2f} s", f"{nticks} ticks total"))
     for bank, text in metadata[:16]:
-        fl.append(_f(0, 0, "meta", text, f"Flex Data text, status bank 0x{(bank or 0):02X}"))
+        fl.append(_f(None, 0, "meta", text, f"Flex Data text, status bank 0x{(bank or 0):02X}"))
 
     if not tpq:
         clip["warnings"].append("no DCTPQ resolution message (mandatory)")

@@ -40,14 +40,14 @@ def _stream(codec, channels, rate, frames, extra=None):
     count without a rate beside it is a number nobody can use.
     """
     out = [
-        _f(0, 0, "codec", codec, "how the sample data is encoded"),
-        _f(0, 0, "channels", channels,
+        _f(None, 0, "codec", codec, "how the sample data is encoded"),
+        _f(None, 0, "channels", channels,
            "mono" if channels == 1 else ("stereo" if channels == 2 else "multichannel")),
-        _f(0, 0, "sampleRate", "%s Hz" % format(rate, ",")),
-        _f(0, 0, "frames", format(frames, ","), "samples per channel"),
+        _f(None, 0, "sampleRate", "%s Hz" % format(rate, ",")),
+        _f(None, 0, "frames", format(frames, ","), "samples per channel"),
     ]
     if rate:
-        out.append(_f(0, 0, "duration", "%.3f s" % (frames / float(rate)),
+        out.append(_f(None, 0, "duration", "%.3f s" % (frames / float(rate)),
                       "frames / sampleRate; not stored, derived"))
     return out + list(extra or [])
 
@@ -123,11 +123,11 @@ def inspect_brstm(filepath, deep=False):
     body = max(0, size - audio)
     fields = _stream("DSP-ADPCM", h["channels"], h["rate"], h["samples"], [
         _f(0x00, 4, "magic", "RSTM"),
-        _f(0, 0, "blocks", format(h.get("blocks", 0), ","),
+        _f(None, 0, "blocks", format(h.get("blocks", 0), ","),
            "%s bytes each" % format(h.get("block_size", 0), ",")),
-        _f(0, 0, "audioOffset", "0x%08X" % audio,
+        _f(None, 0, "audioOffset", "0x%08X" % audio,
            "where the interleaved blocks begin", xref=audio),
-        _f(0, 0, "coefficients", "%d x 16" % h["channels"],
+        _f(None, 0, "coefficients", "%d x 16" % h["channels"],
            "one DSP-ADPCM predictor table per channel, carried in HEAD"),
     ])
     if audio > size:
@@ -204,7 +204,7 @@ def inspect_hps(filepath, deep=False):
         _f(0x10, channels * _HPS_CTX, "channelContexts",
            "%d x 0x%02X bytes" % (channels, _HPS_CTX),
            "each carries the 16 DSP coefficients at +0x10"),
-        _f(0, 0, "blocks", len(chain),
+        _f(None, 0, "blocks", len(chain),
            "walked through next-offsets, not computed from a count"),
     ])
     # frames is unknown without decoding, so it is not claimed

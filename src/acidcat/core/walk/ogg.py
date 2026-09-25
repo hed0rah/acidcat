@@ -22,7 +22,13 @@ def inspect_ogg(filepath):
     ident = oggmod.identification(data)
     codec = ch[0] if ch else (ident[0] if ident else "unknown")
     serial = pages[0]["serial"] if pages else 0
-    fields = [_f(0x00, 4, "codec", codec),
+    # the first page's capture pattern is the one field at a fixed place; the
+    # codec is derived from the identification/comment header, not stored at
+    # the page start (positioned at 0 it claimed the bytes "OggS")
+    fields = [_f(0x00, 4, "capture_pattern",
+                 data[:4].decode("latin-1") if len(data) >= 4 else "",
+                 "every Ogg page starts with it"),
+              _f(None, 0, "codec", codec),
               _f(None, 0, "pages", len(pages)),
               _f(None, 0, "bitstream_serial", serial)]
     warns = []

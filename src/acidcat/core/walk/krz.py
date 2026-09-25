@@ -139,6 +139,11 @@ def _object(b, pos, block_len):
     name = b[pos + 10:pos + 10 + 16].split(b"\x00")[0].decode("ascii", "replace").strip()
     data = pos + 8 + ofs                            # object-specific data start
 
+    # Offsets below are written from the block start (header) and from `data`
+    # (bodies), and rebased at the end onto the payload_base this chunk
+    # declares (pos + 4): the block-size word becomes a header field at -4.
+    # They were emitted unrebased, which put every KRZ object field 4 bytes
+    # (header) or 4 + ofs bytes (body) away from its bytes.
     fields = [
         _f(0x00, 4, "blocksize", block_len, "block bytes (stored negative)"),
         _f(0x04, 2, "hash", f"0x{hash_:04x}", f"type {tcode}, id {oid}",
@@ -147,6 +152,7 @@ def _object(b, pos, block_len):
         _f(0x08, 2, "name_ofs", ofs),
         _f(0x0A, len(name) or 1, "name", name or "(unnamed)"),
     ]
+    n_header = len(fields)
     warns = []
     summary = f"{tname} #{oid}" + (f" '{name}'" if name else "")
 
@@ -165,6 +171,10 @@ def _object(b, pos, block_len):
         fields += pf
         warns += pw
         summary += f", {s}" if s else ""
+
+    for i, fl in enumerate(fields):
+        if fl["off"] is not None:
+            fl["off"] += -4 if i < n_header else (data - pos - 4)
 
     # A KRZ object's block_len counts its own 4-byte header, so the payload
     # both starts later and is shorter than the default rule assumes. The two
