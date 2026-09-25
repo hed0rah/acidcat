@@ -185,3 +185,24 @@ def test_a_container_straddling_a_window_boundary_is_still_found(tmp_path):
         p = tmp_path / f"edge{pad}.wav"
         p.write_bytes(_wav_bytes(extra=junk))
         assert "embedded_standalone_media" in _rules(_scan(p)[1]), f"missed at pad={pad}"
+
+
+# ── nonprintable_text: where the finding says it is ──────────────────────
+
+def test_a_nonprintable_text_finding_points_at_the_text(tmp_path):
+    """The finding's offset is absolute, like every other finding's. It used
+    to be the field's `off`, which is relative to its chunk's payload, so it
+    pointed near the start of the file rather than at the tag."""
+    text = b"ab\x01\x02cd\x00"
+    info = b"INFO" + b"INAM" + struct.pack("<I", len(text)) + text
+    extra = b"LIST" + struct.pack("<I", len(info)) + info
+    p = tmp_path / "ctl.wav"
+    data = _wav_bytes(extra=extra)
+    p.write_bytes(data)
+    _, findings = _scan(p)
+    hits = [f for f in findings if f["rule"] == "nonprintable_text"]
+    assert hits, "the rule did not fire"
+    at = hits[0]["offset"]
+    # the INAM sub-chunk: its id, size, then the text
+    assert data[at:at + 4] == b"INAM", (at, data[at:at + 16])
+    assert data[at + 8:at + 8 + len(text)] == text
