@@ -13,6 +13,7 @@ Framed as detection, not exploitation: acidcat says what looks off and where.
 import os
 import struct
 
+from acidcat.core.infra.fieldcodec import _field_abs
 from acidcat.core.primitives.signal import byte_entropy
 from acidcat.core.primitives.notes import is_coverage
 
@@ -405,8 +406,11 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
             if isinstance(v, str) and v:
                 ctrl = sum(1 for ch in v if ord(ch) < 9 or 13 < ord(ch) < 32)
                 if ctrl >= 2:
+                    # a finding's offset is absolute; the field's is relative
+                    # to its chunk's payload
+                    at = _field_abs(c, fl)
                     findings.append({
-                        "severity": "notice", "offset": fl.get("off") or 0,
+                        "severity": "notice", "offset": at if at is not None else 0,
                         "rule": "nonprintable_text",
                         "message": f"{str(c.get('id', '?')).strip()}/{fl.get('name')}: "
                                    f"{ctrl} control bytes in a text field"})

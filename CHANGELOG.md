@@ -21,6 +21,9 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   local chunk, so its `>I` annotation could never be verified or edited.
   What the TUI highlighted, `od` annotated and the editor would have
   written for all of these was the neighbouring bytes.
+- **An anomaly finding in a text field gave a relative offset.** The
+  control-bytes rule reported the field's offset within its chunk as if it
+  were a file offset; it now points at the tag.
 
 ### Changed
 
