@@ -1,0 +1,313 @@
+# acidcat 2.0: architecture
+
+Status: DRAFT for review, 2026-09-25. Companion to [node-v1.md](node-v1.md)
+(the output contract) and [decisions.md](decisions.md) (why). This document
+covers everything around the contract: how walkers read, how they are limited,
+how formats are registered, and what the CLI, the Python API, editing, MCP and
+the index look like on top of it. Nothing here is implemented yet.
+
+## 1. The shape of 2.0
+
+```
+                 FormatSpec registry  (core/infra/registry.py)
+                         |  sniff order, walker, extractor, caps, docs
+                         v
+ Source ----------> walker(source, limits) ---> legacy chunks + findings
+ (mmap | bytes |          |                          |
+  slice | layer)          | child(bytes) for layers  v
+                          |                  normaliser (core/infra/contract.py)
+                          +-- decoder registry --->  |
+                                                     v
+                                                 Document (contract v1)
+                                                     |
+      +----------------+-------------+---------------+------------+---------+
+      v                v             v               v            v         v
+ acidcat.open()   CLI verbs      TUI model      MCP tools     index v4   explorer,
+ (Python API)     (ADDR)         (2.1+)         (read, edit)  (lib)      anatomy
+```
+
+Three rules hold across it:
+
+1. **One source of truth per fact.** A format is one `FormatSpec`; a location
+   is one address; a finding is one record; an edit goes through one API.
+2. **The Document is the only thing consumers read.** No consumer touches a
+   legacy chunk dict, a walker, or a file path after 2.0.0.
+3. **Every limit is visible.** A cap that stops work is a `coverage` finding
+   and a `limits.hit` entry, never a silent truncation and never a defect.
+
+## 2. Source: what walkers read
+
+Walkers stop taking a path. They take a `Source`:
+
+```python
+class Source(Protocol):
+    size: int
+    name: str | None                 # display name and extension hint
+    def view(self, off: int, n: int) -> memoryview   # short at EOF, never raises
+    def head(self, n: int) -> memoryview
+    def file(self) -> BinaryIO       # seekable, for zipfile / gzip / tarfile
+    def sibling(self, name: str) -> "Source | None"  # via the Resolver
+    def child(self, data, name=None, origin=None) -> "Source"   # a decoded layer
+```
+
+| Backend | Used for |
+|---|---|
+| `MappedSource` | a file on disk (built on `core/infra/mapped.map_file`); zero-copy views |
+| `BytesSource` | bytes in memory: stdin, `acidcat.open(b"...")`, a decoded layer |
+| `SliceSource` | a sub-range of another Source (an `exact` layer, a carved region, `explore`) |
+
+**Siblings** (a PSF's `_lib`, a cue sheet's BIN, an Ableton `.asd`'s audio
+file, a SigMF data file) go through an injected `Resolver`. The default
+resolver looks in the file's directory; an in-memory Source has none, and a
+walker that cannot check a sibling emits an `environment` finding
+(`sibling.unchecked`) instead of calling the file defective.
+
+**What this removes:** `walk_bytes`' temp file (1.9x slower at 300 bytes,
+400x at 64 MB), RMID's temp-file re-walk, the double `os.path.getsize`, and
+walkers reading a filename for data (akai and mpc names come from
+`source.name`).
+
+**Enforced by** an AST test over `core/walk/` and `core/formats/` that bans
+`open(`, `os.path.*`, `os.stat`, argless `.read()` and `zipfile.ZipFile(<str>)`
+(extending today's argless-read test).
+
+**Migration:** about 45 walkers read one capped head and parse bytes; each is a
+one-line port. The seek-based helpers (`riff.iter_chunks`, `aiff.iter_chunks`,
+`flac.iter_metadata_blocks`, three in `mp3`, `mp4.find_moov`) change signature.
+Zip and gzip users call `source.file()`.
+
+## 3. Limits: one budget, visible when hit
+
+```python
+@dataclass(frozen=True)
+class Limits:
+    read_bytes: int = 64 << 20       # default read window per format
+    chunk_payload: int = 64 << 10    # today's PAYLOAD_CAP
+    inflate_bytes: int = 64 << 20    # every decoder
+    work_steps: int = 4_000_000      # commands, objects, resync steps
+    list_rows: int | None = None     # None: each walker's display default
+    frame_rows: int = 100_000        # --frames listings
+    depth: int = 32                  # nested layers and explore
+    decode: bool = False             # the "extra decoding work" half of deep
+    per_format: Mapping[str, int] = {}   # read_bytes overrides from FormatSpec
+```
+
+A shared, mutable `Budget` travels with it and counts bytes inflated and steps
+taken across nested layers, so a zip of gzips cannot multiply the allowance.
+Walkers never compare against a constant; they ask `limits.take(name, n)` or
+call `limits.hit(name, used, cap)`, which emits the `coverage` finding and
+records the name in `Document.limits.hit`. Format-validity maxima (a field that
+can never exceed N by the spec) stay constants: they are about validity, not
+budget.
+
+`deep=True` maps to `Limits(list_rows=unbounded, decode=True)`; the CLI's
+`--deep` keeps that meaning, and `--limit NAME=VALUE` sets any one limit.
+
+## 4. Findings
+
+One record for walker warnings and forensic findings; the fields are in
+[node-v1.md section 9](node-v1.md#9-findings). In code:
+
+```python
+emit.defect("size.overrun", "chunk runs 12 bytes past the file", node=..., at=...)
+emit.coverage(limits.hit("list_rows", used=1024, cap=256), "listing the first 256 of 1,024")
+emit.environment("sibling.missing", "seed.gsflib not found beside the file")
+```
+
+Codes live in `core/infra/findings.py` with their default kind and severity; a
+test fails on an unregistered code. Existing messages keep their text. During
+migration a walker that still appends a plain string produces
+`kind: defect, code: legacy`, counted in `typing.findings_legacy` so the
+remainder is visible and only falls.
+
+## 5. FormatSpec: a format is one record
+
+```python
+FormatSpec(
+    id="ym", label="ST-Sound YM2149 register dump (YM, usually LHA-packed)",
+    family="chiptune", extensions=(".ym",), variants=("ym2", "ym3", "ym5", "ym6"),
+    magic=(Probe(0, b"YM"), Probe(2, b"-lh5-")),
+    confirm="acidcat.core.formats.ym:confirm",      # disk check, optional
+    after=("lha_generic",),                          # explicit sniff ordering
+    walker="acidcat.core.walk.ym:walk",              # lazy import path
+    extractor=None, convert=None, repair=None, edit=None,
+    endian="be", carve=None,
+    decoders=("lha.lh5",), render="ym",
+    seed="ym", corpus_env="ACIDCAT_YM_CORPUS",
+    anatomy=AnatomySpec(specimen="tests/fixtures/anatomy/space_gun.ym",
+                        prose="docs/formats/ym.prose.toml", accent="#c94"),
+    since="1.8.5",
+)
+```
+
+`core/infra/registry.py` holds an explicit list of specs (no plugin discovery)
+and derives everything that is a separate list today: `KNOWN_FORMATS`,
+`_WALKERS`, `_EXTRACT_ONLY`, `EXTRACTABLE`, `AUDIO_CONTAINERS`, `_BE_FMTS`
+(keyed on id, not label), the whole `acidcat formats` matrix,
+`corpus_env.sh`, `tests_for.py`'s shared-walker map, the anatomy mirror's
+cards, and the format counts in README and ARCHITECTURE. Capabilities that
+are per format (render engine, decoders) live here; per-node caps stay in the
+Document.
+
+**Sniff ordering** becomes data: each spec's `magic` probes plus `after`
+edges form a graph whose topological order must equal today's hand order.
+Before anything moves, a **golden sniff test** freezes today's behaviour over
+every seed and a set of known near-misses (S3M against SNES ROM, RTF against
+Vital, an `.lzh` of NSF files, PT2/STC extension gates). The refactor passes
+only if every id is unchanged.
+
+**Variants** (PT2 under `pt3`, `aiff`/`aifc`, `e4b`/`e5b`, `mod15`) are one
+spec with `variants`, and the variant is a field in the Document's `format`.
+
+**Adding a format** becomes: the decoder, the walker, one spec, the seed, the
+tests, the anatomy prose. The five to seven bookkeeping edits per format
+measured over the last six format commits disappear.
+
+## 6. The Python API
+
+```python
+import acidcat
+
+doc = acidcat.open("space gun 1.ym")            # path, bytes, or a Source
+doc = acidcat.open(data, limits=acidcat.Limits(decode=True))
+
+doc.format.id                                   # "ym"
+doc.node("lh5/header").summary
+f = doc.field("1:lh5/header#frames")            # an ADDR
+f.value, f.display, f.type, f.at                # 8755, "8,755", "u32be", Loc(1, 12, 4)
+doc.layer_bytes(1)[:4]                          # b"YM6!"
+[x for x in doc.findings if x.kind == "defect"]
+doc.to_json()                                   # the contract v1 dict
+
+patch = doc.edit({"RIFF/fmt_#sample_rate": 48000})
+patch.verify()                                  # re-reads, checks round trips
+patch.commit("out.wav", backup=True)
+```
+
+`Document`, `Node`, `Field`, `Layer`, `Finding` and `Loc` are thin read-only
+views over the v1 dict (the dict stays the source of truth, per decision C5).
+Helper namespaces stay: `acidcat.probe`, `acidcat.viz`, `acidcat.play`,
+`acidcat.locate`, `acidcat.sniff`. `read_metadata` is exported. The tuple API
+(`walk`, `walk_file`) is removed. An API reference page is generated from the
+docstrings and pinned by a test that every public name is documented.
+
+`acidcat-lab` moves to this API in the same release.
+
+## 7. Editing: one front door
+
+```
+doc.edit({ADDR: value, ...})
+   |
+   +-- field with type_source declared/enc, fixed width
+   |      encode(type, inverse xform, value) -> bytes of the same length
+   |      verify: decode(new bytes) == value, neighbours in a bits container kept
+   |
+   +-- node with an `edit` cap (metadata profile: wav, aiff, tagged, vital, ...)
+   |      the profile writer (edit_riff, edit_aiff, mutagen, JSON presets)
+   |
+   +-- cover art: the `cover` pseudo-field of a tagged file
+   |
+   v
+ Patch (list of byte ranges and replacements, or a whole new file from a profile)
+   |  verify()   re-walk the patched bytes; the edited fields read back; no new defects
+   |  repair()   optional: run constraints.repair for sizes the edit changed
+   |  commit()   writer.commit: atomic write plus backup, as today
+```
+
+The CLI's `edit`, the TUI and MCP's `edit_field` all call this. What stays
+format-specific is exactly what must: variable-length text re-serialisation,
+size cascades (`structure.py`, `mp4repair`), and the metadata profiles. A field
+with `type_source: inferred` is not editable without `--force`, because its
+type is a guess.
+
+## 8. The CLI
+
+Fifteen verbs replace twenty-nine. Every one takes `-` for stdin, `--json` /
+`--output-format`, `--color`, and addresses in the ADDR grammar
+([node-v1.md section 13](node-v1.md#13-addresses)).
+
+| 2.0 verb | Replaces | Notes |
+|---|---|---|
+| `inspect FILE...` | inspect, chunks, info | `--summary` is today's info view; `--only ADDR-glob`; `--layer N`; `--frames` |
+| `od FILE [ADDR]` | od, dump, probe hexdump | annotated hex of any node, field, layer or range |
+| `carve FILE ADDR` | carve, dump --write, wrap | `-o`, `--as-wav` for raw PCM (wrap), `--layer` writes a decoded image |
+| `probe SUB FILE...` | probe | read, table, scan, find, strings, diff, entropy, map, lsb |
+| `classify FILE...` | classify | unchanged |
+| `locate FILE` | locate | unchanged |
+| `audit FILE...` | audit | exit 1 counts `defect` findings only |
+| `check FILE...` | validate, repair | `--fix` repairs; `--dry-run`, `-o`, `--overwrite` |
+| `edit FILE --set ADDR=V` | write, cover | `--set cover=@img.jpg`, `--unset cover`, `--strip` |
+| `stats DIR... --by shape|chunks|meta` | census, survey, shape, scan | census's parallel engine for all of them |
+| `analyze FILE... [--bpm-key] [--features]` | detect, features | needs the `analysis` extra; exits 2 without it |
+| `lib index|query|similar|list|forget|stats` | index, query, similar | index's action flags become sub-verbs |
+| `convert`, `extract` | convert, extract | unchanged |
+| `formats` | formats | the matrix, derived from the registry |
+| `explore FILE` | explore | reads the Document in process, no subprocess |
+| `tui [FILE]` | tui | |
+
+Standard flags, the same everywhere: `--json`, `--output-format
+table|json|csv|tsv` (default `table` for every verb), `--color
+auto|always|never`, `-o/--output`, `--no-recurse`, `--max-files N`,
+`--byte-order be|le|both`, `--only-format FMT` (filter) and `--force-format
+FMT` (override; plain `--format` is retired), `--limit NAME=VALUE`, `--deep`.
+Exit codes: 0 ok, 1 the answer is no, 2 could not run (including a missing
+extra). The retired verb names are removed, not aliased (decision S1).
+
+## 9. MCP
+
+Read-only tools added beside the catalogue tools:
+
+| Tool | Returns |
+|---|---|
+| `inspect_file(path, only?, layer?)` | the Document, or the named subtree |
+| `read_field(path, addr)` | one field: value, display, type, at |
+| `list_layers(path)` | layers with verdicts |
+| `findings(path, kind?)` | the findings |
+
+`edit_field(path, addr, value, dry_run=true)` exists only when the server is
+started with `--allow-writes`, returns the Patch's verification report, and
+commits only when `dry_run` is false. `get_sample` also returns
+`read_metadata`'s canonical fields.
+
+## 10. The index (schema v4)
+
+- The fixed columns (bpm, key, rate, channels, bits, duration, title, ...) are
+  filled from Documents for **every** format through the canonical alias map
+  in `core/metadata.py`: each canonical name lists candidate field addresses in
+  precedence order, then the filename and librosa fallbacks as today.
+- A `fields` table stores an allowlist of typed values per file: the `audio`
+  cap parameters, the canonical bindings, and declared caps
+  (`fields(path, addr, type, num, txt)` with indexes on `(addr, num)` and
+  `(addr, txt)`).
+- New query filters: `--rate`, `--channels`, `--bits`, `--can render|decode|carve`.
+- The row records the producer version; a version change triggers a reindex
+  of that row on the next scan, because node ids are stable across runs, not
+  across versions.
+- `ctx` side-dicts and `CTX_KEYS` retire; their keys become canonical bindings.
+
+## 11. Explorer and anatomy pages
+
+- `explore` renders from the Document and `layer_bytes` in process.
+- One shared page builder replaces the 22 `build_*_anatomy.py` copies. Byte
+  maps are generated by walking a **real specimen** (kept as a fixture; the
+  pages promise every byte comes from a real file), with field colours from
+  declared types and kinds. Prose lives in a sidecar per format keyed by field
+  address. A test fails when prose names an address the walker no longer
+  emits, and when a generated map differs from the walk.
+- The hand-typed byte maps, `check_bytemaps.py`'s self-consistency role and
+  the copied-template bugs go away.
+
+## 12. Removed in 2.0
+
+- `core/grammar/` and its three test files (git history keeps them);
+  `test_ctx_keys_covers_walker` moves out first.
+- The tuple API, the retired CLI verbs and flags, `walk_bytes`' temp file,
+  `ctx`/`CTX_KEYS`, the per-builder anatomy scripts, Python 3.10.
+
+## 13. Platform
+
+- `requires-python >= 3.11`; CI 3.11, 3.12, 3.13, 3.14 on Linux, one version
+  each on macOS and Windows as today.
+- `textual>=8.0,<9`; `pytest-textual-snapshot` and `jsonschema` in `dev`.
+- Optional extras added in 2.x: `graphics` (`textual-image`, Pillow) and `web`
+  (`textual-serve`).

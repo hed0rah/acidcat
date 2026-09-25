@@ -25,11 +25,20 @@ _REF = re.compile(r"`(core/[\w/]+\.py|src/acidcat/[\w/]+\.py)`")
 
 _EXEMPT = {"CHANGELOG.md"}
 
+# A design proposal names the modules it plans to create, which do not exist
+# yet; that is the point of it. Such a doc says so on a line of its own, and is
+# checked like any other doc from the moment that line changes.
+_DRAFT = re.compile(r"^Status: DRAFT\b", re.M)
+
+
+def _is_draft(p):
+    return bool(_DRAFT.search(p.read_text(encoding="utf-8", errors="replace")))
+
 
 def _live_docs():
     docs = [p for p in ROOT.glob("*.md") if p.name not in _EXEMPT]
     docs += sorted((ROOT / "docs").rglob("*.md"))
-    return docs
+    return [p for p in docs if not _is_draft(p)]
 
 
 def _resolve(ref):
@@ -74,3 +83,15 @@ def test_changelog_is_exempt_on_purpose():
         pytest.skip("no CHANGELOG.md")
     assert "CHANGELOG.md" in _EXEMPT
     assert cl not in _live_docs()
+
+
+def test_only_design_proposals_are_drafts():
+    """The draft exemption is for proposals, not a way to silence the guard.
+
+    Drafts live under docs/contract/ (the 2.0 design); a draft marker anywhere
+    else, such as on the README or an anatomy page, is a mistake.
+    """
+    docs = list(ROOT.glob("*.md")) + sorted((ROOT / "docs").rglob("*.md"))
+    stray = [str(p.relative_to(ROOT)) for p in docs
+             if _is_draft(p) and p.parent != ROOT / "docs" / "contract"]
+    assert not stray, "draft marker outside docs/contract/: " + ", ".join(stray)

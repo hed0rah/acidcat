@@ -77,7 +77,8 @@ def _parse_desc(b, ctx):
                bits_per_channel=bits, bytes_per_packet=bpp,
                frames_per_packet=fpp)
 
-    fields.append(_f(0x00, 8, "sample_rate", f"{rate:g}", "f64, big-endian"))
+    fields.append(_f(0x00, 8, "sample_rate", f"{rate:g}", "f64, big-endian",
+                     enc=">d", raw=rate))
     fields.append(_f(0x08, 4, "format_id", fid, name))
     flag_note = ""
     if fid == "lpcm":
