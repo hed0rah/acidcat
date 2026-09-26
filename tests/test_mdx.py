@@ -93,16 +93,21 @@ def test_identification_needs_more_than_the_shared_sniff_head(tmp_path):
     assert sniff.sniff(str(p)) == "mdx"
 
 
-def test_offsets_are_bounded_by_the_FILE_not_the_buffer():
-    """The same bug from the other side. Offsets routinely point past the few
-    kilobytes a sniffer reads, so checking them against len(buffer) rejects
-    almost every real tune."""
+def test_offsets_past_the_end_do_not_unmake_an_mdx(tmp_path):
+    """Offsets routinely point past the few kilobytes a sniffer reads, and a
+    cut rip's offsets point past the end of the file itself. Neither makes it
+    a different format: the header identifies it, and the walker reports each
+    offset that dangles. 16 real modules are cut like that."""
     blob = _mdx(title="B" * 300, mml_len=4096)
     head = blob[:512]
     assert mdxmod.looks_like_mdx(head, len(blob)) is True
-    assert mdxmod.looks_like_mdx(head) is False, (
-        "without a file size the truncated head cannot resolve, which is "
-        "exactly why the size has to be passed")
+    assert mdxmod.looks_like_mdx(head) is True
+    p = tmp_path / "cut.mdx"
+    p.write_bytes(head)
+    assert sniff.sniff(str(p)) == "mdx"
+    from acidcat.core.walk import walk_file
+    _label, _chunks, warns = walk_file(str(p))
+    assert any("past the end" in str(w) for w in warns)
 
 
 @pytest.mark.parametrize("blob", [

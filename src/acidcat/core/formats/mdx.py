@@ -256,23 +256,20 @@ def looks_like_mdx(raw, filesize=None):
 
     Everything before the offset table is variable-length text, so the only
     thing that can identify an MDX is whether the arithmetic lands: a title
-    terminator, a NUL, and a table that resolves to a legal channel count with
-    every offset inside the file.
-
-    `filesize` matters. The offsets routinely point past the few kilobytes a
-    sniffer reads, so checking them against len(raw) rejects almost every real
-    tune when handed a truncated head -- which is exactly what happened, and
-    the bound has to be the FILE's length rather than the buffer's.
+    terminator, a NUL, and a table that resolves to a legal channel count.
+    Offsets that run past the end mark a cut file, not a different format;
+    `filesize` is kept for callers and no longer consulted.
     """
     h = parse_header(raw)
     if not h["ok"]:
         # a packed module is an MDX whose body cannot be walked, not a file
         # that is something else
         return bool(h.get("packer"))
-    n = len(raw) if filesize is None else filesize
-    if not 0 <= h["voice_abs"] <= n:
-        return False
-    return all(0 <= a <= n for a in h["mml_abs"])
+    # Offsets past the end of the file do not make it something else: a cut
+    # rip keeps a whole header (terminator, bank name, a 9- or 16-channel
+    # table) and the walker reports each offset that dangles. 16 real modules
+    # are cut like that, and no other file in the corpus has such a header.
+    return True
 
 
 def voice_count(raw, h):

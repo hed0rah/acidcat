@@ -135,6 +135,11 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **A cut MDX was not recognised as MDX.** Sixteen real modules are
+  truncated rips whose offset tables point past the end of the file. The
+  header (title terminator, bank name, a 9- or 16-channel table) identifies
+  them, so they now sniff as MDX and the walk reports each offset that
+  dangles. No other file in the corpus has such a header.
 - **76 X68000 sample banks were not recognised.** Their writer emitted only
   the slots it filled, a table shorter than one 96-slot bank, so reading a
   whole bank read sample data as slots. A short table is now accepted when
