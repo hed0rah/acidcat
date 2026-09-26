@@ -335,6 +335,11 @@ The pre-step fixes the legacy model so the normaliser has one rule:
 - `off = None` is the only spelling of "unpositioned". `_f(0, 0, ...)` is
   banned by test.
 - `xref` is only a pointer.
+- A chunk whose payload decodes to a layer carries `layer` (`name`,
+  `decoder`, `params`, `length`, `length_known`, `verdict`) and
+  `layer_chunks`: legacy chunks positioned in the decoded bytes. The payload
+  is the layer's one source; the normaliser decodes it with the named decoder
+  and makes the layer's nodes children of this one.
 
 ## 8. Capabilities
 

@@ -193,6 +193,11 @@ helpers per kind in `core/infra/findings.py`; 100 walker sites converted, 292
 left as `legacy` behind a falling ratchet; forensic findings gain `code` but
 join the Document only with `acidcat.open()`. architecture-2.0.md section 4.
 
+Layers as built: a registry of decoders (`lha.lh5`, `lha.lh0`), a layer
+declared on the chunk that holds the compressed body with its image walked as
+`layer_chunks`, and `carve --layer N`; YM first. architecture-2.0.md section 2,
+"Layers, as built".
+
 The table below is the plan as first written.
 
 ## Release plan

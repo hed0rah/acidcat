@@ -152,6 +152,15 @@ one there when none fits, with its kind and severity. A plain string still
 works and is reported as `legacy`, but `tests/test_findings.py` counts those
 and the count only falls.
 
+### Declare a decoded layer
+
+When a chunk's payload is compressed and you decode it, declare the image as a
+layer rather than reporting its fields unpositioned: set `chunk["layer"]`
+(decoder name from `core/infra/layers.py`, its params, length and the check
+you ran) and `chunk["layer_chunks"]` (your walk of the image, offsets in the
+image). Register the decoder if it is new. `walk/ym.py` is the example; the
+layer's chunks never go on the flat list.
+
 ### Report absence as a finding
 
 Everyone expects `.asd` to hold the tempo. It does not: Live stores warp

@@ -20,35 +20,8 @@ from acidcat.core.walk import walk_file
 import seeds
 
 
-class _Bits(object):
-    def __init__(self):
-        self.bits = []
-
-    def put(self, value, n):
-        self.bits += [(value >> (n - 1 - i)) & 1 for i in range(n)]
-
-    def code(self, s):
-        self.bits += [int(c) for c in s]
-
-    def bytes(self):
-        b = self.bits + [0] * (-len(self.bits) % 8)
-        return bytes(int("".join(map(str, b[i:i + 8])), 2) for i in range(0, len(b), 8))
-
-
-def _literal_block(data):
-    """Every byte a literal: the literal table gives all 256 bytes length 8,
-    so a byte's canonical code is the byte itself. Both small tables are
-    single-symbol and cost nothing per use."""
-    w = _Bits()
-    w.put(len(data), 16)
-    w.put(0, 5)
-    w.put(10, 5)                                # every length is 10 - 2 = 8
-    w.put(256, 9)                               # lengths for symbols 0-255
-    w.put(0, 4)
-    w.put(0, 4)                                 # positions: always 0
-    for b in data:
-        w.put(b, 8)
-    return w.bytes()
+_Bits = seeds.Bits
+_literal_block = seeds.lh5_literals
 
 
 def _match_block():

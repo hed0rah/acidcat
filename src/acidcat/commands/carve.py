@@ -95,6 +95,10 @@ def register(subparsers):
                    help="With --wrap: sample rate for wrapped regions. Rate is "
                         "playback metadata and is not recoverable from the "
                         "bytes, so this overrides the guess.")
+    p.add_argument("--layer", type=int, metavar="N",
+                   help="Write layer N: a decoded image the walk found (a packed "
+                        "YM's unpacked tune is layer 1), checked as the walk "
+                        "checked it. 0 is the file itself.")
     p.add_argument("-o", "--output", help="Write here (default: stdout; a DIR for --batch).")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Suppress the summary line on stderr.")
@@ -396,6 +400,54 @@ def _fmt_bytes(blob, how):
     return None
 
 
+def _run_layer(args, filepath):
+    """`--layer N`: the bytes of a layer of the file's v1 Document, decoded
+    from the file by the decoder the walk named and checked the same way."""
+    from acidcat.core.infra import contract, layers
+    from acidcat.core.infra.source import MappedSource
+    from acidcat.core.walk.base import Unsupported
+    with MappedSource(filepath) as src:
+        if args.layer == 0:
+            blob, what = bytes(src.buffer()), "the file"
+        else:
+            try:
+                doc = contract.walk(src)
+            except Unsupported as e:
+                raise NotFound(f"{filepath}: no layers: {e}") from None
+            ids = [l["id"] for l in doc["layers"]]
+            if args.layer not in ids:
+                raise NotFound(f"{filepath}: no layer {args.layer}; the walk "
+                               f"found {', '.join(map(str, ids))}")
+            lay = next(l for l in doc["layers"] if l["id"] == args.layer)
+            try:
+                blob = layers.layer_bytes(doc, args.layer, src.buffer())
+            except layers.LayerError as e:
+                raise ValueError(str(e)) from None
+            v = lay["verdict"]
+            what = (f"layer {args.layer} ({lay['name']}, {lay['decoder']['name']}, "
+                    f"{v['result']} {v['method']})")
+    if args.encoding and args.encoding != "raw":
+        text = _fmt_bytes(blob, args.encoding)
+        if text is not None:
+            _emit(text, args.output)
+            return 0
+    if not args.output and sys.stdout.isatty():
+        print("acidcat carve: refusing to write binary to the terminal; "
+              "redirect or pass -o FILE", file=sys.stderr)
+        return 2
+    if args.output:
+        err = _write_out(blob, args.output)
+        if err:
+            print(err, file=sys.stderr)
+            return 1
+    else:
+        sys.stdout.buffer.write(blob)
+    if not args.quiet:
+        print(f"carved {len(blob):,} bytes of {what}"
+              + (f" -> {args.output}" if args.output else ""), file=sys.stderr)
+    return 0
+
+
 def _run_typed(args, filepath, size):
     parsed = bf.parse_type(args.type, _ENDIAN.get(args.endian, ">"))
     kind = parsed[0]
@@ -515,6 +567,8 @@ def run(args):
         return _run_batch(args, filepath, size)
 
     try:
+        if getattr(args, "layer", None) is not None:
+            return _run_layer(args, filepath)
         if args.field is not None:
             return _run_field(args, filepath)
         if args.struct is not None:

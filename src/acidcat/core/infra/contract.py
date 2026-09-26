@@ -27,9 +27,9 @@ import re
 import struct
 from typing import Any, List, Optional, TypedDict
 
-from acidcat.core.infra import fieldcodec
-from acidcat.core.infra.findings import defect, kind_of_code, severity_of
-from acidcat.core.infra.limits import Limits
+from acidcat.core.infra import fieldcodec, layers
+from acidcat.core.infra.findings import defect, error, kind_of_code, severity_of
+from acidcat.core.infra.limits import Limits, hit
 from acidcat.core.primitives.notes import code_of
 
 CONTRACT = 1
@@ -308,8 +308,9 @@ def _infer(value, b, prefer_be):
     return next((h for h in hits if h.endswith(want)), None)
 
 
-def _field(fl, node_pos, data, prefer_be, key):
-    """One legacy field -> one v1 field."""
+def _field(fl, node_pos, data, prefer_be, key, layer=0):
+    """One legacy field -> one v1 field, located in `layer` (whose bytes are
+    `data`)."""
     value = fl.get("value")
     out = {"name": str(fl.get("name")), "key": key, "note": str(fl.get("note") or ""),
            "display": "" if value is None else str(value)}
@@ -322,14 +323,14 @@ def _field(fl, node_pos, data, prefer_be, key):
     if fl.get("remote"):
         out["remote"] = True
     if "xref" in fl and isinstance(fl["xref"], int):
-        out["ptr"] = _loc(fl["xref"], 0)
+        out["ptr"] = _loc(fl["xref"], 0, layer)
 
     enc = fl.get("enc")
     mapped = type_of_enc(enc) if enc else None
     if at is not None and mapped:
         typ, shift, clen, xform = mapped
         at, n = at + shift, (clen if clen is not None else n)
-        out["at"] = _loc(at, n)
+        out["at"] = _loc(at, n, layer)
         out["type"], out["type_source"] = typ, "enc"
         if xform:
             out["xform"] = xform
@@ -350,7 +351,7 @@ def _field(fl, node_pos, data, prefer_be, key):
         out["value"] = fl.get("raw", value)
         return out
 
-    out["at"] = _loc(at, n)
+    out["at"] = _loc(at, n, layer)
     b = bytes(data[at:at + n]) if data is not None else b""
     typ = _infer(value, b, prefer_be) if len(b) == n else None
     if typ is None and isinstance(value, str) and n and len(b) == n:
@@ -368,7 +369,7 @@ def _field(fl, node_pos, data, prefer_be, key):
     return out
 
 
-def _rows(rows, size):
+def _rows(rows, size, layer=0):
     """Legacy per-element rows -> {total, kept, cap, items} (spec 10). A row's
     position becomes a byte locator under `at`: MP3 writes `offset` as a hex
     string, the rest as ints."""
@@ -385,7 +386,7 @@ def _rows(rows, size):
                 off = None
         if isinstance(off, int) and 0 <= off <= size:
             n = n if isinstance(n, int) and n >= 0 and off + n <= size else 0
-            r["at"] = _loc(off, n)
+            r["at"] = _loc(off, n, layer)
         items.append(r)
     return {"total": len(items), "kept": len(items), "cap": _FRAME_LISTING_CAP,
             "items": items}
@@ -409,37 +410,28 @@ def _gaps(lo, hi, spans):
     return [(o, n) for o, n in out if n > 0]
 
 
-def _unwalked(off, n):
+def _unwalked(off, n, layer=0):
     return {"name": "unwalked", "kind": "unwalked", "origin": "normaliser",
-            "extent": _loc(off, n), "payload": _loc(off, n),
+            "extent": _loc(off, n, layer), "payload": _loc(off, n, layer),
             "geometry": "declared",
             "summary": f"{n:,} bytes no walker node describes",
             "fields": [], "children": [], "caps": {}}
 
 
-def document(fmt_id, label, chunks, warns, data, *, forced=False,
-             producer_version=None, caps_fn=None, prefer_be=False, limits=None):
-    """The v1 Document for one walk.
-
-    `data` is the file's bytes (or a read-only view of them): the normaliser
-    reads fields' bytes to infer and to decode typed values, never to parse.
-    `caps_fn(fmt_id, label, chunks)` returns {chunk index: caps}; see
-    core/infra/capabilities.py."""
+def _tree(chunks, data, layer, prefer_be, ctx, top):
+    """The node tree for one layer's chunks: nodes by enclosure, the gaps
+    filled, then any layer a node declares walked into as its children."""
     size = len(data) if data is not None else 0
-    try:
-        caps_map = caps_fn(fmt_id, label, chunks or []) if caps_fn else {}
-    except Exception:                     # a cap heuristic never breaks a walk
-        caps_map = {}
-    findings = []
-    chunk_texts = set()
-    nodes = []
+    nodes, descend = [], []
     for idx, c in enumerate(chunks or []):
         name = str(c.get("id", "?"))
         node = {"name": name.strip() or name, "kind": "chunk",
                 "geometry": c.get("geometry") or "unpositioned",
                 "summary": str(c.get("summary") or ""),
-                "fields": [], "children": [], "caps": {}, "_idx": idx,
-                "_slug": slug(name), "_chunk": c}
+                "fields": [], "children": [], "caps": {},
+                "_slug": slug(name), "_chunk": c, "_order": idx}
+        if top:
+            node["_idx"] = idx
         pos = None
         node["_warnings"] = list(c.get("warnings") or [])
         if not _positioned(c):
@@ -451,24 +443,27 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
             node["_warnings"].append(defect(
                 "geometry.invalid",
                 "the chunk claims 0x%X+%d (payload 0x%X+%d), which does not fit "
-                "in the file" % (c["offset"], c["extent_len"], c["payload_base"],
-                                 c["payload_len"])))
+                "in the %s" % (c["offset"], c["extent_len"], c["payload_base"],
+                               c["payload_len"], "file" if layer == 0 else
+                               "layer")))
         else:
-            node["extent"] = _loc(c["offset"], c["extent_len"])
-            node["payload"] = _loc(c["payload_base"], c["payload_len"])
+            node["extent"] = _loc(c["offset"], c["extent_len"], layer)
+            node["payload"] = _loc(c["payload_base"], c["payload_len"], layer)
             pos = c["payload_base"]
+            if isinstance(c.get("layer"), dict):
+                descend.append(node)
         keys = _dedupe([str(f.get("name")) for f in c.get("fields") or []])
-        node["fields"] = [_field(f, pos, data, prefer_be, k)
+        node["fields"] = [_field(f, pos, data, prefer_be, k, layer)
                           for f, k in zip(c.get("fields") or [], keys)]
         if c.get("rows"):
-            node["rows"] = _rows(c["rows"], size)
-        chunk_texts.update(str(w) for w in node["_warnings"])
+            node["rows"] = _rows(c["rows"], size, layer)
+        ctx["chunk_texts"].update(str(w) for w in node["_warnings"])
         nodes.append(node)
 
     # the tree: smallest enclosing node is the parent; equal extents nest in
     # emission order; unpositioned nodes are roots after the positioned ones
     placed = sorted((n for n in nodes if "extent" in n),
-                    key=lambda n: (n["extent"]["off"], -n["extent"]["len"], n["_idx"]))
+                    key=lambda n: (n["extent"]["off"], -n["extent"]["len"], n["_order"]))
     roots, stack = [], []
     for n in placed:
         while stack and not _encloses(stack[-1], n):
@@ -477,12 +472,11 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
         stack.append(n)
     roots += [n for n in nodes if "extent" not in n]
 
-    # gaps: inside each parent's payload, and across the file at the top
+    # gaps: inside each parent's payload, and across the layer at the top
     def fill(parent_nodes, lo, hi):
         spans = [(c["extent"]["off"], c["extent"]["len"])
                  for c in parent_nodes if "extent" in c]
-        gaps = [_unwalked(o, n) for o, n in _gaps(lo, hi, spans)]
-        return gaps
+        return [_unwalked(o, n, layer) for o, n in _gaps(lo, hi, spans)]
 
     def walk(n):
         for c in n["children"]:
@@ -504,6 +498,86 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
                             key=lambda x: x["extent"]["off"])
         roots = positioned + [r for r in roots if "extent" not in r]
 
+    # after the gaps: a derived layer's nodes are not in this layer's bytes
+    for n in descend:
+        _descend(n, data, layer, prefer_be, ctx)
+    return roots
+
+
+def _descend(node, data, parent, prefer_be, ctx):
+    """Decode the layer `node`'s chunk declares and hang its nodes under it
+    (spec 3 and 5.2 rule 3)."""
+    c = node["_chunk"]
+    decl = c["layer"]
+    limits = ctx["limits"]
+    if ctx["depth"] >= limits.depth:
+        node["_warnings"].append(hit(
+            "depth", limits.depth, ctx["depth"] + 1,
+            "the %s inside is not described: layers nest %d deep, the limit"
+            % (decl.get("name", "layer"), limits.depth)))
+        return
+    if decl.get("length", 0) > limits.inflate_bytes:
+        node["_warnings"].append(hit(
+            "inflate_bytes", limits.inflate_bytes, decl["length"],
+            "the %s is %s bytes; not decoded past the %s-byte limit"
+            % (decl.get("name", "layer"), format(decl["length"], ","),
+               format(limits.inflate_bytes, ","))))
+        return
+    off, n = c["payload_base"], c["payload_len"]
+    try:
+        image = layers.decode(decl["decoder"], data[off:off + n],
+                              decl.get("params", {}), limits.inflate_bytes)
+    except layers.LayerError as e:
+        node["_warnings"].append(error(
+            "layer.error", "the %s declared here does not decode: %s"
+            % (decl.get("name", "layer"), e)))
+        return
+    lid = len(ctx["layers"])
+    exact = layers.mapping(decl["decoder"]) == "exact"
+    source = {"parent_off": off, "len": n}
+    if exact:
+        source["layer_off"] = 0
+    lay = {"id": lid, "name": str(decl.get("name") or decl["decoder"]),
+           "kind": "derived", "parent": parent, "from_node": None,
+           "sources": [source], "mapping": "exact" if exact else "opaque",
+           "decoder": {"name": decl["decoder"], "params": dict(decl.get("params", {}))},
+           "length": len(image), "length_known": bool(decl.get("length_known", True)),
+           "crypto": "none",
+           "verdict": dict(decl.get("verdict") or {"result": "unverified",
+                                                   "method": "none"})}
+    ctx["layers"].append(lay)
+    node["_layer"] = lay
+    node["caps"]["descend"] = {"layer": lid, "source": "declared"}
+    ctx["depth"] += 1
+    try:
+        node["children"] += _tree(c.get("layer_chunks") or [], image, lid,
+                                  prefer_be, ctx, top=False)
+    finally:
+        ctx["depth"] -= 1
+    node["kind"] = "container"
+
+
+def document(fmt_id, label, chunks, warns, data, *, forced=False,
+             producer_version=None, caps_fn=None, prefer_be=False, limits=None):
+    """The v1 Document for one walk.
+
+    `data` is the file's bytes (or a read-only view of them): the normaliser
+    reads fields' bytes to infer and to decode typed values, never to parse,
+    and decodes the layers walkers declare (core/infra/layers.py).
+    `caps_fn(fmt_id, label, chunks)` returns {chunk index: caps}; see
+    core/infra/capabilities.py."""
+    size = len(data) if data is not None else 0
+    limits = limits or Limits()
+    try:
+        caps_map = caps_fn(fmt_id, label, chunks or []) if caps_fn else {}
+    except Exception:                     # a cap heuristic never breaks a walk
+        caps_map = {}
+    findings = []
+    ctx = {"chunk_texts": set(), "limits": limits, "depth": 0,
+           "layers": [{"id": 0, "name": "file", "kind": "file", "length": size}]}
+    chunk_texts = ctx["chunk_texts"]
+    roots = _tree(chunks, data, 0, prefer_be, ctx, top=True)
+
     # ids, findings, caps, and the private keys removed
     counts = {"fields": 0, "positioned": 0, "typed_declared": 0, "typed_enc": 0,
               "typed_inferred": 0, "caps_declared": 0, "caps_inferred": 0,
@@ -522,9 +596,13 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
             for w in n.pop("_warnings", []):
                 findings.append(_finding(w, nid))
             n.pop("_chunk", None)
+            lay = n.pop("_layer", None)
+            if lay is not None:
+                lay["from_node"] = nid
             if "_idx" in n:
                 by_idx[n["_idx"]] = n
-                n["caps"] = {k: dict(v) for k, v in caps_map.get(n["_idx"], {}).items()}
+                inferred = {k: dict(v) for k, v in caps_map.get(n["_idx"], {}).items()}
+                n["caps"] = dict(inferred, **n["caps"])
             for cap in n["caps"].values():
                 counts["caps_" + ("declared" if cap.get("source") == "declared"
                                   else "inferred")] += 1
@@ -535,7 +613,7 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
                 src = f["type_source"]
                 if src in ("declared", "enc", "inferred"):
                     counts["typed_" + src] += 1
-            for k in ("_idx", "_slug"):
+            for k in ("_idx", "_slug", "_order"):
                 n.pop(k, None)
             finish(n["children"], nid)
     finish(roots, "")
@@ -568,10 +646,10 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
         "producer": {"name": "acidcat", "version": producer_version or _version()},
         "format": fmt,
         "file": {"size": size},
-        "layers": [{"id": 0, "name": "file", "kind": "file", "length": size}],
+        "layers": ctx["layers"],
         "nodes": roots,
         "findings": findings,
-        "limits": (limits or Limits()).record(
+        "limits": limits.record(
             f["cap"]["name"] for f in findings if "cap" in f),
         "typing": counts,
     }

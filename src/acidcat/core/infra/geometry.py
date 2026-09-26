@@ -59,6 +59,9 @@ def normalize(chunks, filesize, parent_extent=None):
         lo, hi = parent_extent[0], parent_extent[0] + parent_extent[1]
     for c in chunks:
         _one(c, lo, hi)
+        # a decoded layer's chunks live in the layer, not in the file
+        if isinstance(c.get("layer"), dict) and c.get("layer_chunks"):
+            normalize(c["layer_chunks"], c["layer"]["length"])
     return chunks
 
 

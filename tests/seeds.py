@@ -1373,7 +1373,8 @@ def ym(version=b"YM5!", frames=4, drums=(b"\x80" * 8,), interleaved=True,
     """ST-Sound YM register dump. YM5/YM6 by default: header, digidrums, three
     strings, 16 registers a frame, End!. version=b"YM3!" is the bare 14-register
     form. packed=True wraps it in a stored (-lh0-) LHA level-0 member, which is
-    the wrapper's header path without needing a compressor."""
+    the wrapper's header path without needing a compressor; packed="lh5" in a
+    real -lh5- member whose one block codes every byte as a literal."""
     if version in (b"YM2!", b"YM3!", b"YM3b"):
         body = version + bytes([(k * 7 + f) & 0x0F for k in range(14) for f in range(frames)])
         if version == b"YM3b":
@@ -1396,7 +1397,44 @@ def ym(version=b"YM5!", frames=4, drums=(b"\x80" * 8,), interleaved=True,
         body = bytes(body)
     if not packed:
         return body
+    if packed == "lh5":
+        return lha_member(body, name=b"SEED.YM", method=b"-lh5-",
+                          packed_body=lh5_literals(body))
     return lha_member(body, name=b"SEED.YM")
+
+
+class Bits(object):
+    """An MSB-first bit writer, for building -lh5- streams by hand."""
+
+    def __init__(self):
+        self.bits = []
+
+    def put(self, value, n):
+        self.bits += [(value >> (n - 1 - i)) & 1 for i in range(n)]
+
+    def code(self, s):
+        self.bits += [int(c) for c in s]
+
+    def bytes(self):
+        b = self.bits + [0] * (-len(self.bits) % 8)
+        return bytes(int("".join(map(str, b[i:i + 8])), 2) for i in range(0, len(b), 8))
+
+
+def lh5_literals(data):
+    """One -lh5- block coding every byte as a literal: the literal table gives
+    all 256 bytes length 8, so a byte's canonical code is the byte itself.
+    Both small tables are single-symbol and cost nothing per use. Up to 65,535
+    bytes."""
+    w = Bits()
+    w.put(len(data), 16)
+    w.put(0, 5)
+    w.put(10, 5)                                # every length is 10 - 2 = 8
+    w.put(256, 9)                               # lengths for symbols 0-255
+    w.put(0, 4)
+    w.put(0, 4)                                 # positions: always 0
+    for b in data:
+        w.put(b, 8)
+    return w.bytes()
 
 
 def lha_member(data, name=b"SEED", method=b"-lh0-", packed_body=None):

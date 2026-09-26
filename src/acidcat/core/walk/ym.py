@@ -6,7 +6,8 @@ all of them) is an LHA member: its header is a real region of the file and
 is walked field by field, and the YM inside is described with its fields
 unpositioned, since offsets into the unpacked image are not file offsets.
 The unpacked body must match the member's CRC-16 before anything in it
-is reported.
+is reported. The image is also declared as a layer, walked region by region
+like a bare YM, for the v1 Document (node-v1.md section 3).
 """
 
 import time
@@ -224,8 +225,19 @@ def _packed(raw, warns):
     body_fields = ([_f(None, 0, "unpacked", "%s bytes from %s"
                        % (format(len(image), ","), format(h["packed"], ",")))]
                    + _tune_fields(image, y, False) + _string_fields(y, False))
-    chunks.append(_chunk(h["method"].strip("-"), h["body"], h["packed"],
-                         _summary(y) + _title(y), body_fields))
+    body = _chunk(h["method"].strip("-"), h["body"], h["packed"],
+                  _summary(y) + _title(y), body_fields)
+    # the unpacked tune is layer 1: the same walk as a bare YM, positioned in
+    # the image. Only the v1 Document reads it (core/infra/layers.py).
+    body["layer"] = {
+        "name": "unpacked " + y["magic"].rstrip("!"),
+        "decoder": "lha." + h["method"].strip("-"),
+        "params": {"size": h["size"], "crc": h["crc"]},
+        "length": len(image), "length_known": True,
+        "verdict": {"result": "verified", "method": "crc16",
+                    "detail": "0x%04X" % h["crc"]}}
+    body["layer_chunks"] = _bare(image, y)
+    chunks.append(body)
     end = h["body"] + h["packed"]
     if end < len(raw):
         tail = raw[end:]

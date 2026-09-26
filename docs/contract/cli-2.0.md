@@ -182,7 +182,8 @@ Every flag of every 1.8 verb. "same" means the flag is unchanged.
 | `--batch`, `--wrap`, `--rate` | same | |
 | `-o`, `--output` | same | |
 | `-q`, `--quiet` | same | |
-| (new) | `--layer N` writes a decoded layer's bytes; `--as-wav` wraps raw PCM (from `wrap`) | |
+| `--layer` | same (added in 2.0.0a1): writes a decoded layer's bytes, `0` the file | |
+| (new) | `--as-wav` wraps raw PCM (from `wrap`) | |
 
 ### `wrap`
 

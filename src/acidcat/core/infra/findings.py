@@ -63,6 +63,8 @@ REGISTRY = {
     # acidcat failed
     "walker.error": (ERROR, "alert", "the walker raised; a bug in acidcat"),
     "geometry.error": (ERROR, "alert", "normalising the walk raised; a bug in acidcat"),
+    "layer.error": (ERROR, "alert",
+                    "a layer a walker declared does not decode; a bug in acidcat"),
 }
 REGISTRY.update({code: (COVERAGE, "info", f"the walk stopped at its {name} limit")
                  for name, code in _CAP_CODES.items()})

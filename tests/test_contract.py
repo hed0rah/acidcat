@@ -20,7 +20,7 @@ import tempfile
 import pytest
 
 import seeds
-from acidcat.core.infra import contract
+from acidcat.core.infra import contract, layers
 
 ROOT = pathlib.Path(__file__).parent.parent
 SCHEMA = json.loads((ROOT / "docs" / "contract" / "node-v1.schema.json")
@@ -35,6 +35,13 @@ def _corpus():
         p = os.path.join(tmp, name + seeds.suffix(name))
         with io.open(p, "wb") as fh:
             fh.write(seeds.build(name))
+        yield name, p
+    # layered specimens: a packed YM's unpacked tune is layer 1 (spec 3)
+    for name, raw in (("ym-lh0", seeds.SEEDS["ym"][0](packed=True)),
+                      ("ym-lh5", seeds.SEEDS["ym"][0](packed="lh5"))):
+        p = os.path.join(tmp, name + ".ym")
+        with io.open(p, "wb") as fh:
+            fh.write(raw)
         yield name, p
     for p in sorted(glob.glob(str(ROOT / "data" / "**" / "*.*"), recursive=True)):
         if os.path.getsize(p) <= _MAX:
@@ -81,6 +88,16 @@ def _ok(docs):
 
 def _nodes(doc):
     return list(contract.iter_nodes(doc))
+
+
+def _layer(doc, data, layer, _cache={}):
+    """The bytes of one of `doc`'s layers; layer 0 is `data`."""
+    if layer == 0:
+        return data
+    key = (id(doc), layer)
+    if key not in _cache:
+        _cache[key] = layers.layer_bytes(doc, layer, data)
+    return _cache[key]
 
 
 # ── rule 11: degrade, never raise ──────────────────────────────────────
@@ -157,17 +174,28 @@ def test_children_lie_inside_their_parent_and_do_not_overlap(docs):
     for name, path, (doc, _data) in _ok(docs):
         for n in _nodes(doc):
             kids = [c for c in n["children"] if "extent" in c]
+            # a child in a derived layer lies in the layer its parent opens
+            # (spec 5.2 rule 3), not inside the parent's own bytes
+            below = n["caps"].get("descend", {}).get("layer")
+            lengths = {l["id"]: l["length"] for l in doc["layers"]}
             if "extent" in n:
                 lo, hi = n["extent"]["off"], n["extent"]["off"] + n["extent"]["len"]
                 for c in kids:
                     e = c["extent"]
-                    if not (lo <= e["off"] and e["off"] + e["len"] <= hi):
+                    if e["layer"] == n["extent"]["layer"]:
+                        inside = lo <= e["off"] and e["off"] + e["len"] <= hi
+                    else:
+                        inside = (e["layer"] == below
+                                  and e["off"] + e["len"] <= lengths[below])
+                    if not inside:
                         outside.append((name, c["id"]))
-            kids.sort(key=lambda c: c["extent"]["off"])
-            for a, b in zip(kids, kids[1:]):
-                if a["extent"]["off"] + a["extent"]["len"] > b["extent"]["off"]:
-                    if (name, n["id"]) not in KNOWN_SIBLING_OVERLAPS:
-                        overlap.append((name, a["id"], b["id"]))
+            for lay in {c["extent"]["layer"] for c in kids}:
+                same = sorted((c for c in kids if c["extent"]["layer"] == lay),
+                              key=lambda c: c["extent"]["off"])
+                for a, b in zip(same, same[1:]):
+                    if a["extent"]["off"] + a["extent"]["len"] > b["extent"]["off"]:
+                        if (name, n["id"]) not in KNOWN_SIBLING_OVERLAPS:
+                            overlap.append((name, a["id"], b["id"]))
     assert not outside, "children outside their parent:\n" + "\n".join(
         f"  {n}: {c}" for n, c in outside[:10])
     assert not overlap, "siblings that overlap:\n" + "\n".join(
@@ -215,7 +243,7 @@ def test_every_encoded_field_reads_back_as_its_value(docs):
                 if f["type_source"] not in ("declared", "enc") or "at" not in f:
                     continue
                 at = f["at"]
-                b = data[at["off"]:at["off"] + at["len"]]
+                b = _layer(doc, data, at["layer"])[at["off"]:at["off"] + at["len"]]
                 try:
                     stored = contract.read_type(f["type"], b)
                 except ValueError:

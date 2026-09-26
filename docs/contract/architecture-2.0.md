@@ -89,6 +89,70 @@ Deferred to layers (section 6 of the plan): `SliceSource` (a window onto
 another Source) and deriving a child Source from a decoded image. Nothing
 calls them yet.
 
+### Layers, as built in 2.0.0a1
+
+A decoded image is a layer of the Document (node-v1.md section 3). The
+decoder registry is `core/infra/layers.py`:
+
+| Decoder | Mapping | Check |
+|---|---|---|
+| `lha.lh5` | opaque | CRC-16 of the decoded bytes |
+| `lha.lh0` | exact (stored) | CRC-16 |
+
+`decode(name, src, params, cap)` runs one, bounded by `cap`, and fails on a
+failed check; `layer_bytes(doc, layer_id, data)` re-derives any layer of a
+Document from layer 0's bytes, nested layers included. The bytes are never
+stored.
+
+A walker declares a layer on the chunk whose payload it decoded, and walks the
+image as that layer's chunks:
+
+```python
+body["layer"] = {"name": "unpacked YM5", "decoder": "lha.lh5",
+                 "params": {"size": 132, "crc": 0x596D},
+                 "length": 132, "length_known": True,
+                 "verdict": {"result": "verified", "method": "crc16", "detail": "0x596D"}}
+body["layer_chunks"] = _bare(image, y)          # the bare-YM walk of the image
+```
+
+The layer's chunks stay off the flat chunk list on purpose: every consumer of
+`walk_file` (inspect, the TUI, `carve --chunk`, the editors) reads a chunk's
+offset as a file offset. Geometry normalises them against the layer's length;
+the normaliser decodes the layer through the registry (so the Document never
+claims a layer the registry cannot produce), gives it an id, hangs its nodes
+under the declaring node (`descend` cap, rule 3 of spec 5.2), fills its gaps
+within the layer, and reports a decode failure as a `layer.error` finding.
+The normaliser obeys two more Limits here: `depth` (layers nest no deeper) and
+`inflate_bytes` (a layer longer than that is not decoded); each stops with a
+`cap.*` coverage finding.
+
+YM is the first layered format: `1:lh5/header#frames` is the frame count, at
+layer 1 offset 12. `carve FILE --layer N` writes a layer's bytes (0 is the
+file), decoded and checked as the walk checked them.
+
+**Enforced by** `tests/test_layers.py` (the frame count's byte range, `carve
+--layer 1` byte-identical to the image for `-lh5-` and `-lh0-`, the limits, a
+decoder failure, a tampered body) and the conformance corpus, which now walks
+packed YMs so every rule of spec 14 sees a derived layer.
+
+**Departures from the plan, and why:**
+
+- One layered format, YM. SNDH (Pack-Ice), VGZ (gzip), PSF (zlib) and the
+  Ableton heads follow the same two keys and a registry entry each; the
+  brief's done test is YM's.
+- The walker decodes the image to walk it and the normaliser decodes it again
+  through the registry. Handing the walker's bytes across would put bytes in
+  the legacy chunk (and in `inspect --json`); the second decode is the price
+  of the registry being the only source of a layer's bytes.
+- No child Source: a walker walks the image with its own parser (`_bare`
+  here). `SliceSource` and `child()` arrive with the first format whose inner
+  image needs another format's walker.
+- No cache for `layer_bytes`, and no shared Budget: nothing nests yet.
+- `inspect --layer`, `od` on a layer and the `1:` address prefix are CLI work
+  for the breaking pass (cli-2.0.md).
+- YM's header fields carry display strings, so `frames` has a byte range but
+  `type: display`; typing them (`enc`) is a walker change for later.
+
 ## 3. Limits: one object, visible when hit
 
 As built in 2.0.0a1 (`core/infra/limits.py`):
@@ -135,13 +199,14 @@ annotation listing and triage's chunk listing are swept).
   each is a per-format value (a 512-byte chip image and a 64 MB WAV do not
   share a read window). A constant is the format's default for its limit; the
   `per_format` overrides come with FormatSpec.
-- The only Limits value a walk obeys today is `decode` (what `deep` was).
+- The Limits values obeyed today are `decode` (what `deep` was) and, since
+  layers, `depth` and `inflate_bytes` in the normaliser's layer decode.
   `list_rows` and the rest are recorded on the Document but no walker reads
-  them, so `--limit NAME=VALUE` has nothing to set until they are wired, and
+  them, so `--limit NAME=VALUE` has little to set until they are wired, and
   `deep` does not yet unbound `list_rows`.
 - No shared, mutable Budget. It exists to stop nested layers multiplying the
-  allowance, and nothing nests until layers; it lands with the decoder
-  registry.
+  allowance; the decoder registry has landed but no format nests one layer in
+  another yet, so it lands with the first that does (a zip of gzips).
 - `hit()` returns the note for the walker to append; there is no context
   object recording hits on the side. The notes are the record, which keeps the
   walkers' signatures and their tests unchanged.

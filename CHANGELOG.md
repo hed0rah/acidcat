@@ -26,6 +26,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `sibling.missing` and others, 100 walker sites so far. The rest report as
   `legacy` and are counted. Forensic findings (`inspect --anomalies`,
   `audit --json`) gain a `code` key.
+- **Layers.** A packed YM's unpacked tune is layer 1 of its Document: the
+  LHA body is decoded through a registry of decoders (`core/infra/layers.py`,
+  `-lh5-` and stored `-lh0-`) and checked against the member's CRC-16, and the
+  tune is walked region by region inside it, so its frame count has a byte
+  range (`1:lh5/header#frames`).
+- **`carve --layer N`** writes a layer's bytes, decoded and checked the same
+  way; `--layer 0` is the file.
 - **`docs/contract/cli-2.0.md`**: every 1.8 command and flag, what it becomes
   in 2.0, and which old spellings keep working through 2.x. A test fails when
   the parser grows a flag the page does not map.
