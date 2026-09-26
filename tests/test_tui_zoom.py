@@ -162,21 +162,21 @@ def test_the_detail_pane_never_changes_height(wav):
     #detail was `height: auto`, so a summary long enough to wrap grew the pane
     and stole a row from the hex view below it -- the visible symptom being
     that the hex pane resized when you selected a different chunk. It is a
-    two-line status now, fixed, and a long line clips.
+    fixed pane now (2.0: the field inspector, #inspect), and a long line clips.
     """
     async def scenario():
         for cols in (100, 120, 140, 200):
             app = AcidcatTUI(wav)
             async with app.run_test(size=(cols, 44)) as pilot:
                 await pilot.pause()
-                d = app.query_one("#detail")
+                d = app.query_one("#inspect")
                 seen = set()
                 for _ in range(8):
                     await pilot.press("down")
                     await pilot.pause()
                     seen.add(d.content_size.height)
                 assert len(seen) == 1, (
-                    f"{cols} cols: #detail took heights {sorted(seen)} across "
+                    f"{cols} cols: #inspect took heights {sorted(seen)} across "
                     f"nodes -- the layout jumps")
     _run(scenario)
 
@@ -233,13 +233,17 @@ def test_the_two_columns_are_symmetric(wav):
             async with app.run_test(size=(cols, rows)) as pilot:
                 await pilot.pause()
                 idbox = app.query_one("#idbox").region
-                detail = app.query_one("#detail").region
+                detail = app.query_one("#inspect").region
                 tree = app.query_one("#tree").region
                 hexw = app.query_one("#hexwrap").region
                 assert idbox.y == detail.y, f"{cols}x{rows}: top boxes start on different rows"
                 assert idbox.height == detail.height, f"{cols}x{rows}: top boxes differ in height"
                 assert tree.y == hexw.y, f"{cols}x{rows}: tree and hex start on different rows"
-                assert tree.height == hexw.height, f"{cols}x{rows}: tree and hex differ in height"
+                # 2.0: the left column's lower half is the tree plus the data
+                # inspector under it, and together they match the hex pane
+                data = app.query_one("#data").region
+                assert tree.height + data.height == hexw.height, (
+                    f"{cols}x{rows}: tree + data inspector and hex differ in height")
                 # 2.0: 35/65, not half and half -- the bytes need the room
                 left = app.query_one("#left").region.width
                 assert abs(left - round(cols * 0.35)) <= 1, (

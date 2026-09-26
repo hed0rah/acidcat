@@ -70,6 +70,10 @@ STATES = {
                    [("select", "~ data"), "tab", "z"]),
     "help": ("seed.wav", lambda t: seeds.build("wav"), (120, 36),
              ["question_mark"]),
+    # 2.0 M2: a pointer field says where it points; the root offers its caps
+    "pointer-field": ("seed.sid", lambda t: seeds.build("sid"), (120, 36),
+                      [("select", "dataOffset")]),
+    "sid-root": ("seed.sid", lambda t: seeds.build("sid"), (120, 36), []),
 }
 
 

@@ -4,8 +4,8 @@ These are the TUI's own heuristics, moved here unchanged so the contract can
 state them as caps (docs/contract/node-v1.md section 8) and every consumer reads
 the same answer. Each cap they produce is marked `"source": "inferred"`: it was
 worked out from a format label, a chunk id or a field name, not declared by the
-walker. Walkers replace them with declared caps one at a time, and the TUI stops
-matching strings when it reads caps instead (2.2).
+walker. Walkers replace them with declared caps one at a time. Since 2.0 the TUI
+reads these caps and matches no format names itself.
 
 The rules, as the TUI applied them in 1.8.5:
 
@@ -17,6 +17,15 @@ The rules, as the TUI applied them in 1.8.5:
   with the rate, channels, bits and float-ness read from `fmt`/`COMM` first,
   else from the first chunk with a `sample_rate` field, clamped to what a real
   header can say (app.py _audio_params / _params_from).
+- edit: the metadata editor the write engine has for the file
+  (core/write/profiles.py), when `caps` is given the file's first bytes.
+
+File-level caps (render, decode, edit) sit on the first chunk; the TUI reads
+them from there for any selection (2.0).
+
+A walker declares a cap by putting it on its chunk, `chunk["caps"] =
+{"render": {"engine": "sid"}}`; a declared cap replaces an inferred one of the
+same name and is marked `"source": "declared"`.
 """
 
 from acidcat.core.infra import fieldcodec
@@ -67,6 +76,12 @@ def _params_from(chunk, rate, ch, bits, floating, used):
     return rate, ch, bits, floating
 
 
+def audio_params(chunks):
+    """(rate, channels, bits, float) for playing a walk's bytes as PCM: the
+    geometry the file states, else 44100 Hz mono 16-bit."""
+    return _audio_params(chunks)[:4]
+
+
 def _audio_params(chunks):
     """(rate, ch, bits, float, source chunk index, field names used)."""
     rate, ch, bits, floating = 44100, 1, 16, False
@@ -81,14 +96,38 @@ def _audio_params(chunks):
     return rate, ch, bits, floating, None, []
 
 
-def caps(fmt_id, label, chunks):
+def decodable(head):
+    """The sniff id of `head` if a player decodes such bytes whole (a
+    compressed stream carved out of something else), else None."""
+    from acidcat.core.infra.sniff import sniff_bytes
+    try:
+        fmt = sniff_bytes(bytes(head))
+    except Exception:
+        return None
+    if fmt and any(k in str(fmt).lower() for k in _DECODABLE):
+        return str(fmt)
+    return None
+
+
+# core/write/profiles.py profile name -> the `edit` cap's profile
+_EDIT_PROFILE = {"WAV": "wav", "AIFF": "aiff", "tagged": "tagged", "Vital": "vital"}
+
+
+def caps(fmt_id, label, chunks, head=None, name=None):
     """{chunk index: caps} for a walk's chunk list. Audio caps name their
     source fields as (chunk index, field name); the normaliser turns those into
-    field addresses once node ids exist."""
+    field addresses once node ids exist. Given the file's first bytes (`head`)
+    and `name`, the file's metadata editor is an `edit` cap."""
     out = {}
     lab = (label or "").lower()
     if not chunks:
         return out
+    if head is not None:
+        from acidcat.core.write.profiles import profile_for
+        prof = profile_for(bytes(head[:16]), name)
+        if prof is not None and prof[0] in _EDIT_PROFILE:
+            out.setdefault(0, {})["edit"] = {"profile": _EDIT_PROFILE[prof[0]],
+                                             "source": "inferred"}
     for needle, engine in _RENDER:
         if needle in lab:
             out.setdefault(0, {})["render"] = {"engine": engine, "source": "inferred"}
@@ -106,4 +145,9 @@ def caps(fmt_id, label, chunks):
             if floating:
                 cap["float"] = True
             out.setdefault(i, {})["audio"] = cap
+    # what a walker declares on a chunk wins over what was inferred for it
+    for i, c in enumerate(chunks):
+        for name, payload in (c.get("caps") or {}).items():
+            if isinstance(payload, dict):
+                out.setdefault(i, {})[name] = dict(payload, source="declared")
     return out

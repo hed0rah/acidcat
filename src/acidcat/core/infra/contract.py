@@ -698,7 +698,8 @@ def walk(path, deep=False, fmt_override=None, limits=None):
                                          fmt_override=fmt_override)
         return document(fmt_id, label, chunks, warns, src.buffer(),
                         forced=bool(fmt_override),
-                        caps_fn=capabilities.caps,
+                        caps_fn=lambda f, l, c: capabilities.caps(
+                            f, l, c, head=src.read(0, 16), name=src.path or src.name),
                         prefer_be=capabilities.prefers_be(fmt_id, label),
                         limits=limits)
     finally:

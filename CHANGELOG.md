@@ -48,6 +48,21 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   (it folded to 8 below 156). A status line under the panes names the layer,
   the selection's offset and length, the finding count and the actions the
   selected node offers. Keys are unchanged.
+- **TUI: what a node can do comes from its caps.** `p` plays a tune on the
+  engine its `render` cap names (`core/codecs/engines.py`), decodes a file
+  with a `decode` cap whole, and reads PCM with the geometry of the `audio`
+  cap; `e` on the file opens its tag editor when it has an `edit` cap, and on
+  a field edits the value as before; `X` writes out a node with a `carve` cap
+  when there are no regions. Nothing in `tui_app/` chooses by format name any
+  more: the edit profiles moved to `core/write/profiles.py` and the PS1 disc
+  catalog to `core/containers/psxdisc.py`. A walker can declare a cap on its
+  chunk (`chunk["caps"]`), and the TUI acts on it with no change of its own.
+- **TUI: a field inspector and a data inspector.** The field inspector
+  (replacing the detail box) gives the selected field's type and where it
+  came from, offset, length, bytes, value, meaning, note and pointer target;
+  `enter` on a pointer follows it, like `x`. The data inspector reads the
+  bytes at the cursor as u8 to u64, i8 to i64 and f32/f64, little- and
+  big-endian side by side, with their ASCII and bits.
 - **Cap hits are never defects.** Twenty-two places reported crossing one of
   acidcat's own limits as a plain warning, which `audit` counted against the
   file: the 8SVX, SMUS, VOC, DMX and BFD read and chunk caps, eight E-mu

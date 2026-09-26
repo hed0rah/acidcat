@@ -911,7 +911,6 @@ class DiscScreen(ModalScreen):
         ("p", "play", "audition"),
         ("escape", "cancel", "back"),
     ]
-    _KIND = {"XA": "soundtrack (XA)", "VB": "sound bank (SPU)", "VAG": "sample (SPU)"}
 
     def __init__(self, entries, disc_name):
         super().__init__()
@@ -920,8 +919,8 @@ class DiscScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="discbox"):
-            nx = sum(1 for e in self.entries if e["kind"] == "XA")
-            nb = sum(1 for e in self.entries if e["kind"] in ("VB", "VAG"))
+            nx = sum(1 for e in self.entries if e["role"] == "soundtrack")
+            nb = sum(1 for e in self.entries if e["role"] == "bank")
             yield Static(
                 Text(f"{self.disc_name}  --  {len(self.entries)} audio file(s): "
                      f"{nx} soundtrack / {nb} sound bank", style=f"bold {ACCENT}"),
@@ -933,7 +932,7 @@ class DiscScreen(ModalScreen):
             t.zebra_stripes = True
             t.add_columns("#", "name", "kind", "size")
             for i, e in enumerate(self.entries):
-                t.add_row(str(i), e["path"], self._KIND.get(e["kind"], e["kind"]),
+                t.add_row(str(i), e["path"], e.get("what", e["kind"]),
                           f"{e['size']:,}")
             yield t
 

@@ -335,6 +335,9 @@ The pre-step fixes the legacy model so the normaliser has one rule:
 - `off = None` is the only spelling of "unpositioned". `_f(0, 0, ...)` is
   banned by test.
 - `xref` is only a pointer.
+- A chunk may declare its caps (section 8): `caps: {render: {engine:
+  "sid"}}`. They replace inferred caps of the same name and carry
+  `"source": "declared"`.
 - A chunk whose payload decodes to a layer carries `layer` (`name`,
   `decoder`, `params`, `length`, `length_known`, `verdict`) and
   `layer_chunks`: legacy chunks positioned in the decoded bytes. The payload

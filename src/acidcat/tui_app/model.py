@@ -33,6 +33,8 @@ class DocumentModel:
         self.undo = []
         self.redo = []
         self._bytes = {}          # decoded layers, by id; never layer 0
+        self.chunk_caps = {}      # top-level chunk index -> caps
+        self.prefer_be = False    # the format's fields are big-endian
 
     # ── the document ─────────────────────────────────────────────────────
 
@@ -44,14 +46,21 @@ class DocumentModel:
         self._bytes = {}
         self.document = None
         try:
+            self.chunk_caps = capabilities.caps(fmt_id, label, chunks or [],
+                                                head=self.read(0, 16, 0),
+                                                name=self.path)
+        except Exception:             # a cap heuristic never breaks a view
+            self.chunk_caps = {}
+        self.prefer_be = capabilities.prefers_be(fmt_id, label)
+        try:
             # mapped only while the Document is built: the working copy is
             # rewritten in place on every edit, and a map held across that
             # would fault on the truncated file
             with MappedSource(self.path) as src:
                 self.document = contract.document(
                     fmt_id, label, chunks, warns, src.buffer(), forced=forced,
-                    caps_fn=capabilities.caps,
-                    prefer_be=capabilities.prefers_be(fmt_id, label))
+                    caps_fn=lambda f, l, c: self.chunk_caps,
+                    prefer_be=self.prefer_be)
         except Exception:
             # the normaliser never raises on walker output, but the TUI opens
             # hostile files: a Document it cannot build is no Document, not a
@@ -60,6 +69,30 @@ class DocumentModel:
         if self.layer not in self.layer_ids():
             self.layer = 0
         return self.document
+
+    # ── capabilities ─────────────────────────────────────────────────────
+
+    # the caps that say what the FILE can do; they sit on its first chunk
+    FILE_CAPS = ("render", "decode", "edit")
+
+    def caps_of(self, index):
+        """The caps of top-level chunk `index` of the walk."""
+        return self.chunk_caps.get(index, {})
+
+    def file_caps(self):
+        """What the file as a whole offers (render, decode, edit), wherever
+        the walk put them."""
+        out = {}
+        for caps in self.chunk_caps.values():
+            for k in self.FILE_CAPS:
+                if k in caps:
+                    out.setdefault(k, caps[k])
+        return out
+
+    def audio_index(self):
+        """The first top-level chunk that holds sample data, or None."""
+        hits = [i for i, caps in self.chunk_caps.items() if "audio" in caps]
+        return min(hits) if hits else None
 
     def layer_ids(self):
         if self.document is None:
