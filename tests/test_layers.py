@@ -157,3 +157,40 @@ def test_the_layered_document_validates(packed):
     doc = json.loads(json.dumps(contract.walk(packed)))
     errs = list(jsonschema.Draft202012Validator(schema).iter_errors(doc))
     assert not errs, [(e.json_path, e.message[:100]) for e in errs[:3]]
+
+
+# ── SNDH: the Pack-Ice image is layer 1 ─────────────────────────────
+
+SNDH = seeds.SEEDS["sndh"][0]()
+
+
+@pytest.fixture
+def packed_sndh(tmp_path):
+    p = tmp_path / "tune.sndh"
+    p.write_bytes(seeds.SEEDS["sndh"][0](packed=True))
+    return str(p)
+
+
+def test_a_packed_sndh_tag_has_a_byte_range_in_layer_1(packed_sndh):
+    doc = contract.walk(packed_sndh)
+    lay = doc["layers"][1]
+    assert lay["decoder"]["name"] == "ice" and lay["mapping"] == "opaque"
+    assert lay["verdict"]["method"] == "exact-length"
+    head = contract.node(doc, lay["from_node"] + "/header")
+    title = next(f for f in head["fields"] if f["name"] == "title")
+    assert title["at"]["layer"] == 1
+    b = layers.layer_bytes(doc, 1, open(packed_sndh, "rb").read())
+    assert b == SNDH and b[12:16] == b"SNDH"
+
+
+def test_carve_layer_1_writes_the_unpacked_sndh(packed_sndh, tmp_path):
+    out = tmp_path / "unpacked.sndh"
+    r = _carve(packed_sndh, "--layer", "1", "-o", str(out))
+    assert r.returncode == 0, r.stderr.decode()
+    assert out.read_bytes() == SNDH
+
+
+def test_a_pack_ice_stream_of_the_wrong_length_does_not_decode():
+    raw = seeds.ice_literal(SNDH)
+    with pytest.raises(layers.LayerError):
+        layers.decode("ice", raw[12:], {"size": len(SNDH) + 1}, 1 << 20)

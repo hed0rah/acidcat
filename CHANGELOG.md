@@ -30,7 +30,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   LHA body is decoded through a registry of decoders (`core/infra/layers.py`,
   `-lh5-` and stored `-lh0-`) and checked against the member's CRC-16, and the
   tune is walked region by region inside it, so its frame count has a byte
-  range (`1:lh5/header#frames`).
+  range (`1:lh5/header#frames`). A Pack-Ice SNDH is layered the same way:
+  the image must fill exactly the length its header states, and its entry
+  branches, tags and player are walked inside it; on 298 real packed SNDH
+  files the layer is the verified image.
 - **`carve --layer N`** writes a layer's bytes, decoded and checked the same
   way; `--layer 0` is the file.
 - **`docs/contract/cli-2.0.md`**: every 1.8 command and flag, what it becomes

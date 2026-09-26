@@ -19,7 +19,9 @@ source bytes, bounded by a cap, and `layer_bytes()` re-derives any layer of a
 Document from the file's bytes, nested layers included.
 """
 
-from acidcat.core.codecs import lha
+import struct
+
+from acidcat.core.codecs import ice, lha
 
 
 class LayerError(ValueError):
@@ -40,11 +42,24 @@ def _lha_check(out, params):
     return lha.crc16(out) == params["crc"]
 
 
+def _ice(src, params, cap):
+    # the source is the stream after the 12-byte header; unpack() reads the
+    # header for its lengths, so it is rebuilt from the declared ones
+    head = b"ICE!" + struct.pack(">II", len(src) + ice.HEADER, params["size"])
+    return ice.unpack(head + bytes(src), cap)
+
+
+def _exact_length(out, params):
+    return len(out) == params["size"]
+
+
 # name -> (decode(src, params, cap), check(out, params) or None, mapping)
 # `exact`: layer byte k is source byte k, so a selection maps back to the file
 DECODERS = {
     "lha.lh5": (_lha_lh5, _lha_check, "opaque"),
     "lha.lh0": (_lha_lh0, _lha_check, "exact"),
+    # a Pack-Ice stream must fill exactly the length its header states
+    "ice": (_ice, _exact_length, "opaque"),
 }
 
 
@@ -62,7 +77,7 @@ def decode(name, src, params, cap):
         out = fn(src, params, cap)
     except LayerError:
         raise
-    except (lha.LhaError, KeyError, ValueError) as e:
+    except (lha.LhaError, ice.IceError, KeyError, ValueError) as e:
         raise LayerError("%s: %s" % (name, e)) from None
     if check is not None and not check(out, params):
         raise LayerError("%s: the decoded bytes fail their check" % name)

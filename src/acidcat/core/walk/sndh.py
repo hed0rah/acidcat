@@ -8,7 +8,8 @@ real region and walked field by field, and the SNDH inside is described
 with its fields unpositioned, since offsets into the unpacked image are
 not file offsets. The unpacked image must come out at exactly the length
 the ICE header states, with 'SNDH' where it belongs, before anything in it
-is reported.
+is reported. The image is also declared as a layer, walked like a bare SNDH,
+for the v1 Document (node-v1.md section 3).
 """
 
 
@@ -163,7 +164,17 @@ def _packed(raw, warns):
               + _entry_fields(s, False, len(image))
               + [_tag_field(t, o, n, v, s, False, 0) for t, o, n, v in s["tags"]]
               + _no_hdns(s))
-    chunks.append(_chunk("ice", ice.HEADER, packed - ice.HEADER, _summary(s) + _title(s), fields))
+    body = _chunk("ice", ice.HEADER, packed - ice.HEADER, _summary(s) + _title(s), fields)
+    # the unpacked tune is layer 1: the same walk as a bare SNDH, positioned
+    # in the image. Only the v1 Document reads it (core/infra/layers.py).
+    body["layer"] = {
+        "name": "unpacked SNDH", "decoder": "ice",
+        "params": {"size": unpacked},
+        "length": len(image), "length_known": True,
+        "verdict": {"result": "verified", "method": "exact-length",
+                    "detail": "%d bytes" % unpacked}}
+    body["layer_chunks"] = _bare(image, s)
+    chunks.append(body)
     if packed < len(raw):
         tail = raw[packed:]
         zero = not any(tail)
