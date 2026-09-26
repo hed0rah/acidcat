@@ -13,7 +13,11 @@ on:
     # Short-lived branches off main, merged and deleted, have none of that: they
     # are what squash-merge is designed for, and what this repo had already
     # drifted into using.
-    branches: [main]
+    #
+    # `next` is the 2.0 integration branch. It is append-only and merges to
+    # main once, so the divergence above does not apply, and without this its
+    # commits reached the macOS and Linux matrix only at that merge.
+    branches: [main, next]
   pull_request:
   # Called by publish.yml, so the gate on an irreversible action is this matrix
   # rather than a thinner copy of it. That copy ran one job on one Python with
