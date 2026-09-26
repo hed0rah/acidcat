@@ -139,7 +139,8 @@ def field_inspector(d):
 
     t = line()
     if d.get("off") is None:
-        t.append("no byte range: derived from other fields", style=DIM)
+        t.append(d.get("where") or "no byte range: derived from other fields",
+                 style=DIM)
     else:
         t.append("@ ", style=DIM)
         t.append(f"0x{d['off']:08x}", style=FG)

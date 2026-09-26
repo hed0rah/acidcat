@@ -57,6 +57,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   more: the edit profiles moved to `core/write/profiles.py` and the PS1 disc
   catalog to `core/containers/psxdisc.py`. A walker can declare a cap on its
   chunk (`chunk["caps"]`), and the TUI acts on it with no change of its own.
+- **TUI: layers.** `enter` on a node that opens a layer (a packed YM's LHA
+  body) shows the decoded image as a view of its own, read-only, named in the
+  breadcrumb (`tune.ym > unpacked YM5`) and the status line (`layer 1`); its
+  fields have byte ranges there and light up in its bytes. `u` comes back to
+  the file. In the file view, a field of the packed tune says which layer holds
+  its bytes and how to open it, instead of "no byte range".
 - **TUI: a field inspector and a data inspector.** The field inspector
   (replacing the detail box) gives the selected field's type and where it
   came from, offset, length, bytes, value, meaning, note and pointer target;

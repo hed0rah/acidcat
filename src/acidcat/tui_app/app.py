@@ -302,7 +302,7 @@ class AcidcatTUI(App):
             # a scan's enter, or enter on a pointer field; otherwise the
             # tree keeps enter for opening nodes
             return self._scanning or (len(self.screen_stack) <= 1
-                                      and self._on_pointer())
+                                      and (self._on_pointer() or self._on_descend()))
         if action == "pause_scan":
             return self._scanning        # only live during a scan
         # The region actions are only real once there are regions, and a footer
@@ -403,6 +403,7 @@ class AcidcatTUI(App):
         self._region_header_col = None    # which column the arrows point at
         self._region_cursor = 0   # row the region list should reopen on
         self._region_view = None  # (idx, region) when viewing a descended region
+        self._layer_view = None   # {"id", "name"} when viewing a decoded layer
         self._region_tmps = []    # carved-region temp files, cleaned on exit
         self._disc_src = None     # path of an opened CD-XA disc image
         self._disc_list = []      # its audio catalog (.STR/.VB/.VAG entries)
@@ -521,6 +522,7 @@ class AcidcatTUI(App):
         self._regions = None
         self._blob_src = None
         self._region_view = None
+        self._layer_view = None
         self._make_work()
         self._load()
         # the hidden #editbar is still focusable, so without this every single-key
@@ -540,7 +542,7 @@ class AcidcatTUI(App):
         "_work_is_temp", "_readonly", "dirty",
         "_backed_up",
         "_undo", "_redo", "_src_stat", "_force_stale",
-        "_regions", "_blob_src", "_region_view", "_scan_partial",
+        "_regions", "_blob_src", "_region_view", "_layer_view", "_scan_partial",
         "_locate_mode", "_locate_transforms",
         "_view", "_viz_scope", "_viz_scale", "_viz_drawn", "_hex_top",
         "_region_sel",
@@ -644,7 +646,10 @@ class AcidcatTUI(App):
     def _frame_label(self, fr):
         """One breadcrumb piece for a frame (None means the current view)."""
         rv = fr.get("_region_view") if fr else self._region_view
+        lv = fr.get("_layer_view") if fr else self._layer_view
         src = (fr.get("src") if fr else self.src) or "?"
+        if lv:
+            return lv["name"]
         if not rv:
             return os.path.basename(src)
         label, region = rv
@@ -805,7 +810,14 @@ class AcidcatTUI(App):
                 if c is info.chunk:
                     # the file's own caps ride on its first chunk; they are
                     # the root's to offer, not that chunk's
-                    return {k: v for k, v in self.model.caps_of(i).items()
+                    caps = dict(self.model.caps_of(i))
+                    # and what the Document adds, such as the layer it opens
+                    eoff, elen = geometry.extent_of(c)
+                    dnode = self.model.node_for(eoff, elen)
+                    if dnode is not None and dnode.get("extent", {}).get("off") == eoff \
+                            and dnode["extent"]["len"] == elen:
+                        caps.update(dnode["caps"])
+                    return {k: v for k, v in caps.items()
                             if k not in self.model.FILE_CAPS}
         return {}
 
@@ -1156,7 +1168,8 @@ class AcidcatTUI(App):
         refusal is a resource decision, not a verdict, and the person looking at
         the file is better placed to make it than a constant is.
         """
-        if self._readonly and not self._force_scan and not self._unparsed():
+        if (self._readonly and not self._force_scan and not self._unparsed()
+                and not self._layer_view):
             self._force_scan = True
             self.notify("scanning forensics anyway; this reads the whole file")
             self._load()
@@ -1613,6 +1626,11 @@ class AcidcatTUI(App):
         self._scan_paused = not self._scan_paused
         self._render_scan_title()
 
+    def _on_descend(self):
+        """The highlighted node opens a layer."""
+        return (self._cur_node is not None
+                and "descend" in self._node_caps())
+
     def _on_pointer(self):
         """The highlighted node is a field that points somewhere."""
         info = self._info(self._cur_node) if self._cur_node is not None else None
@@ -1623,6 +1641,9 @@ class AcidcatTUI(App):
         a pointer field (and no scan), follow the pointer."""
         if not self._scanning and self._on_pointer():
             self.action_follow_xref()
+            return
+        if not self._scanning and self._on_descend():
+            self._descend_layer()
             return
         if self._scanning:
             self._scan_paused = False
@@ -1815,6 +1836,47 @@ class AcidcatTUI(App):
         self._make_work()
         self._load()
         self.notify(f"in: {self._breadcrumb()}")
+
+    def _descend_layer(self):
+        """enter on a node that opens a layer: show the layer.
+
+        The layer's bytes come from the model, decoded by the decoder the walk
+        named and checked the same way (core/infra/layers.py). The view is a
+        frame like a region's, so `u` comes back to the file exactly as it
+        was, and it is read-only: the layer is the walk's decoding, and there
+        is no writing an edit back through a compressor.
+        """
+        cap = self._node_caps().get("descend") or {}
+        lid = cap.get("layer")
+        if lid is None:
+            return
+        try:
+            lay = self.model.layer_info(lid)
+            raw = self.model.read(0, lay["length"], lid)
+        except Exception as e:                        # noqa: BLE001
+            self.notify(f"the layer does not decode: {e}", severity="error")
+            return
+        ext = os.path.splitext(self.src or "")[1] or ".bin"
+        fd, tmp = tempfile.mkstemp(suffix=ext, prefix="acidcat_layer_")
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+        name = lay.get("name") or f"layer {lid}"
+        self._push_frame()
+        self.src = tmp
+        self.carved = True            # this frame owns the decoded file too
+        self._layer_view = {"id": lid, "name": name}
+        self._region_view = None
+        self._regions = None
+        self._blob_src = None
+        self._scan_partial = False
+        self._fmt_override = None
+        self._force_scan = False
+        self._make_work()
+        self._readonly = True
+        self._load()
+        v = lay.get("verdict") or {}
+        self.notify(f"in: {self._breadcrumb()}   ({lay['length']:,} bytes, "
+                    f"{v.get('result', 'unverified')} {v.get('method', '')})".rstrip())
 
     def action_ascend(self):
         """Kept as an alias so `u` means one thing: go back."""
@@ -2037,10 +2099,17 @@ class AcidcatTUI(App):
         _apply_to_work is the enforcement point; these entry-point guards exist
         so the refusal arrives before the user fills in an edit form, not after.
         """
-        self.notify("read-only: too large for a working copy, so an edit would "
-                    "rewrite the original in place. Descend into a region (l) "
-                    "to edit it.", severity="warning")
+        self.notify(self._readonly_reason(), severity="warning")
         return True
+
+    def _readonly_reason(self):
+        if self._layer_view:
+            return ("read-only: this layer is the walk's decoding of the file, "
+                    "not bytes the file holds, so there is nowhere to write an "
+                    "edit. u goes back to the file.")
+        return ("read-only: too large for a working copy, so an edit would "
+                "rewrite the original in place. Descend into a region (l) "
+                "to edit it.")
 
     def _apply_to_work(self, new_bytes):
         """Write edited bytes to the working copy (no disk write to the original
@@ -2056,10 +2125,7 @@ class AcidcatTUI(App):
         read-only. One choke point means a future caller cannot reintroduce it.
         """
         if self._readonly:
-            self.notify("read-only: this file is too large for a working copy, "
-                        "so an edit would rewrite the original in place. "
-                        "Descend into a region (l) to edit it.",
-                        severity="warning")
+            self.notify(self._readonly_reason(), severity="warning")
             return False
         with open(self.work, "rb") as f:
             old = f.read()
@@ -2198,6 +2264,7 @@ class AcidcatTUI(App):
             self.fmt, self.chunks, self.warns = (
                 "walk failed", [], [f"{e.__class__.__name__}: {e}"])
         self.model.path = self.work
+        self.model.view = self._layer_view
         self.model.load(self._fmt_id(), self.fmt, self.chunks, self.warns,
                         forced=bool(self._fmt_override))
         self._prefer_be = self.model.prefer_be
@@ -2206,7 +2273,7 @@ class AcidcatTUI(App):
         # "clean: no findings" -- a check that did not run reading as a pass,
         # one panel over from the test file written to prevent exactly that.
         self.scan_note = None
-        if self._readonly and not self._force_scan:
+        if self._readonly and not self._force_scan and not self._layer_view:
             self.findings = []
             self.scan_note = ("not scanned: the file is too large to scan "
                               "whole, so nothing here is a verdict "
@@ -2452,9 +2519,9 @@ class AcidcatTUI(App):
         meta = self._meta(node) if node is not None else None
         if not meta or tuple(meta[:2]) != (off, length):
             node = None
-        self.query_one("#inspect", Static).update(
-            field_inspector(self._inspect_facts(node, off, length,
-                                                accent, name, note)))
+        facts = self._inspect_facts(node, off, length, accent, name, note)
+        self._no_range_note = facts.get("where")
+        self.query_one("#inspect", Static).update(field_inspector(facts))
         self._paint_data(off)
         # a new selection brings the window with it (the model forgets where
         # an old one was paged to)
@@ -2496,6 +2563,15 @@ class AcidcatTUI(App):
             else:
                 d["value"] = fl.get("value")
             d["note"] = fl.get("note") or ""
+            if off is None and node is not None and node.parent is not None:
+                # a field of a packed body: its bytes are in the layer the
+                # body opens, not in the file
+                below = self._node_caps(node.parent).get("descend")
+                if below is not None:
+                    lay = self.model.layer_info(below["layer"])
+                    d["where"] = (f"its bytes are in layer {below['layer']} "
+                                  f"({lay.get('name')}): enter on "
+                                  f"{self._node_name(node.parent).split()[0]} opens it")
             if info.xref is not None:
                 d["ptr"] = (info.xref, 0 <= info.xref < self.fsize)
             d["hint"] = self._edit_hint(node, off, length)
@@ -2886,7 +2962,8 @@ class AcidcatTUI(App):
         self.query_one("#hexwrap").set_class(True, "context")
         off, length, accent = self._cur_region
         if off is None:
-            t = Text("  (no byte range for this node)", style=DIM)
+            t = Text("  (" + (getattr(self, "_no_range_note", None)
+                              or "no byte range for this node") + ")", style=DIM)
             pane.update(t)
             return
         width, rows = self._hex_width(), self._hex_rows_visible()
@@ -2909,6 +2986,8 @@ class AcidcatTUI(App):
         # what the highlighted tree node offers, as p/X/e will act on it
         st["actions"] = sorted(self._node_caps())
         t = Text(no_wrap=True, overflow="ellipsis")
+        if st["layer_id"]:
+            t.append(f"layer {st['layer_id']}  ", style=DIM)
         t.append(st["layer"], style=f"bold {ACCENT}")
         t.append(f"  {st['length']:,} bytes", style=DIM)
         if st["offset"] is not None:
@@ -3905,6 +3984,8 @@ class AcidcatTUI(App):
         field can be edited (value / enum / hex / text), so it's discoverable."""
         if off is None or not length:
             return ""
+        if self._layer_view:
+            return "read-only: a decoded layer (u goes back to the file)"
         info = self._info(node)
         if info is not None and info.textfield is not None:
             return f"text-editable ({info.textfield}) -- press e"

@@ -74,6 +74,11 @@ STATES = {
     "pointer-field": ("seed.sid", lambda t: seeds.build("sid"), (120, 36),
                       [("select", "dataOffset")]),
     "sid-root": ("seed.sid", lambda t: seeds.build("sid"), (120, 36), []),
+    # 2.0 M3: a packed field says where its bytes are; enter opens the layer
+    "ym-packed-field": ("tune.ym", lambda t: seeds.SEEDS["ym"][0](packed="lh5"),
+                        (120, 36), [("select", "lh5"), "right", ("select", "frames")]),
+    "ym-layer-frames": ("tune.ym", lambda t: seeds.SEEDS["ym"][0](packed="lh5"),
+                        (120, 36), [("select", "lh5"), "enter", ("select", "frames")]),
 }
 
 

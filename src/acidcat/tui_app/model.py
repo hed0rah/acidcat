@@ -34,6 +34,9 @@ class DocumentModel:
         self.redo = []
         self._bytes = {}          # decoded layers, by id; never layer 0
         self.chunk_caps = {}      # top-level chunk index -> caps
+        # {"id", "name"} when this model's file is a decoded layer of the one
+        # the user opened: what the status line calls it
+        self.view = None
         self.prefer_be = False    # the format's fields are big-endian
 
     # ── the document ─────────────────────────────────────────────────────
@@ -232,9 +235,10 @@ class DocumentModel:
         lay = self.layer_info()
         node = (self.node_for(self.selection[1], self.selection[2], self.selection[0])
                 if self.selection else None)
+        view = self.view or {}
         return {
-            "layer": lay["name"],
-            "layer_id": lay["id"],
+            "layer": view.get("name", lay["name"]),
+            "layer_id": view.get("id", lay["id"]),
             "length": lay["length"],
             "offset": self.selection[1] if self.selection else None,
             "selected": self.selection[2] if self.selection else 0,
