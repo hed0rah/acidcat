@@ -214,8 +214,10 @@ def inspect_au(filepath):
             w.append(f"{name} is not linear PCM; these bytes are a codec and "
                      f"play as noise if fed to a PCM player")
         if data_offset + eff_size > file_size:
-            w.append(f"audio runs past the end of the file "
-                     f"(@0x{data_offset:x} + {eff_size:,})")
+            w.append(defect("size.overrun",
+                            f"audio runs past the end of the file "
+                            f"(@0x{data_offset:x} + {eff_size:,}); "
+                            f"{avail:,} bytes are there"))
         dfields = [
             _f(None, 0, "encoding", name),
             _f(None, 0, "sample_rate", rate if rate else "unknown"),
@@ -225,8 +227,9 @@ def inspect_au(filepath):
             dfields.append(_f(None, 0, "bits_per_sample", bits))
         if secs is not None:
             dfields.append(_f(None, 0, "duration", f"{secs:.3f} s"))
+        # a cut file's audio chunk owns what is there, not what was declared
         chunks.append({
-            "id": "data", "offset": data_offset, "size": eff_size,
+            "id": "data", "offset": data_offset, "size": min(eff_size, avail),
             "summary": (f"{name} @ {rate} Hz, {eff_size:,} B"
                         + (f", {secs:.2f} s" if secs is not None else "")),
             "fields": dfields, "warnings": w, "payload_base": data_offset,

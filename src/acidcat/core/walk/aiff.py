@@ -280,8 +280,14 @@ def _aiff_appl(b):
     fields.append(_f(0x00, 4, "signature", sig))
     if sig in ("pdos", "stoc") and len(b) > 4:
         nlen = b[4]
-        name = b[5:5 + nlen].decode("ascii", errors="replace")
-        fields.append(_f(0x04, 1 + nlen, "name", name, "pstring"))
+        if 5 + nlen <= len(b):
+            name = b[5:5 + nlen].decode("ascii", errors="replace")
+            fields.append(_f(0x04, 1 + nlen, "name", name, "pstring"))
+        else:
+            # the length byte claims more than the chunk holds: not a pstring
+            warns.append(defect("size.overrun",
+                                "APPL '%s' data does not start with a pstring "
+                                "that fits the chunk" % sig))
     fields.append(_f(None, 0, "data", f"{len(b) - 4:,} bytes"))
     return f"app '{sig}', {len(b) - 4:,} bytes", fields, warns
 
