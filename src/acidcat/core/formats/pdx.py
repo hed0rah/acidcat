@@ -26,6 +26,11 @@ where the table ends, so the smallest offset in the table IS the table's size.
 Measured over 3,418 real banks, every table size that resolves is a multiple
 of 768.
 
+Some writers emit a SHORT table: only the slots they fill, so the first
+sample begins before 768 (26 slots is common). It is accepted only when the
+short table accounts for the file exactly, samples end to end to the last
+byte; 76 real banks do, and none of 333,922 other files does.
+
 Slots may point at the SAME bytes. 947 duplicate slot pairs across the corpus,
 and every one of them is an exact duplicate -- same offset, same length --
 rather than a window into another sample. A bank aliases a sample to several
@@ -70,7 +75,7 @@ def parse_table(raw, filesize):
     """
     h = {"ok": False, "why": "", "table_size": 0, "banks": 0,
          "slots": [], "used": 0, "packer": "", "data_start": 0,
-         "padded": False}
+         "padded": False, "short": False}
     if filesize < BANK + SLOT:
         h["why"] = "file is smaller than one %d-byte bank table" % BANK
         return h
@@ -95,8 +100,12 @@ def parse_table(raw, filesize):
             if h["packer"]:
                 h["why"] = ("the bank is packed with %s; the slot table "
                             "belongs to the unpacked form" % h["packer"])
-            else:
-                h["why"] = "a slot points outside the file"
+                return h
+            short = _short_table(raw, filesize)
+            if short:
+                h.update(short)
+                return h
+            h["why"] = "a slot points outside the file"
             return h
 
         low = min(o for o, _s in live)
@@ -124,6 +133,41 @@ def parse_table(raw, filesize):
         return h
     h["why"] = "slot table claims more than %d banks" % MAX_BANKS
     return h
+
+
+def _short_table(raw, filesize):
+    """A table shorter than one bank, or None.
+
+    Some writers emit only as many slots as they fill: the first sample then
+    begins where those slots end, before 768, and reading a whole bank reads
+    sample data as slots. Accepted only when the short table accounts for the
+    file exactly: every live slot inside it, the samples laid end to end, and
+    the last one ending at the end of the file (or one byte before it, which
+    a handful of real banks do). That is what separates a bank from any other
+    run of bytes, since the format has no magic."""
+    first = None
+    for i in range(0, min(len(raw), BANK) - SLOT + 1, SLOT):
+        o, n = struct.unpack_from(">II", raw, i)
+        if o or n:
+            first = o
+            break
+    if first is None or first % SLOT or not 2 * SLOT <= first < BANK:
+        return None
+    k = first // SLOT
+    rows = [struct.unpack_from(">II", raw, i * SLOT) for i in range(k)]
+    live = sorted(set((o, n) for o, n in rows if o or n))
+    if len(live) < 2 or live[0][0] != first:
+        return None
+    if any(n == 0 or o < first or o + n > filesize for o, n in live):
+        return None
+    if any(a[0] + a[1] != b[0] for a, b in zip(live, live[1:])):
+        return None
+    end = live[-1][0] + live[-1][1]
+    if filesize - end not in (0, 1):
+        return None
+    return {"ok": True, "why": "", "table_size": first, "banks": 1, "slots": rows,
+            "used": sum(1 for o, n in rows if o or n), "data_start": first,
+            "short": True}
 
 
 def looks_like_pdx(raw, filesize):

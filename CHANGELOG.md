@@ -135,6 +135,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **76 X68000 sample banks were not recognised.** Their writer emitted only
+  the slots it filled, a table shorter than one 96-slot bank, so reading a
+  whole bank read sample data as slots. A short table is now accepted when
+  it accounts for the file exactly: every slot inside it, the samples laid
+  end to end to the last byte. None of 333,922 other files in the corpus
+  passes that test.
 - **Two walkers found wrong by public test files.** McGill's AU and AIFF
   sample sets, now in the corpus, caught a Sun/NeXT file whose data chunk
   claimed 172,032 bytes of an 86,044-byte file (the chunk now owns what is
