@@ -148,3 +148,13 @@ def test_no_tag_is_named_twice_or_left_blank():
     reads as 'no tag' rather than 'unnamed tag'."""
     assert all(isinstance(v, str) and v.strip() for v in WAVE_FORMAT_TAGS.values())
     assert len(set(WAVE_FORMAT_TAGS)) == len(WAVE_FORMAT_TAGS)
+
+
+def test_a_12_bit_pcm_block_is_two_bytes_a_sample(tmp_path):
+    """PCM pads a sample to whole bytes, so 12-bit stereo aligns on 4. The
+    check computed channels * bits // 8 = 3 and warned on every such file."""
+    fmt = struct.pack("<HHIIHH", 1, 2, 44100, 44100 * 4, 4, 12)
+    body = b"WAVE" + _rc(b"fmt ", fmt) + _rc(b"data", b"\x00" * 64)
+    _l, chunks, _w = walk_file(_write(tmp_path, b"RIFF" + struct.pack("<I", len(body)) + body))
+    fmt_chunk = next(c for c in chunks if c["id"].strip() == "fmt")
+    assert not any("block_align" in w for w in fmt_chunk["warnings"])
