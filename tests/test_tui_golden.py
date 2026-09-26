@@ -133,11 +133,12 @@ def test_the_screen_matches_its_golden_shot(tmp_path, name):
     if tui_theme.ACTIVE_THEME != "brand":
         pytest.skip(f"golden shots are drawn in the brand theme, not "
                     f"{tui_theme.ACTIVE_THEME} (ACIDCAT_THEME is set)")
-    pinned = (GOLDEN / "TEXTUAL").read_text().strip() if (GOLDEN / "TEXTUAL").exists() else None
+    pinned = (GOLDEN / "TEXTUAL").read_text(encoding="utf-8").strip() if (GOLDEN / "TEXTUAL").exists() else None
     if WRITE:
         GOLDEN.mkdir(parents=True, exist_ok=True)
-        (GOLDEN / "TEXTUAL").write_text(_textual_version() + "\n")
-        (GOLDEN / f"{name}.svg").write_text(_shot(tmp_path, name), newline="\n")
+        (GOLDEN / "TEXTUAL").write_text(_textual_version() + "\n", encoding="utf-8")
+        (GOLDEN / f"{name}.svg").write_text(_shot(tmp_path, name), encoding="utf-8",
+                                            newline="\n")
         return
     if pinned != _textual_version():
         pytest.skip(f"golden shots were drawn with Textual {pinned}; this is "
@@ -146,9 +147,9 @@ def test_the_screen_matches_its_golden_shot(tmp_path, name):
     want = GOLDEN / f"{name}.svg"
     assert want.exists(), f"no golden shot {want}; write it with ACIDCAT_WRITE_GOLDEN=1"
     got = _shot(tmp_path, name)
-    if _norm(got) != _norm(want.read_text()):
+    if _norm(got) != _norm(want.read_text(encoding="utf-8")):
         out = tmp_path / f"{name}.actual.svg"
-        out.write_text(got, newline="\n")
+        out.write_text(got, encoding="utf-8", newline="\n")
         pytest.fail(f"{name}: the screen changed; compare {out} with {want}")
 
 
