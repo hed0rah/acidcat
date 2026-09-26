@@ -115,9 +115,9 @@ src/acidcat/
     data/          shipped JSON tables (provenance signatures)
   commands/        29 CLI verbs (31 modules)
   mcp_server/      schema, handlers, transport (19 tools)
-  tui_app/         Textual inspector/editor
+  tui_app/         Textual inspector/editor; model.py is its state, no Textual
   util/            small shared helpers
-  cli.py  explorer.py  tui_theme.py  __init__.py     (262 modules in total)
+  cli.py  explorer.py  tui_theme.py  __init__.py     (263 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

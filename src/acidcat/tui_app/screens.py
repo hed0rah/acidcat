@@ -214,8 +214,8 @@ class HelpScreen(ModalScreen):
                                 "off the pane"),
             ("shift+left/right", "jump to a node's parent / to the next branch "
                                  "past it"),
-            ("pgdn / pgup", "page the hex view through a region too big to show "
-                            "at once"),
+            ("pgdn / pgup", "page the hex view through the file; up/down on "
+                            "the focused hex pane move it a row"),
             ("a / c", "expand all / collapse all"),
             ("tab / shift+tab", "move focus between the tree and the hex pane"),
             ("z", "give the focused pane the whole screen (again to restore)"),

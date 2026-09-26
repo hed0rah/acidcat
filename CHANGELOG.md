@@ -39,6 +39,15 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- **TUI: the bytes pane shows the file around the selection.** Selecting a
+  field lights its bytes inside their neighbours, with the selected node's
+  fields tinted, instead of showing the selection alone on an empty pane.
+  PgDn/PgUp page through the file (they paged inside the selection, 1,024
+  bytes at a time), and up/down on the focused pane move it a row. The tree
+  takes 35% and the bytes 65%, so the hex is 16 bytes a row from 120 columns
+  (it folded to 8 below 156). A status line under the panes names the layer,
+  the selection's offset and length, the finding count and the actions the
+  selected node offers. Keys are unchanged.
 - **Cap hits are never defects.** Twenty-two places reported crossing one of
   acidcat's own limits as a plain warning, which `audit` counted against the
   file: the 8SVX, SMUS, VOC, DMX and BFD read and chunk caps, eight E-mu

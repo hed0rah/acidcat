@@ -723,11 +723,12 @@ def test_undo_capped_by_bytes(tmp_path, monkeypatch):
     pytest.importorskip("textual")
     import asyncio
     import shutil
-    import acidcat.tui_app as tui_app
     from acidcat.tui_app import AcidcatTUI
+    from acidcat.tui_app import model as tui_model
     from textual.widgets import Tree, Input
 
-    monkeypatch.setattr(tui_app.app, "_UNDO_BYTES_CAP", 1)   # any snapshot busts it
+    # the undo history lives on the model (tui_app/model.py) now
+    monkeypatch.setattr(tui_model, "_UNDO_BYTES_CAP", 1)   # any snapshot busts it
     orig = tmp_path / "cap.wav"
     shutil.copyfile("data/samples/Drum_Loop.wav", orig)
 

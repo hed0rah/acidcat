@@ -82,22 +82,25 @@ def test_arrows_move_the_hex_edit_cursor(wav):
 
 
 def test_the_hex_pane_can_be_focused_and_scrolled(wav):
-    """It holds more than a screen and focus never reached it."""
+    """It holds more than a screen and focus never reached it. 2.0: the pane
+    is drawn to its own height and does not scroll; the arrows move its
+    window through the file a row at a time."""
     async def scenario():
         app = AcidcatTUI(wav)
         async with app.run_test(size=(140, 44)) as pilot:
             await pilot.pause()
-            # stay on the root node: the whole file, so the pane holds
-            # _HEX_CAP bytes and genuinely overflows one screen
             await pilot.press("tab")
             await pilot.pause()
             assert app._focused_pane() == "hexwrap", "tab did not move focus to the hex pane"
-            hw = app.query_one("#hexwrap")
-            assert hw.max_scroll_y > 0, "the pane should hold more than one screen"
+            first = app.query_one("#hex").render().plain.splitlines()[0]
             for _ in range(6):
                 await pilot.press("down")
             await pilot.pause()
-            assert hw.scroll_offset.y > 0, "arrows did not scroll the focused pane"
+            now = app.query_one("#hex").render().plain.splitlines()[0]
+            step = app._hex_width()
+            assert int(now.split()[0], 16) == int(first.split()[0], 16) + 6 * step, (
+                "arrows did not move the focused pane's window")
+            assert app._focused_pane() == "hexwrap", "the arrows moved focus"
     _run(scenario)
 
 

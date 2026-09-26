@@ -240,7 +240,10 @@ def test_the_two_columns_are_symmetric(wav):
                 assert idbox.height == detail.height, f"{cols}x{rows}: top boxes differ in height"
                 assert tree.y == hexw.y, f"{cols}x{rows}: tree and hex start on different rows"
                 assert tree.height == hexw.height, f"{cols}x{rows}: tree and hex differ in height"
-                assert tree.width == hexw.width, f"{cols}x{rows}: columns differ in width"
+                # 2.0: 35/65, not half and half -- the bytes need the room
+                left = app.query_one("#left").region.width
+                assert abs(left - round(cols * 0.35)) <= 1, (
+                    f"{cols}x{rows}: the tree column is {left}, not 35%")
     _run(scenario)
 
 
@@ -318,10 +321,14 @@ def test_a_visualization_redraws_when_the_pane_changes_size(wav):
 
 def test_the_hilbert_map_grows_into_a_zoomed_pane(wav):
     """Order sets how many bytes fold into one cell, so fitting a bigger map
-    to a bigger pane is not cosmetic -- it is more of the file resolved."""
+    to a bigger pane is not cosmetic -- it is more of the file resolved.
+
+    90x50: the map is square, so it grows only where the pane's width is what
+    limits it. At 140 columns the 65% pane (2.0) is already wider than the
+    map is tall, and zooming adds width it cannot use."""
     async def scenario():
         app = AcidcatTUI(wav)
-        async with app.run_test(size=(140, 44)) as pilot:
+        async with app.run_test(size=(90, 50)) as pilot:
             await pilot.pause()
             await pilot.press("b")
             await pilot.press("b")

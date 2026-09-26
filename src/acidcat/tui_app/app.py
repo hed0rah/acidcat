@@ -58,10 +58,10 @@ from acidcat.tui_theme import (
 from acidcat.tui_app.render import (
     edit_profile, hex_text, text_field_for, _read, _fuzzy, _hex_rows,
     row_width_for, trim_size_echo,
-    _SPIN, _BAR_W, _HEX_CAP, _ROW_CAP, _CHUNK_CAP, _HEXEDIT_CAP, _UNDO_CAP, _VIZ_READ,
-    _SEARCH_CAP,
-    _UNDO_BYTES_CAP, _DIFF_CAP, _LARGE_FILE, _SCAN_SEG,
+    _SPIN, _BAR_W, _HEX_CAP, _ROW_CAP, _CHUNK_CAP, _HEXEDIT_CAP, _VIZ_READ,
+    _SEARCH_CAP, _DIFF_CAP, _LARGE_FILE, _SCAN_SEG, context_hex,
 )
+from acidcat.tui_app.model import DocumentModel
 from acidcat.tui_app.screens import (
     BrowseScreen, ConfirmScreen, DiffScreen, DiscScreen, EditScreen, HelpScreen,
     YesNoScreen,
@@ -151,8 +151,11 @@ class NodeInfo:
 class AcidcatTUI(App):
     CSS = th.css("""
     Screen { background: $BG; }
-    #left { width: 50%; }
-    #right { width: 50%; }
+    /* 35/65: the tree needs a name column, the bytes need 76 columns for 16
+       a row, and at 120 columns 65% is 78. Half and half left the tree pane
+       mostly empty and folded the hex to 8 a row below 156 columns. */
+    #left { width: 35%; }
+    #right { width: 65%; }
     /* The left column's top box, deliberately the same fixed height as
        #detail on the right so the tree and the hex pane start on the same
        row. Four content lines: what the file is, what forensics found, and
@@ -170,7 +173,16 @@ class AcidcatTUI(App):
        content rows always, and a long line clips. */
     #detail { height: 6; border: round $GUTTER; padding: 0 1; color: $FG; }
     #hexwrap { border: round $TEAL; }
-    #hex { padding: 0 1; }
+    /* No padding: the offset gutter is the margin, and the two columns it
+       would cost are what 16 bytes a row needs at 120. The context view is
+       drawn to exactly the rows the pane has, so it never scrolls and never
+       shows a scrollbar that would take two more. */
+    #hex { padding: 0; }
+    #hexwrap.context { overflow-y: hidden; }
+    /* in the flow under the panes, not docked: the footer docks to the
+       bottom too, and two bottom docks sit on top of each other */
+    #main { height: 1fr; }
+    #status { height: 1; background: $INSET; color: $SOFT; padding: 0 1; }
     #editbar { dock: bottom; height: 3; border: round $ORANGE; background: $BG; }
     #editbar.hidden { display: none; }
 
@@ -294,10 +306,17 @@ class AcidcatTUI(App):
             # mark; dormant in between, where it would do neither
             return bool(self._scanning or self._regions)
         if action in self._VIZ_ARROWS:
-            # `_view != "hex"` is checked first and on purpose: it is a plain
-            # attribute, so this stays cheap and cannot touch the DOM before
-            # mount, which is when check_action first runs.
-            return self._view != "hex" and self._focused_pane() == "hexwrap"
+            # Up and down also move the hex view a row: it is drawn to the
+            # pane's height and does not scroll, so the arrows that scrolled
+            # it now move its window. The hex editor keeps its own arrows.
+            # The plain attributes are checked first, and on purpose: this
+            # stays cheap and cannot touch the DOM before mount, which is when
+            # check_action first runs.
+            if self._view == "hex":
+                if self._hexedit or action not in ("viz_scale_next",
+                                                   "viz_scale_prev"):
+                    return False
+            return self._focused_pane() == "hexwrap"
         # while a modal (edit form / file browser / help / diff / map / confirm)
         # is open, the app-global single-letter bindings must not fire under it
         # -- so typing in the browser or a form does not trigger edit/strip/etc.
@@ -307,6 +326,9 @@ class AcidcatTUI(App):
 
     def __init__(self, path=None):
         super().__init__()
+        # the view's state that is not widgets: the Document, the selection,
+        # the window onto the layer, undo (tui_app/model.py)
+        self.model = DocumentModel()
         self.src = path           # the file being edited (save target + display name)
         self.work = None          # temp working copy: edits land here until save
         self.dirty = False        # unsaved edits present
@@ -331,8 +353,6 @@ class AcidcatTUI(App):
         self._cur_node = None     # last highlighted tree node
         self._edit_target = None  # active inline edit: dict(off,length,name,mode,fmt,accent)
         self._hexedit = None      # active in-pane hex edit: dict(off,length,buf,cur,nib)
-        self._undo = []           # working-copy byte snapshots for undo
-        self._redo = []           # snapshots popped by undo, for redo
         self._prompt = None       # active editbar prompt: dict(kind, ...)
         self._allnodes = []       # (node, off, length) for offset/fuzzy navigation
         self._search = None       # active search: dict(desc, hits, idx)
@@ -369,7 +389,6 @@ class AcidcatTUI(App):
         self._region_header = False       # header bar has focus (tab)
         self._region_header_col = None    # which column the arrows point at
         self._region_cursor = 0   # row the region list should reopen on
-        self._hex_from = 0    # byte offset into the selection the hex starts at
         self._region_view = None  # (idx, region) when viewing a descended region
         self._region_tmps = []    # carved-region temp files, cleaned on exit
         self._disc_src = None     # path of an opened CD-XA disc image
@@ -387,8 +406,36 @@ class AcidcatTUI(App):
         self._scan_last = None    # (done, total, n) for the spinner re-render
         self._scan_timer = None   # set_interval handle animating the spinner
 
+    # Undo, redo and the bytes window live on the model; these keep the names
+    # the navigation frames snapshot and restore.
+    @property
+    def _undo(self):
+        return self.model.undo
+
+    @_undo.setter
+    def _undo(self, v):
+        self.model.undo = list(v or [])
+
+    @property
+    def _redo(self):
+        return self.model.redo
+
+    @_redo.setter
+    def _redo(self, v):
+        self.model.redo = list(v or [])
+
+    @property
+    def _hex_top(self):
+        """The first row of the layer the bytes pane shows; None follows the
+        selection."""
+        return self.model.top
+
+    @_hex_top.setter
+    def _hex_top(self, v):
+        self.model.top = v
+
     def compose(self) -> ComposeResult:
-        with Horizontal():
+        with Horizontal(id="main"):
             with Vertical(id="left"):
                 with VerticalScroll(id="idbox"):
                     yield Static(id="title")
@@ -412,6 +459,7 @@ class AcidcatTUI(App):
                 with VerticalScroll(id="hexwrap"):
                     yield HexPane(id="hex")
         yield Input(id="editbar", classes="hidden")
+        yield Static(id="status")
         yield Footer()
 
     def on_mount(self):
@@ -480,7 +528,7 @@ class AcidcatTUI(App):
         "_undo", "_redo", "_src_stat", "_force_stale",
         "_regions", "_blob_src", "_region_view", "_scan_partial",
         "_locate_mode", "_locate_transforms",
-        "_view", "_viz_scope", "_viz_scale", "_viz_drawn", "_hex_from",
+        "_view", "_viz_scope", "_viz_scale", "_viz_drawn", "_hex_top",
         "_region_sel",
         "_region_cursor",
     )
@@ -2043,14 +2091,7 @@ class AcidcatTUI(App):
         start, old_seg, new_seg = self._minimal_delta(old, new_bytes)
         if old_seg == new_seg:                # nothing actually changed
             return
-        self._undo.append((start, old_seg, new_seg))
-        self._redo = []           # a fresh edit invalidates the redo history
-        self._undo = self._undo[-_UNDO_CAP:]
-        # cap by total delta bytes so history cannot pin gigabytes; the most
-        # recent delta always survives.
-        while (len(self._undo) > 1
-               and sum(len(o) + len(n) for _s, o, n in self._undo) > _UNDO_BYTES_CAP):
-            self._undo.pop(0)
+        self.model.record(start, old_seg, new_seg)
         with open(self.work, "wb") as f:
             f.write(new_bytes)
         self.dirty = True         # cheap: no whole-file compare on the hot path
@@ -2078,25 +2119,23 @@ class AcidcatTUI(App):
             f.write(data[:start] + seg_in + data[start + len(seg_out):])
 
     def action_undo(self):
-        if not self._undo:
+        d = self.model.take_undo()
+        if d is None:
             self.notify("nothing to undo")
             return
-        start, old_seg, new_seg = self._undo.pop()
+        start, old_seg, new_seg = d
         self._apply_delta(start, new_seg, old_seg)      # revert new -> old
-        self._redo.append((start, old_seg, new_seg))
-        self._redo = self._redo[-_UNDO_CAP:]
         self._recompute_dirty()
         self._load()
         self.notify("undid last edit")
 
     def action_redo(self):
-        if not self._redo:
+        d = self.model.take_redo()
+        if d is None:
             self.notify("nothing to redo")
             return
-        start, old_seg, new_seg = self._redo.pop()
+        start, old_seg, new_seg = d
         self._apply_delta(start, old_seg, new_seg)      # re-apply old -> new
-        self._undo.append((start, old_seg, new_seg))
-        self._undo = self._undo[-_UNDO_CAP:]
         self._recompute_dirty()
         self._load()
         self.notify("redid last edit")
@@ -2183,6 +2222,9 @@ class AcidcatTUI(App):
             # crash the session (the DoS threat model is degrade-not-die)
             self.fmt, self.chunks, self.warns = (
                 "walk failed", [], [f"{e.__class__.__name__}: {e}"])
+        self.model.path = self.work
+        self.model.load(self._fmt_id(), self.fmt, self.chunks, self.warns,
+                        forced=bool(self._fmt_override))
         self._prefer_be = self.fmt in _BE_FMTS
         # Three states, not two. An empty finding list meant BOTH "scanned it,
         # nothing there" and "never scanned it", and the panel rendered both as
@@ -2446,14 +2488,14 @@ class AcidcatTUI(App):
         d.no_wrap = True
         d.overflow = "ellipsis"
         detail.update(d)
-        if (off, length) != self._cur_region[:2]:
-            self._hex_from = 0        # a new selection starts at its own start
+        # a new selection brings the window with it (the model forgets where
+        # an old one was paged to)
+        self.model.select(off, length)
         self._cur_region = (off, length, accent)
         self._cur_spans = spans
         if self._view == "hex":
-            self.query_one("#hex", Static).update(
-                hex_text(self.work, off, length, accent, spans,
-                         self._hex_width(), start=self._hex_from))
+            self._paint_context()
+        self._render_status()
         # a graph scoped to the file is unaffected by which node is selected;
         # one scoped to the region follows it, from on_tree_node_highlighted
 
@@ -2608,13 +2650,28 @@ class AcidcatTUI(App):
         self._step_scale(1)
 
     def action_viz_scale_next(self):
-        """up, with the byte pane focused on a graph."""
+        """up, with the byte pane focused: a graph's scale, or the hex
+        window one row up."""
+        if self._view == "hex":
+            self._scroll_hex(-1)
+            return
         self._step_scale(1)
 
     def action_viz_scale_prev(self):
         """down. The reverse of up, not another forward step -- an axis you can
         only cycle one way makes you walk the whole list to undo a keypress."""
+        if self._view == "hex":
+            self._scroll_hex(1)
+            return
         self._step_scale(-1)
+
+    def _scroll_hex(self, step):
+        """Move the hex window `step` rows through the layer."""
+        width, rows = self._hex_width(), self._hex_rows_visible()
+        cur = (self.model.top if self.model.top is not None
+               else self.model.default_top(width, rows))
+        self.model.top = self.model.clamp(cur + step, width, rows)
+        self._paint_bytes()
 
     def _step_scale(self, step):
         opts = self._VIZ_SCALES.get(self._view)
@@ -2763,17 +2820,76 @@ class AcidcatTUI(App):
         """
         pane = self.query_one("#hex", Static)
         if self._view == "hex":
-            off, length, accent = self._cur_region
-            pane.update(hex_text(self.work, off, length, accent,
-                                 self._cur_spans, self._hex_width(),
-                                 start=self._hex_from))
+            self._paint_context()
             self._viz_drawn = None
         else:
+            self.query_one("#hexwrap").set_class(False, "context")
             pane.update(self._viz_render(self._view))
             # what the pane is actually showing, recorded HERE rather than at
             # the one call site that skips work, so the record cannot drift
             # from the drawing it claims to describe.
             self._viz_drawn = self._viz_range()[:2]
+
+    def _hex_rows_visible(self):
+        """Rows the bytes pane has inside its border (`size` excludes it)."""
+        try:
+            return max(1, self.query_one("#hexwrap").size.height)
+        except Exception:
+            return 16
+
+    def _paint_context(self):
+        """The hex view: the current layer around the selection, the selected
+        bytes lit and their fields tinted (render.context_hex)."""
+        pane = self.query_one("#hex", Static)
+        self.query_one("#hexwrap").set_class(True, "context")
+        off, length, accent = self._cur_region
+        if off is None:
+            t = Text("  (no byte range for this node)", style=DIM)
+            pane.update(t)
+            return
+        width, rows = self._hex_width(), self._hex_rows_visible()
+        start, raw = self.model.window(width, rows)
+        # the whole layer selected (the root) is no selection to light: every
+        # byte would be, and nothing would stand out
+        whole = off == 0 and length >= self.model.layer_length()
+        pane.update(context_hex(start, raw, width,
+                                None if whole else (off, length),
+                                self._cur_spans, accent or ACCENT))
+
+    def _render_status(self):
+        """One line under the panes: the layer, where the selection is, how
+        many findings, and what the selected node offers."""
+        try:
+            bar = self.query_one("#status", Static)
+        except Exception:
+            return
+        st = self.model.status()
+        t = Text(no_wrap=True, overflow="ellipsis")
+        t.append(st["layer"], style=f"bold {ACCENT}")
+        t.append(f"  {st['length']:,} bytes", style=DIM)
+        if st["offset"] is not None:
+            t.append("   @ ", style=DIM)
+            t.append(f"0x{st['offset']:08x}", style=FG)
+            t.append(f"  {st['selected']:,} selected", style=SOFT)
+        n = len(self.findings)
+        t.append("   ")
+        t.append(f"{n} finding{'s' if n != 1 else ''}",
+                 style=SEV["warn"] if n else DIM)
+        if st["actions"]:
+            t.append("   " + "  ".join(st["actions"]), style=TEAL)
+        if self.dirty:
+            t.append("   unsaved", style=f"bold {SEV['alert']}")
+        bar.update(t)
+
+    def _fmt_id(self):
+        """The sniff id the Document is stamped with."""
+        if self._fmt_override:
+            return self._fmt_override
+        try:
+            from acidcat.core.infra.sniff import sniff
+            return sniff(self.work)
+        except Exception:
+            return None
 
     def on_resize(self, event=None):
         """Repaint on a terminal resize, for the same reason zoom does."""
@@ -2802,8 +2918,12 @@ class AcidcatTUI(App):
         at a borderline size, and never wraps.
         """
         try:
-            return row_width_for(self.query_one("#hexwrap").size.width
-                                 - self._HEX_CHROME)
+            # the context view never scrolls (it is drawn to the pane's
+            # height) and has no padding, so it has the pane's whole inner
+            # width (`size` is inside the border). The hex editor still
+            # scrolls and keeps its reservation.
+            chrome = self._HEX_CHROME if self._hexedit else 0
+            return row_width_for(self.query_one("#hexwrap").size.width - chrome)
         except Exception:
             return 16
 
@@ -3077,44 +3197,35 @@ class AcidcatTUI(App):
         return overlap >= 0.5 * max(1, length)
 
     def action_hex_page_down(self):
-        """PgDn: the next _HEX_CAP bytes of this region."""
+        """PgDn: the next screenful of the layer."""
         self._page_hex(1)
 
     def action_hex_page_up(self):
         self._page_hex(-1)
 
     def _page_hex(self, step):
-        """Move the hex window through a region bigger than one screenful.
+        """Move the window a screenful through the layer.
 
-        The dump has always been capped at _HEX_CAP bytes per node and has
-        always said so, but there was no way to reach the rest -- on a 3 MB
-        region the hex view could only ever show its first kilobyte.
+        The window shows the whole layer around the selection, so paging goes
+        past the selection's ends into its neighbours; it stops at the layer's.
         """
         if self._view != "hex":
             self.notify("paging is for the hex view (b cycles back to it)",
                         severity="warning")
             return
-        off, length, _accent = self._cur_region
-        if off is None or not length:
-            self.notify("no byte range selected", severity="warning")
+        width, rows = self._hex_width(), self._hex_rows_visible()
+        if self.model.layer_length() <= width * rows:
+            self.notify(f"all {self.model.layer_length():,} bytes are already "
+                        f"shown", severity="warning")
             return
-        if length <= _HEX_CAP:
-            self.notify(f"all {length:,} bytes are already shown",
-                        severity="warning")
-            return
-        top = length - 1
-        want = self._hex_from + step * _HEX_CAP
-        if want < 0:
-            want = 0
-        elif want > top:
-            want = (top // _HEX_CAP) * _HEX_CAP
-        if want == self._hex_from:
+        first = self.model.page(step, width, rows)
+        if first is None:
             self.notify("at the " + ("end" if step > 0 else "start")
-                        + " of this region", severity="warning")
+                        + " of the " + ("file" if self.model.layer == 0
+                                        else "layer"), severity="warning")
             return
-        self._hex_from = want
         self._paint_bytes()
-        self.notify(f"hex: byte {want:,} of {length:,}")
+        self.notify(f"hex: from 0x{first:08x} of {self.model.layer_length():,}")
 
     def action_play(self):
         """Audition the selected region's bytes as raw PCM (p); '.' stops."""
@@ -3499,9 +3610,8 @@ class AcidcatTUI(App):
             if meta and meta[0] is not None and meta[1]:
                 within = offset - meta[0]
                 if 0 <= within < meta[1]:
-                    self._hex_from = max(0, (within // 16) * 16
-                                         - (_HEX_CAP // 4 if within > _HEX_CAP
-                                            else 0))
+                    self.model.show_offset(offset, self._hex_width(),
+                                           self._hex_rows_visible())
                     self._paint_bytes()
                     return
         acc = PEND

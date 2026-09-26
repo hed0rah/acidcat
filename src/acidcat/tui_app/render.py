@@ -11,7 +11,7 @@ import re
 
 from rich.text import Text
 
-from acidcat.tui_theme import DIM, FG, GUTTER, PALETTE
+from acidcat.tui_theme import DIM, FG, GUTTER, PALETTE, SOFT
 
 
 _SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # braille scan spinner
@@ -148,6 +148,68 @@ def _hex_rows(t, off, raw, byte_style, cmap=None, width=16):
             style = (cmap or {}).get(row + i) or (FG if printable else DIM)
             t.append(chr(b) if printable else ".", style=style)
         t.append("\n")
+
+
+def context_hex(start, raw, width, selection, spans, accent):
+    """The bytes pane: `raw` (the window of the layer that starts at `start`)
+    as hex rows, with the selected bytes lit inside their surroundings.
+
+    `selection` is (offset, length) in the same layer, or None. The selected
+    bytes are drawn on a lit background; within them each field of `spans`
+    takes its own palette color, the rest the node's `accent`. Everything
+    outside the selection is context: readable, and quieter than what you
+    picked. The last row carries no newline, so the pane holds exactly as many
+    rows as it was given and never grows a scrollbar that would narrow it.
+    """
+    t = Text()
+    lo, hi = ((selection[0], selection[0] + max(selection[1], 1))
+              if selection and selection[0] is not None else (None, None))
+    tint = {}
+    for i, (ao, ln) in enumerate(spans or ()):
+        color = PALETTE[i % len(PALETTE)]
+        for p in range(max(ao, start), min(ao + ln, start + len(raw))):
+            tint[p] = color
+    lit = f"on {GUTTER}"
+
+    def style(pos, b):
+        if lo is not None and lo <= pos < hi:
+            return f"bold {tint.get(pos, accent)} {lit}"
+        return DIM if b == 0 else SOFT
+
+    rows = [raw[r:r + width] for r in range(0, len(raw), width)]
+    for n, chunk in enumerate(rows):
+        off = start + n * width
+        mark = lo is not None and off < hi and lo < off + width
+        t.append(f"{off:08x}", style=accent if mark else GUTTER)
+        t.append("  ")
+        for i in range(width):
+            if i < len(chunk):
+                st = style(off + i, chunk[i])
+                t.append(f"{chunk[i]:02x}", style=st)
+                # the gap after a lit byte stays lit when the next is too, so
+                # a selection reads as one bar rather than a row of islands
+                nxt = off + i + 1
+                join = (lo is not None and lo <= off + i < hi and nxt < hi
+                        and i + 1 < len(chunk))
+                t.append(" ", style=lit if join else "")
+            else:
+                t.append("   ")
+            if width > 8 and i == (width // 2) - 1:
+                t.append(" ")
+        t.append(" ")
+        for i, b in enumerate(chunk):
+            printable = 32 <= b < 127
+            pos = off + i
+            if lo is not None and lo <= pos < hi:
+                st = style(pos, b)
+            else:
+                st = SOFT if printable else DIM
+            t.append(chr(b) if printable else ".", style=st)
+        if n < len(rows) - 1:
+            t.append("\n")
+    if not rows:
+        t.append("  (this layer is empty)", style=DIM)
+    return t
 
 
 # editable-field profiles, mirroring what the write engine accepts per format.

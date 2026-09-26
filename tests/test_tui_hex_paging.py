@@ -76,23 +76,38 @@ async def _on_data(app, pilot):
     raise AssertionError("no child node bigger than the hex cap in this fixture")
 
 
+def _first(app):
+    """The first offset the hex pane shows, read off the drawing itself."""
+    line = app.query_one("#hex").render().plain.splitlines()[0]
+    return int(line.split()[0], 16)
+
+
+def _page(app):
+    return app._hex_width() * app._hex_rows_visible()
+
+
 class TestPagingTheHexView:
+    """2.0: the hex view is the whole layer around the selection, so paging
+    moves through the file a screenful at a time, past the selection's ends,
+    and stops at the file's. (1.x paged inside the selected region by
+    _HEX_CAP bytes; that window is gone with the region-only view.)"""
+
     def test_the_window_moves_a_page_at_a_time(self, big_wav):
         async def scenario():
             app = AcidcatTUI(big_wav)
             async with app.run_test(size=(150, 44)) as pilot:
                 await pilot.pause()
                 await _on_data(app, pilot)
-                assert app._hex_from == 0
+                at = _first(app)
                 await pilot.press("pagedown")
                 await pilot.pause()
-                assert app._hex_from == _HEX_CAP
+                assert _first(app) == at + _page(app)
                 await pilot.press("pagedown")
                 await pilot.pause()
-                assert app._hex_from == 2 * _HEX_CAP
+                assert _first(app) == at + 2 * _page(app)
                 await pilot.press("pageup")
                 await pilot.pause()
-                assert app._hex_from == _HEX_CAP
+                assert _first(app) == at + _page(app)
         _run(scenario)
 
     def test_the_dump_says_which_window_it_is_showing(self, big_wav):
@@ -103,42 +118,50 @@ class TestPagingTheHexView:
         assert "2,048..3,071 of 240,000" in line[0]
 
     def test_a_later_window_renders_the_later_bytes(self, big_wav):
-        """The point of the whole feature, and the one thing the caption and
-        the offset counter cannot prove between them: paging has to change
-        which bytes are on screen, not just what the footer says about them."""
+        """Paging has to change which bytes are on screen, and to the right
+        ones: a run read from the file itself."""
         data = open(big_wav, "rb").read()
-        off, length = 44, 240000
-        first = hex_text(big_wav, off, length, "#ffffff", None, 16, start=0).plain
-        later = hex_text(big_wav, off, length, "#ffffff", None, 16,
-                         start=4096).plain
-        assert first != later, "the second window rendered the first bytes"
 
-        # and they are the RIGHT later bytes: check a run from the file itself
-        want = data[off + 4096:off + 4096 + 8]
-        assert want.hex(" ") in later.lower(), (
-            f"window at 4096 does not contain {want.hex(' ')}")
-        assert data[off:off + 8].hex(" ") in first.lower()
+        async def scenario():
+            app = AcidcatTUI(big_wav)
+            async with app.run_test(size=(150, 44)) as pilot:
+                await pilot.pause()
+                await _on_data(app, pilot)
+                first = app.query_one("#hex").render().plain
+                await pilot.press("pagedown")
+                await pilot.pause()
+                later = app.query_one("#hex").render().plain
+                assert first != later, "the second window rendered the first bytes"
+                at = _first(app)
+                want = data[at:at + 8]
+                assert want.hex(" ") in later.lower()
+        _run(scenario)
 
     def test_it_stops_at_both_ends_and_says_so(self, big_wav):
         async def scenario():
             app = AcidcatTUI(big_wav)
             async with app.run_test(size=(150, 44)) as pilot:
                 await pilot.pause()
-                await _on_data(app, pilot)
                 notes = []
                 app.notify = lambda m, **kw: notes.append(str(m))
+                assert _first(app) == 0          # the root: the file from 0
                 await pilot.press("pageup")
                 await pilot.pause()
-                assert app._hex_from == 0
-                assert any("start of this region" in n for n in notes), notes
+                assert _first(app) == 0
+                assert any("start of the file" in n for n in notes), notes
         _run(scenario)
 
-    def test_a_region_that_fits_declines(self, big_wav):
+    def test_a_file_that_fits_declines(self, tmp_path):
+        p = tmp_path / "small.wav"
+        body = (b"WAVE" + b"fmt " + struct.pack("<I", 16)
+                + struct.pack("<HHIIHH", 1, 1, 8000, 8000, 1, 8)
+                + b"data" + struct.pack("<I", 8) + bytes(8))
+        p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
         async def scenario():
-            app = AcidcatTUI(big_wav)
+            app = AcidcatTUI(str(p))
             async with app.run_test(size=(150, 44)) as pilot:
                 await pilot.pause()
-                app._cur_region = (0, 40, None)
                 notes = []
                 app.notify = lambda m, **kw: notes.append(str(m))
                 await pilot.press("pagedown")
@@ -146,30 +169,34 @@ class TestPagingTheHexView:
                 assert any("already shown" in n for n in notes), notes
         _run(scenario)
 
-    def test_moving_the_selection_returns_to_the_top(self, big_wav):
-        """Paging deep into one chunk then selecting another must not leave the
-        new one scrolled to an offset that means nothing in it."""
+    def test_moving_the_selection_brings_the_window_with_it(self, big_wav):
+        """Paging far away then selecting another node must show that node,
+        not the page you left."""
         async def scenario():
             app = AcidcatTUI(big_wav)
             async with app.run_test(size=(150, 44)) as pilot:
                 await pilot.pause()
                 await _on_data(app, pilot)
-                await pilot.press("pagedown")
+                for _ in range(3):
+                    await pilot.press("pagedown")
                 await pilot.pause()
-                assert app._hex_from > 0
+                assert app._hex_top is not None
                 await pilot.press("up")
                 await pilot.pause()
-                assert app._hex_from == 0
+                assert app._hex_top is None
+                off, length, _a = app._cur_region
+                assert _first(app) <= off < _first(app) + _page(app)
         _run(scenario)
 
     def test_the_window_belongs_to_the_view(self, big_wav):
-        assert "_hex_from" in AcidcatTUI._FRAME_ATTRS
+        assert "_hex_top" in AcidcatTUI._FRAME_ATTRS
 
 
 class TestGotoLandsInTheRegion:
-    def test_it_selects_the_containing_chunk_and_pages_to_the_byte(self, big_wav):
+    def test_it_selects_the_containing_chunk_and_shows_the_byte(self, big_wav):
         """A one-byte highlight with no surrounding bytes is not a hex view of
-        anything. Selecting the chunk and paging into it is what jumping means."""
+        anything. Selecting the chunk and showing the byte inside it is what
+        jumping means."""
         async def scenario():
             app = AcidcatTUI(big_wav)
             async with app.run_test(size=(150, 44)) as pilot:
@@ -180,8 +207,8 @@ class TestGotoLandsInTheRegion:
                 off, length, _a = app._cur_region
                 assert length > _HEX_CAP, "selected a one-byte region again"
                 assert off <= target < off + length
-                first = off + app._hex_from
-                assert first <= target < first + _HEX_CAP, (
+                first = _first(app)
+                assert first <= target < first + _page(app), (
                     f"window at 0x{first:08x} does not contain 0x{target:08x}")
         _run(scenario)
 
