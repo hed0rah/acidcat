@@ -324,3 +324,15 @@ def test_a_cate_with_no_readable_label_does_not_invent_one(tmp_path):
     cate = _named(chunks, "cate")
     assert "bytes" in cate["summary"]
     assert not [x for x in cate["fields"] if x["name"] == "label"]
+
+
+def test_a_12_bit_sample_point_is_stored_in_two_bytes(tmp_path):
+    """AIFF pads each sample point up to whole bytes, so 441 frames of 12-bit
+    mono is 882 bytes. Sizing it at bits // 8 flagged every 12-bit file."""
+    f = tmp_path / "twelve.aif"
+    f.write_bytes(_form(b"AIFF", _comm_aiff(bits=12), _ssnd(882)))
+    chunks, _w, _c = _walk(f)
+    assert not _named(chunks, "SSND")["warnings"]
+    f.write_bytes(_form(b"AIFF", _comm_aiff(bits=12), _ssnd(441)))
+    chunks, _w, _c = _walk(f)
+    assert any("imply 882" in w for w in _named(chunks, "SSND")["warnings"])

@@ -135,6 +135,11 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **Every 12-bit AIFF and WAV was reported as damaged.** Both formats store
+  a sample in whole bytes, so 12-bit takes two, but the size checks divided
+  the bit depth by eight and rounded down. AIFF warned that SSND held twice
+  the audio its frame count implied, and WAV that a correct `block_align` was
+  wrong. Found on two 1991 Prosonus AIFFs in the specimen library.
 - **A cut MDX was not recognised as MDX.** Sixteen real modules are
   truncated rips whose offset tables point past the end of the file. The
   header (title terminator, bank name, a 9- or 16-channel table) identifies

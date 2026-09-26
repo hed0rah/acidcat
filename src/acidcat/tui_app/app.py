@@ -3817,7 +3817,7 @@ class AcidcatTUI(App):
         rate, ch, bits, floating = self._audio_params()
         self.action_stop_play(quiet=True)
         self._play = play.play_bytes(data, rate=rate, ch=ch, bits=bits, floating=floating)
-        secs = len(data) / max(1, rate * ch * (bits // 8))
+        secs = len(data) / max(1, rate * ch * ((bits + 7) // 8))
         self.notify(f"playing {len(data):,} bytes as {rate} Hz {ch}ch {bits}-bit "
                     f"(~{secs:.1f}s) -- . to stop")
 

@@ -59,8 +59,8 @@ def _parse_fmt(b, ctx):
     ctx.update({"format_tag": tag, "channels": ch, "sample_rate": rate,
                 "block_align": align, "bits": bits})
 
-    if tag == 1 and ch and bits and align != ch * bits // 8:
-        warns.append(f"block_align {align} != channels*bits/8 = {ch * bits // 8}")
+    if tag == 1 and ch and bits and align != ch * ((bits + 7) // 8):
+        warns.append(f"block_align {align} != channels*ceil(bits/8) = {ch * ((bits + 7) // 8)}")
     if tag == 1 and rate and align and avg != rate * align:
         warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
     # physically implausible but structurally valid values -- a crafted-file

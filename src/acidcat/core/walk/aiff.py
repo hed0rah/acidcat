@@ -101,7 +101,8 @@ def _aiff_ssnd(b, ctx, size, avail=None):
     comp = ctx.get("compression", "NONE")
     uncompressed = comp in ("NONE", "none", "sowt", "twos", "raw ")
     if frames and ch and bits and uncompressed:
-        expected = frames * ch * (bits // 8)
+        # a sample point is padded to whole bytes: 12-bit is stored in two
+        expected = frames * ch * ((bits + 7) // 8)
         if audio_bytes >= 0 and abs(audio_bytes - expected) > max(16, expected * 0.01):
             warns.append(
                 f"SSND holds {audio_bytes:,} audio bytes but COMM frames "
@@ -361,7 +362,7 @@ def inspect_aiff(filepath, form_type, ctx=None):
                     fr, ch, bits = ctx.get("frames"), ctx.get("channels"), ctx.get("bits")
                     comp = ctx.get("compression")
                     if fr and ch and bits and (comp is None or comp in _AIFC_UNCOMPRESSED) \
-                            and fr * ch * (bits // 8) > file_size:
+                            and fr * ch * ((bits + 7) // 8) > file_size:
                         entry["warnings"].append(
                             f"num_sample_frames {fr:,} implies more audio than the "
                             f"{file_size:,}-byte file holds; duration is not trustworthy"

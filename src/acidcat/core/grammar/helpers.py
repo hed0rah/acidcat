@@ -86,8 +86,8 @@ def _wav_fmt_relations(local, ctx):
     rate = local.get("sample_rate")
     avg = local.get("avg_bytes_per_sec")
     warns = []
-    if tag == 1 and ch and bits and align != ch * bits // 8:
-        warns.append(f"block_align {align} != channels*bits/8 = {ch * bits // 8}")
+    if tag == 1 and ch and bits and align != ch * ((bits + 7) // 8):
+        warns.append(f"block_align {align} != channels*ceil(bits/8) = {ch * ((bits + 7) // 8)}")
     if tag == 1 and rate and align and avg != rate * align:
         warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
     return warns
