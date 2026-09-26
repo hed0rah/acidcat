@@ -8,7 +8,9 @@ Textual app state.
 """
 
 import re
+import textwrap
 
+from rich.cells import cell_len
 from rich.text import Text
 
 # the metadata edit profiles live in core (acidcat.core.write.profiles); these
@@ -168,6 +170,39 @@ def byte_strip(nodes, length, width, selection=None):
     return t
 
 
+def pack(pieces, width, sep="  "):
+    """Lay whole phrases out in lines of `width` cells: each piece (a Text) is
+    kept on one line, and moves to the next line whole when it does not fit
+    beside the others, so "2 chunks" never reads "2 / chunks". Only a piece
+    wider than a whole line is broken, at its spaces, with the rest indented
+    under it. A None or empty piece is skipped. No trailing newline."""
+    out = Text()
+    col = 0
+    for piece in pieces:
+        if piece is None or not piece.plain:
+            continue
+        n = piece.cell_len
+        if col and col + len(sep) + n <= width:
+            out.append(sep)
+            col += len(sep)
+        elif col:
+            out.append("\n")
+            col = 0
+        if n <= width or width <= 4:
+            out.append_text(piece)
+            col += n
+            continue
+        # wider than a line: break at spaces, keeping the piece's style
+        style = piece.spans[0].style if piece.spans else piece.style
+        lines = textwrap.wrap(piece.plain, width - 2) or [piece.plain]
+        for i, ln in enumerate(lines):
+            if i:
+                out.append("\n  ")
+            out.append(ln, style=style)
+        col = cell_len(lines[-1]) + (2 if len(lines) > 1 else 0)
+    return out
+
+
 def field_inspector(d, width=None):
     """The selected node, said in full: at most six lines, each cut to
     `width` with an ellipsis rather than wrapped, so the pane never changes
@@ -267,21 +302,28 @@ def field_inspector(d, width=None):
     return out
 
 
-def data_inspector(off, raw, width=40):
-    """The bytes at the cursor read every common way: u8 to u64 and i8 to i64
-    and f32/f64, little-endian beside big-endian, with the ASCII and the bits
-    of the first byte. `raw` is up to 8 bytes at `off`; a reading the bytes
-    run out for is left blank rather than padded into a wrong number."""
+# the data inspector's rows: all of them, and the four it shows by default
+_DATA_ROWS = (("u8", "<B", ">B"), ("i8", "<b", ">b"), ("u16", "<H", ">H"),
+              ("i16", "<h", ">h"), ("u32", "<I", ">I"), ("i32", "<i", ">i"),
+              ("u64", "<Q", ">Q"), ("i64", "<q", ">q"), ("f32", "<f", ">f"),
+              ("f64", "<d", ">d"))
+_DATA_COMPACT = ("u16", "u32", "i32", "f32")
+
+
+def data_inspector(off, raw, width=40, full=True):
+    """The bytes at the cursor read the common ways, little-endian beside
+    big-endian, with the ASCII and the bits of the first byte: u16, u32, i32
+    and f32, or with `full` u8 to u64, i8 to i64 and f32/f64. `raw` is up to 8
+    bytes at `off`; a reading the bytes run out for is left blank rather than
+    padded into a wrong number. Both sides of a row are written the same way:
+    in decimal, or in hex when either is too wide for its column."""
     import struct
     t = Text(no_wrap=True, overflow="ellipsis")
     col = (width - 4) // 2
 
-    def fit(v, room):
+    def fit(text, room):
         # a number too long for its column says so: a silently shortened
         # number reads as a different one
-        text = str(v)
-        if len(text) > room and isinstance(v, int):
-            text = f"0x{v & ((1 << 64) - 1):x}"
         if len(text) > room:
             text = text[:room - 1] + "…"
         return text.ljust(room)
@@ -297,21 +339,23 @@ def data_inspector(off, raw, width=40):
     t.append(f"{head[0]:08b}", style=DIM)
     t.append("\n")
     t.append("    " + "little".ljust(col) + "big", style=DIM)
-    rows = [("u8", "<B", ">B"), ("i8", "<b", ">b"), ("u16", "<H", ">H"),
-            ("i16", "<h", ">h"), ("u32", "<I", ">I"), ("i32", "<i", ">i"),
-            ("u64", "<Q", ">Q"), ("i64", "<q", ">q"), ("f32", "<f", ">f"),
-            ("f64", "<d", ">d")]
+    rows = [r for r in _DATA_ROWS if full or r[0] in _DATA_COMPACT]
     for name, le, be in rows:
         n = struct.calcsize(le)
         t.append("\n")
         t.append(name.ljust(4), style=GUTTER)
         if len(raw) < n:
             continue
-        for fmt, room in ((le, col - 1), (be, col)):
-            v = struct.unpack(fmt, bytes(raw[:n]))[0]
-            if isinstance(v, float):
-                v = f"{v:.6g}"
-            t.append(fit(v, room) + (" " if fmt is le else ""), style=FG)
+        vals = [struct.unpack(fmt, bytes(raw[:n]))[0] for fmt in (le, be)]
+        if isinstance(vals[0], float):
+            texts = [f"{v:.6g}" for v in vals]
+        else:
+            texts = [str(v) for v in vals]
+            if any(len(x) > col - 1 for x in texts):
+                mask = (1 << (8 * n)) - 1
+                texts = [f"0x{v & mask:x}" for v in vals]
+        t.append(fit(texts[0], col - 1) + " ", style=FG)
+        t.append(fit(texts[1], col), style=FG)
     return t
 
 

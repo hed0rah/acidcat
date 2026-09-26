@@ -6,6 +6,7 @@ modal screens live in screens.py; byte/field rendering and the edit profiles in
 render.py.
 """
 import os
+import textwrap
 import re
 import shutil
 import struct
@@ -59,7 +60,7 @@ from acidcat.tui_app.render import (
     row_width_for, trim_size_echo,
     _SPIN, _BAR_W, _HEX_CAP, _ROW_CAP, _CHUNK_CAP, _HEXEDIT_CAP, _VIZ_READ,
     _SEARCH_CAP, _DIFF_CAP, _LARGE_FILE, _SCAN_SEG, context_hex,
-    byte_strip, data_inspector, field_inspector,
+    byte_strip, data_inspector, field_inspector, pack,
 )
 from acidcat.tui_app.model import DocumentModel
 from acidcat.tui_app import state as tui_state
@@ -176,7 +177,8 @@ class AcidcatTUI(App):
     /* The data inspector: the bytes at the cursor read every common way.
        No padding: little- and big-endian side by side need all 40 columns a
        35% column has at 120. */
-    #data { height: 14; border: round $GUTTER; padding: 0; color: $FG; }
+    #data { height: 8; border: round $GUTTER; padding: 0; color: $FG; }
+    #data.full { height: 14; }
     #hexwrap { border: round $TEAL; }
     /* No padding: the offset gutter is the margin, and the two columns it
        would cost are what 16 bytes a row needs at 120. The context view is
@@ -274,6 +276,7 @@ class AcidcatTUI(App):
         Binding("tab", "focus_pane", "focus pane", show=False, priority=True),
         Binding("shift+tab", "focus_pane_back", "focus pane back",
                 show=False, priority=True),
+        Binding("i", "data_rows", "data rows", show=False),
         Binding("a", "expand_all", "expand", show=False),
         Binding("c", "collapse_all", "collapse", show=False),
         ("question_mark", "help", "help"),
@@ -336,6 +339,8 @@ class AcidcatTUI(App):
                                   "auto; histogram linear, log, clipped)"),
         ("bytes", ("map",), "byte map: where the file's bytes go, biggest "
                             "regions first"),
+        ("bytes", ("data_rows",), "data inspector: the four common readings, "
+                                  "or all ten"),
         ("bytes", ("yank",), "yank the selected bytes as hex to the clipboard"),
         ("play", ("play",), "play what the node offers: a tune on its engine, a "
                             "compressed file through a decoder, else its bytes "
@@ -477,6 +482,7 @@ class AcidcatTUI(App):
         # the view's state that is not widgets: the Document, the selection,
         # the window onto the layer, undo (tui_app/model.py)
         self.model = DocumentModel()
+        self._data_full = False   # the data inspector shows all ten readings
         self.src = path           # the file being edited (save target + display name)
         self.work = None          # temp working copy: edits land here until save
         self.dirty = False        # unsaved edits present
@@ -1348,7 +1354,7 @@ class AcidcatTUI(App):
             self.notify("no walker produced anything from this file "
                         "(l locates embedded audio instead)", severity="warning")
             return
-        self.push_screen(ForcedScreen(rows, os.path.basename(self.src)),
+        self.push_screen(ForcedScreen(rows, self._display_name()),
                          self._on_forced)
 
     def _offer_toc(self):
@@ -1449,7 +1455,7 @@ class AcidcatTUI(App):
             return False
         self._disc_src = self.src
         self._disc_list = entries
-        self.push_screen(DiscScreen(entries, os.path.basename(self.src)))
+        self.push_screen(DiscScreen(entries, self._display_name()))
         return True
 
     def _decode_entry(self, ent, preview=False):
@@ -1863,7 +1869,7 @@ class AcidcatTUI(App):
         self._load()                                   # tree now holds them
         if not regions:
             self.query_one("#title", Static).update(
-                Text(f" {os.path.basename(self.src)}  --  no audio regions located "
+                Text(f" {self._display_name()}  --  no audio regions located "
                      f"[mode:{self._locate_mode}"
                      f"{'  lens:ON' if self._locate_transforms else ''}]  "
                      "(m mode  t lens  c carve  / search  l rescan)",
@@ -2424,22 +2430,24 @@ class AcidcatTUI(App):
                 self.scan_note = (f"scan failed ({e.__class__.__name__}); this "
                                   f"file was NOT screened")
 
-        head = Text()
-        head.append(f" {self._display_name()} ", style=f"bold {ACCENT}")
-        head.append(f" {self.fmt}  {self.fsize:,} bytes  "
-                    f"{len(self.chunks)} chunks", style=SOFT)
+        # whole phrases, laid out to the box's width by _paint_title
+        pieces = [Text(self._display_name(), style=f"bold {ACCENT}"),
+                  Text(self.fmt, style=SOFT),
+                  Text(f"{self.fsize:,} bytes", style=SOFT),
+                  Text(f"{len(self.chunks)} chunks", style=SOFT)]
         if self._fmt_override:
             # a forced walker parses at fixed offsets whether or not the header
             # is really its format, so the view must never read as an identity
-            head.append(f"   [forced as {self._fmt_override}]", style=PEND)
+            pieces.append(Text(f"[forced as {self._fmt_override}]", style=PEND))
         if self._stack or self._forward:
             back = f"u back ({len(self._stack)})" if self._stack else ""
             fwd = f"U forward ({len(self._forward)})" if self._forward else ""
-            head.append("   [" + "  ".join(x for x in (back, fwd) if x) + "]",
-                        style=DIM)
+            pieces.append(Text("[" + "  ".join(x for x in (back, fwd) if x) + "]",
+                               style=DIM))
         if self.dirty:
-            head.append("   ● UNSAVED", style=f"bold {SEV['alert']}")
-        self.query_one("#title", Static).update(head)
+            pieces.append(Text("● UNSAVED", style=f"bold {SEV['alert']}"))
+        self._title_pieces = pieces
+        self._paint_title()
 
         prof = edit_profile(self.work)
         self._profile = prof[0] if prof else None
@@ -2582,31 +2590,60 @@ class AcidcatTUI(App):
             # nothing was highlighted: the file itself is, so the inspector
             # and the status line describe the root rather than nothing
             self._cur_node = tree.root
-            self._show(0, self.fsize, ACCENT, os.path.basename(self.src), "")
+            self._show(0, self.fsize, ACCENT, self._display_name(), "")
+
+    def _idbox_width(self):
+        """The width #title and #anom have to lay out in: measured once the
+        box is laid out, estimated from the screen before that."""
+        w = self.query_one("#title", Static).content_region.width
+        if w:
+            return w
+        return max(10, int(self.size.width * 0.35) - 6)
+
+    def _paint_title(self):
+        pieces = getattr(self, "_title_pieces", None)
+        if pieces is None:
+            return
+        title = self.query_one("#title", Static)
+        title.update(pack(pieces, self._idbox_width()))
+        if not title.content_region.width:
+            # laid out against an estimate: again, and the findings with it,
+            # once the box has its real width
+            self.call_after_refresh(self._relayout_idbox)
+
+    def _relayout_idbox(self):
+        if self.query_one("#title", Static).content_region.width:
+            self._paint_title()
+            self._render_anomalies()
 
     def _render_anomalies(self):
         panel = self.query_one("#anom", Static)
         # the box it shares with the filename goes orange only when there is
         # something to see -- a permanently alarmed border says nothing
         self.query_one("#idbox").set_class(bool(self.findings), "findings")
-        t = Text()
-        t.append("forensics  ", style=f"bold {ACCENT}")
+        width = self._idbox_width()
+        head = Text("forensics", style=f"bold {ACCENT}")
         if not self.findings:
             note = getattr(self, "scan_note", None)
             # amber is the tool being honest about its limits, kept distinct
             # from orange, which means a finding or an unsaved edit
-            t.append(note or "clean: no findings", style=AMBER if note else SOFT)
-            panel.update(t)
+            panel.update(pack([head, Text(note or "clean: no findings",
+                                          style=AMBER if note else SOFT)], width))
             return
         # severity legend so the colors are readable, then every finding
         # numbered (press f to jump the tree/hex to the next one).
-        t.append(f"{len(self.findings)} finding(s)   ", style=SOFT)
-        t.append("alert", style=f"bold {SEV['alert']}")
-        t.append(" / ", style=DIM)
-        t.append("warn", style=f"bold {SEV['warn']}")
-        t.append(" / ", style=DIM)
-        t.append("notice", style=f"bold {SEV['notice']}")
-        t.append("   (f = jump)\n", style=DIM)
+        legend = Text()
+        legend.append("alert", style=f"bold {SEV['alert']}")
+        legend.append(" / ", style=DIM)
+        legend.append("warn", style=f"bold {SEV['warn']}")
+        legend.append(" / ", style=DIM)
+        legend.append("notice", style=f"bold {SEV['notice']}")
+        t = pack([head, Text(f"{len(self.findings)} finding(s)", style=SOFT),
+                  legend, Text("(f = jump)", style=DIM)], width)
+        t.append("\n")
+        # a message starts after the number, severity and offset, and wraps
+        # under the number: the box is too narrow to indent under itself
+        lead, indent = 5 + 7 + 11, 5
         for i, f in enumerate(self.findings):
             sev = f.get("severity", "notice")
             marker = ">" if i == self._finding_idx else " "
@@ -2617,7 +2654,13 @@ class AcidcatTUI(App):
             # run) has no offset; it used to crash this panel on 08x
             off = f.get("offset")
             t.append(f"0x{off:08x} " if isinstance(off, int) else "  --      ", style=DIM)
-            t.append(f"{f.get('message', '')}\n", style=FG)
+            words = str(f.get("message", "")).split()
+            first = []
+            while words and len(" ".join(first + words[:1])) <= width - lead:
+                first.append(words.pop(0))
+            t.append(" ".join(first) + "\n", style=FG)
+            for more in textwrap.wrap(" ".join(words), max(12, width - indent)):
+                t.append(" " * indent + more + "\n", style=FG)
         panel.update(t)
         self._scroll_finding_into_view()
 
@@ -2765,8 +2808,11 @@ class AcidcatTUI(App):
 
     # the data inspector needs this many columns inside its border, and the
     # screen this many rows before it is worth the tree's
+    # The data inspector shows where it fits unwrapped and still leaves the
+    # tree its rows: 40 columns on the left, and a screen of 30 rows (the
+    # tree keeps about 10 beside the compact inspector).
     _DATA_COLS = 40
-    _DATA_ROWS = 34
+    _DATA_ROWS = 30
 
     def _fit_data(self):
         """Show the data inspector only where it fits without wrapping."""
@@ -2798,7 +2844,19 @@ class AcidcatTUI(App):
         except Exception:
             return
         raw = self.model.read(off, 8) if off is not None else b""
-        pane.update(data_inspector(off, raw))
+        self._data_off = off
+        pane.update(data_inspector(off, raw, full=self._data_full))
+
+    def action_data_rows(self):
+        """i: the data inspector's four common readings, or all ten."""
+        self._data_full = not self._data_full
+        self.query_one("#data").set_class(self._data_full, "full")
+        self._fit_data()
+        self._paint_data(getattr(self, "_data_off", None))
+        shown = "all ten readings" if self._data_full else "u16 u32 i32 f32"
+        if not self.query_one("#data").display:
+            shown += " (hidden: the terminal is too small for it)"
+        self.notify(f"data inspector: {shown}", timeout=2)
 
     # pane id -> the class that gives it the screen. Not every pane has one:
     # #idbox is six rows by design, so filling the screen with it would be a
@@ -3204,6 +3262,8 @@ class AcidcatTUI(App):
             self.call_after_refresh(self._paint_bytes)
             self.call_after_refresh(self._paint_strip)
             self.call_after_refresh(self._paint_inspect)
+            self.call_after_refresh(self._paint_title)
+            self.call_after_refresh(self._render_anomalies)
 
     # of #hexwrap's outer width, the row never gets: its own border (2),
     # #hex's padding (2), and the vertical scrollbar (2).

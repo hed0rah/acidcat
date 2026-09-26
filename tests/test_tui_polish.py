@@ -69,7 +69,7 @@ def test_an_empty_layer_draws_a_row_of_gap():
 # ── the data inspector goes where it fits ──────────────────────────────
 
 @pytest.mark.parametrize("size,shown", [((120, 36), True), ((80, 30), False),
-                                        ((160, 30), False)])
+                                        ((160, 30), True), ((160, 28), False)])
 def test_the_data_inspector_shows_only_where_it_fits(tmp_path, size, shown):
     p = tmp_path / "seed.wav"
     p.write_bytes(seeds.build("wav"))
