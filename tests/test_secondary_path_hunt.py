@@ -103,6 +103,7 @@ def test_no_real_file_crashes_the_repair_path():
     degrade internally, never raise on a real file. Output is discarded; the
     file is never modified."""
     from acidcat.core.write import constraints
+    from acidcat.core.write.repairers import AudioGuardError
 
     def run(path, fid):
         try:
@@ -111,7 +112,13 @@ def test_no_real_file_crashes_the_repair_path():
         except OSError:
             return
         constraints.analyze(data)
-        constraints.repair(data)
+        try:
+            constraints.repair(data)
+        except AudioGuardError:
+            # the guard refusing to write is the designed answer for a file
+            # whose audio it cannot locate (the repair verb reports it as
+            # "nothing written"); first seen on a malformed AIFC from McGill
+            pass
 
     tried, crashes = _sweep(_REPAIRABLE, run)
     if not tried:
