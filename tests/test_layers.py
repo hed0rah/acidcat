@@ -222,3 +222,24 @@ def test_a_psf_program_is_layer_1(tmp_path, version, head):
     count = next(f for f in ph["fields"] if f["name"] == "rom_bytes")
     assert count["at"] == {"layer": 1, "off": head - 4, "len": 4}
     assert int(count["value"]) == len(rom)
+
+
+# ── Ableton documents: the gunzipped XML is layer 1 ─────────────────
+
+def test_an_ableton_document_is_gzip_over_xml(tmp_path):
+    import gzip
+    p = tmp_path / "set.als"
+    p.write_bytes(seeds.SEEDS["als"][0]())
+    raw = p.read_bytes()
+    doc = contract.walk(str(p))
+    lay = doc["layers"][1]
+    assert lay["decoder"]["name"] == "gzip" and lay["verdict"]["method"] == "crc32"
+    img = layers.layer_bytes(doc, 1, raw)
+    assert img == gzip.decompress(raw)
+    xml = contract.node(doc, lay["from_node"] + "/xml")
+    placed = [f for f in xml["fields"] if "at" in f]
+    assert placed, "no root attribute was placed on its bytes"
+    for f in placed:
+        a = f["at"]
+        assert a["layer"] == 1
+        assert img[a["off"]:a["off"] + a["len"]].decode() == str(f["value"])

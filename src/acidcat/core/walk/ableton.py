@@ -413,6 +413,15 @@ def inspect_ableton_xml(filepath, fmt_id="als"):
                         f"{attrs.get('Creator', 'an unknown Live version')}"),
             "fields": fields, "warnings": [], "payload_base": 0}
 
+    if not truncated:
+        # the XML is layer 1 (node-v1.md section 3)
+        root["layer"] = {
+            "name": "XML", "decoder": "gzip", "params": {"size": len(xml)},
+            "length": len(xml), "length_known": True,
+            "verdict": {"result": "verified", "method": "crc32",
+                        "detail": "gzip's CRC-32 and length trailer"}}
+        root["layer_chunks"] = [_xml_layer(xml, attrs)]
+
     counts = [(lab, xml.count(tag)) for tag, lab in _COUNTED]
     body_fields = [_f(None, 0, lab, f"{n:,}") for lab, n in counts if n]
     body = {"id": "content", "offset": 0, "size": size,
@@ -420,6 +429,28 @@ def inspect_ableton_xml(filepath, fmt_id="als"):
                        or "no recognised Live elements",
             "fields": body_fields, "warnings": [], "payload_base": 0}
     return [root, body], warns
+
+
+def _xml_layer(xml, attrs):
+    """The decompressed document as one region, with the root element's
+    attributes placed on their value bytes."""
+    fields = []
+    head = xml[:4096]
+    root_at = head.find(b"<Ableton")
+    end = head.find(b">", root_at) if root_at >= 0 else -1
+    for k, v in attrs.items():
+        key = (" %s=\"" % k).encode("ascii")
+        at = head.find(key, root_at, end) if end > 0 else -1
+        if at < 0:
+            fields.append(_f(None, 0, k, v))
+            continue
+        vat = at + len(key)
+        vlen = head.find(b"\"", vat, end) - vat
+        fields.append(_f(vat, vlen, k, v) if vlen >= 0 else _f(None, 0, k, v))
+    return {"id": "xml", "offset": 0, "size": len(xml), "payload_base": 0,
+            "payload_len": len(xml), "extent_len": len(xml),
+            "summary": "{:,} bytes of XML".format(len(xml)),
+            "fields": fields, "warnings": []}
 
 
 # ── Max for Live ──────────────────────────────────────────────────────────

@@ -61,6 +61,17 @@ def _zlib(src, params, cap):
     return out
 
 
+def _gzip(src, params, cap):
+    # a gzip member checks its own CRC-32 and length trailer
+    d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    out = d.decompress(bytes(src), cap + 1)
+    if len(out) > cap:
+        raise LayerError("the stream inflates past the cap of %d bytes" % cap)
+    if not d.eof:
+        raise LayerError("the gzip stream ends early")
+    return out
+
+
 def _exact_length(out, params):
     return len(out) == params["size"]
 
@@ -74,6 +85,8 @@ DECODERS = {
     "ice": (_ice, _exact_length, "opaque"),
     # zlib (a PSF program): its Adler-32 and the length the walk measured
     "zlib": (_zlib, _exact_length, "opaque"),
+    # gzip (Ableton documents): its CRC-32 and length trailer
+    "gzip": (_gzip, _exact_length, "opaque"),
 }
 
 

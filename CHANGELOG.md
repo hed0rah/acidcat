@@ -37,7 +37,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   too, checked by zlib's own Adler-32 and the length the walk measured; the
   GBA and DS program header is walked inside it (entry point, load offset,
   ROM byte count), and any other machine's program is one region. On 250
-  real GSF and 2SF files the layer is the inflated program.
+  real GSF and 2SF files the layer is the inflated program. An Ableton
+  document (.als, .alc, .adg, .adv, .agr) is gzip over XML: the XML is layer
+  1, checked by gzip's CRC-32 and length trailer, and the root element's
+  attributes (Creator, versions) are placed on their value bytes.
 - **`carve --layer N`** writes a layer's bytes, decoded and checked the same
   way; `--layer 0` is the file.
 - **`docs/contract/cli-2.0.md`**: every 1.8 command and flag, what it becomes
