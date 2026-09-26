@@ -20,6 +20,7 @@ Document from the file's bytes, nested layers included.
 """
 
 import struct
+import zlib
 
 from acidcat.core.codecs import ice, lha
 
@@ -49,6 +50,17 @@ def _ice(src, params, cap):
     return ice.unpack(head + bytes(src), cap)
 
 
+def _zlib(src, params, cap):
+    # zlib checks its own Adler-32; a truncated or corrupt stream raises
+    d = zlib.decompressobj()
+    out = d.decompress(bytes(src), cap + 1)
+    if len(out) > cap:
+        raise LayerError("the stream inflates past the cap of %d bytes" % cap)
+    if not d.eof:
+        raise LayerError("the zlib stream ends early")
+    return out
+
+
 def _exact_length(out, params):
     return len(out) == params["size"]
 
@@ -60,6 +72,8 @@ DECODERS = {
     "lha.lh0": (_lha_lh0, _lha_check, "exact"),
     # a Pack-Ice stream must fill exactly the length its header states
     "ice": (_ice, _exact_length, "opaque"),
+    # zlib (a PSF program): its Adler-32 and the length the walk measured
+    "zlib": (_zlib, _exact_length, "opaque"),
 }
 
 
@@ -77,7 +91,7 @@ def decode(name, src, params, cap):
         out = fn(src, params, cap)
     except LayerError:
         raise
-    except (lha.LhaError, ice.IceError, KeyError, ValueError) as e:
+    except (lha.LhaError, ice.IceError, zlib.error, KeyError, ValueError) as e:
         raise LayerError("%s: %s" % (name, e)) from None
     if check is not None and not check(out, params):
         raise LayerError("%s: the decoded bytes fail their check" % name)

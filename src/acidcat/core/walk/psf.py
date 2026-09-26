@@ -200,9 +200,51 @@ def _program_chunk(h, short, is_lib):
             summary = "%s: a {:,}-byte GBA ROM".format(g["length"]) % short
     elif is_lib:
         summary = "%s library, {:,} bytes compressed".format(n) % short
-    return {"id": "program", "offset": at, "size": n, "summary": summary,
-            "fields": fields, "warnings": [], "payload_base": at,
-            "payload_len": n, "extent_len": n}
+    chunk = {"id": "program", "offset": at, "size": n, "summary": summary,
+             "fields": fields, "warnings": [], "payload_base": at,
+             "payload_len": n, "extent_len": n}
+    size = h["inflated_size"]
+    if size is not None:
+        # the inflated program is layer 1 (node-v1.md section 3)
+        chunk["layer"] = {
+            "name": "%s program" % short, "decoder": "zlib",
+            "params": {"size": size}, "length": size, "length_known": True,
+            "verdict": {"result": "verified", "method": "adler32",
+                        "detail": "zlib's own check; the header CRC32 %s" % (
+                            "matches" if h["crc_ok"] else
+                            "does not match" if h["crc_ok"] is False else
+                            "was not checked")}}
+        chunk["layer_chunks"] = _program_layer(g, size, short)
+    return chunk
+
+
+def _program_layer(g, size, short):
+    """The inflated program, positioned in itself. The GBA and DS program
+    header is decoded; any other machine's program is one region."""
+    if not g:
+        return [{"id": "image", "offset": 0, "size": size, "payload_base": 0,
+                 "payload_len": size, "extent_len": size,
+                 "summary": "the %s program image; its layout is not decoded" % short,
+                 "fields": [], "warnings": []}]
+    head = 12 if g["entry"] is not None else 8
+    fields = []
+    if g["entry"] is not None:
+        fields.append(_f(0, 4, "entry_point", g["entry"], "where the GBA starts executing",
+                         enc="<I", raw=g["entry"]))
+    fields += [_f(head - 8, 4, "load_offset", g["offset"], "where the ROM bytes are placed",
+                  enc="<I", raw=g["offset"]),
+               _f(head - 4, 4, "rom_bytes", g["length"], "the program header's own count",
+                  enc="<I", raw=g["length"])]
+    out = [{"id": "program_header", "offset": 0, "size": head, "payload_base": 0,
+            "payload_len": head, "extent_len": head,
+            "summary": "%s program header" % short, "fields": fields, "warnings": []}]
+    if size > head:
+        out.append({"id": "rom", "offset": head, "size": size - head,
+                    "payload_base": head, "payload_len": size - head,
+                    "extent_len": size - head,
+                    "summary": "{:,} ROM bytes".format(size - head),
+                    "fields": [], "warnings": []})
+    return out
 
 
 def _tag_chunk(h, raw, at, length):

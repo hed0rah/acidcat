@@ -194,3 +194,31 @@ def test_a_pack_ice_stream_of_the_wrong_length_does_not_decode():
     raw = seeds.ice_literal(SNDH)
     with pytest.raises(layers.LayerError):
         layers.decode("ice", raw[12:], {"size": len(SNDH) + 1}, 1 << 20)
+
+
+# ── PSF: the inflated program is layer 1 ────────────────────────────
+
+@pytest.mark.parametrize("version,head", [(0x22, 12), (0x24, 8), (0x01, None)],
+                         ids=["gsf", "2sf", "psf1"])
+def test_a_psf_program_is_layer_1(tmp_path, version, head):
+    import struct
+    import zlib
+    rom = bytes(range(40))
+    p = tmp_path / "a.psf"
+    p.write_bytes(seeds.SEEDS["psf"][0](version=version, rom=rom))
+    doc = contract.walk(str(p))
+    lay = doc["layers"][1]
+    assert lay["decoder"]["name"] == "zlib" and lay["verdict"]["method"] == "adler32"
+    raw = p.read_bytes()
+    size = struct.unpack_from("<I", raw, 8)[0]
+    img = layers.layer_bytes(doc, 1, raw)
+    assert img == zlib.decompress(raw[16:16 + size])
+    kids = [c["id"].rsplit("/", 1)[1] for c in contract.node(doc, lay["from_node"])["children"]]
+    if head is None:
+        assert kids == ["image"]              # a program layout not decoded
+        return
+    assert kids == ["program_header", "rom"]
+    ph = contract.node(doc, lay["from_node"] + "/program_header")
+    count = next(f for f in ph["fields"] if f["name"] == "rom_bytes")
+    assert count["at"] == {"layer": 1, "off": head - 4, "len": 4}
+    assert int(count["value"]) == len(rom)

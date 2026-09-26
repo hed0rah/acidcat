@@ -33,7 +33,11 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   range (`1:lh5/header#frames`). A Pack-Ice SNDH is layered the same way:
   the image must fill exactly the length its header states, and its entry
   branches, tags and player are walked inside it; on 298 real packed SNDH
-  files the layer is the verified image.
+  files the layer is the verified image. A PSF's zlib program is layer 1
+  too, checked by zlib's own Adler-32 and the length the walk measured; the
+  GBA and DS program header is walked inside it (entry point, load offset,
+  ROM byte count), and any other machine's program is one region. On 250
+  real GSF and 2SF files the layer is the inflated program.
 - **`carve --layer N`** writes a layer's bytes, decoded and checked the same
   way; `--layer 0` is the file.
 - **`docs/contract/cli-2.0.md`**: every 1.8 command and flag, what it becomes
@@ -117,6 +121,15 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 - `acidcat.core.primitives.notes.coverage(text)`. Use
   `acidcat.core.infra.limits.hit(name, limit, used, text)`; `Note(text,
   "coverage")` without a `cap` now raises `ValueError`.
+
+### Fixed
+
+- **Two walkers found wrong by public test files.** McGill's AU and AIFF
+  sample sets, now in the corpus, caught a Sun/NeXT file whose data chunk
+  claimed 172,032 bytes of an 86,044-byte file (the chunk now owns what is
+  there, with a `size.overrun` finding) and an AIFF-C `APPL` chunk whose
+  first data byte was read as a Pascal-string length of 71 in a 12-byte
+  chunk (the name is decoded only when it fits).
 
 ## [1.8.6] - 2026-09-25
 
