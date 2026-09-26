@@ -149,8 +149,10 @@ warns.append(environment("sibling.missing", f"names library {lib!r} and it "
 `defect` is the file breaking its format, `environment` is something outside
 it (a sibling file), `info` is worth knowing. The codes are in `REGISTRY`; add
 one there when none fits, with its kind and severity. A plain string still
-works and is reported as `legacy`, but `tests/test_findings.py` counts those
-and the count only falls.
+works but is reported as `legacy`, and `tests/test_findings.py` fails on it:
+every warning a walker writes carries a code. When the code is only known at
+run time (a resolver's reason), `coded(code, message)` takes the kind from the
+registry.
 
 ### Declare a decoded layer
 

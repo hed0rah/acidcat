@@ -91,6 +91,19 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `<acidcat home>/tui.json`. The data inspector shows only where it fits
   without wrapping, and the field inspector fits its bytes to the pane
   instead of running past its edge on a narrow terminal. Keys are unchanged.
+- **Every walker warning has a code.** The remaining plain-string warnings
+  in the walkers and format decoders (about 440 sites) carry a finding code,
+  so no warning a walk produces reaches a Document or `audit` as `legacy`.
+  Sixteen codes were added where none of the existing ones fitted (a count
+  that disagrees with its payload, two fields that disagree, a value the spec
+  does not allow, an unterminated or malformed text field, an address outside
+  the machine's window, a required chunk missing, chunks out of order, an
+  unknown id, a reference to nothing, stray bytes, a sibling that changed, a
+  value a reader has to assume, a layout no specimen showed, a convention
+  that looks like damage, a part walked past undecoded, and a file no walker
+  reads). Message wording is unchanged. Some findings change kind with their
+  code: a caught exception is now `error`/`walker.error`, and conventions,
+  assumed values and undecoded parts are `info`, not defects.
 - **TUI: the tree keeps its height.** The data inspector under it shows the
   four readings most fields are (u16, u32, i32, f32) and `i` shows all ten, so
   the tree has about 13 rows at 120x36 instead of 7. Both byte orders of a

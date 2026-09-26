@@ -5,6 +5,7 @@ in deep mode, the synth structure and modulation matrix."""
 from acidcat.core.formats import vital as vitalmod
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect
 
 def inspect_vital(filepath, deep=False):
     """Structural view of a Vital preset (bare JSON): the top-level metadata,
@@ -28,13 +29,15 @@ def inspect_vital(filepath, deep=False):
     # bytes after the top-level JSON value are trailing data -- a tolerant loader
     # ignores them and the preset still loads, so warn instead of rejecting.
     if data[jend:].strip():
-        warns.append(f"{len(data) - jend:,} bytes of trailing data after the "
-                     "top-level JSON value (ignored by the parser; still loads)")
+        warns.append(defect("bytes.stray",
+                            f"{len(data) - jend:,} bytes of trailing data after the "
+                            "top-level JSON value (ignored by the parser; still loads)"))
     # top-level members outside the Vital schema are an unvalidated side-channel
     unknown = sorted(k for k in obj if k not in vitalmod.KNOWN_TOP_LEVEL)
     if unknown:
-        warns.append("unvalidated top-level key(s) outside the Vital schema: "
-                     + ", ".join(unknown))
+        warns.append(defect("id.unknown",
+                            "unvalidated top-level key(s) outside the Vital schema: "
+                            + ", ".join(unknown)))
     fields = []
     for k in vitalmod.META_KEYS:
         v = obj.get(k)

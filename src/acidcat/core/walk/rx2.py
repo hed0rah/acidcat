@@ -66,7 +66,7 @@ def inspect_rx2(filepath):
                 f"{cid.decode('latin-1', 'replace')} chunk runs past EOF"))
             chunks.append({"id": cid.decode("latin-1", "replace"), "offset": pos,
                            "size": max(0, size - cbody), "summary": "truncated",
-                           "fields": [], "warnings": ["size exceeds file"],
+                           "fields": [], "warnings": [defect("size.overrun", "size exceeds file")],
                            "payload_base": cbody})
             break
         if cbody + clen > len(data):

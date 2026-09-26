@@ -16,6 +16,7 @@ import struct
 from acidcat.core.formats import bitwig as bwmod
 from acidcat.core.walk.base import _f, _open, _size
 from acidcat.util.midi import midi_note_to_name
+from acidcat.core.infra.findings import info
 
 def _flac_audio_params(raw):
     """(channels, rate, seconds) from a FLAC STREAMINFO, or None."""
@@ -108,7 +109,7 @@ def inspect_bitwig(filepath, deep=False):
         summary = meta.get("type", "Bitwig data")
     else:
         summary = "no meta block decoded"
-        file_warns.append("BtWg meta block not decoded")
+        file_warns.append(info("decode.partial", "BtWg meta block not decoded"))
     chunks.append({"id": "meta", "offset": 0, "size": 0,
                    "summary": summary, "fields": fields, "warnings": []})
 

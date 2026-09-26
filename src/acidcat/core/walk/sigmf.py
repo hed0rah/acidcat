@@ -219,7 +219,7 @@ def inspect_sigmf(path, deep=False):
 
     data_size = data_src.size if data_src is not None else 0
     if data_src is None:
-        warns.append("no .sigmf-data beside this .sigmf-meta")
+        warns.append(environment("sibling.missing", "no .sigmf-data beside this .sigmf-meta"))
 
     dt = g.get("core:datatype", "")
     geo = _parse_datatype(dt)
@@ -229,7 +229,8 @@ def inspect_sigmf(path, deep=False):
             "parse.failed",
             f"core:datatype {dt!r} does not parse; sample geometry unknown"))
     elif geo and not geo["cplx"]:
-        warns.append("datatype is real (rN); this is a scalar sample stream, not IQ")
+        warns.append(info("convention.noted",
+                          "datatype is real (rN); this is a scalar sample stream, not IQ"))
     n_samp = data_size // sb if sb else 0
     if sb and data_size % sb:
         warns.append(defect(
@@ -239,7 +240,7 @@ def inspect_sigmf(path, deep=False):
     _fs_raw = g.get("core:sample_rate")
     fs = _num(_fs_raw)
     if _fs_raw is not None and fs is None:
-        warns.append("core:sample_rate is not numeric; ignoring")
+        warns.append(defect("value.invalid", "core:sample_rate is not numeric; ignoring"))
     dur = (n_samp / fs) if (fs and n_samp) else None
 
     chunks = []
@@ -249,7 +250,8 @@ def inspect_sigmf(path, deep=False):
         if deep and sha and data_src is not None:
             sha_note = "verified" if _sha512(data_path) == sha.lower() else "MISMATCH"
             if sha_note == "MISMATCH":
-                warns.append("core:sha512 does not match the data file")
+                warns.append(defect("checksum.mismatch",
+                                    "core:sha512 does not match the data file"))
         gfields = []
         if dt:
             gfields.append(_f(None, 0, "datatype", dt,
@@ -288,7 +290,7 @@ def inspect_sigmf(path, deep=False):
 
         for i, c in enumerate(captures):
             if not isinstance(c, dict):
-                warns.append(f"capture[{i}] is not an object; skipped")
+                warns.append(defect("value.invalid", f"capture[{i}] is not an object; skipped"))
                 continue
             s0 = int(_num(c.get("core:sample_start")) or 0)
             nc = captures[i + 1] if i + 1 < len(captures) else None
@@ -313,8 +315,9 @@ def inspect_sigmf(path, deep=False):
                 # begins inside the stream and runs off the end of it was
                 # reported as a byte region with no warning at all. The
                 # metadata declares this span; the data plane does not have it.
-                warns.append(f"capture[{i}] claims {span * sb:,} bytes from "
-                             f"0x{off:x}, past the {data_size:,}-byte data plane")
+                warns.append(defect("size.overrun",
+                                    f"capture[{i}] claims {span * sb:,} bytes from "
+                                    f"0x{off:x}, past the {data_size:,}-byte data plane"))
             chunks.append({
                 "id": f"capture[{i}]", "offset": off, "size": span * sb,
                 "summary": f"@ {(fc or 0) / 1e6:.3f} MHz, sample {s0:,}+{span:,}",
@@ -323,7 +326,7 @@ def inspect_sigmf(path, deep=False):
 
         for i, a in enumerate(annotations[:_ANNOTATION_CAP]):
             if not isinstance(a, dict):
-                warns.append(f"annotation[{i}] is not an object; skipped")
+                warns.append(defect("value.invalid", f"annotation[{i}] is not an object; skipped"))
                 continue
             s0 = int(_num(a.get("core:sample_start")) or 0)
             cnt = int(_num(a.get("core:sample_count")) or 0)
@@ -337,8 +340,9 @@ def inspect_sigmf(path, deep=False):
                 # as for captures: sample_count was never checked against the
                 # data plane, so a label spanning more samples than exist read
                 # as an ordinary region
-                warns.append(f"annotation[{i}] claims {cnt * sb:,} bytes from "
-                             f"0x{off:x}, past the {data_size:,}-byte data plane")
+                warns.append(defect("size.overrun",
+                                    f"annotation[{i}] claims {cnt * sb:,} bytes from "
+                                    f"0x{off:x}, past the {data_size:,}-byte data plane"))
             lab = a.get("core:label") or a.get("core:generator") or f"annotation {i}"
             af = [_f(None, 0, "sample_start", s0, "", xref=off),
                   _f(None, 0, "sample_count", cnt)]
@@ -429,7 +433,7 @@ def inspect_iq(path, deep=False):
     if dt is None:
         warns.append(info("encoding.unknown", "unknown IQ encoding; geometry from extension only"))
     if fs is None:
-        warns.append("sample rate unknown; duration not derivable")
+        warns.append(info("value.assumed", "sample rate unknown; duration not derivable"))
     if sb and size % sb:
         warns.append(defect(
             "length.misaligned",

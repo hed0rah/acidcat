@@ -32,7 +32,7 @@ def inspect_fxp(filepath):
     if len(head) < 28:
         return ([{"id": "fxp", "offset": 0, "size": size,
                   "summary": "truncated FXP header", "fields": [],
-                  "warnings": ["header shorter than 28 bytes"],
+                  "warnings": [defect("header.truncated", "header shorter than 28 bytes")],
                   "payload_base": 0}], warns)
 
     byte_size = struct.unpack_from(">I", head, 4)[0]

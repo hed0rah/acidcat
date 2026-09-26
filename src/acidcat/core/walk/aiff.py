@@ -8,7 +8,7 @@ from acidcat.core.formats.aiff import (_AES_EMPHASIS, _AES_RATES,
                                _AIFC_KNOWN_COMPRESSION, _LOOP_MODES,
                                _parse_ieee_extended)
 from acidcat.core.formats.aiff import iter_chunks as iter_aiff_chunks
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import defect, error, info
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.apple import (_parse_apple_meta, _parse_cate,
                                      _parse_chan, _parse_resu,
@@ -27,7 +27,8 @@ _AIFC_UNCOMPRESSED = ("NONE", "sowt", "twos", "raw ", "fl32", "fl64",
 def _aiff_comm(b, ctx, form_type):
     fields, warns = [], []
     if len(b) < 18:
-        return "truncated", fields, [f"COMM payload is {len(b)} bytes, spec minimum is 18"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"COMM payload is {len(b)} bytes, spec minimum is 18")]
     ch, frames, bits = struct.unpack_from(">hIh", b, 0)
     rate = _parse_ieee_extended(b[8:18])
     fields.append(_f(0x00, 2, "num_channels", ch))
@@ -40,7 +41,7 @@ def _aiff_comm(b, ctx, form_type):
                 "sample_rate": int(rate) if rate else 0,
                 "duration": round(frames / rate, 4) if rate else None})
     if not rate:
-        warns.append("sample rate decodes to 0")
+        warns.append(defect("value.invalid", "sample rate decodes to 0"))
 
     comp = "PCM"
     uncompressed = True
@@ -53,7 +54,8 @@ def _aiff_comm(b, ctx, form_type):
             known = "" if comp4 in _AIFC_KNOWN_COMPRESSION else "unknown type"
             fields.append(_f(0x12, 4, "compression_type", comp4, known))
             if known:
-                warns.append(f"compression type {comp4!r} not in the known set")
+                warns.append(defect("id.unknown",
+                                    f"compression type {comp4!r} not in the known set"))
             if len(b) >= 23:
                 name_len = b[22]
                 name = b[23:23 + name_len].decode("ascii", errors="replace")
@@ -62,7 +64,7 @@ def _aiff_comm(b, ctx, form_type):
                                      "pascal string"))
             ctx["compression"] = comp4
         else:
-            warns.append("AIFC COMM missing the compression type")
+            warns.append(defect("required.missing", "AIFC COMM missing the compression type"))
     if not rate:
         dur = ""
     elif uncompressed:
@@ -71,8 +73,9 @@ def _aiff_comm(b, ctx, form_type):
         # num_sample_frames counts packets for compressed codecs, not sample
         # frames, so frames/rate is only a lower bound; label it approximate.
         dur = f", ~{frames / rate:.3f} s (approx)"
-        warns.append("AIFC duration is approximate: num_sample_frames counts "
-                     "packets, not sample frames, for compressed audio")
+        warns.append(info("value.assumed",
+                          "AIFC duration is approximate: num_sample_frames counts "
+                          "packets, not sample frames, for compressed audio"))
     summary = f"{comp} {bits}-bit {ch}ch {int(rate)} Hz{dur}"
     return summary, fields, warns
 
@@ -80,7 +83,7 @@ def _aiff_comm(b, ctx, form_type):
 def _aiff_ssnd(b, ctx, size, avail=None):
     fields, warns = [], []
     if len(b) < 8:
-        return "truncated", fields, ["SSND payload under 8 bytes"]
+        return "truncated", fields, [defect("chunk.short", "SSND payload under 8 bytes")]
     offset, block = struct.unpack_from(">II", b, 0)
     fields.append(_f(0x00, 4, "offset", offset, "bytes to first frame"))
     fields.append(_f(0x04, 4, "block_size", block))
@@ -104,24 +107,25 @@ def _aiff_ssnd(b, ctx, size, avail=None):
         # a sample point is padded to whole bytes: 12-bit is stored in two
         expected = frames * ch * ((bits + 7) // 8)
         if audio_bytes >= 0 and abs(audio_bytes - expected) > max(16, expected * 0.01):
-            warns.append(
+            warns.append(defect(
+                "count.mismatch",
                 f"SSND holds {audio_bytes:,} audio bytes but COMM frames "
-                f"imply {expected:,}"
-            )
+                f"imply {expected:,}"))
     return summary, fields, warns
 
 
 def _aiff_mark(b, ctx):
     fields, warns = [], []
     if len(b) < 2:
-        return "truncated", fields, ["MARK payload under 2 bytes"]
+        return "truncated", fields, [defect("chunk.short", "MARK payload under 2 bytes")]
     n = _bu16(b, 0)
     fields.append(_f(0x00, 2, "num_markers", n))
     pos = 2
     ids = {}
     for i in range(n):
         if pos + 7 > len(b):
-            warns.append(f"declares {n} markers but payload ends at marker {i}")
+            warns.append(defect("size.overrun",
+                                f"declares {n} markers but payload ends at marker {i}"))
             break
         mid = struct.unpack_from(">h", b, pos)[0]
         position = _bu32(b, pos + 2)
@@ -174,7 +178,8 @@ def _aiff_basc(b, ctx):
     filename bpm on every file)."""
     fields, warns = [], []
     if len(b) < 16:
-        return "truncated", fields, [f"basc payload is {len(b)} bytes, expected 84"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"basc payload is {len(b)} bytes, expected 84")]
     ver, beats = struct.unpack_from(">II", b, 0)
     root, scale, sig_n, sig_d = struct.unpack_from(">HHHH", b, 8)
     fields.append(_f(0x00, 4, "version", ver))
@@ -216,14 +221,14 @@ def _aiff_comt(b):
     comment records (big-endian, text padded to even)."""
     fields, warns = [], []
     if len(b) < 2:
-        return "truncated", fields, ["COMT payload under 2 bytes"]
+        return "truncated", fields, [defect("chunk.short", "COMT payload under 2 bytes")]
     n = _bu16(b, 0)
     fields.append(_f(0x00, 2, "num_comments", n))
     pos = 2
     shown = 0
     for i in range(n):
         if pos + 8 > len(b):
-            warns.append(f"declares {n} comments but payload ends at {i}")
+            warns.append(defect("size.overrun", f"declares {n} comments but payload ends at {i}"))
             break
         ts = struct.unpack_from(">I", b, pos)[0]
         marker = struct.unpack_from(">h", b, pos + 4)[0]
@@ -276,7 +281,7 @@ def _aiff_appl(b):
     'pdos'/'stoc' begin the data with a pstring naming the app/structure."""
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["APPL under 4 bytes"]
+        return "truncated", fields, [defect("chunk.short", "APPL under 4 bytes")]
     sig = b[:4].decode("ascii", errors="replace")
     fields.append(_f(0x00, 4, "signature", sig))
     if sig in ("pdos", "stoc") and len(b) > 4:
@@ -329,12 +334,14 @@ def inspect_aiff(filepath, form_type, ctx=None):
         if len(hdr) < 12:
             # reachable via fmt_override, which promises to degrade like any
             # other walk; wav.py has the same guard for the same reason
-            return chunks, [f"file is {len(hdr)} bytes; a FORM header needs 12"]
+            return chunks, [defect("header.truncated",
+                                   f"file is {len(hdr)} bytes; a FORM header needs 12")]
         form_size = struct.unpack(">I", hdr[4:8])[0]
         if form_size + 8 != file_size:
             file_warns.append(
-                f"FORM size says {form_size + 8:,} bytes, file is "
-                f"{file_size:,} ({file_size - form_size - 8:+,})"
+                defect("count.mismatch",
+                       f"FORM size says {form_size + 8:,} bytes, file is "
+                       f"{file_size:,} ({file_size - form_size - 8:+,})")
             )
 
         for cid, offset, size in iter_aiff_chunks(filepath):
@@ -363,10 +370,10 @@ def inspect_aiff(filepath, form_type, ctx=None):
                     comp = ctx.get("compression")
                     if fr and ch and bits and (comp is None or comp in _AIFC_UNCOMPRESSED) \
                             and fr * ch * ((bits + 7) // 8) > file_size:
-                        entry["warnings"].append(
+                        entry["warnings"].append(defect(
+                            "size.overrun",
                             f"num_sample_frames {fr:,} implies more audio than the "
-                            f"{file_size:,}-byte file holds; duration is not trustworthy"
-                        )
+                            f"{file_size:,}-byte file holds; duration is not trustworthy"))
                 elif cid == "SSND":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_ssnd(payload, ctx, size, avail)
@@ -398,11 +405,12 @@ def inspect_aiff(filepath, form_type, ctx=None):
                                             else f"version 0x{ts:08X}")
                         if not canon:
                             entry["warnings"] = [
-                                "format_version is not the canonical "
-                                "0xA2805140; no other version was ever defined"]
+                                defect("value.invalid",
+                                       "format_version is not the canonical "
+                                       "0xA2805140; no other version was ever defined")]
                     else:
                         entry["summary"] = "truncated"
-                        entry["warnings"] = ["FVER payload under 4 bytes"]
+                        entry["warnings"] = [defect("chunk.short", "FVER payload under 4 bytes")]
                 elif cid == "AESD":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _aiff_aesd(payload)
@@ -445,19 +453,22 @@ def inspect_aiff(filepath, form_type, ctx=None):
                 else:
                     entry["summary"] = f"unparsed, first bytes: {payload[:16].hex(' ')}"
             except Exception as e:
-                entry["warnings"] = [f"parse error: {e.__class__.__name__}: {e}"]
+                entry["warnings"] = [error("walker.error",
+                                           f"parse error: {e.__class__.__name__}: {e}")]
             chunks.append(entry)
 
     if "COMM" not in seen:
-        file_warns.append("no COMM chunk: not decodable as audio")
+        file_warns.append(defect("required.missing", "no COMM chunk: not decodable as audio"))
     if "SSND" not in seen and ctx.get("frames"):
-        file_warns.append("no SSND chunk despite COMM declaring frames")
+        file_warns.append(defect("required.missing",
+                                 "no SSND chunk despite COMM declaring frames"))
     loop_ids = ctx.get("inst_loop_marker_ids") or []
     markers = ctx.get("marker_ids") or {}
     for mid in loop_ids:
         if mid not in markers:
             file_warns.append(
-                f"INST loop references marker id {mid} that MARK does not define"
+                defect("reference.unresolved",
+                       f"INST loop references marker id {mid} that MARK does not define")
             )
 
     # a bound that was crossed is a fact about the whole answer, not about one

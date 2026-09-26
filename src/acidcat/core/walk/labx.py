@@ -18,7 +18,7 @@ import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import defect, info
 from acidcat.core.infra.source import zip_open
 from acidcat.core.primitives.zipio import zip_data_offset
 from acidcat.core.walk.base import _f, _size
@@ -207,8 +207,9 @@ def inspect_labx(filepath):
             (presets if len(parts) >= 3 else assets).append((zi, parts))
 
         if not presets:
-            warns.append("zip does not follow the <Engine>/User/<Bank>/<Preset> "
-                         "layout; listing raw entries")
+            warns.append(info("layout.unmeasured",
+                              "zip does not follow the <Engine>/User/<Bank>/<Preset> "
+                              "layout; listing raw entries"))
             chunks = [{"id": "labx", "offset": 0, "size": size, "payload_base": 0,
                        "summary": f"zip archive, {len(assets)} entries "
                                   "(not Analog Lab layout)",
@@ -218,7 +219,8 @@ def inspect_labx(filepath):
                 try:
                     doff = _data_offset(z, zi)
                 except ValueError:
-                    warns.append(f"{zi.filename}: unreadable local header, skipped")
+                    warns.append(defect("parse.failed",
+                                        f"{zi.filename}: unreadable local header, skipped"))
                     continue
                 chunks.append({"id": "asset", "offset": doff,
                                "size": zi.compress_size, "summary": zi.filename,
@@ -255,7 +257,8 @@ def inspect_labx(filepath):
             except ValueError:
                 # the central directory points this entry's local header
                 # somewhere the file does not go: skip the entry, keep the bank
-                warns.append(f"{zi.filename}: unreadable local header, skipped")
+                warns.append(defect("parse.failed",
+                                    f"{zi.filename}: unreadable local header, skipped"))
                 continue
             pwarn = []
             if _ARCHIVE_MAGIC in head[:64]:

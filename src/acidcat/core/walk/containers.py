@@ -17,7 +17,7 @@ file it does not itself contain.
 
 import os
 
-from acidcat.core.infra.findings import defect, environment
+from acidcat.core.infra.findings import coded, defect, environment
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -77,9 +77,10 @@ def inspect_cue(filepath, deep=False):
            "the sheet indexes into these; it contains no audio itself"),
     ]
     if unnamed:
-        warns.append("%d track(s) name no file; the sheet's FILE line is "
-                     "missing or damaged, so their positions index into "
-                     "nothing" % unnamed)
+        warns.append(defect("required.missing",
+                            "%d track(s) name no file; the sheet's FILE line is "
+                            "missing or damaged, so their positions index into "
+                            "nothing" % unnamed))
     src = as_source(filepath)
     if files and src.path is None:
         warns.append(environment(
@@ -138,7 +139,7 @@ def inspect_gcm(filepath, deep=False):
         return [{"id": "header", "offset": 0, "size": size,
                  "summary": "GameCube image header is truncated",
                  "fields": [], "warnings": [], "payload_base": 0}], \
-               ["file ends inside the 0x440-byte disc header"]
+               [defect("header.truncated", "file ends inside the 0x440-byte disc header")]
 
     game_id = head[0:6].decode("latin-1", "replace")
     maker = head[4:6].decode("latin-1", "replace")
@@ -169,7 +170,7 @@ def inspect_gcm(filepath, deep=False):
             "pointer.dangling",
             "the file-system table is declared past the end of the image"))
     if not entries:
-        warns.append("no files could be read from the file-system table")
+        warns.append(defect("parse.failed", "no files could be read from the file-system table"))
 
     for e in tunes[:12] if not deep else tunes:
         fields.append(_f(None, 0, os.path.basename(str(e.get("path", "?"))),
@@ -221,7 +222,7 @@ def inspect_cdxa(filepath, deep=False):
         return [{"id": "image", "offset": 0, "size": size,
                  "summary": "not a raw CD sector image (no sync mark)",
                  "fields": [], "warnings": [], "payload_base": 0}], \
-               ["the first two sectors carry no 12-byte sync mark"]
+               [defect("magic.mismatch", "the first two sectors carry no 12-byte sync mark")]
 
     total = info["sectors"]
     scanned = min(total, _XA_SCAN_CAP)
@@ -267,10 +268,11 @@ def inspect_cdxa(filepath, deep=False):
                          "living entirely past that point is not listed"
                          % (format(scanned, ","), format(total, ","))))
     if info["mode"] == 2 and not counts:
-        warns.append("no sector in the range examined is tagged as audio")
+        warns.append(coded("decode.partial", "no sector in the range examined is tagged as audio"))
     if info["mode"] != 2:
-        warns.append("Mode%d image: there is no XA subheader, so no audio "
-                     "stream can be tagged" % info["mode"])
+        warns.append(coded("decode.partial",
+                           "Mode%d image: there is no XA subheader, so no audio "
+                           "stream can be tagged" % info["mode"]))
 
     for key in sorted(counts, key=lambda k: -counts[k])[:16 if not deep else None]:
         best = max(codings[key].items(), key=lambda kv: kv[1])[0]

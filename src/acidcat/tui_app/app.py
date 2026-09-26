@@ -22,6 +22,7 @@ from textual.widgets import Footer, Input, Static, Tree
 from acidcat.core.infra import capabilities, geometry
 from acidcat.core.infra.sniff import sniff_bytes
 from acidcat.core.walk import walk_file, Unsupported
+from acidcat.core.infra.findings import coded
 from acidcat.core.primitives.notes import code_of
 from acidcat.core.forensics import anomalies as ac_anom
 from acidcat.core.forensics import explore
@@ -2400,13 +2401,15 @@ class AcidcatTUI(App):
             self.fmt, self.chunks, self.warns = walk_file(
                 self.work, deep=True, fmt_override=self._fmt_override)
         except Unsupported as e:
-            self.fmt, self.chunks, self.warns = "unsupported", [], [str(e)]
+            self.fmt, self.chunks, self.warns = (
+                "unsupported", [], [coded("format.unrecognized", str(e))])
         except Exception as e:
             # a crafted/corrupt file may make a walker raise something other
             # than Unsupported; the TUI opens files on mount, so this must not
             # crash the session (the DoS threat model is degrade-not-die)
             self.fmt, self.chunks, self.warns = (
-                "walk failed", [], [f"{e.__class__.__name__}: {e}"])
+                "walk failed", [], [coded("walker.error",
+                                          f"{e.__class__.__name__}: {e}")])
         self.model.path = self.work
         self.model.view = self._layer_view
         self.model.load(self._fmt_id(), self.fmt, self.chunks, self.warns,

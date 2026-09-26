@@ -20,6 +20,7 @@ from acidcat.core.formats import akai as akaimod
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size, _name
 from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import coded, defect
 
 _KGRP_CAP = 128
 # One .s3p message per keygroup, and the program block itself caps keygroups at
@@ -93,8 +94,9 @@ def inspect_akp(filepath):
         fields.append(_f(None, 0, "midi_program", prg[1]))
     fields.append(_f(None, 0, "referenced_samples", len(all_samples)))
     if prg and len(prg) >= 3 and prg[2] != len(keygroups):
-        warns.append(f"prg declares {prg[2]} keygroups but {len(keygroups)} kgrp "
-                     "chunk(s) are present")
+        warns.append(defect("count.mismatch",
+                            f"prg declares {prg[2]} keygroups but {len(keygroups)} kgrp "
+                            "chunk(s) are present"))
 
     chunks = [{"id": "APRG", "offset": 0, "size": size, "payload_base": 0,
                "summary": f"Akai program '{prog_name}': {len(keygroups)} keygroup(s), "
@@ -137,7 +139,8 @@ def inspect_s3p(filepath):
     if not h["ok"]:
         return [{"id": "header", "offset": 0, "size": min(size, akaimod.HEADER),
                  "summary": "not a resolvable Akai program: %s" % h["why"],
-                 "fields": [], "warnings": [], "payload_base": 0}],             ["program did not resolve: %s" % h["why"]]
+                 "fields": [], "warnings": [], "payload_base": 0}], \
+            [coded(h["code"], "program did not resolve: %s" % h["why"])]
 
     prog = h["program"]
     fields = [_f(0x00, len(akaimod.MAGIC), "magic", "PSYSSS30"),
@@ -155,17 +158,20 @@ def inspect_s3p(filepath):
     # they disagree, that is worth saying.
     declared = prog[42] if len(prog) > 42 else None
     if declared is not None and declared != len(h["keygroups"]):
-        warns.append("the program block declares %d keygroups and %d keygroup "
-                     "message(s) follow" % (declared, len(h["keygroups"])))
+        warns.append(defect("count.mismatch",
+                            "the program block declares %d keygroups and %d keygroup "
+                            "message(s) follow" % (declared, len(h["keygroups"]))))
     if h["corrupt"]:
-        warns.append("%d message(s) carry a payload byte with bit 7 set, which "
-                     "no System Exclusive message can; those blocks were "
-                     "masked to read them and their contents are not "
-                     "trustworthy" % h["corrupt"])
+        warns.append(defect("value.invalid",
+                            "%d message(s) carry a payload byte with bit 7 set, which "
+                            "no System Exclusive message can; those blocks were "
+                            "masked to read them and their contents are not "
+                            "trustworthy" % h["corrupt"]))
     if h["declared_keygroups"] != len(h["keygroups"]):
-        warns.append("the file header declares %d keygroups and %d keygroup "
-                     "message(s) follow"
-                     % (h["declared_keygroups"], len(h["keygroups"])))
+        warns.append(defect("count.mismatch",
+                            "the file header declares %d keygroups and %d keygroup "
+                            "message(s) follow"
+                            % (h["declared_keygroups"], len(h["keygroups"]))))
 
     pf = [_f(None, 0, name, value, note)
           for name, value, note in akaimod.program_fields(prog)]
@@ -208,6 +214,7 @@ def inspect_s3p(filepath):
         warns.append(note)
 
     if h["consumed"] < size:
-        warns.append("%d bytes after the last message are not part of any "
-                     "SysEx frame" % (size - h["consumed"]))
+        warns.append(defect("bytes.stray",
+                            "%d bytes after the last message are not part of any "
+                            "SysEx frame" % (size - h["consumed"])))
     return chunks, [w for w in warns if w]

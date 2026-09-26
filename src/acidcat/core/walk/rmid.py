@@ -57,7 +57,7 @@ def inspect_rmid(filepath, deep=False):
         pos = body + clen + (clen & 1)      # RIFF chunks pad to even
 
     if midi_off is None:
-        warns.append("no data chunk (the wrapped MIDI is missing)")
+        warns.append(defect("required.missing", "no data chunk (the wrapped MIDI is missing)"))
         return chunks, warns
 
     # size is the payload length (the SMF); payload_base already skips the

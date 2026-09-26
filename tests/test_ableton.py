@@ -713,7 +713,7 @@ def test_no_object_tree_is_not_claimed_beside_chunks_read_from_one(tmp_path):
     from acidcat.core.walk import ableton as abwalk
     src = _inspect.getsource(abwalk.inspect_asd)
     # the EMIT site, not any mention: the comment above it says the phrase too
-    m = re.search(r"warns\.append\([\s\S]{0,40}?this sidecar carries only", src)
+    m = re.search(r"warns\.append\([\s\S]{0,80}?this sidecar carries only", src)
     assert m, "the no-object-tree warning is gone entirely"
     warn_at = m.start()
     for detector in ("warp", "onsets", "overview"):

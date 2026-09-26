@@ -48,7 +48,7 @@ something it never saw is the more expensive kind of wrong.
 
 import struct
 
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import coded, defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -105,8 +105,9 @@ def _blocks(data, warns):
         if kind == 0:                      # terminator: one byte, no length
             return
         if i + 4 > len(data):
-            warns.append(f"block header at 0x{i:x} is cut off by the end of "
-                         f"the file")
+            warns.append(defect("header.truncated",
+                                f"block header at 0x{i:x} is cut off by the end of "
+                                f"the file"))
             return
         length = data[i + 1] | (data[i + 2] << 8) | (data[i + 3] << 16)
         body = i + 4
@@ -121,8 +122,9 @@ def _blocks(data, warns):
             return
         yield kind, i, body, length
         i = body + length
-    warns.append("the block chain ran to the end of the file without a "
-                 "terminator")
+    warns.append(defect("required.missing",
+                        "the block chain ran to the end of the file without a "
+                        "terminator"))
 
 
 def parse_voc(data):
@@ -159,13 +161,15 @@ def parse_voc(data):
                        "time_constant": None, "parts": 1}
                 streams.append(cur)
             else:
-                warns.append(f"block 09 at 0x{off:x} is {length} bytes, too "
-                             f"short for its 12-byte header")
+                warns.append(defect("chunk.short",
+                                    f"block 09 at 0x{off:x} is {length} bytes, too "
+                                    f"short for its 12-byte header"))
                 cur = None
         elif kind == 2:
             if cur is None:
-                warns.append(f"continuation block at 0x{off:x} follows no sound "
-                             f"block; its format is unknown")
+                warns.append(defect("chunk.order",
+                                    f"continuation block at 0x{off:x} follows no sound "
+                                    f"block; its format is unknown"))
             else:
                 cur["size"] += length
                 cur["parts"] += 1
@@ -174,8 +178,9 @@ def parse_voc(data):
                          .decode("latin-1", "replace"))
         elif kind == 8:
             # precedes a block 01 and overrides its constant; framed, unverified
-            warns.append(f"block 08 at 0x{off:x}: extended format header, which "
-                         f"no specimen in the reference corpus carries")
+            warns.append(coded("layout.unmeasured",
+                               f"block 08 at 0x{off:x}: extended format header, which "
+                               f"no specimen in the reference corpus carries"))
     return {"version": version, "checksum": checksum, "streams": streams,
             "texts": texts, "blocks": blocks, "warnings": warns}
 
@@ -197,7 +202,7 @@ def inspect_voc(filepath):
     with _open(filepath) as fh:
         data = fh.read(min(file_size, _READ_CAP))
     if len(data) < len(MAGIC) or not data.startswith(MAGIC):
-        return [], ["not a Creative Voice File (.voc)"]
+        return [], [defect("magic.mismatch", "not a Creative Voice File (.voc)")]
 
     file_warns = []
     if file_size > _READ_CAP:
@@ -249,16 +254,19 @@ def inspect_voc(filepath):
         parts = f", {s['parts']} blocks" if s["parts"] > 1 else ""
         w = []
         if not s["rate"]:
-            w.append("no usable rate in this block, so the duration and the "
-                     "playback speed are unknown rather than assumed")
+            w.append(coded("value.assumed",
+                           "no usable rate in this block, so the duration and the "
+                           "playback speed are unknown rather than assumed"))
         if not s["pcm"]:
-            w.append(f"{s['codec']} is not linear PCM; these bytes are a codec "
-                     f"and play as noise if fed to a PCM player")
+            w.append(coded("decode.partial",
+                           f"{s['codec']} is not linear PCM; these bytes are a codec "
+                           f"and play as noise if fed to a PCM player"))
         if s["size"] == 0:
-            w.append("the sound block carries no samples")
+            w.append(defect("required.missing", "the sound block carries no samples"))
         if s["offset"] + s["size"] > file_size:
-            w.append(f"samples run past the end of the file "
-                     f"(@0x{s['offset']:x} + {s['size']:,})")
+            w.append(defect("size.overrun",
+                            f"samples run past the end of the file "
+                            f"(@0x{s['offset']:x} + {s['size']:,})"))
         fields = [
             _f(None, 0, "sample_rate", s["rate"] if s["rate"] else "unknown",
                (f"time constant {s['time_constant']}, "

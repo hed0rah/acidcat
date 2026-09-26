@@ -14,6 +14,7 @@ the audio out. The walk degrades on malformed input and never raises.
 import struct
 
 from acidcat.core.walk.base import _f, _open, _size
+from acidcat.core.infra.findings import defect
 
 _HDR = 129
 _INST = 63
@@ -66,7 +67,7 @@ def inspect_gf1pat(filepath):
     with _open(filepath) as f:
         b = f.read(min(file_size, _READ_CAP))
     if len(b) < _HDR or b[:8] != b"GF1PATCH":
-        return [], ["not a GF1PATCH (.PAT) file"]
+        return [], [defect("magic.mismatch", "not a GF1PATCH (.PAT) file")]
 
     info = parse_gf1(b)
     n_inst = b[82]

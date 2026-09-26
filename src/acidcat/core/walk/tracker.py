@@ -85,8 +85,9 @@ def inspect_mod(filepath):
     if old and size > m["sample_data_off"] + sum(s["length"] for s in m["samples"]):
         end = m["sample_data_off"] + sum(s["length"] for s in m["samples"])
         chunks[0]["warnings"].append(
-            f"{size - end} bytes after the last sample; the header accounts "
-            f"for {end:,} of {size:,}")
+            defect("bytes.stray",
+                   f"{size - end} bytes after the last sample; the header accounts "
+                   f"for {end:,} of {size:,}"))
     for i, s in enumerate(m["samples"]):
         if not s["length"]:
             continue
@@ -418,8 +419,9 @@ def inspect_stm(filepath):
     }]
     if s["file_type"] == 1 and used:
         chunks[0]["warnings"].append(
-            "file_type says song (no samples) and the instrument table "
-            "declares sample lengths")
+            defect("field.inconsistent",
+                   "file_type says song (no samples) and the instrument table "
+                   "declares sample lengths"))
 
     for i, ins in enumerate(s["instruments"][:_STM_INSTRUMENT_CAP]):
         if not (ins["name"] or ins["length"]):
@@ -444,7 +446,7 @@ def inspect_stm(filepath):
         }
         if ins["volume"] > 64:
             entry["warnings"].append(
-                f"volume {ins['volume']} is outside the 0-64 range")
+                defect("value.invalid", f"volume {ins['volume']} is outside the 0-64 range"))
         if ins["offset"] is not None and ins["offset"] + ins["length"] > file_size:
             entry["warnings"].append(defect(
                 "size.overrun",

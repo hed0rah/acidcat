@@ -26,6 +26,7 @@ import struct
 from acidcat.core.formats.riff import PAYLOAD_CAP as _PAYLOAD_CAP
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import input_name, input_size, open_input
+from acidcat.core.infra.findings import defect
 
 
 class Unsupported(Exception):
@@ -153,9 +154,10 @@ def parse_padding(payload):
     readable = "".join(c for c in text if c.isprintable())
     if len(readable) >= 8:
         fields.append(_f(None, 0, "readable", readable[:120]))
-    warns.append(f"{nonzero:,} of {len(payload):,} padding bytes are not zero; "
-                 f"this block may hold the tail of something overwritten in "
-                 f"place")
+    warns.append(defect("reserved.nonzero",
+                        f"{nonzero:,} of {len(payload):,} padding bytes are not zero; "
+                        f"this block may hold the tail of something overwritten in "
+                        f"place"))
     return (f"padding, {len(payload):,} bytes, {nonzero:,} NOT zero",
             fields, warns)
 

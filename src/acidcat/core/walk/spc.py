@@ -17,6 +17,7 @@ from acidcat.core.formats.spc import NUL
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import coded, defect
 
 # An SPC is 66,048 bytes plus an optional xid6 chunk, which real files keep
 # under a kilobyte. The cap is for a forged one.
@@ -45,13 +46,14 @@ def inspect_spc(filepath, deep=False):
         return [{"id": "header", "offset": 0, "size": min(size, spcmod.HEADER),
                  "summary": "not a resolvable SPC: %s" % h["why"],
                  "fields": [], "warnings": [], "payload_base": 0}], \
-            ["header did not resolve: %s" % h["why"]]
+            [coded(h["code"], "header did not resolve: %s" % h["why"])]
 
     chunks = [_header_chunk(h)]
     if size < spcmod.BASE_SIZE:
-        warns.append("file is %d bytes; a complete SPC is %d before any "
-                     "extension, so the RAM image is truncated"
-                     % (size, spcmod.BASE_SIZE))
+        warns.append(defect("header.truncated",
+                            "file is %d bytes; a complete SPC is %d before any "
+                            "extension, so the RAM image is truncated"
+                            % (size, spcmod.BASE_SIZE)))
         return chunks + [_region("ram", spcmod.RAM_AT, min(size, spcmod.RAM_AT
                                                              + spcmod.RAM)
                                  - spcmod.RAM_AT, "SPC700 RAM, truncated")], \
@@ -117,8 +119,9 @@ def inspect_spc(filepath, deep=False):
         for o_start, o_len, o_idx in placed:
             if start < o_start + o_len and o_start < start + length:
                 chunk["warnings"].append(
-                    "overlaps sample[%d]: two voices reading the same RAM "
-                    "from different points, or a stale entry" % o_idx)
+                    defect("geometry.invalid",
+                           "overlaps sample[%d]: two voices reading the same RAM "
+                           "from different points, or a stale entry" % o_idx))
                 break
         placed.append((start, length, idx))
         chunks.append(chunk)
@@ -235,7 +238,8 @@ def _xid6(raw, size, warns):
     at = spcmod.XID6_AT
     if raw[at:at + 4] != b"xid6":
         n = size - at
-        warns.append("%d bytes after the base image are not an xid6 chunk" % n)
+        warns.append(defect("bytes.stray",
+                            "%d bytes after the base image are not an xid6 chunk" % n))
         return [_region("trailing", at, n, "%d bytes, not xid6" % n)]
     declared = struct.unpack_from("<I", raw, at + 4)[0]
     length = min(8 + declared, size - at)
@@ -261,8 +265,9 @@ def _xid6(raw, size, warns):
         else:
             body = raw[pos + 4:min(pos + 4 + data, avail)]
             if len(body) < data:
-                xw.append("sub-chunk 0x%02X declares %d bytes and %d remain"
-                          % (sid, data, len(body)))
+                xw.append(defect("size.overrun",
+                                 "sub-chunk 0x%02X declares %d bytes and %d remain"
+                                 % (sid, data, len(body))))
             if stype == 1:
                 value = body.split(NUL, 1)[0].decode("latin-1")
             elif stype == 4 and len(body) >= 4:
@@ -285,7 +290,8 @@ def _xid6(raw, size, warns):
                       "listing the first %d xid6 sub-chunks" % n))
         warns.extend(xw)
     if 8 + declared > size - at:
-        xw.append("xid6 declares %d bytes and %d remain" % (declared, size - at - 8))
+        xw.append(defect("size.overrun",
+                         "xid6 declares %d bytes and %d remain" % (declared, size - at - 8)))
     return [{"id": "xid6", "offset": at, "size": length,
              "summary": "extended ID666, %d sub-chunk%s" % (n, "" if n == 1 else "s"),
              "fields": fields, "warnings": xw, "payload_base": at + 8,

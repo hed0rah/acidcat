@@ -31,7 +31,9 @@ def inspect_s98(filepath, deep=False):
     if not h["ok"]:
         raise _Unsupported(h["why"])
     if h["compressed"]:
-        warns.append("the compression field is %d; the spec defines only 0" % h["compressed"])
+        warns.append(defect("value.invalid",
+                            "the compression field is %d; the spec defines only 0"
+                            % h["compressed"]))
     if h["dump_at"] < h["header_size"] or h["dump_at"] >= len(raw):
         raise _Unsupported("the dump offset %d is outside the file" % h["dump_at"])
 
@@ -46,16 +48,21 @@ def inspect_s98(filepath, deep=False):
         warns.append(hit("work_steps", _S98_COMMAND_CAP, _S98_COMMAND_CAP,
                          "decoded the first %d commands" % _S98_COMMAND_CAP))
     elif not w["ended"]:
-        warns.append("the dump has no end marker (0xFD)" + (": " + w["why"] if w["why"] else ""))
+        warns.append(defect("required.missing",
+                            "the dump has no end marker (0xFD)"
+                            + (": " + w["why"] if w["why"] else "")))
     if h["loop_at"] is not None and not h["dump_at"] <= h["loop_at"] < w["end"]:
-        warns.append("the loop offset 0x%X is outside the dump" % h["loop_at"])
+        warns.append(defect("pointer.dangling",
+                            "the loop offset 0x%X is outside the dump" % h["loop_at"]))
     num, den = h["timer"]
     seconds = w["syncs"] * num / den if den else 0
     devs = h["devices"] if h["version"] >= 3 else [
         {"type": 4, "name": s98mod.V1_DEVICE, "clock": 0, "pan": 0, "at": None}]
     for dev, n in sorted(w["writes"].items()):
         if dev >= len(devs) or devs[dev]["type"] == 0:
-            warns.append("%d writes to device %d, which the header does not declare" % (n, dev))
+            warns.append(defect("reference.unresolved",
+                                "%d writes to device %d, which the header does not declare"
+                                % (n, dev)))
 
     tag = s98mod.parse_tag(raw, tag_at, h["dump_at"] if h["tag_before_dump"] else len(raw)) \
         if tag_at is not None else None

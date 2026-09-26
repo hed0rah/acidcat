@@ -17,6 +17,7 @@ from acidcat.core.formats import pmd as pmdmod
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import coded, defect, info
 
 # The largest real PMD file measured is under 64 KB, and the part offsets are
 # 16-bit so nothing in the file can point past 64 KB anyway. The cap is far
@@ -47,7 +48,7 @@ def inspect_pmd(filepath, deep=False):
         return [{"id": "header", "offset": 0, "size": min(size, 24),
                  "summary": "not a resolvable PMD file: %s" % h["why"],
                  "fields": [], "warnings": [], "payload_base": 0}], \
-            ["header did not resolve: %s" % h["why"]]
+            [coded(h["code"], "header did not resolve: %s" % h["why"])]
 
     # every boundary the header knows about, in file coordinates
     # (the driver's offsets count from byte 1, so add one)
@@ -127,8 +128,9 @@ def inspect_pmd(filepath, deep=False):
                                   % (_PMD_TONE_LIST_CAP, len(instruments))))
             warns.append(tone_warns[-1])
         if raw[end - 2:end] != pmdmod.TONE_END:
-            tone_warns.append("the instrument list does not end with 00 FF, "
-                              "which every file measured does")
+            tone_warns.append(info("layout.unmeasured",
+                                   "the instrument list does not end with 00 FF, "
+                                   "which every file measured does"))
         chunks.append({
             "id": "tones", "offset": at, "size": length,
             "summary": "%d FM instrument%s" % (len(instruments),
@@ -137,11 +139,12 @@ def inspect_pmd(filepath, deep=False):
             "fields": fields, "warnings": tone_warns,
             "payload_base": at, "payload_len": length, "extent_len": length})
     else:
-        warns.append("no FM instruments are embedded: compiled without MC's "
-                     "/V option, so the driver needs a .FF file to play this")
+        warns.append(info("convention.noted",
+                          "no FM instruments are embedded: compiled without MC's "
+                          "/V option, so the driver needs a .FF file to play this"))
 
     if len(silent) == pmdmod.PARTS:
-        warns.append("every part is silent")
+        warns.append(defect("value.invalid", "every part is silent"))
     return chunks, warns
 
 

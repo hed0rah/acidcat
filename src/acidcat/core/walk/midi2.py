@@ -80,8 +80,9 @@ def inspect_midi2(filepath, deep=False):
 
     if consumed < len(data):
         truncated = True
-        file_warns.append(f"{len(data) - consumed} trailing byte(s) after the last "
-                           f"complete UMP (truncated packet or extra data)")
+        file_warns.append(defect("bytes.stray",
+                                 f"{len(data) - consumed} trailing byte(s) after the last "
+                                  f"complete UMP (truncated packet or extra data)"))
 
     # duration from accumulated ticks + tempo (both optional)
     dur = None
@@ -104,13 +105,15 @@ def inspect_midi2(filepath, deep=False):
         fl.append(_f(None, 0, "meta", text, f"Flex Data text, status bank 0x{(bank or 0):02X}"))
 
     if not tpq:
-        clip["warnings"].append("no DCTPQ resolution message (mandatory)")
+        clip["warnings"].append(defect("required.missing",
+                                       "no DCTPQ resolution message (mandatory)"))
     if not seen_start:
-        clip["warnings"].append("no Start of Clip message")
+        clip["warnings"].append(defect("required.missing", "no Start of Clip message"))
     if not seen_end:
-        clip["warnings"].append("no End of Clip marker")
+        clip["warnings"].append(defect("required.missing", "no End of Clip marker"))
     if data_after_end:
-        clip["warnings"].append("data after End of Clip (nothing may follow it)")
+        clip["warnings"].append(defect("bytes.stray",
+                                       "data after End of Clip (nothing may follow it)"))
 
     clip["summary"] = ", ".join(
         p for p in [f"TPQ {tpq}" if tpq else None,

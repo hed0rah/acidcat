@@ -243,10 +243,20 @@ kind or code changed (cue, psf, stm, the generic triage).
 `checksum.mismatch` 4, `chunk.short` 3, `sibling.missing` 3,
 `sibling.unchecked` 2, and one each of `encoding.unknown`, `walker.error`,
 `geometry.error`, `geometry.invalid`, `triage.generic`; plus the seven
-`cap.*` codes on all 101 cap hits. **Legacy:** 292 plain-string sites in the
-walkers remain, `kind: defect, code: legacy`, counted per Document in
-`typing.findings_legacy` and held by a ratchet in `tests/test_findings.py`
-that only falls.
+`cap.*` codes on all 101 cap hits. **Legacy, finished:** the last walker
+and format-decoder warnings were given codes in one pass (about 440 sites in
+`core/walk/` and `core/formats/`), which added sixteen codes for what the
+first families did not cover: `count.mismatch`, `field.inconsistent`,
+`value.invalid`, `text.invalid`, `address.outside`, `required.missing`,
+`chunk.order`, `id.unknown`, `reference.unresolved`, `bytes.stray`,
+`sibling.mismatch`, `value.assumed`, `layout.unmeasured`,
+`convention.noted`, `decode.partial` and `format.unrecognized`. A resolver
+that fails for one of several reasons carries the code with its reason
+(`h["code"]` beside `h["why"]`), and `coded(code, message)` makes a note
+whose kind comes from the registry. `tests/test_findings.py` requires every
+warning written as text to be coded and every seed to walk to no `legacy`
+finding. The `legacy`
+code stays registered, and `typing.findings_legacy` still counts it.
 
 **Consumers:** `anomalies.scan` reports a walker note by its kind
 (`environment` and `info` are their own rules, not `structure`) and gives

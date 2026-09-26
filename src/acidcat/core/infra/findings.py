@@ -46,17 +46,60 @@ REGISTRY = {
                      "an embedded document (JSON, XML, a nested file) does not parse"),
     "geometry.invalid": (DEFECT, "warn",
                          "a chunk's declared extent is impossible"),
+    "count.mismatch": (DEFECT, "warn",
+                       "a declared count or size disagrees with what the payload "
+                       "or the file holds, without running past it"),
+    "field.inconsistent": (DEFECT, "warn",
+                           "two fields the spec ties together disagree"),
+    "value.invalid": (DEFECT, "warn",
+                      "a field holds a value its spec does not allow, or one no "
+                      "real file carries"),
+    "text.invalid": (DEFECT, "notice",
+                     "a text field has no terminator, or holds bytes or syntax "
+                     "its spec does not allow"),
+    "address.outside": (DEFECT, "warn",
+                        "an address lies outside the memory window the machine "
+                        "or the player maps"),
+    "required.missing": (DEFECT, "warn",
+                         "a chunk, block, tag or field the spec requires is absent"),
+    "chunk.order": (DEFECT, "warn",
+                    "chunks come in an order, or repeat more often, than the "
+                    "spec allows"),
+    "id.unknown": (DEFECT, "notice",
+                   "an id, tag, type or code the spec does not define"),
+    "reference.unresolved": (DEFECT, "warn",
+                             "a field names an id, entry or device the file does "
+                             "not define"),
+    "bytes.stray": (DEFECT, "notice",
+                    "bytes lie before, between or after the format's data, where "
+                    "the format puts nothing"),
     "legacy": (DEFECT, "warn",
                "a walker warning not yet given a code"),
     # outside the file
     "sibling.missing": (ENVIRONMENT, "notice",
                         "a file this one names is not beside it"),
+    "sibling.mismatch": (ENVIRONMENT, "notice",
+                         "a file this one describes no longer matches it"),
     "sibling.unchecked": (ENVIRONMENT, "info",
                           "a file this one names could not be looked for "
                           "(the input has no directory)"),
     # worth knowing
+    "format.unrecognized": (INFO, "notice",
+                            "no walker reads the file, so nothing in it is "
+                            "described"),
     "triage.generic": (INFO, "info",
                        "no format-specific walker; the generic triage ran"),
+    "value.assumed": (INFO, "notice",
+                      "a value the file leaves out or leaves unusable, so a "
+                      "reader has to assume one"),
+    "layout.unmeasured": (INFO, "notice",
+                          "the bytes differ from every specimen measured; they "
+                          "are read with the known layout"),
+    "convention.noted": (INFO, "info",
+                         "the file follows a known convention that reads like "
+                         "damage and is not"),
+    "decode.partial": (INFO, "info",
+                       "a part of the file is walked past without being decoded"),
     "encoding.unknown": (INFO, "notice",
                          "the sample encoding could not be determined, so the "
                          "geometry is a guess"),
@@ -119,6 +162,16 @@ def info(code, message):
 def error(code, message):
     """acidcat failed, not the file."""
     return _note(code, message, ERROR)
+
+
+def coded(code, message):
+    """A note whose kind is its code's: for a site whose code is chosen at run
+    time (a resolver's reason, a field's complaint), where the kind is not
+    known when the line is written."""
+    if code not in REGISTRY:
+        raise ValueError(f"unregistered finding code {code!r}; add it to "
+                         f"acidcat.core.infra.findings.REGISTRY")
+    return Note(message, REGISTRY[code][0], code=code)
 
 
 def anomaly_code(rule):

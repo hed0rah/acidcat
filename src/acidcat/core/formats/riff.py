@@ -10,6 +10,7 @@ import struct
 from collections import namedtuple
 
 from acidcat.core.infra.source import open_input, input_size
+from acidcat.core.infra.findings import defect
 
 # cap on payload bytes read per chunk (a forged size cannot force an unbounded
 # allocation); the declared size is still reported in full.
@@ -80,21 +81,24 @@ def iter_spans(filepath):
     with open_input(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12:
-            return [], [f"file is {len(hdr)} bytes; a RIFF header needs 12"]
+            return [], [defect("header.truncated",
+                               f"file is {len(hdr)} bytes; a RIFF header needs 12")]
         if hdr[0:4] != b"RIFF" or hdr[8:12] != b"WAVE":
-            return [], ["not a RIFF/WAVE container"]
+            return [], [defect("magic.mismatch", "not a RIFF/WAVE container")]
         riff_size = struct.unpack("<I", hdr[4:8])[0]
         if riff_size + 8 != file_size:
             warns.append(
-                f"riff_size says {riff_size + 8:,} bytes, file is "
-                f"{file_size:,} ({file_size - riff_size - 8:+,})"
+                defect("count.mismatch",
+                       f"riff_size says {riff_size + 8:,} bytes, file is "
+                       f"{file_size:,} ({file_size - riff_size - 8:+,})")
             )
         for cid, offset, size in iter_chunks(filepath):
             avail = max(0, file_size - offset - 8)
             if size > avail:
                 warns.append(
-                    f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
-                    f"but only {avail:,} remain"
+                    defect("size.overrun",
+                           f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
+                           f"but only {avail:,} remain")
                 )
             f.seek(offset + 8)
             payload = f.read(min(size, PAYLOAD_CAP))

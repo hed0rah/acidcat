@@ -12,6 +12,7 @@ Xing/LAME and ID3-frame detail for display.
 import struct
 
 from acidcat.core.infra.source import open_input, input_size
+from acidcat.core.infra.findings import defect
 
 # bitrate (kbps) by (version, layer) -> 16-entry table. index 0 is the
 # "free" format, index 15 is the reserved/invalid marker.
@@ -115,7 +116,7 @@ def id3v2_from_bytes(data):
     """
     warns = []
     if len(data) < 10 or data[:3] != b"ID3":
-        return None, [], ["not an ID3v2 tag"]
+        return None, [], [defect("magic.mismatch", "not an ID3v2 tag")]
     major, revision, flags = data[3], data[4], data[5]
     size = synchsafe(data[6:10])
     size_note = "synchsafe"
@@ -133,13 +134,15 @@ def id3v2_from_bytes(data):
         le = int.from_bytes(data[6:10], "little")
         if 10 + le == len(data):
             warns.append(
-                f"the tag size is written little-endian ({le}), not the "
-                f"synchsafe big-endian the format requires (which reads "
-                f"{size:,}). Using {le}, which matches the tag exactly.")
+                defect("value.invalid",
+                       f"the tag size is written little-endian ({le}), not the "
+                       f"synchsafe big-endian the format requires (which reads "
+                       f"{size:,}). Using {le}, which matches the tag exactly."))
             size, size_note = le, "little-endian, non-conformant"
         else:
-            warns.append(f"the tag declares {size:,} bytes but only "
-                         f"{len(data) - 10:,} follow its header")
+            warns.append(defect("size.overrun",
+                                f"the tag declares {size:,} bytes but only "
+                                f"{len(data) - 10:,} follow its header"))
 
     header = {"major": major, "revision": revision, "flags": flags,
               "size": size, "size_note": size_note}

@@ -163,7 +163,8 @@ def inspect_hps(filepath, deep=False):
     raw, size = _read(filepath)
     warns = []
     if raw[:8] != hps.MAGIC:
-        return [_broken(size, "not a HAL PCM Stream")], ["missing ' HALPST\\0' magic"]
+        return [_broken(size, "not a HAL PCM Stream")], [defect("magic.mismatch",
+                                                                "missing ' HALPST\\0' magic")]
 
     if len(raw) < 0x10:
         # The magic is eight bytes and the rate and channel count are the
@@ -171,12 +172,13 @@ def inspect_hps(filepath, deep=False):
         # truncated rather than malformed, and unpacking past the end
         # would raise out of a walk instead of describing what is there.
         return ([_broken(size, "HAL PCM Stream header is truncated")],
-                ["file ends after the magic, before the rate and channel count"])
+                [defect("header.truncated",
+                        "file ends after the magic, before the rate and channel count")])
 
     rate, channels = struct.unpack_from(">II", raw, 8)
     if not 1 <= channels <= 8:
         return [_broken(size, "implausible channel count %d" % channels)], \
-               ["channel count %d is outside 1-8" % channels]
+               [defect("value.invalid", "channel count %d is outside 1-8" % channels)]
     head_end = 0x10 + channels * _HPS_CTX
 
     first = head_end
@@ -212,7 +214,8 @@ def inspect_hps(filepath, deep=False):
     # frames is unknown without decoding, so it is not claimed
     fields = [x for x in fields if x["name"] not in ("frames", "duration")]
     if guard >= 100000:
-        warns.append("block chain did not terminate; stopped after %d blocks" % guard)
+        warns.append(defect("required.missing",
+                            "block chain did not terminate; stopped after %d blocks" % guard))
     if capped:
         warns.append(hit("read_bytes", _HEAD_CAP, size,
                          "file is %d bytes; parsed the first %d, so the "
@@ -264,8 +267,9 @@ def inspect_vag(filepath, deep=False):
            "a name field, which none of the others carry"),
     ])
     if declared > present:
-        warns.append("dataSize claims %s bytes but only %s follow the header"
-                     % (format(declared, ","), format(present, ",")))
+        warns.append(defect("size.overrun",
+                            "dataSize claims %s bytes but only %s follow the header"
+                            % (format(declared, ","), format(present, ","))))
     return [
         {"id": "header", "offset": 0, "size": min(_VAG_HEADER, size),
          "summary": "Sony VAG, SPU-ADPCM at %s Hz%s"

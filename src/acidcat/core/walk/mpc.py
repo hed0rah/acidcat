@@ -204,7 +204,7 @@ def inspect_xpn(filepath):
             except Exception:
                 warns.append(defect("parse.failed", "Expansion.xml did not parse"))
         else:
-            warns.append("no Expansion.xml manifest")
+            warns.append(defect("required.missing", "no Expansion.xml manifest"))
 
         programs = [zi for zi in infos if zi.filename.lower().endswith(".xpm")]
         samples = [zi for zi in infos
@@ -234,7 +234,8 @@ def inspect_xpn(filepath):
             except ValueError:
                 # a corrupt/mutated entry whose local header the central
                 # directory points at wrongly: skip it, keep the rest
-                warns.append(f"{zi.filename}: unreadable local header, skipped")
+                warns.append(defect("parse.failed",
+                                    f"{zi.filename}: unreadable local header, skipped"))
                 continue
             stored = zi.compress_type == zipfile.ZIP_STORED
             comp = "stored (carveable .xpm)" if stored else "deflated (raw stream)"
@@ -350,8 +351,9 @@ def inspect_snd(filepath):
             break
     if resolved is None:
         hdr, frames = 42, struct.unpack_from("<I", head, 0x1e)[0]
-        warns.append(f"{frames:,} frames x {channels}ch do not fit the "
-                     f"{size:,}-byte file at a 38- or 42-byte header")
+        warns.append(defect("size.overrun",
+                            f"{frames:,} frames x {channels}ch do not fit the "
+                            f"{size:,}-byte file at a 38- or 42-byte header"))
     else:
         hdr, frames = resolved
     pcm_bytes = frames * 2 * channels

@@ -64,7 +64,7 @@ def inspect_smus(filepath):
     b = _read(filepath)
     chunks, warns = [], []
     if len(b) < 12 or b[:4] != b"FORM" or b[8:12] != b"SMUS":
-        return chunks, ["not an IFF FORM SMUS file"]
+        return chunks, [defect("magic.mismatch", "not an IFF FORM SMUS file")]
     form_size = _bu32(b, 4)
     chunks.append({"id": "FORM", "offset": 0, "size": 12, "payload_base": 0,
                    "summary": "IFF SMUS (Sonix musical score)",
@@ -124,7 +124,7 @@ def inspect_okt(filepath):
     b = _read(filepath)
     chunks, warns = [], []
     if len(b) < 8 or b[:8] != b"OKTASONG":
-        return chunks, ["not an Oktalyzer OKTASONG file"]
+        return chunks, [defect("magic.mismatch", "not an Oktalyzer OKTASONG file")]
     hdr = {"id": "OKTASONG", "offset": 0, "size": 8, "payload_base": 0,
            "summary": "Oktalyzer module", "fields": [_f(0x00, 8, "magic", "OKTASONG")],
            "warnings": []}
@@ -191,7 +191,7 @@ def inspect_med(filepath):
     chunks, warns = [], []
     magic = b[:4]
     if magic not in _MED_MAGICS:
-        return chunks, ["not a MED/OctaMED MMDx file"]
+        return chunks, [defect("magic.mismatch", "not a MED/OctaMED MMDx file")]
     variant = _MED_MAGICS[magic]
     modlen = _bu32(b, 4) if len(b) >= 8 else 0
     fields = [_f(0x00, 4, "magic", magic.decode("ascii", "replace"),
@@ -200,7 +200,8 @@ def inspect_med(filepath):
                  enc=">I", raw=modlen)]
     warn = []
     if 0 < modlen and modlen != len(b):
-        warn.append(f"declared modlen {modlen:,} != file length {len(b):,}")
+        warn.append(defect("count.mismatch",
+                           f"declared modlen {modlen:,} != file length {len(b):,}"))
     chunks.append({"id": magic.decode("ascii", "replace"), "offset": 0,
                    "size": len(b), "payload_base": 0,
                    "summary": f"{variant} module ({magic.decode('ascii','replace')}), "
@@ -220,7 +221,7 @@ def inspect_fc(filepath):
     elif magic == b"FC14":
         ver = "1.4"
     else:
-        return chunks, ["not a Future Composer SMOD/FC14 file"]
+        return chunks, [defect("magic.mismatch", "not a Future Composer SMOD/FC14 file")]
     # the header is a table of big-endian u32 offset/length pairs into the
     # sequence/pattern/frequency/volume/sample regions; surfaced at a high level.
     seqlen = _bu32(b, 4) if len(b) >= 8 else 0

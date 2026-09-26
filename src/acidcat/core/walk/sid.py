@@ -18,6 +18,7 @@ See core/formats/sid.py for the layout and the byte-order trap.
 from acidcat.core.formats import sid as sidmod
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
+from acidcat.core.infra.findings import defect
 
 # A SID is tiny -- the largest of 630 measured tunes is 60 KB. The cap is far
 # above anything real so that a forged header cannot make us read a huge file,
@@ -48,17 +49,19 @@ def inspect_sid(filepath, deep=False):
     version = h["version"]
     hdr_len = min(h["data_offset"] or sidmod.header_size(version), len(raw))
 
-    for field, complaint in sidmod.violations(h, len(raw)):
-        warns.append("%s: %s" % (field, complaint))
+    for field, complaint, code in sidmod.coded_violations(h, len(raw)):
+        warns.append(defect(code, "%s: %s" % (field, complaint)))
     if h["truncated"]:
-        warns.append("file is shorter than a v1 header (0x%02X bytes)"
-                     % sidmod.HEADER_V1)
+        warns.append(defect("header.truncated",
+                            "file is shorter than a v1 header (0x%02X bytes)"
+                            % sidmod.HEADER_V1))
 
     chunks = [_header_chunk(h, raw, magic, version, hdr_len, deep)]
     if h["data_offset"] and h["data_offset"] < len(raw):
         chunks.append(_data_chunk(h, raw))
     else:
-        warns.append("no C64 data: dataOffset is at or past the end of the file")
+        warns.append(defect("pointer.dangling",
+                            "no C64 data: dataOffset is at or past the end of the file"))
     return chunks, warns
 
 

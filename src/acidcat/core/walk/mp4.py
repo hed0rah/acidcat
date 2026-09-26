@@ -206,7 +206,8 @@ def _stco_fields(data, b, file_size):
               _f(0x04, 4, "entry_count", f"{count:,}")]
     warns = []
     if count > avail:
-        warns.append(f"declares {count:,} chunk offsets but payload holds {avail:,}")
+        warns.append(defect("size.overrun",
+                            f"declares {count:,} chunk offsets but payload holds {avail:,}"))
     dangling = 0
     shown = min(count, avail, _STCO_CAP)
     for i in range(min(count, avail)):

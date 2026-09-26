@@ -15,7 +15,7 @@ See core/formats/mdx.py for the layout and where it was verified.
 
 
 from acidcat.core.formats import mdx as mdxmod
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import coded, defect, info
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -44,7 +44,7 @@ def inspect_mdx(filepath, deep=False):
         # drive were getting.
         return _packed(size, h), warns
     if not h["ok"]:
-        warns.append("header did not resolve: %s" % h["why"])
+        warns.append(coded(h["code"], "header did not resolve: %s" % h["why"]))
         return [_broken(raw, h)], warns
 
     chunks = [_header_chunk(raw, h)]
@@ -58,9 +58,10 @@ def inspect_mdx(filepath, deep=False):
         # A voiceOffset of 0 points the voice block at the offset table it is
         # part of. Emitting a chunk there would overlap the header and claim
         # the same bytes twice, so the pointer is reported instead of followed.
-        warns.append("voiceOffset 0x%04X puts the voice block at 0x%04X, inside "
-                     "the header's own offset table"
-                     % (h["voice_offset"], h["voice_abs"]))
+        warns.append(defect("geometry.invalid",
+                            "voiceOffset 0x%04X puts the voice block at 0x%04X, inside "
+                            "the header's own offset table"
+                            % (h["voice_offset"], h["voice_abs"])))
     elif h["voice_abs"] < len(raw):
         chunks.append(_voice_chunk(raw, h, voices, deep))
         region = _voice_region_end(raw, h) - h["voice_abs"]
@@ -69,8 +70,9 @@ def inspect_mdx(filepath, deep=False):
         # damage. A region that is short but not empty is a voice cut off,
         # which seventeen real files show and which is worth a warning.
         if not voices and region > 0:
-            warns.append("the voice region is %d bytes, too short for a %d-byte "
-                         "voice definition" % (region, mdxmod.VOICE_SIZE))
+            warns.append(defect("chunk.short",
+                                "the voice region is %d bytes, too short for a %d-byte "
+                                "voice definition" % (region, mdxmod.VOICE_SIZE)))
     mml = _mml_chunk(raw, h)
     if mml:
         chunks.append(mml)
@@ -111,8 +113,9 @@ def _packed(size, h):
     head = {"id": "header", "offset": 0, "size": base,
             "summary": "%s, packed with %s" % (title[:48], h["packer"]),
             "fields": fields,
-            "warnings": ["the MML and voice data are packed with %s, so the "
-                         "channels and voices are not walked" % h["packer"]],
+            "warnings": [info("decode.partial",
+                              "the MML and voice data are packed with %s, so the "
+                              "channels and voices are not walked" % h["packer"])],
             "payload_base": 0, "payload_len": base, "extent_len": base}
     if base >= size:
         return [head]

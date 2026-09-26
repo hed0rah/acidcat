@@ -17,6 +17,7 @@ Reference: libultra libaudio.h (AL_BANK_VERSION=0x4231); n64decomp/sm64.
 import struct
 
 from acidcat.core.walk.base import _f, _open, _size
+from acidcat.core.infra.findings import defect
 
 MAGIC = 0x4231
 MAX_CTL_BYTES = 8 * 1024 * 1024
@@ -52,7 +53,7 @@ def inspect_albank(filepath, deep=False):
         d = f.read(min(MAX_CTL_BYTES, size))
     warns = []
     if len(d) < 4 or _u16(d, 0) != MAGIC:
-        warns.append("missing ALBankFile revision 0x4231")
+        warns.append(defect("magic.mismatch", "missing ALBankFile revision 0x4231"))
     rev = _u16(d, 0) if len(d) >= 2 else 0
     bank_count = _s16(d, 2) if len(d) >= 4 else 0
 
@@ -85,7 +86,8 @@ def _walk_bank(d, bo, bi, deep):
                         _f(2, 1, "flags", f"0x{flags:02X}"),
                         _f(4, 4, "sampleRate", f"{sample_rate} Hz")]}
     if not (8000 <= sample_rate <= 48000):
-        chunk["warnings"].append("sampleRate outside 8000-48000 Hz (suspect bank)")
+        chunk["warnings"].append(defect("value.invalid",
+                                        "sampleRate outside 8000-48000 Hz (suspect bank)"))
 
     # walk instruments -> sounds -> wavetables; summarize the waveforms + codebooks
     rows, adpcm, raw, seen = [], 0, 0, set()

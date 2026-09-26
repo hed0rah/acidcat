@@ -17,7 +17,7 @@ type/id/name without guessing at their bodies.
 
 import struct
 
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import defect, error
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 from acidcat.util.midi import midi_note_to_name
@@ -65,9 +65,10 @@ def inspect_krz(filepath):
     if b[:4] == b"SROM":
         return _inspect_srom(b, file_size)
     if b[:4] != b"PRAM":
-        return chunks, ["not a Kurzweil PRAM/SROM file"]
+        return chunks, [defect("magic.mismatch", "not a Kurzweil PRAM/SROM file")]
     if len(b) < 32:
-        return chunks, [f"file is {len(b)} bytes; a PRAM header needs 32"]
+        return chunks, [defect("header.truncated",
+                               f"file is {len(b)} bytes; a PRAM header needs 32")]
 
     osize = struct.unpack_from(">i", b, 4)[0]
     version = struct.unpack_from(">i", b, 16)[0]
@@ -96,8 +97,9 @@ def inspect_krz(filepath):
         if blocksize == 0:
             break                                   # object-section end marker
         if blocksize > 0 or pos - blocksize > len(b) + 4:
-            warns.append(f"object at 0x{pos:08x} has a bad blocksize "
-                         f"{blocksize}; stopping the walk")
+            warns.append(defect("geometry.invalid",
+                                f"object at 0x{pos:08x} has a bad blocksize "
+                                f"{blocksize}; stopping the walk"))
             break
         block_len = -blocksize
         try:
@@ -106,7 +108,8 @@ def inspect_krz(filepath):
             chunk = {"id": "obj", "offset": pos, "size": block_len,
                      "summary": "unparsed object",
                      "fields": [], "warnings": [
-                         f"object decode error: {e.__class__.__name__}: {e}"]}
+                         error("walker.error",
+                               f"object decode error: {e.__class__.__name__}: {e}")]}
         kinds[chunk["id"]] += 1
         chunks.append(chunk)
         pos += block_len
@@ -194,7 +197,7 @@ def _sample_body(b, off):
     """KSample (12) + Soundfilehead (32): rootkey, loop flag, PCM word refs,
     sample rate from samplePeriod."""
     if off + 44 > len(b):
-        return "truncated", [], ["sample body under 44 bytes"]
+        return "truncated", [], [defect("chunk.short", "sample body under 44 bytes")]
     # Soundfilehead starts right after the 12-byte KSample header
     sf = off + 12
     rootkey = b[sf]
@@ -233,7 +236,7 @@ def _keymap_body(b, off, block_end):
     2-byte tuning prefix, so the sampleID sits at offset 2 with it and offset
     0 without; `entry_size` is the authoritative stride."""
     if off + 28 > len(b):
-        return "truncated", [], ["keymap body under 28 bytes"]
+        return "truncated", [], [defect("chunk.short", "keymap body under 28 bytes")]
     method = struct.unpack_from(">H", b, off + 2)[0]
     cents = struct.unpack_from(">H", b, off + 6)[0]
     entry_size = struct.unpack_from(">H", b, off + 10)[0] or 5

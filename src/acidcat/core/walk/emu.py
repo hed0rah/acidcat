@@ -137,10 +137,12 @@ def _desync_note(data, desync_pos, content_records, toc_count):
     if desync_pos is None:
         return None
     if toc_count and content_records >= toc_count:
-        return (f"{len(data) - desync_pos:,} bytes of trailing data after the "
-                f"last chunk (no chunk tag; e.g. CD-streamed sample padding)")
-    return (f"chunk chain desynced at offset {desync_pos:#x}: expected a chunk "
-            f"tag (a preceding chunk's size field is likely wrong)")
+        return defect("bytes.stray",
+                      f"{len(data) - desync_pos:,} bytes of trailing data after the "
+                      f"last chunk (no chunk tag; e.g. CD-streamed sample padding)")
+    return defect("geometry.invalid",
+                  f"chunk chain desynced at offset {desync_pos:#x}: expected a chunk "
+                  f"tag (a preceding chunk's size field is likely wrong)")
 
 
 def _toc_cross_check(toc_offsets, records):
@@ -226,13 +228,15 @@ def _e4_walk_voices(body, idx_to_name):
                    f"voice list truncated at {_VOICE_CAP} of {num_voices} voices")
     for vi in range(min(num_voices, _VOICE_CAP)):
         if off + _VOICE_FIXED > len(body):
-            note = (f"voice {vi} runs past the preset body "
-                    f"(header says {num_voices} voices)")
+            note = defect("size.overrun",
+                          f"voice {vi} runs past the preset body "
+                          f"(header says {num_voices} voices)")
             break
         trailer = _bu16(body, off + 2)
         span = trailer - _VOICE_FIXED
         if trailer < _VOICE_FIXED or span % _ZONE_ENTRY or span // _ZONE_ENTRY > _ZONE_CAP:
-            note = f"voice {vi} zone-table trailer ({trailer}) is implausible"
+            note = defect("value.invalid",
+                          f"voice {vi} zone-table trailer ({trailer}) is implausible")
             break
         n_zones = span // _ZONE_ENTRY
         for zi in range(n_zones):
@@ -255,8 +259,9 @@ def _walk_e4b(data, size):
     warns = []
     form_size = _bu32(data, 4)
     if size <= _READ_CAP and form_size != size - 12:
-        warns.append(f"FORM size {form_size} does not match the E-MU convention "
-                     f"filesize-12 ({size - 12}); bank may be corrupt")
+        warns.append(defect("count.mismatch",
+                            f"FORM size {form_size} does not match the E-MU convention "
+                            f"filesize-12 ({size - 12}); bank may be corrupt"))
 
     records, chain_warns, desync_pos = _walk_records(data)
     warns.extend(chain_warns)
@@ -299,8 +304,9 @@ def _walk_e4b(data, size):
                                  + (f" {enm}" if enm else ""), xref=foff))
             missing = _toc_cross_check(toc_offsets, records)
             if missing:
-                cw.append(f"{len(missing)} TOC offset(s) do not match the chunk "
-                          f"chain (e.g. {missing[0]:#x}); bank may be corrupt")
+                cw.append(defect("reference.unresolved",
+                                 f"{len(missing)} TOC offset(s) do not match the chunk "
+                                 f"chain (e.g. {missing[0]:#x}); bank may be corrupt"))
             chunks.append({"id": "TOC1", "offset": off, "size": csize,
                            "payload_base": base,
                            "summary": f"table of contents: {n_entries} entries",
@@ -362,10 +368,11 @@ def _walk_e4b(data, size):
                            "fields": [], "warnings": []})
 
     if records and not saw_master:
-        warns.append("no EMSt master-setup chunk; a hardware-saved E4B ends with "
-                     "one (it is not in the TOC)")
+        warns.append(defect("required.missing",
+                            "no EMSt master-setup chunk; a hardware-saved E4B ends with "
+                            "one (it is not in the TOC)"))
     elif saw_master and records[-1][0] != _EMST:
-        warns.append("EMSt master-setup chunk is not the last chunk")
+        warns.append(defect("chunk.order", "EMSt master-setup chunk is not the last chunk"))
     return chunks, warns
 
 
@@ -469,7 +476,8 @@ def _e5_preset_voices(body):
     while q + 8 <= len(vl):
         t = vl[q:q + 4]
         if not _is_tag(t):
-            note = f"voice list desynced at +{q:#x} (a chunk size is likely wrong)"
+            note = defect("geometry.invalid",
+                          f"voice list desynced at +{q:#x} (a chunk size is likely wrong)")
             break
         s = _bu32(vl, q + 4)
         if t == _E5V1:
@@ -595,8 +603,9 @@ def _walk_e5b(data, size, deep=False):
     warns = []
     form_size = _bu32(data, 4)
     if size <= _READ_CAP and form_size != size - 8:
-        warns.append(f"FORM size {form_size} does not match standard IFF "
-                     f"filesize-8 ({size - 8}); bank may be corrupt")
+        warns.append(defect("count.mismatch",
+                            f"FORM size {form_size} does not match standard IFF "
+                            f"filesize-8 ({size - 8}); bank may be corrupt"))
 
     records, chain_warns, desync_pos = _walk_records(data)
     warns.extend(chain_warns)
@@ -641,8 +650,9 @@ def _walk_e5b(data, size, deep=False):
                                  + (f" {enm}" if enm else ""), xref=foff))
             missing = _toc_cross_check(toc_offsets, records)
             if missing:
-                cw.append(f"{len(missing)} TOC offset(s) do not match the chunk "
-                          f"chain (e.g. {missing[0]:#x}); bank may be corrupt")
+                cw.append(defect("reference.unresolved",
+                                 f"{len(missing)} TOC offset(s) do not match the chunk "
+                                 f"chain (e.g. {missing[0]:#x}); bank may be corrupt"))
             chunks.append({"id": "TOC2", "offset": off, "size": csize,
                            "payload_base": base,
                            "summary": f"table of contents: {n_entries} entries",

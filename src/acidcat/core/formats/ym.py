@@ -28,6 +28,7 @@ published; they are recognised and refused.
 """
 
 import struct
+from acidcat.core.infra.findings import defect
 
 MAGICS = (b"YM2!", b"YM3!", b"YM3b", b"YM5!", b"YM6!")
 LEONARD = b"LeOnArD!"
@@ -78,7 +79,8 @@ def parse(image):
                  loop=0, drums=[], strings=[], end_at=None, extra_at=None,
                  attributes=None)
         if rest:
-            r["warnings"].append("%d bytes after the last whole frame" % rest)
+            r["warnings"].append(defect("length.misaligned",
+                                        "%d bytes after the last whole frame" % rest))
         if magic == b"YM3b":
             r["loop"] = struct.unpack_from(">I", image, end)[0]
             r["loop_at"] = end
@@ -120,19 +122,22 @@ def parse(image):
              extra_len=extra)
     if pos + data_len > len(image):
         have = (len(image) - pos) // 16
-        r["warnings"].append("the header says %d frames; %d fit in the file"
-                             % (frames, have))
+        r["warnings"].append(defect("size.overrun",
+                                    "the header says %d frames; %d fit in the file"
+                                    % (frames, have)))
         data_len = have * 16
     r["data_len"] = data_len
     end = pos + data_len
     if image[end:end + 4] == END:
         r["end_at"] = end
         if end + 4 != len(image):
-            r["warnings"].append("%d bytes after the End! marker"
-                                 % (len(image) - end - 4))
+            r["warnings"].append(defect("bytes.stray",
+                                        "%d bytes after the End! marker"
+                                        % (len(image) - end - 4)))
     else:
         r["end_at"] = None
-        r["warnings"].append("no End! marker after the register data")
+        r["warnings"].append(defect("required.missing", "no End! marker after the register data"))
     if frames and loop >= frames:
-        r["warnings"].append("the loop frame %d is past the last frame" % loop)
+        r["warnings"].append(defect("value.invalid",
+                                    "the loop frame %d is past the last frame" % loop))
     return r

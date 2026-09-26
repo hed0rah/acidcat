@@ -6,6 +6,7 @@ from acidcat.core.formats import ogg as oggmod
 from acidcat.core.infra.limits import hit
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _f, _open, _size
+from acidcat.core.infra.findings import coded, defect
 
 # A comment header is a handful of tags; 200 is far above any real one
 # and bounds a crafted header rather than a normal file.
@@ -34,8 +35,9 @@ def inspect_ogg(filepath):
     warns = []
     serials = {p["serial"] for p in pages}
     if len(serials) > 1:
-        warns.append(f"{len(serials)} logical bitstreams (chained/muxed); "
-                     "duration and pages describe the first stream only")
+        warns.append(coded("convention.noted",
+                           f"{len(serials)} logical bitstreams (chained/muxed); "
+                           "duration and pages describe the first stream only"))
     rate_txt = ""
     if ident and ident[1]:
         info = ident[1]
@@ -51,13 +53,15 @@ def inspect_ogg(filepath):
                              "impossible: the identification header declares no "
                              "channels, so this stream describes no audio"))
             if chn <= 0:
-                warns.append("the identification header declares 0 channels; "
-                             "nothing downstream can use this as a divisor")
+                warns.append(defect("value.invalid",
+                                    "the identification header declares 0 channels; "
+                                    "nothing downstream can use this as a divisor"))
         if sr is not None and sr <= 0:
             fields.append(_f(None, 0, "sample_rate", sr,
                              "impossible: a stream cannot run at 0 Hz"))
-            warns.append("the identification header declares a 0 Hz sample "
-                         "rate; duration cannot be derived from it")
+            warns.append(defect("value.invalid",
+                                "the identification header declares a 0 Hz sample "
+                                "rate; duration cannot be derived from it"))
         if sr:
             note = "Opus always decodes at 48 kHz" if "pre_skip" in info else ""
             fields.append(_f(None, 0, "sample_rate", sr, note))

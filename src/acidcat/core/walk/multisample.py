@@ -44,8 +44,9 @@ def _safe_offset(z, zi, warns):
     try:
         return _data_offset(z, zi)
     except ValueError:
-        warns.append(f"{zi.filename}: unreadable local header, "
-                     "reported without a byte range")
+        warns.append(defect("parse.failed",
+                            f"{zi.filename}: unreadable local header, "
+                            "reported without a byte range"))
         return None
 
 
@@ -95,7 +96,7 @@ def inspect_multisample(filepath):
         infos = {zi.filename: zi for zi in z.infolist()}
         root = None
         if "multisample.xml" not in names:
-            warns.append("no multisample.xml in the archive")
+            warns.append(defect("required.missing", "no multisample.xml in the archive"))
         else:
             try:
                 xml = _read_entry(z, "multisample.xml").decode("utf-8", "replace")

@@ -118,9 +118,11 @@ def parse_header(raw):
          "tag": {}, "tag_style": None, "emulator": None, "disables": None}
     if not is_spc(raw):
         h["why"] = "no SNES-SPC700 magic"
+        h["code"] = "magic.mismatch"
         return h
     if len(raw) < HEADER:
         h["why"] = "file ends inside the 256-byte header"
+        h["code"] = "header.truncated"
         return h
     h["magic_version"] = magic_version(raw)
     h["has_tag"] = raw[0x23] == HAS_TAG          # the spec's flag, recorded

@@ -24,7 +24,7 @@ from acidcat.core.infra.limits import CODES as CAP_CODES
 from acidcat.core.primitives.notes import COVERAGE, DEFECT, ENVIRONMENT, Note
 
 SRC = pathlib.Path(__file__).parent.parent / "src" / "acidcat"
-_HELPERS = {"defect", "environment", "info", "error"}
+_HELPERS = {"defect", "environment", "info", "error", "coded"}
 
 
 def _emitted():
@@ -98,10 +98,14 @@ class TestTheHelpers:
             assert (m.kind, m.code) == (DEFECT, "magic.mismatch")
 
 
-# ── the ratchet on what is left ───────────────────────────────────────
+# ── no plain-string warning is left ───────────────────────────────────
 
-_WARN_LIST = re.compile(r"(warn|warning|cw|notes?|problems?)", re.I)
-
+# a list a walker or a format decoder collects its warnings in; "notes" is a
+# field's display notes, which are not findings
+_WARN_LIST = re.compile(r"(warn|warning|cw|problems?)", re.I)
+_CODED = _HELPERS | {"coded"}
+# warning lists too short a name for the pattern (voc's and au's `w`, spc's `xw`)
+_SHORT_LISTS = {"w", "xw"}
 
 def _is_text(n):
     if isinstance(n, ast.Constant):
@@ -113,33 +117,87 @@ def _is_text(n):
     return False
 
 
-def _legacy_sites():
-    """Plain-string warnings appended in the walkers: each reaches a Document
-    as `code: legacy`."""
+def _is_coded(n):
+    return isinstance(n, ast.Call) and getattr(n.func, "id", None) in _CODED
+
+
+def _warning_sites():
+    """(where, message source, coded) for every warning written as text in
+    core/walk and core/formats: appended or extended onto a warning list,
+    returned as the last element of a tuple, or the value of a "warnings"
+    key. A coded one is wrapped in a findings helper; a plain one reaches a
+    Document as `code: legacy`."""
     out = []
-    for py in sorted((SRC / "core" / "walk").glob("*.py")):
-        tree = ast.parse(py.read_text(encoding="utf-8"))
-        for n in ast.walk(tree):
-            if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-                    and n.func.attr in ("append", "extend") and n.args
-                    and _WARN_LIST.search(ast.unparse(n.func.value))
-                    and _is_text(n.args[0])):
-                out.append(f"{py.name}:{n.lineno}")
+
+    def texts(node):
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return list(node.elts)
+        return [node]
+
+    for sub in ("walk", "formats"):
+        for py in sorted((SRC / "core" / sub).glob("*.py")):
+            tree = ast.parse(py.read_text(encoding="utf-8"))
+            cands = []
+            for n in ast.walk(tree):
+                if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                        and n.func.attr in ("append", "extend", "insert") and n.args
+                        and (_WARN_LIST.search(ast.unparse(n.func.value))
+                             or ast.unparse(n.func.value) in _SHORT_LISTS)):
+                    cands += texts(n.args[-1])
+                elif (isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add)
+                        and isinstance(n.right, ast.List)):
+                    cands += n.right.elts          # warns + ["..."]
+                elif isinstance(n, ast.Assign) and _WARN_LIST.search(
+                        " ".join(ast.unparse(t) for t in n.targets)):
+                    if isinstance(n.value, (ast.List, ast.Tuple)):
+                        cands += n.value.elts
+                elif isinstance(n, ast.Dict):
+                    for k, v in zip(n.keys, n.values):
+                        if isinstance(k, ast.Constant) and k.value in ("warnings", "warns"):
+                            if isinstance(v, (ast.List, ast.Tuple)):
+                                cands += v.elts
+                elif (isinstance(n, ast.Return) and isinstance(n.value, ast.Tuple)
+                        and n.value.elts and isinstance(n.value.elts[-1], ast.List)):
+                    cands += n.value.elts[-1].elts
+            seen = set()
+            for c in cands:
+                if id(c) in seen:
+                    continue
+                seen.add(id(c))
+                if _is_coded(c) or _is_text(c):
+                    msg = ast.unparse(c.args[1] if _is_coded(c) else c)
+                    out.append((f"{sub}/{py.name}:{c.lineno}", msg, _is_coded(c)))
     return out
 
 
-def test_legacy_warning_sites_only_fall():
-    """A ratchet, after the cap ledger's pending list. 2.0 gave codes to the
-    families consumers key on (size overruns, dangling pointers, missing magic,
-    parse failures, checksums, reserved bits, misaligned lengths, truncated
-    headers, siblings); the rest stay `legacy` and are counted here and in
-    each Document's `typing.findings_legacy`. A new walker warning gets a code,
-    so this number never rises."""
-    sites = _legacy_sites()
-    assert len(sites) > 100, "the enumerator has stopped matching"
-    assert len(sites) <= 292, (
-        f"{len(sites)} plain-string walker warnings; give the new one a code "
-        f"(acidcat.core.infra.findings)")
+def test_the_enumerator_still_finds_warning_sites():
+    """Guards the guard: it has to be finding the coded sites to be trusted
+    about the plain ones."""
+    sites = _warning_sites()
+    assert sum(1 for _w, _m, coded in sites if coded) > 400
+
+
+def test_every_walker_warning_has_a_code():
+    """2.0 gave every walker and format-decoder warning a code (milestone 3);
+    a new one is written with a findings helper, so none reaches a Document
+    as `legacy`."""
+    plain = [f"{w}: {m[:70]}" for w, m, coded in _warning_sites() if not coded]
+    assert not plain, ("plain-string warnings; wrap each in a findings "
+                       "helper (acidcat.core.infra.findings):\n  "
+                       + "\n  ".join(plain))
+
+
+def test_no_seed_walks_to_a_legacy_finding(tmp_path):
+    """Every registered seed, walked into a Document: no finding is `legacy`."""
+    from acidcat.core.infra import contract
+    bad = []
+    for fmt in sorted(seeds.SEEDS):
+        p = tmp_path / ("seed" + seeds.suffix(fmt))
+        p.write_bytes(seeds.build(fmt))
+        for f in contract.walk(str(p))["findings"]:
+            if f["code"] == "legacy":
+                bad.append(f"{fmt}: {f['message']}")
+    assert not bad, "\n".join(bad)
 
 
 # ── the consumers ─────────────────────────────────────────────────────

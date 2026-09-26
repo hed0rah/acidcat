@@ -6,7 +6,7 @@ import struct
 
 from acidcat.core.formats import midi as midimod
 from acidcat.core.formats.midi import _read_vlq
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import defect, info
 from acidcat.core.infra.limits import hit
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f, _open, _size
@@ -244,7 +244,8 @@ def inspect_midi(filepath, deep=False, ctx=None):
         # sniffing requires 14 bytes, but the RMID walker (or a direct caller)
         # can hand over a shorter payload; degrade to a warning, not a traceback
         file_warns.append(
-            f"file is {len(data)} bytes; a complete MThd header needs 14")
+            defect("header.truncated",
+                   f"file is {len(data)} bytes; a complete MThd header needs 14"))
         return chunks, file_warns
 
     hdr_len = struct.unpack(">I", data[4:8])[0]
@@ -273,7 +274,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
         # read(negative), i.e. the whole file. the six header bytes
         # were still decoded above (best effort).
         hdr_warns.append(
-            f"MThd declares {hdr_len} bytes, spec minimum is 6")
+            defect("chunk.short", f"MThd declares {hdr_len} bytes, spec minimum is 6"))
     summary = f"format {fmt}, {ntrks} track(s)"
     chunks.append({"id": "MThd", "offset": 0, "size": hdr_len,
                    "summary": summary, "fields": fields,
@@ -294,8 +295,9 @@ def inspect_midi(filepath, deep=False, ctx=None):
     while offset + 8 <= file_size and found < ntrks:
         if data[offset:offset + 4] != b"MTrk":
             file_warns.append(
-                f"expected MTrk at 0x{offset:08x}, found "
-                f"{data[offset:offset + 4]!r}; stopping"
+                defect("magic.mismatch",
+                       f"expected MTrk at 0x{offset:08x}, found "
+                       f"{data[offset:offset + 4]!r}; stopping")
             )
             break
         trk_len = struct.unpack(">I", data[offset + 4:offset + 8])[0]
@@ -350,7 +352,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
                                 else max(scan["note_max"], st["nmax"]))
         _channels |= st["channels"]                  # 0-based, like legacy
         if not st["has_eot"]:
-            entry["warnings"].append("no end-of-track meta event")
+            entry["warnings"].append(defect("required.missing", "no end-of-track meta event"))
         for etype in sorted(st["unknown_meta"])[:_UNKNOWN_META_CAP]:
             count, head = st["unknown_meta"][etype]
             flds.append(_f(None, 0, f"meta 0x{etype:02x}",
@@ -367,7 +369,8 @@ def inspect_midi(filepath, deep=False, ctx=None):
                 flds.append(_f(None, 0, "sysex", f"{mfr}, {slen:,} bytes"))
                 why = ("uses the non-commercial manufacturer id, no synth acts "
                        "on it" if reserved else f"oversized ({slen:,} bytes)")
-                entry["warnings"].append(f"SysEx {why}: possible payload cavity")
+                entry["warnings"].append(defect("value.invalid",
+                                                f"SysEx {why}: possible payload cavity"))
         max_ticks = max(max_ticks, st["ticks"])
         track_ticks.append(st["ticks"])
         tempo_lists.append(st["tempos"])
@@ -385,9 +388,10 @@ def inspect_midi(filepath, deep=False, ctx=None):
         offset += 8 + trk_len
 
     if found < ntrks:
-        file_warns.append(f"MThd declares {ntrks} tracks, found {found}")
+        file_warns.append(defect("count.mismatch", f"MThd declares {ntrks} tracks, found {found}"))
     if not (division & 0x8000) and first_tempo is None and found:
-        file_warns.append("no tempo event in any track; players assume 120 bpm")
+        file_warns.append(info("value.assumed",
+                               "no tempo event in any track; players assume 120 bpm"))
 
     # How long the file is depends on what the format says its tracks ARE.
     #
@@ -428,9 +432,10 @@ def inspect_midi(filepath, deep=False, ctx=None):
             f"the {len(track_ticks)} patterns are independent, so this is "
             f"their total played end to end")
         file_warns.append(
-            f"format 2: {len(track_ticks)} sequentially independent patterns, "
-            f"which share no timeline. The duration is their sum, not a single "
-            f"performance")
+            info("convention.noted",
+                 f"format 2: {len(track_ticks)} sequentially independent patterns, "
+                 f"which share no timeline. The duration is their sum, not a single "
+                 f"performance"))
     if dur is not None:
         chunks[0]["fields"].append(
             _f(None, 0, "duration", f"{dur:.3f} s", note))

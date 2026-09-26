@@ -79,27 +79,34 @@ def inspect_vgm(filepath, deep=False):
         raise _Unsupported(h["why"])
     end = min(h["gd3_at"] or h["eof"], len(image))
     if h["eof"] != len(image):
-        warns.append("the header says the file ends at %d; it is %d bytes"
-                     % (h["eof"], len(image)))
+        warns.append(defect("count.mismatch",
+                            "the header says the file ends at %d; it is %d bytes"
+                            % (h["eof"], len(image))))
     w = vgmmod.walk_commands(image, h["data_at"], end, _VGM_COMMAND_CAP)
     if w["capped"]:
         warns.append(hit("work_steps", _VGM_COMMAND_CAP, _VGM_COMMAND_CAP,
                          "decoded the first %d commands" % _VGM_COMMAND_CAP))
     elif not w["ended"]:
-        warns.append("the command stream has no end marker (0x66)"
-                     + (": " + w["why"] if w["why"] else ""))
+        warns.append(defect("required.missing",
+                            "the command stream has no end marker (0x66)"
+                            + (": " + w["why"] if w["why"] else "")))
     elif w["end"] != end:
-        warns.append("the stream ends at %d and the next region starts at %d"
-                     % (w["end"], end))
+        warns.append(defect("geometry.invalid",
+                            "the stream ends at %d and the next region starts at %d"
+                            % (w["end"], end)))
     if h["loop_at"] is not None and not h["data_at"] <= h["loop_at"] < w["end"]:
-        warns.append("the loop point 0x%X is outside the command stream" % h["loop_at"])
+        warns.append(defect("pointer.dangling",
+                            "the loop point 0x%X is outside the command stream" % h["loop_at"]))
     if not w["capped"] and w["ended"] and w["waits"] != h["total_samples"]:
-        warns.append("the header says %d samples and the waits add up to %d"
-                     % (h["total_samples"], w["waits"]))
+        warns.append(defect("count.mismatch",
+                            "the header says %d samples and the waits add up to %d"
+                            % (h["total_samples"], w["waits"])))
     clocked = {c["name"] for c in h["chips"]}
     for chip in sorted(w["writes"]):
         if chip not in clocked:
-            warns.append("%d writes to %s, whose clock is zero" % (w["writes"][chip], chip))
+            warns.append(defect("reference.unresolved",
+                                "%d writes to %s, whose clock is zero"
+                                % (w["writes"][chip], chip)))
 
     header_fields = _header_fields(h, w)
     gd3 = vgmmod.parse_gd3(image, h["gd3_at"]) if h["gd3_at"] is not None else None

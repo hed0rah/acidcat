@@ -160,6 +160,7 @@ def parse_program(raw, filesize):
          "consumed": HEADER, "corrupt": 0}
     if len(raw) < HEADER or raw[:len(MAGIC)] != MAGIC:
         h["why"] = "no PSYSSS30 magic"
+        h["code"] = "magic.mismatch"
         return h
     h["declared_keygroups"] = struct.unpack_from(">I", raw, len(MAGIC))[0]
 
@@ -178,10 +179,12 @@ def parse_program(raw, filesize):
             h["keygroups"].append((off, length, body))
         else:
             h["why"] = "unexpected function 0x%02X at offset %d" % (fn, off)
+            h["code"] = "value.invalid"
             return h
 
     if h["program"] is None:
         h["why"] = "no program block"
+        h["code"] = "required.missing"
         return h
     h["ok"] = True
     return h

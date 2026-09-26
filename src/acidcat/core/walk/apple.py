@@ -18,6 +18,7 @@ from acidcat.core.infra.vocab import (
 )
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect
 
 # ResU is a few hundred bytes that inflate to a few thousand. The cap is far
 # above any real one and exists so a crafted chunk cannot inflate without bound.
@@ -43,7 +44,7 @@ def _parse_chan(b, _ctx):
     fields, warns = [], []
     if len(b) < 12:
         return "truncated", fields, [
-            f"chan payload is {len(b)} bytes, the header alone is 12"]
+            defect("chunk.short", f"chan payload is {len(b)} bytes, the header alone is 12")]
     tag, bitmap, n = struct.unpack_from(">III", b, 0)
     layout, count = tag >> 16, tag & 0xFFFF
     name = _LAYOUT_TAGS.get(layout)
@@ -58,8 +59,9 @@ def _parse_chan(b, _ctx):
     need = 12 + n * 20
     if need > len(b):
         warns.append(
-            f"declares {n} channel descriptions ({need} bytes), payload is "
-            f"{len(b)}")
+            defect("size.overrun",
+                   f"declares {n} channel descriptions ({need} bytes), payload is "
+                   f"{len(b)}"))
     return (f"{note}, {n} description(s)"), fields, warns
 
 
@@ -86,13 +88,13 @@ def _parse_resu(b, ctx):
     fields, warns = [], []
     if len(b) < 2 or b[0] != 0x78:
         return (f"unrecognized, {len(b):,} bytes"), fields, [
-            "ResU does not open with a zlib header"]
+            defect("parse.failed", "ResU does not open with a zlib header")]
     import json
     import zlib
     try:
         raw = zlib.decompressobj().decompress(b, _RESU_INFLATE_CAP)
     except zlib.error as e:
-        return "undecodable", fields, [f"ResU did not inflate ({e})"]
+        return "undecodable", fields, [defect("parse.failed", f"ResU did not inflate ({e})")]
     if len(raw) >= _RESU_INFLATE_CAP:
         warns.append(hit("inflate_bytes", _RESU_INFLATE_CAP, len(raw),
                          f"ResU inflated to the {_RESU_INFLATE_CAP >> 10} KB "
@@ -100,10 +102,11 @@ def _parse_resu(b, ctx):
     try:
         doc = json.loads(raw.decode("utf-8", "replace"))
     except ValueError as e:
-        return "undecodable", fields, [f"ResU inflated but did not parse as JSON "
-                                       f"({e.__class__.__name__})"]
+        return "undecodable", fields, [defect("parse.failed",
+                                              f"ResU inflated but did not parse as JSON "
+                                              f"({e.__class__.__name__})")]
     if not isinstance(doc, dict):
-        return "undecodable", fields, ["ResU JSON is not an object"]
+        return "undecodable", fields, [defect("parse.failed", "ResU JSON is not an object")]
 
     fields.append(_f(None, 0, "compressed", f"{len(b):,} bytes",
                      f"inflates to {len(raw):,}"))
@@ -154,7 +157,7 @@ def _parse_apple_meta(b, ctx):
     fields, warns = [], []
     if _TYPEDSTREAM not in b[:32]:
         return (f"unrecognized, {len(b):,} bytes"), fields, [
-            "AFAn/AFmd does not open with an Apple typedstream header"]
+            defect("magic.mismatch", "AFAn/AFmd does not open with an Apple typedstream header")]
     fields.append(_f(None, 0, "container", "Apple typedstream (NSArchiver)"))
     fields.append(_f(None, 0, "bytes", f"{len(b):,}"))
     # the class names are length-prefixed ASCII in the clear; listing them says
@@ -213,8 +216,9 @@ def _parse_trns(b, ctx):
     fields, warns = [], []
     if len(b) < _TRNS_HEADER:
         return "truncated", fields, [
-            f"trns payload is {len(b)} bytes, the header alone is "
-            f"{_TRNS_HEADER}"]
+            defect("chunk.short",
+                   f"trns payload is {len(b)} bytes, the header alone is "
+                   f"{_TRNS_HEADER}")]
     version, a, c = struct.unpack_from(">HHH", b, 0)
     stamp = struct.unpack_from(">I", b, 8)[0]
     count = struct.unpack_from(">I", b, _TRNS_COUNT_OFF)[0]
@@ -227,8 +231,9 @@ def _parse_trns(b, ctx):
 
     have = (len(b) - _TRNS_HEADER) // _TRNS_RECORD
     if count > have:
-        warns.append(f"declares {count:,} transients, the payload holds "
-                     f"{have:,}")
+        warns.append(defect("size.overrun",
+                            f"declares {count:,} transients, the payload holds "
+                            f"{have:,}"))
         count = have
 
     rate = ctx.get("sample_rate") or 0
@@ -246,8 +251,9 @@ def _parse_trns(b, ctx):
             note = f"{pos / rate:.3f} s" if rate else ""
             fields.append(_f(off, 4, f"transient[{i}]", f"frame {pos:,}", note))
     if beyond:
-        warns.append(f"{beyond} transient(s) fall past the {frames:,} frames "
-                     f"COMM declares")
+        warns.append(defect("value.invalid",
+                            f"{beyond} transient(s) fall past the {frames:,} frames "
+                            f"COMM declares"))
     if count > _TRNS_LIST_CAP:
         warns.append(hit("list_rows", _TRNS_LIST_CAP, count,
                          f"listing the first {_TRNS_LIST_CAP} of "
@@ -287,7 +293,7 @@ def _parse_cate(b, _ctx):
     """
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["cate payload is under 4 bytes"]
+        return "truncated", fields, [defect("chunk.short", "cate payload is under 4 bytes")]
     fields.append(_f(0x00, 4, "count", struct.unpack_from(">I", b, 0)[0]))
     labels = []
     for off in range(4, len(b) - 1, _CATE_SLOT):

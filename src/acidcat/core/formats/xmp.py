@@ -15,6 +15,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from acidcat.core.infra.limits import hit
+from acidcat.core.infra.findings import defect
 
 # Namespace URI -> the prefix the spec uses for it. Anything outside this table
 # is reported under its URI's last path segment, so an unrecognized vocabulary
@@ -102,11 +103,11 @@ def parse_xmp(data):
     if start < 0:
         start = data.find(b"<rdf:RDF")
     if start < 0:
-        return [], warns + ["no xmpmeta or RDF element in the packet"]
+        return [], warns + [defect("required.missing", "no xmpmeta or RDF element in the packet")]
     end = data.rfind(b"</x:xmpmeta>")
     end = end + len("</x:xmpmeta>") if end > start else data.rfind(b"</rdf:RDF>")
     if end <= start:
-        return [], warns + ["the packet's root element is not closed"]
+        return [], warns + [defect("parse.failed", "the packet's root element is not closed")]
     body = data[start:end + (len("</rdf:RDF>") if b"</x:xmpmeta>" not in data
                              else 0)]
     try:
@@ -118,17 +119,18 @@ def parse_xmp(data):
         body, fixed = repair_qnames(body)
         if not fixed:
             return [], warns + [
-                f"the XMP packet is not well-formed XML ({first})"]
+                defect("parse.failed", f"the XMP packet is not well-formed XML ({first})")]
         try:
             root = ET.fromstring(body)
         except ET.ParseError as second:
             return [], warns + [
-                f"the XMP packet is not well-formed XML ({second})"]
+                defect("parse.failed", f"the XMP packet is not well-formed XML ({second})")]
         warns.append(
-            f"the XMP packet is not well-formed XML: {fixed} attribute "
-            f"name(s) carry a second colon, which a QName may not. They were "
-            f"read as if the extra colon were an underscore; the values below "
-            f"are recovered, not as written")
+            defect("parse.failed",
+                   f"the XMP packet is not well-formed XML: {fixed} attribute "
+                   f"name(s) carry a second colon, which a QName may not. They were "
+                   f"read as if the extra colon were an underscore; the values below "
+                   f"are recovered, not as written"))
 
     props = []
     for desc in root.iter(_RDF + "Description"):

@@ -11,7 +11,7 @@ See core/formats/psf.py for the layout and where it came from.
 
 
 from acidcat.core.formats import psf as psfmod
-from acidcat.core.infra.findings import defect, environment
+from acidcat.core.infra.findings import coded, defect, environment, info
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
@@ -41,7 +41,7 @@ def inspect_psf(filepath, deep=False):
         return [{"id": "header", "offset": 0, "size": min(size, psfmod.HEADER),
                  "summary": "not a resolvable PSF: %s" % h["why"],
                  "fields": [], "warnings": [], "payload_base": 0}], \
-            warns + ["header did not resolve: %s" % h["why"]]
+            warns + [coded(h["code"], "header did not resolve: %s" % h["why"])]
 
     short, machine = h["platform"]
     src = as_source(filepath)
@@ -57,10 +57,11 @@ def inspect_psf(filepath, deep=False):
                     "checksum.mismatch",
                     "the SAVE block's CRC32 does not match its header"))
             if sv["inflated_size"] is None:
-                warns.append("the SAVE block does not inflate as zlib")
+                warns.append(defect("parse.failed", "the SAVE block does not inflate as zlib"))
             elif sv["consistent"] is False:
-                warns.append("the SAVE block declares %d bytes and %d follow"
-                             % (sv["length"], sv["inflated_size"] - 8))
+                warns.append(defect("count.mismatch",
+                                    "the SAVE block declares %d bytes and %d follow"
+                                    % (sv["length"], sv["inflated_size"] - 8)))
 
     prog = _program_chunk(h, short, is_lib)
     chunks.append(prog)
@@ -72,10 +73,11 @@ def inspect_psf(filepath, deep=False):
     if h["program_size"] == 0:
         pass                    # nothing to inflate; the program chunk says so
     elif h["inflated_size"] is None:
-        warns.append("the program does not inflate as zlib")
+        warns.append(defect("parse.failed", "the program does not inflate as zlib"))
     if h["gsf"] and not h["gsf"]["consistent"]:
-        warns.append("the program header declares %d bytes of ROM and %d follow"
-                     % (h["gsf"]["length"], h["gsf"]["rom_bytes"]))
+        warns.append(defect("count.mismatch",
+                            "the program header declares %d bytes of ROM and %d follow"
+                            % (h["gsf"]["length"], h["gsf"]["rom_bytes"])))
 
     tags_at = h["tags_at"]
     if tags_at < len(raw):
@@ -92,10 +94,12 @@ def inspect_psf(filepath, deep=False):
             chunks.append(_region("trailing", tags_at, n,
                                   "%d bytes after the program, not a [TAG] "
                                   "block" % n))
-            warns.append("%d bytes after the program are not a tag block" % n)
+            warns.append(defect("bytes.stray",
+                                "%d bytes after the program are not a tag block" % n))
     elif not is_lib:
         # a library carries no tags by design; a mini without them is odd
-        warns.append("no [TAG] block, so no title, length or library reference")
+        warns.append(info("value.assumed",
+                          "no [TAG] block, so no title, length or library reference"))
 
     if h["libs"] and not is_lib and src.path is None:
         warns.append(environment(

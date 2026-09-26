@@ -36,7 +36,7 @@ sample library reports as one thing.
 import struct
 
 from acidcat.core.formats import ableton as abmod
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import defect, environment, info
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import _f, _open, _size
@@ -82,7 +82,8 @@ def inspect_asd(filepath):
                  "summary": ("macOS AppleDouble resource stub, not an Ableton "
                              "sidecar -- a '._' file copied off an HFS volume"),
                  "fields": [], "warnings": [], "payload_base": 0}], \
-            ["file carries the .asd extension but is an AppleDouble stub"]
+            [defect("magic.mismatch",
+                    "file carries the .asd extension but is an AppleDouble stub")]
 
     try:
         h = abmod.parse_asd_header(raw)
@@ -91,10 +92,12 @@ def inspect_asd(filepath):
         # degrade to a warning like the gunzip path below, not escape the walk
         return [], [str(exc)]
     if h["truncated"]:
-        warns.append(f"frame grid claims {h['count'] - 1:,} entries but the "
-                     f"file holds only {(size - 10) // 4:,}")
+        warns.append(defect("size.overrun",
+                            f"frame grid claims {h['count'] - 1:,} entries but the "
+                            f"file holds only {(size - 10) // 4:,}"))
     if not h["monotonic"]:
-        warns.append("frame grid is not strictly increasing; positions are unreliable")
+        warns.append(defect("value.invalid",
+                            "frame grid is not strictly increasing; positions are unreliable"))
     if h["reserved"]:
         warns.append(defect(
             "reserved.nonzero",
@@ -121,8 +124,9 @@ def inspect_asd(filepath):
     if rate is None:
         grid_summary = (f"{len(h['frames']):,} positions, ends at "
                         f"{h['total_frames']:,} frames (sample rate not inferable)")
-        warns.append("largest grid step exceeds 30 ms at every standard sample "
-                     "rate; the rate could not be inferred")
+        warns.append(info("value.assumed",
+                          "largest grid step exceeds 30 ms at every standard sample "
+                          "rate; the rate could not be inferred"))
     elif dur is None:
         # A known rate does not imply a known duration. The rate comes from the
         # largest STEP and the duration from the last POSITION, and a grid whose
@@ -131,8 +135,9 @@ def inspect_asd(filepath):
         # the duration anyway raised TypeError rather than saying any of this.
         grid_summary = (f"{len(h['frames']):,} positions, but the last is 0 -- "
                         f"no endpoint, so no duration at {rate:,} Hz")
-        warns.append("the frame grid ends at position 0; the table is corrupt "
-                     "or was zeroed, so no duration can be derived from it")
+        warns.append(defect("value.invalid",
+                            "the frame grid ends at position 0; the table is corrupt "
+                            "or was zeroed, so no duration can be derived from it"))
     else:
         approx = "" if h["rate_exact"] else " (lower bound -- grid never hit the cap)"
         # A truncated grid ends early, so total_frames and the duration derived
@@ -225,8 +230,9 @@ def inspect_asd(filepath):
         # directly above 400 warp markers read out of that tree.
         _bare = not present
         if present and not notable:
-            warns.append(f"{len(present)} declared fields, none of them a "
-                         f"recognised analysis field")
+            warns.append(defect("id.unknown",
+                                f"{len(present)} declared fields, none of them a "
+                                f"recognised analysis field"))
 
         # a .asd is named "<audio>.asd" and lives beside its audio, so when the
         # sibling is there its size can be checked against what Live recorded
@@ -238,9 +244,10 @@ def inspect_asd(filepath):
             sibling.close()
             if not abmod.references_size(raw, ssize, h["order"]):
                 warns.append(
-                    f"this sidecar does not reference the current size of "
-                    f"{sname} ({ssize:,} bytes); the audio "
-                    f"was changed after the analysis was written")
+                    environment("sibling.mismatch",
+                                f"this sidecar does not reference the current size of "
+                                f"{sname} ({ssize:,} bytes); the audio "
+                                f"was changed after the analysis was written"))
 
         marks = abmod.warp_markers(raw, h["order"])
         if marks:
@@ -342,8 +349,9 @@ def inspect_asd(filepath):
                               "total_frames / bin_samples"))
             if not ov["consistent"]:
                 warns.append(
-                    f"overview bytes_per_bin is {ov['bytes_per_bin']}, expected "
-                    f"{ov['channels'] * 2} for {ov['channels']} channel(s)")
+                    defect("field.inconsistent",
+                           f"overview bytes_per_bin is {ov['bytes_per_bin']}, expected "
+                           f"{ov['channels'] * 2} for {ov['channels']} channel(s)"))
             chunks.append({
                 "id": "overview", "offset": ov["sentinel_at"], "size": 4,
                 "summary": (f"waveform overview, {ov['channels']} channel(s) at "
@@ -357,8 +365,9 @@ def inspect_asd(filepath):
         # verified over 1,500 specimens: when nothing is found in EITHER byte
         # order by ANY detector, the file genuinely carries only a header and
         # grid. Say that, rather than something that reads as a parse failure.
-        warns.append("this sidecar carries only the header and frame grid; "
-                     "there is no object tree in it")
+        warns.append(info("convention.noted",
+                          "this sidecar carries only the header and frame grid; "
+                          "there is no object tree in it"))
 
     return chunks, warns
 
@@ -393,12 +402,13 @@ def inspect_ableton_xml(filepath, fmt_id="als"):
 
     attrs = abmod.header_attributes(xml[:4096])
     if attrs is None:
-        warns.append("no <Ableton> root element found in the decompressed XML")
+        warns.append(defect("required.missing",
+                            "no <Ableton> root element found in the decompressed XML"))
         attrs = {}
     elif not attrs:
         # the element is there, it just carries nothing. Saying so is different
         # from saying it is missing.
-        warns.append("<Ableton> root element carries no attributes")
+        warns.append(defect("required.missing", "<Ableton> root element carries no attributes"))
 
     ratio = (len(xml) / size) if size else 0
     fields = [_f(None, 0, k, v) for k, v in attrs.items()]
@@ -472,7 +482,8 @@ def inspect_amxd(filepath):
         warns.append(defect("magic.mismatch", "missing 'ampf' magic"))
     marker = raw[8:12]
     if marker != b"aaaa":
-        warns.append(f"marker at offset 8 is {marker!r}, expected b'aaaa'")
+        warns.append(defect("magic.mismatch",
+                            f"marker at offset 8 is {marker!r}, expected b'aaaa'"))
 
     chunks = [{
         "id": "ampf", "offset": 0, "size": min(size, _AMXD_HEADER),
@@ -498,8 +509,9 @@ def inspect_amxd(filepath):
         cid = raw[off:off + 4]
         length = struct.unpack_from("<I", raw, off + 4)[0]
         if length > len(raw) - off - 8:
-            warns.append(f"chunk '{cid.decode('ascii', 'replace')}' at {off} "
-                         f"claims {length:,} bytes, past end of file")
+            warns.append(defect("size.overrun",
+                                f"chunk '{cid.decode('ascii', 'replace')}' at {off} "
+                                f"claims {length:,} bytes, past end of file"))
             break
         name = cid.decode("ascii", "replace")
         summary = f"{length:,} bytes"
@@ -531,5 +543,6 @@ def inspect_amxd(filepath):
         # any unrelated warning -- a bad magic, an odd marker -- suppressed it,
         # so appended data went unreported precisely on the files that already
         # looked anomalous. That is backwards for a forensics tool.
-        warns.append(f"chunk chain ends at {off:,} but the file is {size:,} bytes")
+        warns.append(defect("count.mismatch",
+                            f"chunk chain ends at {off:,} but the file is {size:,} bytes"))
     return chunks, warns

@@ -68,8 +68,9 @@ def inspect_wt(filepath):
         # floor rather than the file size
         short = size < expected
         if short or (not has_meta and size != expected):
-            warns.append(f"size {size:,} != header-implied {expected:,} "
-                         f"(12 + {frame_count} x {frame_samples} x {width})")
+            warns.append(defect("count.mismatch",
+                                f"size {size:,} != header-implied {expected:,} "
+                                f"(12 + {frame_count} x {frame_samples} x {width})"))
 
     header = {"id": "vawt", "offset": 0, "size": min(size, 12),
               "summary": (f"wavetable, {frame_count} frame(s) x "
