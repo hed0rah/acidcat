@@ -264,3 +264,41 @@ def test_real_corpus_walks_completely():
     assert seen >= 100, "only %d banks identified; that tests almost nothing" % seen
     assert covered_fully >= seen - 20, (
         "%d of %d banks were not fully accounted for" % (seen - covered_fully, seen))
+
+
+def _short_bank(lengths, slots=None, tail=b""):
+    """A bank whose table holds only `slots` rows (default: one per sample),
+    with the samples laid end to end right after it."""
+    slots = slots or len(lengths)
+    table_end = slots * pdxmod.SLOT
+    rows, at = [], table_end
+    for n in lengths:
+        rows.append((at, n))
+        at += n
+    rows += [(0, 0)] * (slots - len(rows))
+    table = b"".join(struct.pack(">II", o, n) for o, n in rows)
+    return table + b"".join(bytes([0x11] * n) for n in lengths) + tail
+
+
+def test_a_table_shorter_than_one_bank_is_accepted_when_it_accounts_for_the_file(tmp_path):
+    """Some writers emit only the slots they fill. Seen on 76 real banks: the
+    first sample begins where those slots end, and the samples run end to end
+    to the last byte of the file."""
+    raw = _short_bank([400, 300, 500], slots=26)
+    h = pdxmod.parse_table(raw, len(raw))
+    assert h["ok"] and h["short"] and h["table_size"] == 26 * 8
+    assert h["used"] == 3 and len(h["slots"]) == 26
+    p = tmp_path / "short.pdx"
+    p.write_bytes(raw)
+    assert sniff.sniff(str(p)) == "pdx"
+
+
+def test_a_short_table_with_a_gap_or_a_tail_is_not_a_bank():
+    gapped = _short_bank([400, 300])
+    rows = bytearray(gapped)
+    struct.pack_into(">I", rows, 8, 16 + 400 + 20)        # second sample 20 bytes late
+    assert not pdxmod.parse_table(bytes(rows), len(rows))["ok"]
+    tailed = _short_bank([400, 300], tail=bytes(64))       # unaccounted bytes after
+    assert not pdxmod.parse_table(tailed, len(tailed))["ok"]
+    one = _short_bank([400])                               # one sample proves too little
+    assert not pdxmod.parse_table(one, len(one))["ok"]
