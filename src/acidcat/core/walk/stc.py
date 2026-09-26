@@ -7,7 +7,7 @@ from there the channel streams tile by their pointers, as in PT3.
 
 
 from acidcat.core.formats import stc as stcmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
@@ -23,8 +23,9 @@ def inspect_stc(filepath, deep=False):
         raw = fh.read(min(size, _STC_READ_CAP))
     warns = []
     if size > _STC_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d, which is "
-                              "all a 16-bit pointer can reach" % (size, _STC_READ_CAP)))
+        warns.append(hit("read_bytes", _STC_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d, which is "
+                         "all a 16-bit pointer can reach" % (size, _STC_READ_CAP)))
     h = stcmod.parse(raw, len(raw))
     if not h["ok"]:
         raise _Unsupported("not an STC by arithmetic: " + h["why"])
@@ -129,5 +130,6 @@ def inspect_stc(filepath, deep=False):
                        "warnings": [], "payload_base": at})
     if capped:
         total = len(h["samples"]) + len(h["ornaments"]) + len(regs)
-        warns.append(coverage("listing the first %d of %d records" % (_STC_LIST_CAP, total)))
+        warns.append(hit("list_rows", _STC_LIST_CAP, total,
+                         "listing the first %d of %d records" % (_STC_LIST_CAP, total)))
     return chunks, warns

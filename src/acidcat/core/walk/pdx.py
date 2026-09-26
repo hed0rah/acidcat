@@ -14,7 +14,8 @@ See core/formats/pdx.py for the layout and where it was verified.
 
 
 from acidcat.core.formats import pdx as pdxmod
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _f, _open, _size
 
 # The largest real bank measured holds 77 samples. A bank claiming hundreds is
@@ -88,9 +89,9 @@ def inspect_pdx(filepath, deep=False):
         chunks.append(entry)
 
     if len(regions) > _PDX_SAMPLE_CAP:
-        chunks[0]["warnings"].append(coverage(
-            "listing the first %d of %d samples"
-            % (_PDX_SAMPLE_CAP, len(regions))))
+        chunks[0]["warnings"].append(hit(
+            "list_rows", _PDX_SAMPLE_CAP, len(regions),
+            "listing the first %d of %d samples" % (_PDX_SAMPLE_CAP, len(regions))))
         warns.append(chunks[0]["warnings"][-1])
 
     # Bytes past the last sample. Nearly always exactly one, and nearly
@@ -133,8 +134,9 @@ def _table_chunk(h):
                          "%d bytes" % length, "at 0x%06X" % off, xref=off))
     warnings = []
     if h["used"] > _PDX_SLOT_FIELD_CAP:
-        warnings.append(coverage("listing the first %d of %d filled slots"
-                                 % (_PDX_SLOT_FIELD_CAP, h["used"])))
+        warnings.append(hit("list_rows", _PDX_SLOT_FIELD_CAP, h['used'],
+                            "listing the first %d of %d filled slots"
+                            % (_PDX_SLOT_FIELD_CAP, h["used"])))
     return {"id": "table", "offset": 0, "size": h["table_size"],
             "summary": "%d sample%s in %d bank%s"
                        % (h["used"], "" if h["used"] == 1 else "s",

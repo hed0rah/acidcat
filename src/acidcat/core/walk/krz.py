@@ -15,9 +15,9 @@ soundset banks. Unknown object types and effects payloads are surfaced by
 type/id/name without guessing at their bodies.
 """
 
-from acidcat.core.primitives.notes import coverage
 import struct
 
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 from acidcat.util.midi import midi_note_to_name
 
@@ -110,7 +110,8 @@ def inspect_krz(filepath):
         pos += block_len
         n += 1
     if n >= _OBJECT_CAP:
-        warns.append(coverage(f"object walk stopped at the {_OBJECT_CAP}-object cap"))
+        warns.append(hit("work_steps", _OBJECT_CAP, n,
+                         f"object walk stopped at the {_OBJECT_CAP}-object cap"))
 
     # the PCM sample region after the end marker
     if 0 < osize < len(b):

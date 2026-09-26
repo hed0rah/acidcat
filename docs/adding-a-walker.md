@@ -106,13 +106,24 @@ Any decompression, any length-prefixed allocation, and any chunk chain needs a
 ceiling, and hitting the ceiling must be **reported**, not silent:
 
 ```python
+from acidcat.core.infra.limits import hit
+
 if truncated:
-    warns.append(f"XML exceeded the {CAP // (1024*1024)} MB cap; counts below "
-                 f"describe only the prefix read")
+    warns.append(hit("inflate_bytes", _XML_CAP, len(xml),
+                     f"XML exceeded the {_XML_CAP // (1024*1024)} MB cap; counts "
+                     f"below describe only the prefix read"))
 ```
 
 A cap that silently truncates turns into a confident wrong answer -- the house
-bug class. The rule is: a cap you hit is a warning, always.
+bug class. The rule is: a cap you hit is a warning, always, and it is made with
+`hit(name, limit, used, message)`. `name` is the limit it belongs to
+(`read_bytes`, `chunk_payload`, `inflate_bytes`, `work_steps`, `list_rows`,
+`frame_rows`, `depth`); `limit` is your constant; `used` is how much the file
+asked for (the total when you know it, else the count you reached). That makes
+it a coverage note: reported, but never a defect, so `audit` does not fail a
+clean file for being large. A plain string is a defect. Put the constant in the
+module that reads it, name it `_..._CAP`, and register it in
+`tests/test_cap_announcements.py`.
 
 ### Say what you do not know
 

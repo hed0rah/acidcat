@@ -21,7 +21,8 @@ data little-endian reproduces noise rather than the tone that is there.
 
 import struct
 
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.apple import _parse_chan
 from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _open, _size
 
@@ -163,7 +164,8 @@ def _parse_info(b, _ctx):
             fields.append(_f(None, 0, key[:40], val[:120]))
         pairs += 1
     if pairs > _STRING_CAP:
-        warns.append(coverage(f"listing the first {_STRING_CAP} of {pairs} entries"))
+        warns.append(hit("list_rows", _STRING_CAP, pairs,
+                         f"listing the first {_STRING_CAP} of {pairs} entries"))
     if n != pairs:
         warns.append(f"declares {n:,} entries, {pairs:,} strings are present")
     return f"{pairs} metadata entr{'y' if pairs == 1 else 'ies'}", fields, warns
@@ -266,7 +268,8 @@ def inspect_caf(filepath):
         seen = []
         while pos + _CHUNK_HEADER <= file_size:
             if len(seen) >= _MAX_CHUNKS:
-                file_warns.append(coverage(
+                file_warns.append(hit(
+                    "work_steps", _MAX_CHUNKS, len(seen),
                     f"stopped after {_MAX_CHUNKS} chunks; the file may continue"))
                 break
             f.seek(pos)

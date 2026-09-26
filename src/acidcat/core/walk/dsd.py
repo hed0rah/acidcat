@@ -17,7 +17,8 @@ from acidcat.core.formats.dsd import (
     DSF_CHANNEL_LAYOUTS, DSF_CHANNEL_TYPES,
     dsd_duration, dsf_header, rate_name,
 )
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _f, _open, _size
 
 # A DSDIFF is IFF and can nest. Real files are a handful of chunks; the bound
@@ -258,8 +259,9 @@ def _dsdiff_prop(payload):
             fields.append(_f(pos, 12 + size, "channels", count,
                              ", ".join(names)))
             if count > _CHANNEL_LIST_CAP:
-                warns.append(coverage(f"listing the first {_CHANNEL_LIST_CAP} "
-                                      f"of {count} channels"))
+                warns.append(hit("list_rows", _CHANNEL_LIST_CAP, count,
+                                 f"listing the first {_CHANNEL_LIST_CAP} "
+                                 f"of {count} channels"))
             bits.append(f"{count}ch")
         elif cid == b"CMPR" and len(body) >= 5:
             ident = body[:4]
@@ -367,8 +369,9 @@ def _dsdiff_comt(payload, chans):
     if shown < min(count, _COMMENT_CAP):
         warns.append(f"declares {count} comments, {shown} fit in the chunk")
     if count > _COMMENT_CAP and shown >= _COMMENT_CAP:
-        warns.append(coverage(f"listing the first {_COMMENT_CAP} of {count} "
-                              f"comments"))
+        warns.append(hit("list_rows", _COMMENT_CAP, count,
+                         f"listing the first {_COMMENT_CAP} of {count} "
+                         f"comments"))
     return (" | ".join(bits) if bits else f"{count} comment(s)"), fields, warns
 
 
@@ -415,8 +418,9 @@ def _dsdiff_diin(payload):
                              f"{size:,} bytes"))
         pos += 12 + size + (size & 1)
     if marks > _MARKER_CAP:
-        warns.append(coverage(f"listing the first {_MARKER_CAP} of {marks} "
-                              f"markers"))
+        warns.append(hit("list_rows", _MARKER_CAP, marks,
+                         f"listing the first {_MARKER_CAP} of {marks} "
+                         f"markers"))
     if marks:
         bits.append(f"{marks} marker(s)")
     return (", ".join(bits) if bits else f"{n} chunk(s)"), fields, warns
@@ -467,7 +471,8 @@ def _dst_sound(payload, size, ctx):
             warns.append(f"FRTE declares {frames:,} frames, {counted:,} DSTF "
                          f"chunks follow")
     if n >= _MAX_CHUNKS:
-        warns.append(coverage(f"stopped after {_MAX_CHUNKS} DST chunks"))
+        warns.append(hit("work_steps", _MAX_CHUNKS, n,
+                         f"stopped after {_MAX_CHUNKS} DST chunks"))
     if frames and rate and ctx is not None:
         ctx.setdefault("duration", frames / rate)
     summary = f"DST lossless, {size:,} bytes"
@@ -597,7 +602,8 @@ def inspect_dsdiff(filepath, ctx=None):
             pos += step
 
     if n >= _MAX_CHUNKS:
-        file_warns.append(coverage(f"stopped after {_MAX_CHUNKS} chunks"))
+        file_warns.append(hit("work_steps", _MAX_CHUNKS, n,
+                              f"stopped after {_MAX_CHUNKS} chunks"))
     for entry in chunks:
         file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
     # carry the sound properties out for the scan row

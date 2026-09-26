@@ -181,6 +181,13 @@ a path or a Source; siblings come from a fixed directory lookup rather than an
 injected resolver; `head`, `child` and the slice backend wait for layers.
 architecture-2.0.md section 2 describes what exists.
 
+E2 as built: one frozen `Limits` and `hit(name, limit, used, message)`, the
+only way to make a coverage note; walkers keep their per-format constants (the
+cap ledger sweeps them) and obey only `decode`; no shared Budget until layers.
+architecture-2.0.md section 3 lists the departures. The CLI mapping is
+`docs/contract/cli-2.0.md`, with a test that fails on any verb or flag it does
+not map.
+
 The table below is the plan as first written.
 
 ## Release plan

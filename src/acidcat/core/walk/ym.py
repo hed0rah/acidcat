@@ -13,7 +13,7 @@ import time
 
 from acidcat.core.codecs import lha
 from acidcat.core.formats import ym as ymmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
@@ -33,7 +33,8 @@ def inspect_ym(filepath, deep=False):
         raw = fh.read(min(size, _YM_READ_CAP))
     warns = []
     if size > _YM_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d" % (size, _YM_READ_CAP)))
+        warns.append(hit("read_bytes", _YM_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d" % (size, _YM_READ_CAP)))
     if lha.is_lha(raw):
         return _packed(raw, warns)
     y = ymmod.parse(raw)
@@ -41,8 +42,9 @@ def inspect_ym(filepath, deep=False):
         raise _Unsupported(y["why"])
     warns.extend(y["warnings"])
     if len(y["drums"]) > _YM_DRUM_LIST_CAP:
-        warns.append(coverage("listing the first %d of %d digidrums"
-                              % (_YM_DRUM_LIST_CAP, len(y["drums"]))))
+        warns.append(hit("list_rows", _YM_DRUM_LIST_CAP, len(y['drums']),
+                         "listing the first %d of %d digidrums"
+                         % (_YM_DRUM_LIST_CAP, len(y["drums"]))))
     return _bare(raw, y), warns
 
 

@@ -14,7 +14,7 @@ was verified.
 
 
 from acidcat.core.formats import pmd as pmdmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
@@ -39,8 +39,9 @@ def inspect_pmd(filepath, deep=False):
 
     warns = []
     if size > _PMD_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(raw))))
+        warns.append(hit("read_bytes", _PMD_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(raw))))
     h = pmdmod.parse(raw)
     if not h["ok"]:
         return [{"id": "header", "offset": 0, "size": min(size, 24),
@@ -121,8 +122,9 @@ def inspect_pmd(filepath, deep=False):
                              "first four register bytes"))
         tone_warns = []
         if len(instruments) > _PMD_TONE_LIST_CAP:
-            tone_warns.append(coverage("listing the first %d of %d instruments"
-                                       % (_PMD_TONE_LIST_CAP, len(instruments))))
+            tone_warns.append(hit("list_rows", _PMD_TONE_LIST_CAP, len(instruments),
+                                  "listing the first %d of %d instruments"
+                                  % (_PMD_TONE_LIST_CAP, len(instruments))))
             warns.append(tone_warns[-1])
         if raw[end - 2:end] != pmdmod.TONE_END:
             tone_warns.append("the instrument list does not end with 00 FF, "

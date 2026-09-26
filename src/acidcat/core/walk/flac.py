@@ -1,10 +1,10 @@
 """FLAC structural walker: field decoding for every metadata block type
 plus the audio-frame region. Block iteration lives in core/flac.py."""
 
-from acidcat.core.primitives.notes import coverage
 import struct
 
 from acidcat.core.formats import flac as flacmod
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import parse_padding  # noqa: F401
 from acidcat.core.walk.base import _open, _size
 from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _f
@@ -150,8 +150,9 @@ def _flac_seektable(b, block_length=None):
         fields.append(_f(None, 0, "...",
                          f"{avail - _SEEKPOINT_ROW_CAP} more points"))
     if n > avail:
-        warns.append(coverage(f"table declares {n} points; listing the {avail} within "
-                     "the read cap"))
+        warns.append(hit("chunk_payload", len(b), block_length,
+                         f"table declares {n} points; listing the {avail} within "
+                         "the read cap"))
     note = f"{placeholders} placeholder" if placeholders else ""
     fields.insert(0, _f(None, 0, "num_points", n, note))
     return f"{n} seek point(s)", fields, warns

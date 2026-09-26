@@ -89,32 +89,66 @@ Deferred to layers (section 6 of the plan): `SliceSource` (a window onto
 another Source) and deriving a child Source from a decoded image. Nothing
 calls them yet.
 
-## 3. Limits: one budget, visible when hit
+## 3. Limits: one object, visible when hit
+
+As built in 2.0.0a1 (`core/infra/limits.py`):
 
 ```python
 @dataclass(frozen=True)
 class Limits:
     read_bytes: int = 64 << 20       # default read window per format
-    chunk_payload: int = 64 << 10    # today's PAYLOAD_CAP
-    inflate_bytes: int = 64 << 20    # every decoder
-    work_steps: int = 4_000_000      # commands, objects, resync steps
-    list_rows: int | None = None     # None: each walker's display default
+    chunk_payload: int = 64 << 10    # bytes of a chunk payload kept for display
+    inflate_bytes: int = 64 << 20    # output of any one decompression
+    work_steps: int = 4_000_000      # chunks, objects, commands, sectors walked
+    list_rows: int | None = None     # None: each walker's own display default
     frame_rows: int = 100_000        # --frames listings
     depth: int = 32                  # nested layers and explore
     decode: bool = False             # the "extra decoding work" half of deep
-    per_format: Mapping[str, int] = {}   # read_bytes overrides from FormatSpec
+
+def hit(name, limit, used, message) -> Note     # a coverage note naming the cap
 ```
 
-A shared, mutable `Budget` travels with it and counts bytes inflated and steps
-taken across nested layers, so a zip of gzips cannot multiply the allowance.
-Walkers never compare against a constant; they ask `limits.take(name, n)` or
-call `limits.hit(name, used, cap)`, which emits the `coverage` finding and
-records the name in `Document.limits.hit`. Format-validity maxima (a field that
-can never exceed N by the spec) stay constants: they are about validity, not
-budget.
+**A cap hit is a coverage finding by construction.** `hit()` is the only way
+to make a coverage note: `Note` refuses the coverage kind without a `cap`
+(`{name, limit, used}`), and `name` must be a Limits field. All 101 sites that
+announce a cap use it, including 22 that reported the hit as a plain-string
+defect (so `audit` failed a clean file for being large): amiga, svx, voc, dmx,
+bfdlac, emu (eight), midi (two), mp3, sigmf, tracker, mpc (two) and the
+generic triage (two). The Document's `limits.hit` is read off the findings, so
+the two cannot disagree (node-v1.md section 14, rule 9); each coverage finding
+carries `code: cap.read|cap.payload|cap.inflate|cap.steps|cap.list|cap.frames|cap.depth`
+and its `cap`.
 
-`deep=True` maps to `Limits(list_rows=unbounded, decode=True)`; the CLI's
-`--deep` keeps that meaning, and `--limit NAME=VALUE` sets any one limit.
+`contract.walk(path, deep=False, limits=None)` records the Limits on the
+Document; `deep=True` is `Limits(decode=True)`.
+
+**Enforced by** `tests/test_cap_announcements.py`: each swept cap, patched
+small and crossed, must now produce a coverage note whose `cap.limit` is the
+patched value, a `cap.*` finding in the Document, the limit in `limits.hit`,
+and a Document that validates. The pending list shrank from 60 to 58 (sigmf's
+annotation listing and triage's chunk listing are swept).
+
+**Departures from the plan, and why:**
+
+- Walkers still bound themselves with their module constants; Limits does not
+  yet set them. The cap ledger sweeps those constants (it patches them), and
+  each is a per-format value (a 512-byte chip image and a 64 MB WAV do not
+  share a read window). A constant is the format's default for its limit; the
+  `per_format` overrides come with FormatSpec.
+- The only Limits value a walk obeys today is `decode` (what `deep` was).
+  `list_rows` and the rest are recorded on the Document but no walker reads
+  them, so `--limit NAME=VALUE` has nothing to set until they are wired, and
+  `deep` does not yet unbound `list_rows`.
+- No shared, mutable Budget. It exists to stop nested layers multiplying the
+  allowance, and nothing nests until layers; it lands with the decoder
+  registry.
+- `hit()` returns the note for the walker to append; there is no context
+  object recording hits on the side. The notes are the record, which keeps the
+  walkers' signatures and their tests unchanged.
+- The sandboxed walk (`inspect --sandbox`) returns its result as JSON, which
+  drops every note's kind, so a sandboxed walk still reports cap hits as
+  defects. That predates 2.0 and is fixed with structured findings, when the
+  worker returns findings instead of strings.
 
 ## 4. Findings
 

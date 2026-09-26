@@ -16,6 +16,7 @@ Header-level decode, never-raise. Deep pattern/sample decode is future work.
 
 import struct
 
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open
 
 _CAP = 32 * 1024 * 1024
@@ -34,8 +35,9 @@ def _cap_warning(seen):
     they got and ask here. Without this the chunk list simply ended, and a
     truncated walk was indistinguishable from a short file.
     """
-    return ([f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap; "
-             f"the file may hold more"] if seen >= _CHUNK_CAP else [])
+    return ([hit("work_steps", _CHUNK_CAP, seen,
+                 f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap; "
+                 f"the file may hold more")] if seen >= _CHUNK_CAP else [])
 
 
 def _iff_chunks(b, start):

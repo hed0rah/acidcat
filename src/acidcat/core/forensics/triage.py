@@ -19,6 +19,7 @@ list it produces is also the starting point for writing the real walker.
 
 import struct
 
+from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import open_input, input_size
 from acidcat.core.primitives.signal import byte_entropy
 
@@ -155,12 +156,14 @@ def generic_walk(filepath):
     warns = ["generic structural triage: no format-specific walker; "
              "chunk names and sizes are decoded, payloads are not"]
     if windowed:
-        warns.append(f"grid walked within the first {_READ_CAP:,} bytes of "
-                     f"{total:,}; any chunk whose header falls past that window "
-                     f"is neither counted nor listed")
+        warns.append(hit("read_bytes", _READ_CAP, total,
+                         f"grid walked within the first {_READ_CAP:,} bytes of "
+                         f"{total:,}; any chunk whose header falls past that window "
+                         f"is neither counted nor listed"))
     if found > len(chunks):
         # the count above is the real one; say plainly that the LIST below is
         # only a prefix, so "257 chunks" is never read as the whole grid
-        warns.append(f"{found:,} chunks found; listing the first "
-                     f"{_LIST_CAP:,}")
+        warns.append(hit("list_rows", _LIST_CAP, found,
+                         f"{found:,} chunks found; listing the first "
+                         f"{_LIST_CAP:,}"))
     return label, out, warns

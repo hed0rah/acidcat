@@ -401,3 +401,25 @@ def test_loc_covers_both_locator_kinds():
     keys = set(contract.Loc.__annotations__)
     assert set(SCHEMA["$defs"]["byteLoc"]["properties"]) <= keys
     assert set(SCHEMA["$defs"]["pathLoc"]["properties"]) <= keys
+
+
+# ── limits (section 9.1) ───────────────────────────────────────────────
+
+def test_the_limits_object_is_what_the_document_records(tmp_path):
+    """The Document says which limits it was made under; `deep` is decode."""
+    from acidcat.core.infra.limits import Limits
+    p = tmp_path / "seed.wav"
+    p.write_bytes(seeds.build("wav"))
+    assert contract.walk(str(p))["limits"] == dict(
+        Limits().record(), decode=False)
+    assert contract.walk(str(p), deep=True)["limits"]["decode"] is True
+    doc = contract.walk(str(p), limits=Limits(decode=True, frame_rows=10))
+    assert doc["limits"]["decode"] is True and doc["limits"]["frame_rows"] == 10
+    assert doc["limits"]["hit"] == []
+    assert set(doc["limits"]) == set(SCHEMA["$defs"]["limits"]["properties"])
+
+
+def test_every_limit_has_a_registered_code():
+    from acidcat.core.infra.limits import CODES, NAMES
+    assert set(CODES) == set(NAMES)
+    assert set(NAMES) | {"decode", "hit"} == set(SCHEMA["$defs"]["limits"]["properties"])

@@ -7,10 +7,10 @@ the MThd/MTrk detail shows through, with offsets shifted to the wrapped position
 Little-endian RIFF sizes; the wrapped MIDI is big-endian, decoded by the delegate.
 """
 
-from acidcat.core.primitives.notes import coverage
 import struct
 
 from acidcat.core.walk import midi as midimod
+from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import BytesSource
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -23,8 +23,9 @@ def inspect_rmid(filepath, deep=False):
         data = f.read(min(size, _RMID_CAP))
     warns = []
     if size > _RMID_CAP:
-        warns.append(coverage(f"file exceeds {_RMID_CAP >> 20} MB; parsed the first "
-                     f"{_RMID_CAP >> 20} MB"))
+        warns.append(hit("read_bytes", _RMID_CAP, size,
+                         f"file exceeds {_RMID_CAP >> 20} MB; parsed the first "
+                         f"{_RMID_CAP >> 20} MB"))
     if data[:4] != b"RIFF" or data[8:12] != b"RMID":
         warns.append("missing RIFF/RMID magic")
     riff_size = struct.unpack_from("<I", data, 4)[0] if len(data) >= 8 else 0

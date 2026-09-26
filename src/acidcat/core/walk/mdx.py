@@ -15,7 +15,7 @@ See core/formats/mdx.py for the layout and where it was verified.
 
 
 from acidcat.core.formats import mdx as mdxmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
 # The player itself caps an MDX at 86 KB; the largest of 27,166 real tunes is
@@ -30,8 +30,9 @@ def inspect_mdx(filepath, deep=False):
         raw = fh.read(min(size, _MDX_READ_CAP))
     warns = []
     if size > _MDX_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(raw))))
+        warns.append(hit("read_bytes", _MDX_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(raw))))
 
     h = mdxmod.parse_header(raw)
     if not h["ok"] and h.get("packer"):

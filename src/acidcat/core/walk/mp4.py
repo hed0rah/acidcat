@@ -5,7 +5,7 @@ box tree, with the stsd sample entries and their codec-config boxes
 import struct
 
 from acidcat.core.formats import mp4 as mp4mod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
 _CODEC_NAMES = {"mp4a": "AAC", "alac": "Apple Lossless", "Opus": "Opus",
@@ -376,14 +376,16 @@ def _capped_note(payload, kind):
     if kind == b"elst":
         h = mp4mod.parse_elst(payload)
         if h and h["capped"]:
-            return coverage("listing the first %d of %d edit-list entries"
-                            % (mp4mod._ELST_ENTRY_CAP, h["count"]))
+            return hit("list_rows", mp4mod._ELST_ENTRY_CAP, h['count'],
+                       "listing the first %d of %d edit-list entries"
+                       % (mp4mod._ELST_ENTRY_CAP, h["count"]))
     elif kind == b"dref":
         h = mp4mod.parse_dref(payload)
         if h and h["capped"]:
-            return coverage("examined the first %d of %d data references, so "
-                            "whether the media is all in this file is not "
-                            "settled" % (mp4mod._DREF_ENTRY_CAP, h["count"]))
+            return hit("list_rows", mp4mod._DREF_ENTRY_CAP, h['count'],
+                       "examined the first %d of %d data references, so "
+                       "whether the media is all in this file is not "
+                       "settled" % (mp4mod._DREF_ENTRY_CAP, h["count"]))
     return None
 
 

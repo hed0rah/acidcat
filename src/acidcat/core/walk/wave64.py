@@ -28,7 +28,7 @@ well-formed Wave64 as running past EOF.
 
 import struct
 
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _open, _size
 from acidcat.core.walk.wav import _PARSERS, _parse_data
 
@@ -90,7 +90,8 @@ def inspect_wave64(filepath):
         seen = 0
         while pos + _CHUNK_HEADER <= file_size:
             if seen >= _MAX_CHUNKS:
-                file_warns.append(coverage(
+                file_warns.append(hit(
+                    "work_steps", _MAX_CHUNKS, seen,
                     f"stopped after {_MAX_CHUNKS} chunks; the file may continue"))
                 break
             f.seek(pos)

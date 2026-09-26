@@ -3,7 +3,8 @@ Vorbis/Opus comment header. Page primitives live in core/ogg.py."""
 
 
 from acidcat.core.formats import ogg as oggmod
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _f, _open, _size
 
 # A comment header is a handful of tags; 200 is far above any real one
@@ -98,8 +99,9 @@ def inspect_ogg(filepath):
             fields.append(_f(None, 0, k, str(v)[:200]))
         cwarns = []
         if len(tags) > _TAG_LIST_CAP:
-            cwarns.append(coverage(f"listing the first {_TAG_LIST_CAP} of "
-                                   f"{len(tags)} comments"))
+            cwarns.append(hit("list_rows", _TAG_LIST_CAP, len(tags),
+                              f"listing the first {_TAG_LIST_CAP} of "
+                              f"{len(tags)} comments"))
         summary = f"{len(tags)} Vorbis comment(s)" if tags else "no comments"
         if vendor:
             summary += f" -- {vendor[:80]}"

@@ -14,7 +14,7 @@ reader ends up silently dropping the one field that mattered.
 import re
 import xml.etree.ElementTree as ET
 
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 
 # Namespace URI -> the prefix the spec uses for it. Anything outside this table
 # is reported under its URI's last path segment, so an unrecognized vocabulary
@@ -92,9 +92,9 @@ def parse_xmp(data):
     """
     warns = []
     if len(data) > _PACKET_CAP:
-        warns.append(coverage(
-            f"XMP packet is {len(data):,} bytes; reading the first "
-            f"{_PACKET_CAP:,}"))
+        warns.append(hit("chunk_payload", _PACKET_CAP, len(data),
+                         f"XMP packet is {len(data):,} bytes; reading the first "
+                         f"{_PACKET_CAP:,}"))
         data = data[:_PACKET_CAP]
     # the packet is bracketed by processing instructions that are not part of
     # the document, and a writer may pad after the end with whitespace or NULs

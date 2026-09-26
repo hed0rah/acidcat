@@ -26,6 +26,12 @@ exact on-disk bytes (the editor/repair contract); `xref` marks a pointer field.
 This one shape flows through inspect, the TUI, probe, anomalies, and indexing
 unchanged.
 
+A warning is a defect (a plain string: the file has something to answer for)
+or a coverage note (the walk stopped at one of our limits). A coverage note is
+made only by `core/infra/limits.hit(name, limit, used, message)`, so it always
+names the limit it hit; the v1 Document turns it into a `coverage` finding and
+lists the limit in `limits.hit`.
+
 ## Layer stack (bottom to top)
 
 1. **Format primitives** -- `core/formats/` (per-format byte decoders: `riff`,
@@ -81,13 +87,13 @@ unchanged.
 
 ```
 src/acidcat/
-  core/            202 modules
+  core/            203 modules
     formats/       per-format byte decoders (35)
     walk/          57 walker modules -> 88 format labels (58)
     primitives/    shared byte readers (6)
     codecs/        sample-data decoders, unpackers, the 6510/SID and SPC700/S-DSP players (21)
     containers/    disc images and archives (5)
-    infra/         sniff, fieldcodec, mmap, Source, rendering, the v1 contract (12)
+    infra/         sniff, fieldcodec, mmap, Source, Limits, rendering, the v1 contract (13)
     forensics/     anomalies, entropy/viz, audioscan, provenance (19)
     analysis/      PCM decode, BPM/key, features, bandwidth (8)
     write/         strict IFF engine, constraints, repairers (12)
@@ -99,7 +105,7 @@ src/acidcat/
   mcp_server/      schema, handlers, transport (19 tools)
   tui_app/         Textual inspector/editor
   util/            small shared helpers
-  cli.py  explorer.py  tui_theme.py  __init__.py     (259 modules in total)
+  cli.py  explorer.py  tui_theme.py  __init__.py     (260 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

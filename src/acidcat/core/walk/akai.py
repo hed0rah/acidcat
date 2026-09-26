@@ -17,7 +17,7 @@ import os
 import struct
 
 from acidcat.core.formats import akai as akaimod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size, _name
 from acidcat.core.walk.base import _f
 
@@ -129,8 +129,9 @@ def inspect_s3p(filepath):
 
     warns = []
     if size > _S3P_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(data))))
+        warns.append(hit("read_bytes", _S3P_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(data))))
 
     h = akaimod.parse_program(data, len(data))
     if not h["ok"]:
@@ -200,8 +201,9 @@ def inspect_s3p(filepath):
             "fields": kf, "warnings": [], "payload_base": off,
             "payload_len": length, "extent_len": length})
     if len(h["keygroups"]) > _S3P_KEYGROUP_CAP:
-        note = coverage("listing the first %d of %d keygroups"
-                        % (_S3P_KEYGROUP_CAP, len(h["keygroups"])))
+        note = hit("list_rows", _S3P_KEYGROUP_CAP, len(h['keygroups']),
+                   "listing the first %d of %d keygroups"
+                   % (_S3P_KEYGROUP_CAP, len(h["keygroups"])))
         chunks[0]["warnings"].append(note)
         warns.append(note)
 

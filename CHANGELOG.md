@@ -15,8 +15,25 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   storage type they were read as, the play/decode/render capabilities, and one
   findings list. Nothing reads it yet; `inspect --json` is unchanged.
 
+- **One `Limits` object** (`core/infra/limits.py`) records what a walk ran
+  under on its Document, and `hit(name, limit, used, message)` announces a cap:
+  the note names the limit, the bound and how much the file asked for, and the
+  Document lists it in `limits.hit` with a `cap.*` finding.
+  `contract.walk()` takes `limits=`.
+- **`docs/contract/cli-2.0.md`**: every 1.8 command and flag, what it becomes
+  in 2.0, and which old spellings keep working through 2.x. A test fails when
+  the parser grows a flag the page does not map.
+
 ### Changed
 
+- **Cap hits are never defects.** Twenty-two places reported crossing one of
+  acidcat's own limits as a plain warning, which `audit` counted against the
+  file: the 8SVX, SMUS, VOC, DMX and BFD read and chunk caps, eight E-mu
+  listings, the MIDI read cap and event listing, the MP3 frame listing, the
+  SigMF annotation, tracker sample and MPC pad listings, and the generic
+  triage's read window and chunk listing. They are coverage notes now, with the
+  same text. A coverage note cannot be made without naming its limit, so a new
+  cap cannot be misfiled.
 - **Walkers read a Source, not a path.** A walk maps the file once, and bytes
   in memory walk exactly as a file does: `walk_bytes` no longer writes a temp
   file (it cost 1.9x the walk at 300 bytes and 400x at 64 MB), and an RMID's
@@ -26,6 +43,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   path before and after, deep and shallow; from bytes the output is the same
   except where a file beside it would be checked (a cue sheet's BIN, a PSF's
   library), which cannot happen without a directory.
+
+### Removed
+
+- `acidcat.core.primitives.notes.coverage(text)`. Use
+  `acidcat.core.infra.limits.hit(name, limit, used, text)`; `Note(text,
+  "coverage")` without a `cap` now raises `ValueError`.
 
 ## [1.8.6] - 2026-09-25
 

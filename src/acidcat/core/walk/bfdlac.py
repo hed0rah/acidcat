@@ -17,7 +17,7 @@ id, a u32 size, the payload, no pad byte observed. The walk degrades on any
 malformed input and never raises.
 """
 
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 
 from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open, _size
 
@@ -75,10 +75,11 @@ def inspect_bfdlac(filepath):
             # outgrows _READ_CAP -- the same defect rx2 had, where 7 of 347 real
             # files were called corrupt because their audio exceeded the buffer.
             if payload + size <= file_size:
-                chunk.setdefault("warnings", []).append(
+                chunk.setdefault("warnings", []).append(hit(
+                    "read_bytes", _READ_CAP, payload + size,
                     f"chunk declares {size:,} bytes; only {avail:,} were read "
                     f"(the {_READ_CAP // (1024 * 1024)} MB read window, not a "
-                    f"short file)")
+                    f"short file)"))
             else:
                 chunk.setdefault("warnings", []).append(
                     f"chunk declares {size:,} bytes, only "
@@ -93,7 +94,8 @@ def inspect_bfdlac(filepath):
         pos += step
 
     if n >= _CHUNK_CAP:
-        warns.append(coverage(f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap"))
+        warns.append(hit("work_steps", _CHUNK_CAP, n,
+                         f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap"))
 
     # enrich the BFDC summary with the audio descriptor
     if fmt and fmt.get("rate"):

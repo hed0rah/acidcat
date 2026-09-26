@@ -16,7 +16,7 @@ See core/formats/sid.py for the layout and the byte-order trap.
 
 
 from acidcat.core.formats import sid as sidmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
 # A SID is tiny -- the largest of 630 measured tunes is 60 KB. The cap is far
@@ -39,8 +39,9 @@ def inspect_sid(filepath, deep=False):
         # the memory image length, and the extent derived from it, would
         # describe a prefix -- so the note has to be exact at any size, and
         # a rounded "0 MB" is what a small cap collapses to.
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(raw))))
+        warns.append(hit("read_bytes", _SID_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(raw))))
 
     h = sidmod.parse_header(raw)
     magic = h["magic"].decode("latin-1", "replace")

@@ -9,7 +9,8 @@ and see a dangling (past-EOF) pointer flagged. Parsing lives in core/tracker."""
 import struct
 
 from acidcat.core.formats import tracker as tk
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import Unsupported, _f, _open, _size
 
 _SAMPLE_CAP = 400        # samples to list
@@ -185,7 +186,8 @@ def inspect_xm(filepath):
             })
     warns = list(x["warnings"])
     if idx > _SAMPLE_CAP:
-        warns.append(f"listing the first {_SAMPLE_CAP} of {idx} samples")
+        warns.append(hit("list_rows", _SAMPLE_CAP, idx,
+                         f"listing the first {_SAMPLE_CAP} of {idx} samples"))
     return chunks, warns
 
 
@@ -447,7 +449,8 @@ def inspect_stm(filepath):
                 f"sample data runs past the end of the file")
         chunks.append(entry)
     if len(s["instruments"]) > _STM_INSTRUMENT_CAP:
-        chunks[0]["warnings"].append(coverage(
+        chunks[0]["warnings"].append(hit(
+            "list_rows", _STM_INSTRUMENT_CAP, len(s["instruments"]),
             f"listing the first {_STM_INSTRUMENT_CAP} of "
             f"{len(s['instruments'])} instruments"))
 

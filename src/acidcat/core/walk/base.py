@@ -24,7 +24,7 @@ import struct
 # single source for the per-chunk payload read cap: the walkers and the grammar
 # strategy share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
 from acidcat.core.formats.riff import PAYLOAD_CAP as _PAYLOAD_CAP
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import input_name, input_size, open_input
 
 
@@ -260,6 +260,7 @@ def parse_opaque(payload, what):
         fields.append(_f(None, 0, "text", text[:80]))
     warns = []
     if len(runs) > _OPAQUE_RUN_CAP:
-        warns.append(coverage(f"listing the first {_OPAQUE_RUN_CAP} of "
-                              f"{len(runs)} readable runs"))
+        warns.append(hit("list_rows", _OPAQUE_RUN_CAP, len(runs),
+                         f"listing the first {_OPAQUE_RUN_CAP} of "
+                         f"{len(runs)} readable runs"))
     return f"{what}, {len(payload):,} bytes", fields, warns

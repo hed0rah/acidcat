@@ -33,7 +33,7 @@ rest on one document rather than two.
 import re
 import struct
 
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
 # An NSF is a NES ROM image: the mapper windows 4 KB banks into 32 KB of address
@@ -126,8 +126,9 @@ def inspect_nsf(filepath, deep=False):
     with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     if size > _NSF_READ_CAP:
-        warns.append(coverage("read the first %s of %s bytes"
-                              % (format(_NSF_READ_CAP, ","), format(size, ","))))
+        warns.append(hit("read_bytes", _NSF_READ_CAP, size,
+                         "read the first %s of %s bytes"
+                         % (format(_NSF_READ_CAP, ","), format(size, ","))))
     if raw[:5] != b"NESM\x1a":
         # The siblings both check their magic and this did not, so anything at
         # least 128 bytes long parsed as an NSF and produced a confident title,
@@ -331,7 +332,8 @@ def _nsfe_chunks(raw, start, end, bare=False, base=0):
                              % format(end - pos, ","))
             break
     if n >= _NSFE_CHUNK_MAX:
-        warns.append(coverage("stopped after %d chunks" % _NSFE_CHUNK_MAX))
+        warns.append(hit("work_steps", _NSFE_CHUNK_MAX, n,
+                         "stopped after %d chunks" % _NSFE_CHUNK_MAX))
     if bare and not fields:
         warns.append("the appended metadata carries no readable chunk")
     return fields, warns
@@ -351,8 +353,9 @@ def inspect_nsfe(filepath, deep=False):
         raw = fh.read(min(size, _NSF_READ_CAP))
     warns = []
     if size > _NSF_READ_CAP:
-        warns.append(coverage("read the first %s of %s bytes"
-                              % (format(_NSF_READ_CAP, ","), format(size, ","))))
+        warns.append(hit("read_bytes", _NSF_READ_CAP, size,
+                         "read the first %s of %s bytes"
+                         % (format(_NSF_READ_CAP, ","), format(size, ","))))
     if len(raw) < 4 or raw[:4] != b"NSFE":
         return [{"id": "chunks", "offset": 0, "size": size,
                  "summary": "not an NSFe (magic is not NSFE)",
@@ -610,8 +613,9 @@ def inspect_gbs(filepath, deep=False):
     with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     if size > _NSF_READ_CAP:
-        warns.append(coverage("read the first %s of %s bytes"
-                              % (format(_NSF_READ_CAP, ","), format(size, ","))))
+        warns.append(hit("read_bytes", _NSF_READ_CAP, size,
+                         "read the first %s of %s bytes"
+                         % (format(_NSF_READ_CAP, ","), format(size, ","))))
     if raw[:3] != b"GBS":
         return [{"id": "header", "offset": 0, "size": size,
                  "summary": "not a GBS (signature is not 'GBS')",
@@ -724,7 +728,8 @@ def inspect_hes(filepath, deep=False):
     with _open(filepath) as fh:
         raw = fh.read(min(size, _HES_READ_CAP))
     if size > _HES_READ_CAP:
-        warns.append(coverage("file is %d bytes; read the first %d" % (size, _HES_READ_CAP)))
+        warns.append(hit("read_bytes", _HES_READ_CAP, size,
+                         "file is %d bytes; read the first %d" % (size, _HES_READ_CAP)))
     if raw[:4] != b"HESM" or len(raw) < _HES_HEADER:
         raise Unsupported("no HESM header")
     version, first = raw[4], raw[5]
@@ -745,7 +750,8 @@ def inspect_hes(filepath, deep=False):
     n = 0
     while pos + _HES_BLOCK_HEADER <= len(raw) and raw[pos:pos + 4] == _HES_DATA:
         if n >= _HES_BLOCK_LIST_CAP:
-            warns.append(coverage("listing the first %d data blocks" % _HES_BLOCK_LIST_CAP))
+            warns.append(hit("list_rows", _HES_BLOCK_LIST_CAP, n,
+                             "listing the first %d data blocks" % _HES_BLOCK_LIST_CAP))
             break
         bsize, baddr = struct.unpack_from("<II", raw, pos + 4)
         have = max(min(bsize, size - pos - _HES_BLOCK_HEADER), 0)
@@ -813,7 +819,8 @@ def inspect_kss(filepath, deep=False):
     with _open(filepath) as fh:
         raw = fh.read(min(size, _KSS_READ_CAP))
     if size > _KSS_READ_CAP:
-        warns.append(coverage("file is %d bytes; read the first %d" % (size, _KSS_READ_CAP)))
+        warns.append(hit("read_bytes", _KSS_READ_CAP, size,
+                         "file is %d bytes; read the first %d" % (size, _KSS_READ_CAP)))
     if raw[:4] not in _KSS_MAGICS or len(raw) < _KSS_HEADER:
         raise Unsupported("no KSCC/KSSX header")
     extended = raw[:4] == b"KSSX"
@@ -865,7 +872,8 @@ def inspect_kss(filepath, deep=False):
         if pos >= size:
             break
         if listed >= _KSS_BANK_LIST_CAP:
-            warns.append(coverage("listing the first %d of %d banks" % (_KSS_BANK_LIST_CAP, banks)))
+            warns.append(hit("list_rows", _KSS_BANK_LIST_CAP, banks,
+                             "listing the first %d of %d banks" % (_KSS_BANK_LIST_CAP, banks)))
             break
         n = min(bank_size, size - pos)
         chunks.append({"id": "bank[%d]" % (start_bank + i), "offset": pos, "size": n,

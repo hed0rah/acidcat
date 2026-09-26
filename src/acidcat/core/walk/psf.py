@@ -11,7 +11,7 @@ See core/formats/psf.py for the layout and where it came from.
 
 
 from acidcat.core.formats import psf as psfmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
@@ -32,8 +32,9 @@ def inspect_psf(filepath, deep=False):
 
     warns = []
     if size > _PSF_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(raw))))
+        warns.append(hit("read_bytes", _PSF_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(raw))))
     h = psfmod.parse(raw, len(raw))
     if not h["ok"]:
         return [{"id": "header", "offset": 0, "size": min(size, psfmod.HEADER),
@@ -214,8 +215,9 @@ def _tag_chunk(h, raw, at, length):
         fields.append(_f(None, 0, key, val[:120]))
     warnings = []
     if len(t) - 10 > _PSF_TAG_LIST_CAP:
-        warnings.append(coverage("listing the first %d of %d other tags"
-                                 % (_PSF_TAG_LIST_CAP, len(t))))
+        warnings.append(hit("list_rows", _PSF_TAG_LIST_CAP, len(t) - 10,
+                            "listing the first %d of %d other tags"
+                            % (_PSF_TAG_LIST_CAP, len(t))))
     title = t.get("title") or ("library" if h["libs"] == [] and not t else "(untitled)")
     by = t.get("artist")
     return {"id": "tags", "offset": at, "size": length,

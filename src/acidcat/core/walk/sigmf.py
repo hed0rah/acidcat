@@ -14,12 +14,12 @@ is a multi-gigabyte capture). No numpy: a bounded struct read is enough.
 """
 
 import hashlib
-from acidcat.core.primitives.notes import coverage
 import json
 import os
 import re
 import struct
 
+from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import _f, _open
 
@@ -195,7 +195,8 @@ def inspect_sigmf(path, deep=False):
     warns = []
     g, captures, annotations, meta_ok = {}, [], [], False
     if meta is not None and meta.size > _META_CAP:
-        warns.append(coverage(f"sidecar exceeds {_META_CAP >> 20} MB; not parsed"))
+        warns.append(hit("read_bytes", _META_CAP, meta.size,
+                         f"sidecar exceeds {_META_CAP >> 20} MB; not parsed"))
     elif meta is not None:
         try:
             text = meta.read(0, _META_CAP).decode("utf-8", "replace")
@@ -265,7 +266,8 @@ def inspect_sigmf(path, deep=False):
         for k in extra[:_EXT_KEY_CAP]:
             gfields.append(_f(None, 0, k, str(g[k])[:120]))
         if len(extra) > _EXT_KEY_CAP:
-            warns.append(coverage(f"listing the first {_EXT_KEY_CAP} of {len(extra)} global keys"))
+            warns.append(hit("list_rows", _EXT_KEY_CAP, len(extra),
+                             f"listing the first {_EXT_KEY_CAP} of {len(extra)} global keys"))
         dur_s = f", {dur:.1f} s" if dur is not None else ""
         chunks.append({
             "id": "global", "offset": 0, "size": 0, "payload_base": 0,
@@ -336,8 +338,9 @@ def inspect_sigmf(path, deep=False):
                 "fields": af, "warnings": [], "payload_base": off,
             })
         if len(annotations) > _ANNOTATION_CAP:
-            warns.append(f"listing the first {_ANNOTATION_CAP} of "
-                         f"{len(annotations)} annotations")
+            warns.append(hit("list_rows", _ANNOTATION_CAP, len(annotations),
+                             f"listing the first {_ANNOTATION_CAP} of "
+                             f"{len(annotations)} annotations"))
 
     samples, _ = _samples_chunk(data_path, data_size, geo, dt, deep)
     chunks.append(samples)

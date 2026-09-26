@@ -30,11 +30,14 @@ separately and once, not re-tested at every site.
 import ast
 import enum
 import importlib
+import json
 import pathlib
 import re
 import struct
 
 import pytest
+
+from acidcat.core.primitives.notes import is_coverage
 
 SRC = pathlib.Path(__file__).parent.parent / "src" / "acidcat"
 ROOTS = ("core", "tui_app", "commands", "util")
@@ -400,7 +403,6 @@ PENDING_1_0_1 = {
     ("acidcat.core.forensics.lsb", "_DE_CAP"),
     ("acidcat.core.forensics.lsb", "_MAX_PCM"),
     ("acidcat.core.forensics.transforms", "_READ_CAP"),
-    ("acidcat.core.forensics.triage", "_LIST_CAP"),
     ("acidcat.core.forensics.triage", "_READ_CAP"),
     ("acidcat.core.formats.bitwig", "_SCAN_CAP"),
     ("acidcat.core.formats.mp3", "_RESYNC_LIMIT"),
@@ -441,7 +443,6 @@ PENDING_1_0_1 = {
     ("acidcat.core.walk.svx", "_READ_CAP"),
     ("acidcat.core.walk.tracker", "_SAMPLE_CAP"),
     ("acidcat.core.walk.sf2", "_SF2_CAP"),
-    ("acidcat.core.walk.sigmf", "_ANNOTATION_CAP"),
     ("acidcat.core.walk.sigmf", "_EXT_KEY_CAP"),
     ("acidcat.core.walk.sigmf", "_META_CAP"),
     ("acidcat.core.walk.tracker", "_ORDER_CAP"),
@@ -1180,7 +1181,22 @@ def _sndh_over_cap(tmp_path, n):
     return str(q)
 
 
+def _seed(fmt):
+    """A builder that ignores n and writes the seed as built: for a cap the
+    seed already crosses once it is patched to 0 or 1."""
+    def build(tmp_path, n):
+        import seeds
+        q = tmp_path / ("seed" + seeds.suffix(fmt))
+        q.write_bytes(seeds.build(fmt))
+        return str(q)
+    return build
+
+
 SWEPT = [
+    # the seed holds one annotation, and triage's seed four chunks
+    ("acidcat.core.walk.sigmf", "_ANNOTATION_CAP", 0, _seed("sigmf"), "annotations"),
+    ("acidcat.core.forensics.triage", "_LIST_CAP", 1, _seed("unknown-container"),
+     "listing the first"),
     ("acidcat.core.walk.sndh", "_SNDH_READ_CAP", 512, _sndh_over_cap, "parsed the first"),
     ("acidcat.core.walk.ym", "_YM_READ_CAP", 512, _ym_over_cap, "parsed the first"),
     ("acidcat.core.walk.ym", "_YM_DRUM_LIST_CAP", 4, _ym_many_drums, "listing the first"),
@@ -1320,8 +1336,39 @@ def test_a_bound_that_bites_says_so(tmp_path, monkeypatch, module, const, small,
     monkeypatch.setattr(mod, const, small)
     path = build(tmp_path, small * 4)
     _label, _chunks, warns = walk_file(path)
-    assert any(says in w for w in warns), (
-        f"{const} was crossed and nothing said so; warnings were {warns}")
+    said = [w for w in warns if says in w]
+    assert said, f"{const} was crossed and nothing said so; warnings were {warns}"
+    # and says it as a coverage note naming this bound, never as a defect
+    # (2.0: a cap hit is a coverage finding by construction)
+    caps = [getattr(w, "cap", None) for w in said]
+    assert all(is_coverage(w) for w in said), (
+        f"{const} was announced as a defect: {said}")
+    assert any(c and c["limit"] == small and c["used"] >= small for c in caps), (
+        f"{const} was announced without its bound: {caps}")
+
+
+@pytest.mark.parametrize("module,const,small,build,says",
+                         SWEPT, ids=[f"{m.rsplit('.', 1)[-1]}.{c}"
+                                     for m, c, _s, _b, _y in SWEPT])
+def test_a_bound_that_bites_is_a_limit_hit_in_the_document(tmp_path, monkeypatch,
+                                                            module, const, small,
+                                                            build, says):
+    """The same crossing, read through the v1 Document: a coverage finding
+    carrying the cap, and the limit named in `limits.hit`."""
+    from acidcat.core.infra import contract
+    monkeypatch.setattr(importlib.import_module(module), const, small)
+    doc = contract.walk(build(tmp_path, small * 4))
+    cov = [f for f in doc["findings"] if says in f["message"]]
+    assert cov and all(f["kind"] == "coverage" for f in cov), cov
+    assert all(f["code"].startswith("cap.") for f in cov), cov
+    assert {f["cap"]["name"] for f in cov} <= set(doc["limits"]["hit"]), (
+        cov, doc["limits"])
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((SRC.parent.parent / "docs/contract/node-v1.schema.json")
+                        .read_text(encoding="utf-8"))
+    errs = list(jsonschema.Draft202012Validator(schema).iter_errors(
+        json.loads(json.dumps(doc))))
+    assert not errs, [(e.json_path, e.message[:120]) for e in errs[:3]]
 
 
 @pytest.mark.parametrize("module,const,small,build,says",
@@ -1388,7 +1435,7 @@ def test_the_ledger_has_no_ghosts():
 def test_pending_only_shrinks():
     """A ratchet, after tests/test_targets.py. The number is written down so
     that adding to the list is a visible act rather than a quiet one."""
-    assert len(PENDING_1_0_1) <= 61, (
+    assert len(PENDING_1_0_1) <= 58, (
         f"PENDING_1_0_1 has grown to {len(PENDING_1_0_1)}. A new bound belongs "
         f"in SWEPT or EXEMPT; this list is debt and may only shrink.")
 

@@ -48,6 +48,7 @@ something it never saw is the more expensive kind of wrong.
 
 import struct
 
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
 MAGIC = b"Creative Voice File\x1a"
@@ -195,10 +196,11 @@ def inspect_voc(filepath):
 
     file_warns = []
     if file_size > _READ_CAP:
-        file_warns.append(
+        file_warns.append(hit(
+            "read_bytes", _READ_CAP, file_size,
             f"file is {file_size:,} bytes; only the first "
             f"{_READ_CAP // (1024 * 1024)} MB was read, so blocks past that "
-            f"point are not described")
+            f"point are not described"))
 
     info = parse_voc(data)
     file_warns.extend(info["warnings"])

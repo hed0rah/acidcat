@@ -6,6 +6,7 @@ import re
 import struct
 
 from acidcat.core.formats import mp3 as mp3mod
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import (
     _FRAME_LISTING_CAP, _ID3_READ_CAP, _PAYLOAD_CAP, _bu16, _bu32, _f,
     _open, _size,
@@ -737,10 +738,10 @@ def inspect_mp3(filepath, deep=False):
     if deep:
         frames_entry["rows"] = rows
         if truncated:
-            frames_entry["warnings"].append(
+            frames_entry["warnings"].append(hit(
+                "frame_rows", _FRAME_LISTING_CAP, count,
                 f"frame listing capped at {_FRAME_LISTING_CAP:,}; "
-                f"{count:,} frames total"
-            )
+                f"{count:,} frames total"))
     chunks.append(frames_entry)
 
     if id3v1_off is not None:

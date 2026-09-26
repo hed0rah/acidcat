@@ -42,6 +42,7 @@ assumption resamples most of a game's sound set wrong.
 
 import struct
 
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
 _HDR = 8
@@ -107,9 +108,10 @@ def inspect_dmx(filepath):
     info = parse_dmx(data, file_size)
     file_warns = list(info["warnings"])
     if file_size > _READ_CAP:
-        file_warns.append(
+        file_warns.append(hit(
+            "read_bytes", _READ_CAP, file_size,
             f"lump is {file_size:,} bytes; only the first "
-            f"{_READ_CAP // (1024 * 1024)} MB was read")
+            f"{_READ_CAP // (1024 * 1024)} MB was read"))
 
     secs = info["count"] / float(info["rate"]) if info["rate"] else None
     warns = []

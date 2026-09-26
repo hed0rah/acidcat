@@ -14,6 +14,7 @@ without guessing at their bodies; the walk degrades on any malformed input.
 """
 
 
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open, _size
 
 _READ_CAP = 64 * 1024 * 1024
@@ -90,7 +91,8 @@ def inspect_8svx(filepath):
         pos += step
 
     if n >= _CHUNK_CAP:
-        warns.append(f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap")
+        warns.append(hit("work_steps", _CHUNK_CAP, n,
+                         f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap"))
 
     # enrich the FORM summary with rate/duration, the voice name, and the tool
     bits = []

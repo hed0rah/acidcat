@@ -10,7 +10,7 @@ walker checks that it fits.
 
 
 from acidcat.core.formats import pt3 as pt3mod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
@@ -27,8 +27,9 @@ def inspect_pt3(filepath, deep=False):
         raw = fh.read(min(size, _PT3_READ_CAP))
     warns = []
     if size > _PT3_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d, which is "
-                              "all a 16-bit pointer can reach" % (size, _PT3_READ_CAP)))
+        warns.append(hit("read_bytes", _PT3_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d, which is "
+                         "all a 16-bit pointer can reach" % (size, _PT3_READ_CAP)))
     if pt3mod.is_pt3(raw):
         h = pt3mod.parse(raw, len(raw))
     else:
@@ -106,8 +107,9 @@ def inspect_pt3(filepath, deep=False):
     listed = 0
     for at, n, names in regs:
         if listed >= _PT3_REGION_LIST_CAP:
-            warns.append(coverage("listing the first %d of %d regions"
-                                  % (_PT3_REGION_LIST_CAP, len(regs))))
+            warns.append(hit("list_rows", _PT3_REGION_LIST_CAP, len(regs),
+                             "listing the first %d of %d regions"
+                             % (_PT3_REGION_LIST_CAP, len(regs))))
             break
         listed += 1
         chunks.append(_region(raw, h, at, n, names, warns))

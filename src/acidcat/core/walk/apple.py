@@ -16,7 +16,7 @@ from acidcat.core.infra.vocab import (
     AUDIO_CHANNEL_LAYOUT_TAGS as _LAYOUT_TAGS,
     WAV_SPEAKER_POSITIONS as _SPEAKER_POSITIONS,
 )
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f
 
 # ResU is a few hundred bytes that inflate to a few thousand. The cap is far
@@ -94,8 +94,9 @@ def _parse_resu(b, ctx):
     except zlib.error as e:
         return "undecodable", fields, [f"ResU did not inflate ({e})"]
     if len(raw) >= _RESU_INFLATE_CAP:
-        warns.append(coverage(f"ResU inflated to the {_RESU_INFLATE_CAP >> 10} KB "
-                              f"cap; the document may continue"))
+        warns.append(hit("inflate_bytes", _RESU_INFLATE_CAP, len(raw),
+                         f"ResU inflated to the {_RESU_INFLATE_CAP >> 10} KB "
+                         f"cap; the document may continue"))
     try:
         doc = json.loads(raw.decode("utf-8", "replace"))
     except ValueError as e:
@@ -174,8 +175,9 @@ def _parse_apple_meta(b, ctx):
     for name in classes[:_APPLE_CLASS_CAP]:
         fields.append(_f(None, 0, "class", name))
     if len(classes) > _APPLE_CLASS_CAP:
-        warns.append(coverage(f"listing the first {_APPLE_CLASS_CAP} of "
-                     f"{len(classes)} archived class names"))
+        warns.append(hit("list_rows", _APPLE_CLASS_CAP, len(classes),
+                         f"listing the first {_APPLE_CLASS_CAP} of "
+                         f"{len(classes)} archived class names"))
     summary = f"Apple typedstream, {len(b):,} bytes"
     if classes:
         summary += " -- " + ", ".join(classes[:3])
@@ -247,8 +249,9 @@ def _parse_trns(b, ctx):
         warns.append(f"{beyond} transient(s) fall past the {frames:,} frames "
                      f"COMM declares")
     if count > _TRNS_LIST_CAP:
-        warns.append(coverage(f"listing the first {_TRNS_LIST_CAP} of "
-                              f"{count:,} transients"))
+        warns.append(hit("list_rows", _TRNS_LIST_CAP, count,
+                         f"listing the first {_TRNS_LIST_CAP} of "
+                         f"{count:,} transients"))
 
     summary = f"{count:,} transient(s)"
     if rate and len(positions) > 2:
@@ -294,8 +297,9 @@ def _parse_cate(b, _ctx):
     for off, text in labels[:_CATE_LABEL_CAP]:
         fields.append(_f(off, _CATE_SLOT, "label", text))
     if len(labels) > _CATE_LABEL_CAP:
-        warns.append(coverage(f"listing the first {_CATE_LABEL_CAP} of "
-                              f"{len(labels)} category labels"))
+        warns.append(hit("list_rows", _CATE_LABEL_CAP, len(labels),
+                         f"listing the first {_CATE_LABEL_CAP} of "
+                         f"{len(labels)} category labels"))
     if not labels:
         return f"apple loops category data, {len(b):,} bytes", fields, warns
     return " / ".join(t for _o, t in labels[:4]), fields, warns

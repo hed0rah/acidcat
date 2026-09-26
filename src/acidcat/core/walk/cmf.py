@@ -8,7 +8,7 @@ is a chunk of its own so a patch can be carved.
 
 
 from acidcat.core.formats import cmf as cmfmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 from acidcat.core.walk.midi import _scan_track
@@ -26,8 +26,9 @@ def inspect_cmf(filepath, deep=False):
         raw = fh.read(min(size, _CMF_READ_CAP))
     warns = []
     if size > _CMF_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d, which is all "
-                              "a 16-bit offset can reach" % (size, _CMF_READ_CAP)))
+        warns.append(hit("read_bytes", _CMF_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d, which is all "
+                         "a 16-bit offset can reach" % (size, _CMF_READ_CAP)))
     h = cmfmod.parse_header(raw, len(raw))
     if not h["ok"]:
         raise _Unsupported(h["why"])
@@ -93,8 +94,9 @@ def inspect_cmf(filepath, deep=False):
             warns.append("instrument %d would overlap the music; %d fit" % (i, i))
             break
         if listed >= _CMF_INSTRUMENT_LIST_CAP:
-            warns.append(coverage("listing the first %d of %d instruments"
-                                  % (_CMF_INSTRUMENT_LIST_CAP, h["instrument_count"])))
+            warns.append(hit("list_rows", _CMF_INSTRUMENT_LIST_CAP, h['instrument_count'],
+                             "listing the first %d of %d instruments"
+                             % (_CMF_INSTRUMENT_LIST_CAP, h["instrument_count"])))
             break
         listed += 1
         ins = cmfmod.instrument(raw, at)

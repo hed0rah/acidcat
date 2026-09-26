@@ -15,7 +15,7 @@ in the summary.
 
 
 from acidcat.core.formats import vgm as vgmmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
@@ -59,8 +59,9 @@ def inspect_vgm(filepath, deep=False):
         raw = fh.read(min(size, _VGM_READ_CAP))
     warns = []
     if size > _VGM_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, _VGM_READ_CAP)))
+        warns.append(hit("read_bytes", _VGM_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, _VGM_READ_CAP)))
     packed = vgmmod.is_vgz(raw)
     if packed:
         image = vgmmod.inflate(raw, _VGM_INFLATE_CAP)
@@ -81,7 +82,8 @@ def inspect_vgm(filepath, deep=False):
                      % (h["eof"], len(image)))
     w = vgmmod.walk_commands(image, h["data_at"], end, _VGM_COMMAND_CAP)
     if w["capped"]:
-        warns.append(coverage("decoded the first %d commands" % _VGM_COMMAND_CAP))
+        warns.append(hit("work_steps", _VGM_COMMAND_CAP, _VGM_COMMAND_CAP,
+                         "decoded the first %d commands" % _VGM_COMMAND_CAP))
     elif not w["ended"]:
         warns.append("the command stream has no end marker (0x66)"
                      + (": " + w["why"] if w["why"] else ""))
@@ -128,8 +130,9 @@ def inspect_vgm(filepath, deep=False):
     pos = h["data_at"]
     blocks = w["blocks"]
     if len(blocks) > _VGM_BLOCK_LIST_CAP:
-        warns.append(coverage("listing the first %d of %d data blocks"
-                              % (_VGM_BLOCK_LIST_CAP, len(blocks))))
+        warns.append(hit("list_rows", _VGM_BLOCK_LIST_CAP, len(blocks),
+                         "listing the first %d of %d data blocks"
+                         % (_VGM_BLOCK_LIST_CAP, len(blocks))))
         blocks = blocks[:_VGM_BLOCK_LIST_CAP]
     run = 0
     for i, (at, btype, blen) in enumerate(blocks):

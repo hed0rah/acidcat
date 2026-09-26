@@ -2,7 +2,7 @@
 and structure chunks, and the named sample list. Sample carving lives in
 core/sf2.py; `acidcat convert font.sf2` extracts the samples to WAV."""
 
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 
 from acidcat.core.formats import sf2 as sf2mod
 from acidcat.core.walk.base import Unsupported, _PAYLOAD_CAP, _f, _open, _size
@@ -81,7 +81,7 @@ def inspect_sf2(filepath):
     presets = info.get("presets") or []
     instruments = info.get("instruments") or []
     warns = []
-    truncated_zones = 0
+    truncated_zones, most_zones = 0, 0
 
     for i, p in enumerate(presets[:_PRESET_LIST_CAP]):
         # bank 128 is the percussion bank: `program` selects a drum kit there,
@@ -102,8 +102,9 @@ def inspect_sf2(filepath):
                        "summary": f"{p['name']}  {where}, {p['zones']} zone(s)",
                        "fields": fields, "warnings": []})
     if len(presets) > _PRESET_LIST_CAP:
-        warns.append(coverage(f"listing the first {_PRESET_LIST_CAP} of "
-                     f"{len(presets):,} presets"))
+        warns.append(hit("list_rows", _PRESET_LIST_CAP, len(presets),
+                         f"listing the first {_PRESET_LIST_CAP} of "
+                         f"{len(presets):,} presets"))
 
     for i, inst in enumerate(instruments[:_INSTRUMENT_LIST_CAP]):
         zones = inst["zones"]
@@ -124,20 +125,23 @@ def inspect_sf2(filepath):
             # may not reach. Counted rather than repeated: a font of 200
             # instruments would otherwise emit 200 identical notes.
             truncated_zones += 1
+            most_zones = max(most_zones, len(zones))
         chunks.append({"id": f"inst[{i}]", "offset": None, "size": None,
                        "summary": f"{inst['name']}  {len(zones)} zone(s){span}",
                        "fields": fields, "warnings": []})
     if len(instruments) > _INSTRUMENT_LIST_CAP:
-        warns.append(coverage(f"listing the first {_INSTRUMENT_LIST_CAP} of "
-                     f"{len(instruments):,} instruments"))
+        warns.append(hit("list_rows", _INSTRUMENT_LIST_CAP, len(instruments),
+                         f"listing the first {_INSTRUMENT_LIST_CAP} of "
+                         f"{len(instruments):,} instruments"))
     if truncated_zones:
-        warns.append(coverage(
-            f"{truncated_zones} instrument(s) list only their first "
-            f"{_ZONE_LIST_CAP} zones; more zone(s) are present"))
+        warns.append(hit("list_rows", _ZONE_LIST_CAP, most_zones,
+                         f"{truncated_zones} instrument(s) list only their first "
+                         f"{_ZONE_LIST_CAP} zones; more zone(s) are present"))
 
     if file_size > _SF2_CAP:
-        warns.append(coverage(f"file exceeds {_SF2_CAP >> 20} MB; parsed the first "
-                     f"{_SF2_CAP >> 20} MB (samples near the end may be missing)"))
+        warns.append(hit("read_bytes", _SF2_CAP, file_size,
+                         f"file exceeds {_SF2_CAP >> 20} MB; parsed the first "
+                         f"{_SF2_CAP >> 20} MB (samples near the end may be missing)"))
     for i, s in enumerate(info["samples"][:_SAMPLE_LIST_CAP]):
         looped = "looped" if s["loop_end"] > s["loop_start"] else "one-shot"
         stype = {1: "mono", 2: "right", 4: "left", 8: "linked"}.get(s["type"], f"type {s['type']}")
@@ -162,6 +166,7 @@ def inspect_sf2(filepath):
                                   _f(None, 0, "root_key", s["pitch"])],
                        "warnings": [], "payload_base": byte_off})
     if info["sample_count"] > _SAMPLE_LIST_CAP:
-        warns.append(coverage(f"listing the first {_SAMPLE_LIST_CAP} of "
-                     f"{info['sample_count']:,} samples"))
+        warns.append(hit("list_rows", _SAMPLE_LIST_CAP, info["sample_count"],
+                         f"listing the first {_SAMPLE_LIST_CAP} of "
+                         f"{info['sample_count']:,} samples"))
     return chunks, warns

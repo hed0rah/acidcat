@@ -26,8 +26,11 @@ warning instead.
 keep working untouched -- it renders, compares, sorts, and JSON-serialises as
 the string it is. Only code that wants to know the kind has to ask.
 
-    warns.append(coverage(f"stopped at the {CAP}-chunk cap"))
+    warns.append(hit("work_steps", CAP, n, f"stopped at the {CAP}-chunk cap"))
     warns.append("size field overruns the file")        # still a defect
+
+A coverage note always names the limit it hit (`cap`), so it is made with
+`acidcat.core.infra.limits.hit`; `Note` refuses a coverage kind without one.
 
 One caveat worth knowing: string operations return plain `str`, so
 `f"{note}"`, `note.strip()` and `prefix + note` all drop the kind. Classify
@@ -43,28 +46,27 @@ KINDS = (DEFECT, COVERAGE)
 class Note(str):
     """A warning string that also carries its kind."""
 
-    __slots__ = ("kind",)
+    __slots__ = ("kind", "cap")
 
-    def __new__(cls, text, kind=DEFECT):
+    def __new__(cls, text, kind=DEFECT, cap=None):
         if kind not in KINDS:
             raise ValueError(f"unknown warning kind {kind!r}; expected one of "
                              f"{KINDS}")
+        if (kind == COVERAGE) != (cap is not None):
+            raise ValueError("a coverage note names the limit it hit, and only "
+                             "a coverage note does")
         obj = super().__new__(cls, text)
         obj.kind = kind
+        obj.cap = cap
         return obj
 
     def __repr__(self):
-        return f"Note({str.__repr__(self)}, kind={self.kind!r})"
+        return f"Note({str.__repr__(self)}, kind={self.kind!r}, cap={self.cap!r})"
 
     # A Note must survive a round trip through copy/pickle with its kind, or it
     # silently downgrades to a defect wherever a structure is copied.
     def __reduce__(self):
-        return (Note, (str(self), self.kind))
-
-
-def coverage(text):
-    """A note that the WALK stopped early. Not a statement about the file."""
-    return Note(text, COVERAGE)
+        return (Note, (str(self), self.kind, self.cap))
 
 
 def kind_of(warning):

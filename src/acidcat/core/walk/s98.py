@@ -8,7 +8,7 @@ per device.
 
 
 from acidcat.core.formats import s98 as s98mod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
@@ -24,7 +24,8 @@ def inspect_s98(filepath, deep=False):
         raw = fh.read(min(size, _S98_READ_CAP))
     warns = []
     if size > _S98_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d" % (size, _S98_READ_CAP)))
+        warns.append(hit("read_bytes", _S98_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d" % (size, _S98_READ_CAP)))
     h = s98mod.parse_header(raw)
     if not h["ok"]:
         raise _Unsupported(h["why"])
@@ -41,7 +42,8 @@ def inspect_s98(filepath, deep=False):
     dump_end = tag_at if (tag_at is not None and tag_at > h["dump_at"]) else len(raw)
     w = s98mod.walk_dump(raw, h["dump_at"], dump_end, h["version"], _S98_COMMAND_CAP)
     if w["capped"]:
-        warns.append(coverage("decoded the first %d commands" % _S98_COMMAND_CAP))
+        warns.append(hit("work_steps", _S98_COMMAND_CAP, _S98_COMMAND_CAP,
+                         "decoded the first %d commands" % _S98_COMMAND_CAP))
     elif not w["ended"]:
         warns.append("the dump has no end marker (0xFD)" + (": " + w["why"] if w["why"] else ""))
     if h["loop_at"] is not None and not h["dump_at"] <= h["loop_at"] < w["end"]:

@@ -404,6 +404,13 @@ the same limits give the same Document. `decode: true` is what `deep` meant
 when it meant "do the extra decoding work"; `list_rows: null` means each
 walker's own display default.
 
+A coverage finding's `cap` says which limit (`name`), the bound the walker
+applied (`limit`, the format's own value when it has one) and how much the
+file asked for (`used`: the total when the walker knows it, otherwise the
+count it reached, which is then a lower bound). Its `code` follows the limit:
+`cap.read`, `cap.payload`, `cap.inflate`, `cap.steps`, `cap.list`,
+`cap.frames`, `cap.depth`.
+
 ## 10. Rows
 
 `rows` (the `--frames` listings: MIDI events, MP3 frames, MDX commands) stay

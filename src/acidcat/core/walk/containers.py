@@ -202,7 +202,7 @@ def inspect_cdxa(filepath, deep=False):
     every sector sharing a (file, channel) pair, scattered across the disc.
     """
     from acidcat.core.codecs import cdxa
-    from acidcat.core.primitives.notes import coverage
+    from acidcat.core.infra.limits import hit
 
     size = _size(filepath)
     warns = []
@@ -252,9 +252,10 @@ def inspect_cdxa(filepath, deep=False):
     ]
 
     if scanned < total:
-        warns.append(coverage("examined the first %s of %s sectors; a stream "
-                              "living entirely past that point is not listed"
-                              % (format(scanned, ","), format(total, ","))))
+        warns.append(hit("work_steps", _XA_SCAN_CAP, total,
+                         "examined the first %s of %s sectors; a stream "
+                         "living entirely past that point is not listed"
+                         % (format(scanned, ","), format(total, ","))))
     if info["mode"] == 2 and not counts:
         warns.append("no sector in the range examined is tagged as audio")
     if info["mode"] != 2:

@@ -28,6 +28,7 @@ import struct
 from typing import Any, List, Optional, TypedDict
 
 from acidcat.core.infra import fieldcodec
+from acidcat.core.infra.limits import CODES as _CAP_CODES, Limits
 from acidcat.core.primitives.notes import kind_of
 
 CONTRACT = 1
@@ -117,22 +118,6 @@ class Document(TypedDict, total=False):
     findings: List[Finding]
     limits: dict
     typing: dict
-
-# ── limits ─────────────────────────────────────────────────────────────
-
-# The limits every walk runs under until the Limits object (architecture-2.0.md
-# section 3) replaces the per-walker constants. Recorded on each Document so two
-# Documents can be compared knowing they were made the same way.
-DEFAULT_LIMITS = {
-    "read_bytes": 64 << 20,
-    "chunk_payload": 64 << 10,
-    "inflate_bytes": 64 << 20,
-    "work_steps": 4_000_000,
-    "list_rows": None,
-    "frame_rows": 100_000,
-    "depth": 32,
-    "decode": False,
-}
 
 # ── types ──────────────────────────────────────────────────────────────
 
@@ -281,7 +266,12 @@ def _finding(text, node=None):
         kind, code = "error", "geometry.error"
     elif msg.startswith("generic structural triage:"):
         kind, code = "info", "triage.generic"
+    cap = getattr(text, "cap", None)
+    if cap is not None:
+        code = _CAP_CODES[cap["name"]]
     f = {"kind": kind, "code": code, "severity": _SEVERITY[kind], "message": msg}
+    if cap is not None:
+        f["cap"] = dict(cap)
     if node is not None:
         f["node"] = node
     return f
@@ -438,7 +428,7 @@ def _unwalked(off, n):
 
 
 def document(fmt_id, label, chunks, warns, data, *, forced=False,
-             producer_version=None, caps_fn=None, prefer_be=False):
+             producer_version=None, caps_fn=None, prefer_be=False, limits=None):
     """The v1 Document for one walk.
 
     `data` is the file's bytes (or a read-only view of them): the normaliser
@@ -596,7 +586,8 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
         "layers": [{"id": 0, "name": "file", "kind": "file", "length": size}],
         "nodes": roots,
         "findings": findings,
-        "limits": dict(DEFAULT_LIMITS, hit=[]),
+        "limits": (limits or Limits()).record(
+            f["cap"]["name"] for f in findings if "cap" in f),
         "typing": counts,
     }
 
@@ -608,20 +599,26 @@ def _version():
 
 # ── walking a file into a Document ─────────────────────────────────────
 
-def walk(path, deep=False, fmt_override=None):
-    """Walk a file, or a Source, and return its v1 Document."""
+def walk(path, deep=False, fmt_override=None, limits=None):
+    """Walk a file, or a Source, and return its v1 Document.
+
+    `limits` is the Limits to walk under; without it, `deep` picks them
+    (Limits.for_deep). With it, `deep` is ignored and `limits.decode` decides."""
     from acidcat.core.infra import capabilities, sniff as sniffmod
     from acidcat.core.infra.source import Source, as_source
     from acidcat.core.walk import walk_file
     owned = not isinstance(path, Source)
     src = as_source(path)
     try:
+        limits = limits or Limits.for_deep(deep)
         fmt_id = fmt_override or sniffmod.sniff(src)
-        label, chunks, warns = walk_file(src, deep=deep, fmt_override=fmt_override)
+        label, chunks, warns = walk_file(src, deep=limits.decode,
+                                         fmt_override=fmt_override)
         return document(fmt_id, label, chunks, warns, src.buffer(),
                         forced=bool(fmt_override),
                         caps_fn=capabilities.caps,
-                        prefer_be=capabilities.prefers_be(fmt_id, label))
+                        prefer_be=capabilities.prefers_be(fmt_id, label),
+                        limits=limits)
     finally:
         if owned:
             src.close()

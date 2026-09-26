@@ -14,7 +14,6 @@ Each is inspect-only: this maps structure and surfaces references, it does not
 render a sequence or resolve sample paths on disk.
 """
 
-from acidcat.core.primitives.notes import coverage
 import json
 import os
 import re
@@ -23,6 +22,7 @@ import zipfile
 import zlib
 from collections import Counter
 
+from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import gzip_open, zip_open
 from acidcat.core.primitives.zipio import zip_data_offset
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size, _name
@@ -191,7 +191,8 @@ def inspect_xpn(filepath):
                 with z.open("Expansion.xml") as zf:   # streamed: bomb-safe
                     raw = zf.read(_XPN_XML_CAP + 1)
                 if len(raw) > _XPN_XML_CAP:
-                    warns.append(coverage(f"Expansion.xml exceeds {_XPN_XML_CAP >> 20} MB; truncated"))
+                    warns.append(hit("inflate_bytes", _XPN_XML_CAP, len(raw),
+                                     f"Expansion.xml exceeds {_XPN_XML_CAP >> 20} MB; truncated"))
                     raw = raw[:_XPN_XML_CAP]
                 xml = raw.decode("utf-8", "replace")
                 for tag in _XPN_MANIFEST_KEYS + ("description", "img"):
@@ -286,8 +287,9 @@ def inspect_xtd(filepath):
         except (ValueError, RecursionError):
             warns.append("ACVS JSON payload did not parse")
     elif truncated:
-        warns.append(coverage(f"decompressed payload exceeds {_XTD_CAP // (1 << 20)} MB cap; "
-                     "metadata not parsed"))
+        warns.append(hit("inflate_bytes", _XTD_CAP, _XTD_CAP,
+                         f"decompressed payload exceeds {_XTD_CAP // (1 << 20)} MB cap; "
+                         "metadata not parsed"))
 
     samples = kit.get("samples") if isinstance(kit.get("samples"), list) else []
     prog = kit.get("program") if isinstance(kit.get("program"), dict) else {}
@@ -437,8 +439,9 @@ def _inspect_pgm_mpc1000(data, size, prog):
                           f"{len(all_samples)} sample(s)",
                "fields": fields, "warnings": []}]
     if len(pads) > _PGM_PAD_CAP:
-        chunks[0]["warnings"].append(
-            f"{len(pads)} pads; listing first {_PGM_PAD_CAP}")
+        chunks[0]["warnings"].append(hit(
+            "list_rows", _PGM_PAD_CAP, len(pads),
+            f"{len(pads)} pads; listing first {_PGM_PAD_CAP}"))
     for pi, base, layers in pads[:_PGM_PAD_CAP]:
         # RELATIVE to the pad's payload base, which is what a field offset
         # means everywhere else (core/infra/fieldcodec.py:_field_abs). These
@@ -473,7 +476,8 @@ def _inspect_pgm_mpc2000(data, size, prog):
     if entries:
         sf = [_f(o - 2, 16, f"[{j}]", n)                     # relative to payload_base
               for j, (o, n) in enumerate(entries[:_PGM_PAD_CAP])]
-        sw = ([f"{len(entries)} slots; listing first {_PGM_PAD_CAP}"]
+        sw = ([hit("list_rows", _PGM_PAD_CAP, len(entries),
+                   f"{len(entries)} slots; listing first {_PGM_PAD_CAP}")]
               if len(entries) > _PGM_PAD_CAP else [])
         chunks.append({"id": "samples", "offset": 2, "size": len(entries) * 17,
                        "summary": f"{len(entries)} sample-name slot(s)",

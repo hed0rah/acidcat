@@ -14,7 +14,7 @@ is reported.
 
 from acidcat.core.codecs import ice
 from acidcat.core.formats import sndh as sndhmod
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
@@ -30,7 +30,8 @@ def inspect_sndh(filepath, deep=False):
         raw = fh.read(min(size, _SNDH_READ_CAP))
     warns = []
     if size > _SNDH_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d" % (size, _SNDH_READ_CAP)))
+        warns.append(hit("read_bytes", _SNDH_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d" % (size, _SNDH_READ_CAP)))
     if ice.is_ice(raw):
         return _packed(raw, warns)
     s = sndhmod.parse(raw)

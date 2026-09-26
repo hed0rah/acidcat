@@ -6,7 +6,8 @@ import struct
 
 from acidcat.core.formats import midi as midimod
 from acidcat.core.formats.midi import _read_vlq
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f, _open, _size
 from acidcat.util.midi import key_signature_name, midi_note_to_name
 
@@ -232,9 +233,10 @@ def inspect_midi(filepath, deep=False, ctx=None):
     chunks = []
     file_warns = []
     if file_size > len(data):
-        file_warns.append(
+        file_warns.append(hit(
+            "read_bytes", len(data), file_size,
             f"file is {file_size:,} bytes; parsed the first "
-            f"{len(data):,} (cap)")
+            f"{len(data):,} (cap)"))
         file_size = len(data)
 
     if len(data) < 14:
@@ -307,10 +309,10 @@ def inspect_midi(filepath, deep=False, ctx=None):
         if deep:
             entry["rows"] = st["events"]         # already capped while collecting
             if st["n_events"] > _FRAME_LISTING_CAP:
-                entry["warnings"].append(
+                entry["warnings"].append(hit(
+                    "frame_rows", _FRAME_LISTING_CAP, st["n_events"],
                     f"event listing capped at {_FRAME_LISTING_CAP:,} "
-                    f"of {st['n_events']:,}"
-                )
+                    f"of {st['n_events']:,}"))
         flds = entry["fields"]
         if st["names"]:
             flds.append(_f(None, 0, "name", st["names"][0]))
@@ -354,7 +356,8 @@ def inspect_midi(filepath, deep=False, ctx=None):
                            "not a type the format defines; first payload "
                            f"{head.hex(' ') or '(empty)'}"))
         if len(st["unknown_meta"]) > _UNKNOWN_META_CAP:
-            entry["warnings"].append(coverage(
+            entry["warnings"].append(hit(
+                "list_rows", _UNKNOWN_META_CAP, len(st["unknown_meta"]),
                 f"listing the first {_UNKNOWN_META_CAP} of "
                 f"{len(st['unknown_meta'])} undefined meta types"))
         for mfr, slen, reserved in st["sysex"]:

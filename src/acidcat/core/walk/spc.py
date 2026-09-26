@@ -14,7 +14,7 @@ import struct
 
 from acidcat.core.formats import spc as spcmod
 from acidcat.core.formats.spc import NUL
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
@@ -37,8 +37,9 @@ def inspect_spc(filepath, deep=False):
 
     warns = []
     if size > _SPC_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(raw))))
+        warns.append(hit("read_bytes", _SPC_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(raw))))
     h = spcmod.parse_header(raw)
     if not h["ok"]:
         return [{"id": "header", "offset": 0, "size": min(size, spcmod.HEADER),
@@ -122,8 +123,9 @@ def inspect_spc(filepath, deep=False):
         placed.append((start, length, idx))
         chunks.append(chunk)
     if len(wanted) > _SPC_SAMPLE_LIST_CAP:
-        note = coverage("listing the first %d of %d voice samples"
-                        % (_SPC_SAMPLE_LIST_CAP, len(wanted)))
+        note = hit("list_rows", _SPC_SAMPLE_LIST_CAP, len(wanted),
+                   "listing the first %d of %d voice samples"
+                   % (_SPC_SAMPLE_LIST_CAP, len(wanted)))
         ram["warnings"].append(note)
         warns.append(note)
 
@@ -279,7 +281,8 @@ def _xid6(raw, size, warns):
                              _XID6_IDS.get(sid, "")))
             pos += 4 + ((data + 3) & ~3)
     if n >= _SPC_XID6_CAP:
-        xw.append(coverage("listing the first %d xid6 sub-chunks" % n))
+        xw.append(hit("list_rows", _SPC_XID6_CAP, n,
+                      "listing the first %d xid6 sub-chunks" % n))
         warns.extend(xw)
     if 8 + declared > size - at:
         xw.append("xid6 declares %d bytes and %d remain" % (declared, size - at - 8))

@@ -23,7 +23,7 @@ The structure was being parsed and then thrown away; this reports it.
 """
 
 
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
 # Each of these reads its whole header from a bounded prefix. The audio is not
@@ -211,8 +211,9 @@ def inspect_hps(filepath, deep=False):
     if guard >= 100000:
         warns.append("block chain did not terminate; stopped after %d blocks" % guard)
     if capped:
-        warns.append(coverage("file is %d bytes; parsed the first %d, so the "
-                              "block count is a lower bound" % (size, len(raw))))
+        warns.append(hit("read_bytes", _HEAD_CAP, size,
+                         "file is %d bytes; parsed the first %d, so the "
+                         "block count is a lower bound" % (size, len(raw))))
 
     body = max(0, size - head_end)
     return [

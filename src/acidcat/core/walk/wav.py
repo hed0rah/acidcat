@@ -6,7 +6,8 @@ from acidcat.core.formats.riff import iter_chunks
 from acidcat.core.infra.vocab import (WAVE_FORMAT_TAGS as _FORMAT_TAGS,
                                 WAV_SPEAKER_POSITIONS as _SPEAKER_POSITIONS,
                                 KSDATAFORMAT_TAIL as _KSDATAFORMAT_TAIL)
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.apple import _parse_apple_meta, _parse_resu
 from acidcat.core.walk.base import (
     VENDOR_CHUNKS, _PAYLOAD_CAP, _dtext, _f, _u16, _u32, _cstr, _flag_names,
@@ -637,8 +638,9 @@ def _parse_strc(b, ctx):
         fields.append(_f(_STRC_HEADER + i * stride + _STRC_POS_OFF, 4,
                          f"slice[{i}]", f"{pos:,}", "sample position"))
     if len(positions) > _STRC_SLICE_CAP:
-        warns.append(coverage(f"listing the first {_STRC_SLICE_CAP} of "
-                     f"{len(positions):,} slice positions"))
+        warns.append(hit("list_rows", _STRC_SLICE_CAP, len(positions),
+                         f"listing the first {_STRC_SLICE_CAP} of "
+                         f"{len(positions):,} slice positions"))
 
     # the implied tempo, when the markers are evenly spaced. Stated only when
     # they ARE even: an uneven set is a transient map rather than a beat grid,
@@ -684,7 +686,8 @@ def _parse_riff_id3(b, ctx):
     for fid, text in frames[:_ID3_FRAME_CAP]:
         fields.append(_f(None, 0, fid, str(text)[:160]))
     if len(frames) > _ID3_FRAME_CAP:
-        warns = list(warns) + [coverage(
+        warns = list(warns) + [hit(
+            "list_rows", _ID3_FRAME_CAP, len(frames),
             f"listing the first {_ID3_FRAME_CAP} of {len(frames)} ID3 frames")]
     n = len(frames)
     return (f"ID3v2.{header['major']} tag, {header['size']:,} bytes"
@@ -818,8 +821,9 @@ def _parse_xmp(b, _ctx):
     for name, value in props[:_XMP_PROPERTY_CAP]:
         fields.append(_f(None, 0, name, value))
     if len(props) > _XMP_PROPERTY_CAP:
-        warns.append(coverage(f"listing the first {_XMP_PROPERTY_CAP} of "
-                              f"{len(props)} XMP properties"))
+        warns.append(hit("list_rows", _XMP_PROPERTY_CAP, len(props),
+                         f"listing the first {_XMP_PROPERTY_CAP} of "
+                         f"{len(props)} XMP properties"))
     named = dict(props)
     bits = [named[k] for k in ("xmp:CreatorTool", "dc:publisher", "xmpDM:artist")
             if named.get(k)]
@@ -944,8 +948,9 @@ def _parse_peak(b, ctx):
         fields.append(_f(8 + i * 8, 8, f"peak[{i}]",
                          f"{value:.6f} at frame {frame:,}", note))
     if have > _PEAK_CHANNEL_CAP:
-        warns.append(coverage(f"listing the first {_PEAK_CHANNEL_CAP} of "
-                              f"{have} peak records"))
+        warns.append(hit("list_rows", _PEAK_CHANNEL_CAP, have,
+                         f"listing the first {_PEAK_CHANNEL_CAP} of "
+                         f"{have} peak records"))
     # a peak past unit scale is not damage: float WAV is allowed past 0 dBFS,
     # and a file normalised to 2^23 rather than 1.0 shows up here as a huge
     # number rather than as a clipped one. Stated, never corrected.
@@ -1092,8 +1097,9 @@ def _parse_tlst(b, ctx):
             warns.append("trigger[%d] targets %r; every specimen measured "
                          "targets 'cue '" % (i, target))
     if count > _TLST_RECORD_CAP:
-        warns.append(coverage("listing the first %d of %d triggers"
-                              % (_TLST_RECORD_CAP, count)))
+        warns.append(hit("list_rows", _TLST_RECORD_CAP, count,
+                         "listing the first %d of %d triggers"
+                         % (_TLST_RECORD_CAP, count)))
     return ("%d trigger(s)" % count if count else "no triggers"), fields, warns
 
 
@@ -1135,8 +1141,9 @@ def _parse_plst(b, ctx):
             warns.append(f"segment[{i}] plays {loops} times, which plays it "
                          f"not at all")
     if declared > _PLST_SEGMENT_CAP:
-        warns.append(coverage(f"listing the first {_PLST_SEGMENT_CAP} of "
-                              f"{declared} segments"))
+        warns.append(hit("list_rows", _PLST_SEGMENT_CAP, declared,
+                         f"listing the first {_PLST_SEGMENT_CAP} of "
+                         f"{declared} segments"))
     # the cue ids this playlist needs, for the cross-check after the walk --
     # plst is written BEFORE cue in the files measured, so the check cannot
     # happen here
