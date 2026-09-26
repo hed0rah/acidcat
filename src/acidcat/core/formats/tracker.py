@@ -16,6 +16,8 @@ not here -- this maps structure, it does not render audio yet.
 
 import struct
 
+from acidcat.core.infra.findings import defect
+
 # MOD magics -> channel count. The 4-channel variants have no digit to read.
 _MOD_MAGIC_4CH = {b"M.K.", b"M!K!", b"M&K!", b"FLT4", b"EXO4", b"4CHN"}
 
@@ -467,9 +469,12 @@ def parse_it(data):
             "data_off": dataptr, "bits16": bits16, "stereo": stereo,
             "compressed": compressed, "has_sample": bool(sflags & 0x01),
         })
-    for s in samples:
+    for i, s in enumerate(samples):
         if s.get("valid") and s.get("data_off", 0) and s["data_off"] > len(data):
-            warns.append(f"sample data pointer 0x{s['data_off']:08x} is past EOF")
+            # several samples of a cut file can share one pointer: say which
+            warns.append(defect("pointer.dangling",
+                                f"smp[{i}] sample data pointer 0x{s['data_off']:08x} "
+                                f"is past EOF"))
     return {
         "kind": "it", "songname": songname, "ordnum": ordnum, "insnum": insnum,
         "smpnum": smpnum, "patnum": patnum, "cwt": cwt, "cmwt": cmwt,

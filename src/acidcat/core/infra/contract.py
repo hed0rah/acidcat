@@ -618,6 +618,25 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
             finish(n["children"], nid)
     finish(roots, "")
 
+    # a pointer that lands outside its layer is a finding on its node, never
+    # dropped and never silently clamped (node-v1.md section 9)
+    lengths = {lay["id"]: lay["length"] for lay in ctx["layers"]}
+
+    def dangling(siblings):
+        for n in siblings:
+            for f in n["fields"]:
+                p = f.get("ptr")
+                if not p or p["layer"] not in lengths:
+                    continue
+                if not 0 <= p["off"] <= lengths[p["layer"]]:
+                    findings.append(_finding(defect(
+                        "pointer.dangling",
+                        "%s points to 0x%X, past the end of layer %d (%d bytes)"
+                        % (f["key"], p["off"], p["layer"], lengths[p["layer"]])),
+                        n["id"]))
+            dangling(n["children"])
+    dangling(roots)
+
     # audio caps name their source fields by (chunk index, field name)
     for n in by_idx.values():
         a = n["caps"].get("audio")
