@@ -124,9 +124,8 @@ def test_zoom_is_reachable_from_the_footer_and_the_help(wav):
     assert "z" in shown
     assert len(shown) <= 14, f"footer shows {len(shown)}, too many to read"
 
-    from acidcat.tui_app.screens import HelpScreen
-    import inspect
-    assert '("z"' in inspect.getsource(HelpScreen)
+    keys = [k for _a, rows in AcidcatTUI._help_sections() for k, _d in rows]
+    assert "z" in keys
 
 
 def test_the_hex_row_never_wraps_at_any_width(wav):

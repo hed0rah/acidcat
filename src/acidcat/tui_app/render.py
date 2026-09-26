@@ -112,9 +112,67 @@ def hex_text(path, off, length, accent, spans=None, width=16, start=0):
     return t
 
 
-def field_inspector(d):
-    """The selected node, said in full: at most six lines, each clipped
-    rather than wrapped, so the pane never changes height.
+def byte_strip(nodes, length, width, selection=None):
+    """The whole layer as one row: each cell is `length / width` bytes, drawn
+    as the node that holds them.
+
+    `nodes` are the layer's top-level Document nodes (with `extent`, and
+    `payload` where the node has a header). A node's header bytes are drawn as
+    header, not as its payload, and the cell where a node starts always shows
+    that node's header, so a small chunk between big ones is never swallowed.
+    Bytes no walker described (`kind: unwalked`) are a gap. Cells that hold
+    selected bytes are lit. Exactly `width` cells, no newline.
+    """
+    t = Text(no_wrap=True, overflow="crop")
+    if width <= 0:
+        return t
+    if not length:
+        t.append("·" * width, style=GUTTER)
+        return t
+    spans = []                      # (off, end, kind, color)
+    ci = 0
+    for n in nodes:
+        e = n.get("extent")
+        if not e:
+            continue
+        if n.get("kind") == "unwalked":
+            spans.append((e["off"], e["off"] + e["len"], "gap", GUTTER))
+            continue
+        color = PALETTE[ci % len(PALETTE)]
+        ci += 1
+        p = n.get("payload") or e
+        head_end = min(max(p["off"], e["off"]), e["off"] + e["len"])
+        if head_end > e["off"]:
+            spans.append((e["off"], head_end, "head", color))
+        spans.append((head_end, e["off"] + e["len"], "body", color))
+    spans.sort()
+    lo, hi = ((selection[0], selection[0] + max(selection[1], 1))
+              if selection and selection[0] is not None else (None, None))
+    for c in range(width):
+        a = c * length // width
+        b = max(a + 1, (c + 1) * length // width)
+        here = [sp for sp in spans if sp[0] < b and sp[1] > a]
+        # a header that starts in this cell wins it; else what covers the
+        # cell's middle; else a gap
+        starts = [sp for sp in here if sp[2] == "head" and a <= sp[0] < b]
+        mid = (a + b) // 2
+        cover = [sp for sp in here if sp[0] <= mid < sp[1]] or here
+        sp = starts[0] if starts else (cover[0] if cover else None)
+        kind, color = (sp[2], sp[3]) if sp else ("gap", GUTTER)
+        glyph = {"head": "▌", "body": "█", "gap": "·"}[kind]
+        lit = lo is not None and lo < b and a < hi
+        style = color + (f" on {FG}" if lit else "")
+        if lit and kind == "body":
+            glyph = "▓"
+        t.append(glyph, style=style)
+    return t
+
+
+def field_inspector(d, width=None):
+    """The selected node, said in full: at most six lines, each cut to
+    `width` with an ellipsis rather than wrapped, so the pane never changes
+    height. The first bytes are budgeted to the width, whole bytes only, so
+    a narrow pane shows fewer of them rather than half of one.
 
     `d` is plain facts the app gathered: name, accent, kind (field, chunk or
     root), off, len, raw (the first bytes), type and type_source, value,
@@ -145,15 +203,23 @@ def field_inspector(d):
         t.append("@ ", style=DIM)
         t.append(f"0x{d['off']:08x}", style=FG)
         t.append(f"   {d.get('len', 0):,} bytes", style=SOFT)
+        tail = ""
+        if d.get("payload") and d["payload"] != (d.get("off"), d.get("len")):
+            po, pl = d["payload"]
+            tail = f"   payload 0x{po:08x}+{pl:,}"
         raw = d.get("raw") or b""
         if raw:
-            shown = raw[:16]
-            t.append("   " + shown.hex(" "), style=FG)
-            if d.get("len", 0) > len(shown):
-                t.append(" …", style=DIM)
-    if d.get("payload") and d["payload"] != (d.get("off"), d.get("len")):
-        po, pl = d["payload"]
-        t.append(f"   payload 0x{po:08x}+{pl:,}", style=DIM)
+            n = 16
+            if width:
+                # "   xx xx .. xx" is 3n+2 cells, " …" 2 more when cut short
+                n = min(n, max(0, (width - t.cell_len - len(tail) - 4) // 3))
+            shown = raw[:n]
+            if shown:
+                t.append("   " + shown.hex(" "), style=FG)
+                if d.get("len", 0) > len(shown):
+                    t.append(" …", style=DIM)
+        if tail:
+            t.append(tail, style=DIM)
 
     if d.get("kind") == "field":
         t = line()
@@ -195,6 +261,8 @@ def field_inspector(d):
     for i, ln in enumerate(lines[:6]):
         if i:
             out.append("\n")
+        if width and ln.cell_len > width:
+            ln.truncate(width, overflow="ellipsis")
         out.append_text(ln)
     return out
 

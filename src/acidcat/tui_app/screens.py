@@ -6,11 +6,15 @@ carve-regions, disc-extract, and a text prompt, plus the focusable HexPane.
 They talk back through callbacks, so nothing here imports the app (no cycle).
 """
 
+import os
+import textwrap
+
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, DirectoryTree, Input, Label, Static
+from textual.widgets import (Button, DataTable, DirectoryTree, Input, Label,
+                             OptionList, Static)
 
 from acidcat.commands.write import _edit as _write_edit
 from acidcat.core.write.edits import EditError
@@ -33,28 +37,56 @@ class HexPane(Static):
 
 
 
+class _Files(DirectoryTree):
+    """The directory tree without dot files and dot folders (.git, .cache):
+    the files a sound or a disc image lives in are never there."""
+
+    def filter_paths(self, paths):
+        return [p for p in paths if not p.name.startswith(".")]
+
+
 class BrowseScreen(ModalScreen):
     """A file picker: navigate a directory tree, enter selects, esc cancels.
-    dismiss()es with the chosen path string, or None on cancel."""
+    Starts where a file was last opened, lists the recent files above the tree
+    (tab reaches them), and hides dot folders. dismiss()es with the chosen
+    path string, or None on cancel."""
 
     CSS = th.css("""
     BrowseScreen { align: center middle; }
     #browsebox { width: 80%; height: 80%; border: round $TEAL;
                  background: $BG; padding: 1 2; }
     #browsehint { color: $SOFT; padding-bottom: 1; }
+    #recent { height: auto; max-height: 8; background: $BG; border: none;
+              margin-bottom: 1; }
     DirectoryTree { background: $BG; }
     """)
     BINDINGS = [("escape", "cancel", "cancel")]
 
-    def __init__(self, start):
+    def __init__(self, start, recent=()):
         super().__init__()
         self.start = start
+        self.recent = list(recent)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="browsebox"):
-            yield Static(Text("open a file  (enter selects, esc cancels)",
-                              style=f"bold {ACCENT}"), id="browsehint")
-            yield DirectoryTree(self.start, id="dtree")
+            hint = "open a file  (enter selects, esc cancels"
+            hint += ", tab reaches the recent files)" if self.recent else ")"
+            yield Static(Text(hint, style=f"bold {ACCENT}"), id="browsehint")
+            if self.recent:
+                rows = []
+                for p in self.recent:
+                    t = Text(os.path.basename(p), style=SOFT)
+                    t.append(f"  {os.path.dirname(p)}", style=DIM)
+                    rows.append(t)
+                yield OptionList(*rows, id="recent")
+            yield _Files(self.start, id="dtree")
+
+    def on_mount(self):
+        # the tree keeps the focus it always had; the recent files are a tab away
+        self.query_one("#dtree").focus()
+
+    def on_option_list_option_selected(self, event):
+        self.dismiss(self.recent[event.option_index])
 
     def on_directory_tree_file_selected(self, event):
         self.dismiss(str(event.path))
@@ -182,10 +214,17 @@ class HelpScreen(ModalScreen):
 
     CSS = th.css("""
     HelpScreen { align: center middle; }
-    #helpbox { width: 74; height: auto; max-height: 90%; border: round $TEAL;
-               background: $BG; padding: 1 2; }
+    #helpbox { width: 90; max-width: 96%; height: auto; max-height: 90%;
+               border: round $TEAL; background: $BG; padding: 1 2; }
     """)
     BINDINGS = [("escape", "close", "close"), ("question_mark", "close", "close")]
+
+    _BOX_W = 90     # #helpbox width
+    _KEY_W = 18     # the key column; a wider key gets its own line
+
+    def __init__(self, sections=()):
+        super().__init__()
+        self.sections = list(sections)
 
     def compose(self) -> ComposeResult:
         t = Text()
@@ -208,67 +247,33 @@ class HelpScreen(ModalScreen):
                  "mean one thing here and another there. One used to be worse "
                  "than confusing -- `s` was the shape column in the list and "
                  "STRIP METADATA in the tree.\n\n", style=SOFT)
-        rows = [
-            ("arrows / enter", "move + expand the tree"),
-            ("ctrl+left/right", "pan the tree sideways when a deep branch runs "
-                                "off the pane"),
-            ("shift+left/right", "jump to a node's parent / to the next branch "
-                                 "past it"),
-            ("pgdn / pgup", "page the hex view through the file; up/down on "
-                            "the focused hex pane move it a row"),
-            ("a / c", "expand all / collapse all"),
-            ("tab / shift+tab", "move focus between the tree and the hex pane"),
-            ("z", "give the focused pane the whole screen (again to restore)"),
-            ("g", "goto offset (0x.. or decimal)"),
-            ("/", "search: text=fuzzy name/value, 0x..=hex, \"..\"=ascii"),
-            ("n / N", "next / previous search match"),
-            ("f", "jump to the next forensics finding"),
-            ("x", "follow a pointer field to where it points (flags dangling)"),
-            ("m", "byte map: where the file's bytes go, biggest regions first"),
-            ("b", "byte view: cycle hex / entropy / hilbert / histogram"),
-            ("r", "byte view: whole file or just the selected region"),
-            ("S", "byte view: vertical scale (entropy 0-8 or auto; "
-                  "histogram linear, log, clipped)"),
-            ("u / U", "back and forward through the views you descended"),
-            ("arrows", "on a focused graph: up/down change the scale, "
-                       "left/right move the selection (a region-scoped graph "
-                       "follows it live)"),
-            ("p", "play the selected region as raw PCM (. stops); needs ffplay"),
-            ("v", "validate structure: constraint violations, r to repair them"),
-            ("y", "yank the selected bytes as hex to the clipboard"),
-            ("d", "review all pending changes (offset old->new) before save"),
-            ("e", "edit the selected field (value or hex)"),
-            ("ctrl+t", "toggle the edit between value and raw hex"),
-            ("ctrl+e", "hex-edit the field in the pane (arrows move, 0-9a-f type)"),
-            ("w", "edit tags (metadata form)"),
-            ("s", "strip identifying metadata (asks first)"),
-            ("ctrl+s", "save to the original (writes a _original backup)"),
-            ("ctrl+z / ctrl+r", "undo / redo the last edit"),
-            ("o", "open another file"),
-            ("l", "the region list: the same regions as a table, with bulk "
-                  "actions and a name column when the file has a table of "
-                  "contents"),
-            ("F", "two things a stuck view can still do -- force a walker onto "
-                  "a file nothing recognises (this is what finds the NAMES in "
-                  "an archive), and scan forensics on a file too big to have "
-                  "been scanned on open"),
-            ("space", "mark the region under the cursor"),
-            ("A", "mark every region, or none if they all already are"),
-            ("X", "extract only the marked regions"),
-            ("E", "extract every region, marked or not"),
-            ("+", "on a '... more rows' line, list more of that chunk's rows"),
-            ("esc", "cancel the current edit / prompt"),
-            ("q", "quit"),
-        ]
-        # The separator is its own append, not the tail of the pad. `{k:16}`
-        # ran straight into the description for any key exactly 16 characters
-        # wide -- which `shift+left/right` is -- the same collision the tree
-        # labels had.
-        width = max(len(k) for k, _ in rows)
-        for k, d in rows:
-            t.append(f"  {k:<{width}}", style=f"bold {PEND}")
-            t.append("  ", style=SOFT)
-            t.append(f"{d}\n", style=SOFT)
+        # the keys, generated from the app's bindings (AcidcatTUI.HELP), in
+        # the areas they act on
+        # A description wraps under itself, not back to the margin: the text
+        # is wrapped here to what the box leaves it (its width, less border,
+        # padding and scrollbar), and a key wider than the key column takes a
+        # line of its own.
+        inner = min(self._BOX_W, int(self.app.size.width * 0.96)) - 8
+        rows = [(k, d) for _area, rs in self.sections for k, d in rs]
+        width = min(max((len(k) for k, _ in rows), default=4), self._KEY_W)
+        text_w = max(20, inner - width - 4)
+        for area, rs in self.sections:
+            t.append(f"{area}\n", style=f"bold {ACCENT}")
+            # The separator is its own append, not the tail of the pad. `{k:16}`
+            # ran straight into the description for any key exactly 16
+            # characters wide -- which `shift+left/right` is -- the same
+            # collision the tree labels had.
+            for k, d in rs:
+                lines = textwrap.wrap(d, text_w) or [""]
+                if len(k) > width:
+                    t.append(f"  {k}\n", style=f"bold {PEND}")
+                    k = ""
+                t.append(f"  {k:<{width}}", style=f"bold {PEND}")
+                t.append("  ", style=SOFT)
+                t.append(lines[0] + "\n", style=SOFT)
+                for more in lines[1:]:
+                    t.append(" " * (width + 4) + more + "\n", style=SOFT)
+            t.append("\n")
         t.append("\nRegions live in the tree, under the file: expand the file to "
                  "scan for them, expand a region to walk it, and keep expanding "
                  "for its chunks and fields. `l` opens the same regions as a "
@@ -287,7 +292,7 @@ class HelpScreen(ModalScreen):
                  "one / all to WAV.", style=DIM)
         t.append("\nEdits go to a temp working copy; nothing touches the original "
                  "until ctrl+s.", style=DIM)
-        with Vertical(id="helpbox"):
+        with VerticalScroll(id="helpbox"):
             yield Static(t)
 
     def action_close(self):

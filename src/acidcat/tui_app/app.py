@@ -59,9 +59,10 @@ from acidcat.tui_app.render import (
     row_width_for, trim_size_echo,
     _SPIN, _BAR_W, _HEX_CAP, _ROW_CAP, _CHUNK_CAP, _HEXEDIT_CAP, _VIZ_READ,
     _SEARCH_CAP, _DIFF_CAP, _LARGE_FILE, _SCAN_SEG, context_hex,
-    data_inspector, field_inspector,
+    byte_strip, data_inspector, field_inspector,
 )
 from acidcat.tui_app.model import DocumentModel
+from acidcat.tui_app import state as tui_state
 from acidcat.tui_app.screens import (
     BrowseScreen, ConfirmScreen, DiffScreen, DiscScreen, EditScreen, HelpScreen,
     YesNoScreen,
@@ -186,7 +187,11 @@ class AcidcatTUI(App):
     /* in the flow under the panes, not docked: the footer docks to the
        bottom too, and two bottom docks sit on top of each other */
     #main { height: 1fr; }
+    #strip { height: 1; background: $BG; padding: 0 1; }
     #status { height: 1; background: $INSET; color: $SOFT; padding: 0 1; }
+    /* Too narrow or too short for the data inspector: little- and big-endian
+       need 40 columns, and on a short screen the tree needs the rows more. */
+    Screen.no-data #data { display: none; }
     #editbar { dock: bottom; height: 3; border: round $ORANGE; background: $BG; }
     #editbar.hidden { display: none; }
 
@@ -296,6 +301,136 @@ class AcidcatTUI(App):
 
     _VIZ_ARROWS = ("viz_scale_next", "viz_scale_prev",
                    "viz_prev_node", "viz_next_node")
+
+    # The help, generated: (area, actions, what they do). The keys it shows are
+    # read from BINDINGS (and the tree's own from Tree.BINDINGS), so a rebound
+    # key cannot leave the help wrong; tests/test_tui_help.py fails on a
+    # binding with no row here or a row with no binding.
+    HELP_AREAS = ("move", "bytes", "play", "edit", "regions", "file")
+    HELP = [
+        ("move", ("goto",), "goto an offset (0x.. or decimal)"),
+        ("move", ("search",), 'search: text=fuzzy name/value, 0x..=hex, ".."=ascii'),
+        ("move", ("search_next", "search_prev"), "next / previous search match"),
+        ("move", ("next_finding",), "jump to the next forensics finding"),
+        ("move", ("follow_xref",), "follow a pointer field to where it points "
+                                   "(flags dangling); enter does too"),
+        ("move", ("nav_back", "nav_forward"), "back and forward through the views "
+                                              "you opened (regions, layers)"),
+        ("move", ("tree_pan(-8)", "tree_pan(8)"), "pan the tree sideways when a "
+                                                  "deep branch runs off the pane"),
+        ("move", ("focus_pane", "focus_pane_back"), "move focus between the panes"),
+        ("move", ("zoom",), "give the focused pane the whole screen (again to "
+                            "restore)"),
+        ("move", ("expand_all", "collapse_all"), "expand all / collapse all"),
+        ("bytes", ("hex_page_down", "hex_page_up"), "page the hex view through "
+                                                    "the file"),
+        ("bytes", ("viz_scale_next", "viz_scale_prev", "viz_prev_node",
+                   "viz_next_node"), "on the focused bytes pane: up/down move "
+                                     "the hex a row, or change a graph's scale; "
+                                     "left/right move a graph's selection"),
+        ("bytes", ("cycle_view",), "byte view: cycle hex / entropy / hilbert / "
+                                   "histogram"),
+        ("bytes", ("viz_scope",), "byte view: whole file or just the selected "
+                                  "region"),
+        ("bytes", ("viz_scale",), "byte view: vertical scale (entropy 0-8 or "
+                                  "auto; histogram linear, log, clipped)"),
+        ("bytes", ("map",), "byte map: where the file's bytes go, biggest "
+                            "regions first"),
+        ("bytes", ("yank",), "yank the selected bytes as hex to the clipboard"),
+        ("play", ("play",), "play what the node offers: a tune on its engine, a "
+                            "compressed file through a decoder, else its bytes "
+                            "as PCM (asks first); needs ffplay"),
+        ("play", ("stop_play",), "stop playing"),
+        ("edit", ("edit_field",), "edit the selected field (value, text or hex); "
+                                  "on the file itself, its tags"),
+        ("edit", ("toggle_mode",), "toggle the edit between value and raw hex"),
+        ("edit", ("hex_focus",), "hex-edit the field in the pane (arrows move, "
+                                 "0-9a-f type)"),
+        ("edit", ("edit",), "edit tags (metadata form)"),
+        ("edit", ("strip",), "strip identifying metadata (asks first)"),
+        ("edit", ("save",), "save to the original (writes a _original backup)"),
+        ("edit", ("undo", "redo"), "undo / redo the last edit"),
+        ("edit", ("diff",), "review all pending changes (offset old->new) before "
+                            "save"),
+        ("edit", ("validate",), "validate structure: constraint violations, r to "
+                                "repair them"),
+        ("edit", ("cancel_edit",), "cancel the current edit / prompt"),
+        ("regions", ("locate_regions",), "the region list: the same regions as a "
+                                         "table, with bulk actions"),
+        ("regions", ("force_parse",), "force a walker onto a file nothing "
+                                      "recognises (finds the NAMES in an "
+                                      "archive), or scan forensics on a file "
+                                      "too big to have been scanned on open"),
+        ("regions", ("space_key",), "mark the region under the cursor; during a "
+                                    "scan, pause it"),
+        ("regions", ("select_all_regions",), "mark every region, or none if they "
+                                             "all already are"),
+        ("regions", ("extract_selected",), "extract the marked regions; with "
+                                           "none, write out a node that offers "
+                                           "carve"),
+        ("regions", ("extract_all_regions",), "extract every region, marked or "
+                                              "not"),
+        ("regions", ("keep_scan",), "during a scan, keep what it found so far; on "
+                                    "a pointer, follow it; on a packed body, "
+                                    "open its layer (u comes back)"),
+        ("regions", ("more_rows",), "on a '... more rows' line, list more of "
+                                    "that chunk's rows"),
+        ("file", ("open",), "open another file (starts where you last opened one; "
+                            "recent files on top)"),
+        ("file", ("help",), "this help"),
+        ("file", ("request_quit",), "quit"),
+    ]
+    # the tree's own keys (Textual's Tree.BINDINGS), where it owns them: not
+    # its space (toggle_node), which the app's priority space_key takes
+    TREE_HELP = [
+        ("move", ("cursor_up", "cursor_down", "select_cursor"),
+         "move + expand the tree"),
+        ("move", ("cursor_parent", "cursor_parent_next_sibling"),
+         "jump to a node's parent / to the next branch past it"),
+    ]
+
+    # how a key is written in the help
+    _KEY_NAMES = {"question_mark": "?", "full_stop": ".", "slash": "/",
+                  "plus": "+", "equals_sign": "=", "pagedown": "pgdn",
+                  "pageup": "pgup", "escape": "esc"}
+
+    @staticmethod
+    def _key_text(keys):
+        """How a row's keys read: `ctrl+left/right` when they share a
+        modifier, else `n / N`."""
+        mods = {k.rpartition("+")[0] for k in keys}
+        if len(keys) > 1 and len(mods) == 1 and "" not in mods:
+            mod = mods.pop()
+            return mod + "+" + "/".join(k.rpartition("+")[2] for k in keys)
+        return " / ".join(keys)
+
+    @classmethod
+    def _help_sections(cls):
+        """[(area, [(keys, text), ...]), ...] for HelpScreen, from the
+        bindings."""
+        from textual.widgets import Tree as _Tree
+
+        def keys_of(bindings):
+            out = {}
+            for b in bindings:
+                key, action = ((b[0], b[1]) if isinstance(b, tuple)
+                               else (b.key, b.action))
+                for k in key.split(","):
+                    out.setdefault(action, []).append(
+                        cls._KEY_NAMES.get(k.strip(), k.strip()))
+            return out
+        app_keys, tree_keys = keys_of(cls.BINDINGS), keys_of(_Tree.BINDINGS)
+        sections = {a: [] for a in cls.HELP_AREAS}
+        for rows, keys in ((cls.TREE_HELP, tree_keys), (cls.HELP, app_keys)):
+            for area, actions, text in rows:
+                ks = []
+                for act in actions:
+                    for k in keys.get(act, []):
+                        if k not in ks:
+                            ks.append(k)
+                if ks:
+                    sections[area].append((cls._key_text(ks), text))
+        return [(a, sections[a]) for a in cls.HELP_AREAS if sections[a]]
 
     def check_action(self, action, parameters):
         if action == "keep_scan":
@@ -474,10 +609,12 @@ class AcidcatTUI(App):
                 with VerticalScroll(id="hexwrap"):
                     yield HexPane(id="hex")
         yield Input(id="editbar", classes="hidden")
+        yield Static(id="strip")
         yield Static(id="status")
         yield Footer()
 
     def on_mount(self):
+        self._fit_data()
         if self.src:
             self._open_path(self.src)
         else:
@@ -519,6 +656,7 @@ class AcidcatTUI(App):
         self._clean_region_tmps()
 
         self.src = path
+        tui_state.remember(path)
         self._regions = None
         self._blob_src = None
         self._region_view = None
@@ -2521,8 +2659,10 @@ class AcidcatTUI(App):
             node = None
         facts = self._inspect_facts(node, off, length, accent, name, note)
         self._no_range_note = facts.get("where")
-        self.query_one("#inspect", Static).update(field_inspector(facts))
+        self._inspect_now = facts
+        self._paint_inspect()
         self._paint_data(off)
+        self._paint_strip()
         # a new selection brings the window with it (the model forgets where
         # an old one was paged to)
         self.model.select(off, length)
@@ -2533,6 +2673,22 @@ class AcidcatTUI(App):
         self._render_status()
         # a graph scoped to the file is unaffected by which node is selected;
         # one scoped to the region follows it, from on_tree_node_highlighted
+
+    def _paint_inspect(self):
+        """The field inspector, fitted to the width the pane has now. Before
+        the first layout it has none, so it paints again once it does."""
+        facts = getattr(self, "_inspect_now", None)
+        if facts is None:
+            return
+        box = self.query_one("#inspect", Static)
+        width = box.content_region.width
+        box.update(field_inspector(facts, width or None))
+        if not width:
+            self.call_after_refresh(self._paint_inspect_once_sized)
+
+    def _paint_inspect_once_sized(self):
+        if self.query_one("#inspect", Static).content_region.width:
+            self._paint_inspect()
 
     def _inspect_facts(self, node, off, length, accent, name, note):
         """What the field inspector says about the selected node: from the
@@ -2606,6 +2762,33 @@ class AcidcatTUI(App):
         if name == "carve":
             return f"carve ({cap.get('ext')})"
         return name
+
+    # the data inspector needs this many columns inside its border, and the
+    # screen this many rows before it is worth the tree's
+    _DATA_COLS = 40
+    _DATA_ROWS = 34
+
+    def _fit_data(self):
+        """Show the data inspector only where it fits without wrapping."""
+        try:
+            cols, rows = self.size.width, self.size.height
+        except Exception:
+            return
+        left = int(cols * 0.35) - 2          # the column, inside its border
+        self.screen.set_class(left < self._DATA_COLS or rows < self._DATA_ROWS,
+                              "no-data")
+
+    def _paint_strip(self):
+        """The byte strip: the whole layer across the screen, as the nodes
+        that hold its bytes, the selection lit."""
+        try:
+            strip = self.query_one("#strip", Static)
+            width = strip.content_size.width or (self.size.width - 2)
+        except Exception:
+            return
+        off, length = self._cur_region[:2]
+        strip.update(byte_strip(self.model.top_nodes(), self.model.layer_length(),
+                                width, (off, length) if off is not None else None))
 
     def _paint_data(self, off):
         """The data inspector: the bytes at the cursor (the selection's first
@@ -3016,8 +3199,11 @@ class AcidcatTUI(App):
 
     def on_resize(self, event=None):
         """Repaint on a terminal resize, for the same reason zoom does."""
+        self._fit_data()
         if self.work:
             self.call_after_refresh(self._paint_bytes)
+            self.call_after_refresh(self._paint_strip)
+            self.call_after_refresh(self._paint_inspect)
 
     # of #hexwrap's outer width, the row never gets: its own border (2),
     # #hex's padding (2), and the vertical scrollbar (2).
@@ -3617,7 +3803,7 @@ class AcidcatTUI(App):
         self.notify(f"showing {shown:,} of {total:,} rows")
 
     def action_help(self):
-        self.push_screen(HelpScreen())
+        self.push_screen(HelpScreen(self._help_sections()))
 
     # ── navigation: goto-offset, search, jump-to-finding ──────────────
 
@@ -4438,13 +4624,16 @@ class AcidcatTUI(App):
             self._browse()
 
     def _browse(self):
-        start = os.path.dirname(os.path.abspath(self.src)) if self.src else os.getcwd()
+        # where a file was last opened, else beside this one, else here
+        st = tui_state.load()
+        start = st["last_dir"] or (os.path.dirname(os.path.abspath(self.src))
+                                   if self.src else os.getcwd())
 
         def after(path):
             if path and os.path.isfile(path):
                 self._open_path(path)
 
-        self.push_screen(BrowseScreen(start), after)
+        self.push_screen(BrowseScreen(start, st["recent"]), after)
 
     def action_edit(self):
         if self._readonly and self._decline_readonly():

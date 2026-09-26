@@ -69,6 +69,18 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `enter` on a pointer follows it, like `x`. The data inspector reads the
   bytes at the cursor as u8 to u64, i8 to i64 and f32/f64, little- and
   big-endian side by side, with their ASCII and bits.
+- **TUI: a byte strip, generated help, and an open dialog that remembers.**
+  A row under the panes draws the whole layer to scale as the nodes that
+  hold its bytes: a node's header bytes as header, bytes no walker described
+  as gaps, the selection lit, and a small chunk between big ones still keeps
+  the cell it starts in. The help (`?`) is generated from the key bindings,
+  grouped by area (move, bytes, play, edit, regions, file), so a rebound key
+  cannot leave it wrong; it scrolls, and a long line hangs under itself. The
+  open dialog (`o`) starts where a file was last opened, lists recent files
+  above the tree, and hides dot files and folders; it remembers in
+  `<acidcat home>/tui.json`. The data inspector shows only where it fits
+  without wrapping, and the field inspector fits its bytes to the pane
+  instead of running past its edge on a narrow terminal. Keys are unchanged.
 - **Cap hits are never defects.** Twenty-two places reported crossing one of
   acidcat's own limits as a plain warning, which `audit` counted against the
   file: the 8SVX, SMUS, VOC, DMX and BFD read and chunk caps, eight E-mu

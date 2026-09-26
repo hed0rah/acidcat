@@ -173,6 +173,22 @@ class DocumentModel:
                 inside = n
         return exact or inside
 
+    def top_nodes(self):
+        """The current layer's top-level nodes, in byte order: the layer's
+        own roots, or the children of the node that opens it."""
+        if self.document is None:
+            return []
+        if self.layer == 0:
+            roots = self.document["nodes"]
+        else:
+            opener = next((n for n in contract.iter_nodes(self.document)
+                           if n.get("caps", {}).get("descend", {}).get("layer")
+                           == self.layer), None)
+            roots = [c for c in (opener or {}).get("children", [])
+                     if c.get("extent", {}).get("layer") == self.layer]
+        return sorted((n for n in roots if n.get("extent")),
+                      key=lambda n: n["extent"]["off"])
+
     def spans(self, node=None):
         """(off, len) of each positioned field of `node` in the current layer:
         what the bytes pane tints."""
