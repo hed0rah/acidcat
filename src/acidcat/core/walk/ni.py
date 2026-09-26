@@ -2,10 +2,9 @@
 (Massive/Absynth/Kontakt), NKS .nksf, and the older zlib-XML .ksd.
 Container parsing lives in core/ni.py."""
 
-import os
 
 from acidcat.core.formats import ni as nimod
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 def inspect_ni(filepath, deep=False):
@@ -14,8 +13,8 @@ def inspect_ni(filepath, deep=False):
     .nki) and the older zlib-XML .ksd (Absynth/KORE). With deep (--verbose or
     --frames) it also FastLZ-decompresses the hsin subtree to report the inner
     preset-state container."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 16 * 1024 * 1024))
     if nimod.is_ni_ksd(data):
         meta, kind = nimod.parse_ksd(data), "ksd"

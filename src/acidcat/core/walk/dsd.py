@@ -10,7 +10,6 @@ every fact worth reporting lives in the first hundred bytes or the last few
 hundred.
 """
 
-import os
 import struct
 
 from acidcat.core.formats.dsd import (
@@ -19,7 +18,7 @@ from acidcat.core.formats.dsd import (
     dsd_duration, dsf_header, rate_name,
 )
 from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 # A DSDIFF is IFF and can nest. Real files are a handful of chunks; the bound
 # is for a crafted one that claims thousands.
@@ -48,8 +47,8 @@ def _id3_fields(payload):
 def inspect_dsf(filepath, ctx=None):
     """Sony DSF: four blocks, little-endian, no nesting."""
     ctx = ctx if ctx is not None else {}
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         head = f.read(96)
     chunks, file_warns = [], []
 
@@ -164,7 +163,7 @@ def inspect_dsf(filepath, ctx=None):
         for entry in chunks:
             file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
         return chunks, file_warns
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         f.seek(data_off)
         dh = f.read(12)
     if len(dh) >= 12 and dh[:4] == b"data":
@@ -205,7 +204,7 @@ def inspect_dsf(filepath, ctx=None):
     # ── the tag, which the header points at ──────────────────────────
     meta = hdr["metadata_offset"]
     if meta and meta < file_size:
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(meta)
             tag = f.read(min(_TAG_CAP, file_size - meta))
         fields, warns = _id3_fields(tag)
@@ -482,9 +481,9 @@ def _dst_sound(payload, size, ctx):
 def inspect_dsdiff(filepath, ctx=None):
     """Philips DSDIFF: IFF with 64-bit sizes, big-endian throughout."""
     ctx = ctx if ctx is not None else {}
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     chunks, file_warns = [], []
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         head = f.read(16)
         if len(head) < 16:
             return chunks, ["file is shorter than a FRM8 header"]

@@ -17,9 +17,9 @@ random or non-container data still falls through to "unrecognized." The chunk
 list it produces is also the starting point for writing the real walker.
 """
 
-import os
 import struct
 
+from acidcat.core.infra.source import open_input, input_size
 from acidcat.core.primitives.signal import byte_entropy
 
 from acidcat.core.walk.base import _f
@@ -72,10 +72,10 @@ def _walk_grid(b, total, start, endian):
 def generic_walk(filepath):
     """Return walker-shaped (label, chunks, warnings) for an unknown chunked
     container, or None if the bytes are not a recognizable container."""
-    total = os.path.getsize(filepath)
+    total = input_size(filepath)
     if total < 12:
         return None
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         b = f.read(min(total, _READ_CAP))
     magic = b[:4]
     if not _printable4(magic):

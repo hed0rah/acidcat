@@ -18,12 +18,14 @@ position"; xref is only ever a pointer, never "this field lives there". The help
 underscore names from commands/inspect.py so the move stays mechanical.
 """
 
+import os
 import struct
 
 # single source for the per-chunk payload read cap: the walkers and the grammar
 # strategy share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
 from acidcat.core.formats.riff import PAYLOAD_CAP as _PAYLOAD_CAP
 from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.source import input_name, input_size, open_input
 
 
 class Unsupported(Exception):
@@ -60,6 +62,23 @@ def _f(off, length, name, value, note="", enc=None, raw=None, xref=None,
         # at, so the TUI can follow it and flag a dangling (out-of-bounds) one
         d["xref"] = xref
     return d
+
+
+def _open(x):
+    """A walker's input opened for reading: a path or a Source. Walkers call
+    this and `_size` instead of open() and os.path.getsize(), so the same walker
+    runs over a file on disk or bytes in memory (a decoded layer, stdin)."""
+    return open_input(x)
+
+
+def _size(x):
+    """Bytes in a walker's input: a path or a Source."""
+    return input_size(x)
+
+
+def _name(x):
+    """The file name of a walker's input (its extension is a format hint)."""
+    return os.path.basename(input_name(x))
 
 
 def _u16(b, off):

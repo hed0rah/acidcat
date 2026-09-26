@@ -18,7 +18,7 @@ import struct
 
 from acidcat.core.formats import akai as akaimod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size, _name
 from acidcat.core.walk.base import _f
 
 _KGRP_CAP = 128
@@ -54,13 +54,13 @@ def _zone_sample(zbody):
 
 
 def inspect_akp(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(size, 64 * 1024 * 1024))
     if data[:4] != b"RIFF" or data[8:12] != b"APRG":
         raise _Unsupported("not an Akai program (RIFF/APRG)")
     warns = []
-    prog_name = os.path.splitext(os.path.basename(filepath))[0]
+    prog_name = os.path.splitext(_name(filepath))[0]
 
     prg = None
     keygroups = []                     # (low, high, [samples], body_offset, body_len)
@@ -121,8 +121,8 @@ def inspect_akp(filepath):
 
 def inspect_s3p(filepath):
     """Akai S1000/S3000 program: a transcript of a SysEx dump."""
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(size, _S3P_READ_CAP))
     if data[:len(akaimod.MAGIC)] != akaimod.MAGIC:
         raise _Unsupported("not an Akai S1000/S3000 program (no PSYSSS30)")

@@ -17,10 +17,9 @@ id, a u32 size, the payload, no pad byte observed. The walk degrades on any
 malformed input and never raises.
 """
 
-import os
 from acidcat.core.primitives.notes import coverage
 
-from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f
+from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open, _size
 
 _READ_CAP = 8 * 1024 * 1024
 _CHUNK_CAP = 64
@@ -30,8 +29,8 @@ _BITS_OFF = 0x00                                    # fmt field offsets (big-end
 
 def inspect_bfdlac(filepath):
     """Walk a BFD `.bfdlac` file, returning (chunks, file_warnings)."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         b = f.read(min(file_size, _READ_CAP))
     chunks, warns = [], []
     if len(b) < 12 or b[:4] != b"BFDC":

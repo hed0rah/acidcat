@@ -5,11 +5,10 @@ so the file tiles from the header to the pattern table by arithmetic, and
 from there the channel streams tile by their pointers, as in PT3.
 """
 
-import os
 
 from acidcat.core.formats import stc as stcmod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # A 16-bit address space: nothing past 64 KB can be pointed at.
@@ -19,8 +18,8 @@ _STC_LIST_CAP = 512
 
 
 def inspect_stc(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _STC_READ_CAP))
     warns = []
     if size > _STC_READ_CAP:

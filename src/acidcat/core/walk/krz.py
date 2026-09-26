@@ -15,11 +15,10 @@ soundset banks. Unknown object types and effects payloads are surfaced by
 type/id/name without guessing at their bodies.
 """
 
-import os
 from acidcat.core.primitives.notes import coverage
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 from acidcat.util.midi import midi_note_to_name
 
 # read cap: a forged blocksize/osize cannot force an unbounded allocation. Real
@@ -58,8 +57,8 @@ def _seg_len(tag):
 
 def inspect_krz(filepath):
     """Walk a Kurzweil .KRZ file, returning (chunks, file_warnings)."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         b = f.read(min(file_size, _READ_CAP))
     chunks, warns = [], []
     if b[:4] == b"SROM":

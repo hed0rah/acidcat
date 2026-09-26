@@ -8,6 +8,11 @@ contain that it does not.
 ## The contract
 
 A walker is a function `inspect_x(filepath, ...) -> (chunks, file_warnings)`.
+`filepath` is a path or a Source (`core/infra/source.py`): read it with `_open`,
+`_size` and `_name` from `walk/base.py`, and `zip_open` / `gzip_open` from
+`core/infra/source.py`, never with `open()` or `os.path` (a test enforces it).
+A file beside it (a PSF's library, a cue sheet's BIN) is
+`as_source(filepath).sibling(name)`, which is None for bytes in memory.
 
 A **chunk** is a dict: `id`, `offset`, `size`, `summary`, `fields`, `warnings`,
 and optionally `payload_base` (the absolute offset that field offsets are

@@ -14,11 +14,10 @@ whether the file honours the constraints that make it safe on real hardware.
 See core/formats/sid.py for the layout and the byte-order trap.
 """
 
-import os
 
 from acidcat.core.formats import sid as sidmod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 # A SID is tiny -- the largest of 630 measured tunes is 60 KB. The cap is far
 # above anything real so that a forged header cannot make us read a huge file,
@@ -31,8 +30,8 @@ def _addr(a):
 
 
 def inspect_sid(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _SID_READ_CAP))
     warns = []
     if size > _SID_READ_CAP:

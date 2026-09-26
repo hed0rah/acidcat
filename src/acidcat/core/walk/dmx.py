@@ -40,10 +40,9 @@ pedantry: three quarters of the corpus is at some other rate, and a fixed
 assumption resamples most of a game's sound set wrong.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 _HDR = 8
 _FORMAT_PCM = 3
@@ -99,8 +98,8 @@ def parse_dmx(data, size=None):
 
 
 def inspect_dmx(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    file_size = _size(filepath)
+    with _open(filepath) as fh:
         data = fh.read(min(file_size, _READ_CAP))
     if not looks_like_dmx(data, file_size):
         return [], ["not a DMX sound (Doom DS* lump)"]

@@ -17,10 +17,11 @@ Nothing here reads a whole file into memory unbounded: the XML side is a
 gzip stream that expands ~50x in the wild, so every decompression is capped.
 """
 
-import gzip
 import re
 import struct
 import zlib
+
+from acidcat.core.infra.source import gzip_open, input_name, open_input
 
 # byte 0 is always 0x06; byte 1 is the TIFF-style byte-order mark, 'I' for
 # Intel (little-endian) and 'M' for Motorola (big-endian). Measured over 8,196
@@ -575,7 +576,7 @@ def gunzip_capped(path, cap=XML_DECOMPRESS_CAP):
     hazard on hostile input and merely wasteful on ordinary input.
     """
     data = bytearray()
-    with open(path, "rb") as fh:
+    with open_input(path) as fh:
         dec = zlib.decompressobj(zlib.MAX_WBITS | 16)
         while len(data) < cap:
             block = fh.read(65536)
@@ -604,7 +605,7 @@ def sniff_gzip_ableton(path):
     mislabelled as a set.
     """
     try:
-        with gzip.open(path, "rb") as fh:
+        with gzip_open(path) as fh:
             head = fh.read(4096)
     except (OSError, EOFError, zlib.error):
         return None
@@ -618,7 +619,7 @@ def sniff_gzip_ableton(path):
     # root child it actually found rather than asserting a device preset.
     fid = XML_ROOT_CHILDREN.get(child, "adv")
     # <LiveSet> means set or clip; nothing in the content distinguishes them
-    if fid == "als" and path.lower().endswith(".alc"):
+    if fid == "als" and input_name(path).lower().endswith(".alc"):
         return "alc"
     return fid
 

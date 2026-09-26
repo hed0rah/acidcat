@@ -6,12 +6,11 @@ carrying its real byte offset (so the hex pane shows the PCM and `carve
 are annotated as xref fields -- follow one in the TUI to jump to its target
 and see a dangling (past-EOF) pointer flagged. Parsing lives in core/tracker."""
 
-import os
 import struct
 
 from acidcat.core.formats import tracker as tk
 from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import Unsupported, _f
+from acidcat.core.walk.base import Unsupported, _f, _open, _size
 
 _SAMPLE_CAP = 400        # samples to list
 _ORDER_CAP = 64          # order-table entries to list individually
@@ -41,9 +40,9 @@ _STM_INSTRUMENT_CAP = 31
 
 
 def inspect_mod(filepath):
-    with open(filepath, "rb") as f:
-        data = f.read(min(os.path.getsize(filepath), 64 * 1024 * 1024))
-    size = os.path.getsize(filepath)
+    with _open(filepath) as f:
+        data = f.read(min(_size(filepath), 64 * 1024 * 1024))
+    size = _size(filepath)
     if not tk.is_mod(data) and not tk.is_mod15(data, size):
         raise Unsupported("no MOD magic at offset 1080, and the 15-instrument "
                           "arithmetic does not hold")
@@ -119,8 +118,8 @@ def inspect_mod(filepath):
 
 
 def inspect_xm(filepath):
-    with open(filepath, "rb") as f:
-        data = f.read(min(os.path.getsize(filepath), 64 * 1024 * 1024))
+    with _open(filepath) as f:
+        data = f.read(min(_size(filepath), 64 * 1024 * 1024))
     if data[:17] != b"Extended Module: ":
         raise Unsupported("not an Extended Module")
     try:
@@ -191,8 +190,8 @@ def inspect_xm(filepath):
 
 
 def inspect_s3m(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 64 * 1024 * 1024))
     if not tk.is_s3m(data):
         raise Unsupported("no SCRM magic at offset 0x2C")
@@ -293,8 +292,8 @@ def inspect_s3m(filepath):
 
 
 def inspect_it(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 64 * 1024 * 1024))
     if data[:4] != b"IMPM":
         raise Unsupported("not an Impulse Tracker module")
@@ -378,8 +377,8 @@ def inspect_it(filepath):
 
 def inspect_stm(filepath):
     """Scream Tracker 2, the format S3M grew out of."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 64 * 1024 * 1024))
     if not tk.is_stm(data):
         raise Unsupported("no Scream Tracker 2 header at offset 0")

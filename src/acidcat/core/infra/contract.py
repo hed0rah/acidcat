@@ -609,20 +609,22 @@ def _version():
 # ── walking a file into a Document ─────────────────────────────────────
 
 def walk(path, deep=False, fmt_override=None):
-    """Walk a file and return its v1 Document."""
+    """Walk a file, or a Source, and return its v1 Document."""
     from acidcat.core.infra import capabilities, sniff as sniffmod
-    from acidcat.core.infra.mapped import map_file
+    from acidcat.core.infra.source import Source, as_source
     from acidcat.core.walk import walk_file
-    fmt_id = fmt_override or sniffmod.sniff(path)
-    label, chunks, warns = walk_file(path, deep=deep, fmt_override=fmt_override)
-    data, close = map_file(path)
+    owned = not isinstance(path, Source)
+    src = as_source(path)
     try:
-        return document(fmt_id, label, chunks, warns, data,
+        fmt_id = fmt_override or sniffmod.sniff(src)
+        label, chunks, warns = walk_file(src, deep=deep, fmt_override=fmt_override)
+        return document(fmt_id, label, chunks, warns, src.buffer(),
                         forced=bool(fmt_override),
                         caps_fn=capabilities.caps,
                         prefer_be=capabilities.prefers_be(fmt_id, label))
     finally:
-        close()
+        if owned:
+            src.close()
 
 
 # ── lookups ────────────────────────────────────────────────────────────

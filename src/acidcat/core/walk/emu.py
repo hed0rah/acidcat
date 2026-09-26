@@ -28,10 +28,9 @@ copied. Voice/zone internals (envelopes, filters, mod routing) are not decoded
 yet. Older E-MU formats (Emulator III banks, ESI) are not handled.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _bu16, _bu32, _f
 
 _FORM = b"FORM"
@@ -695,8 +694,8 @@ def _walk_e5b(data, size, deep=False):
 
 
 def inspect_emu(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(size, _READ_CAP))
     if data[:4] != _FORM:
         raise _Unsupported("not an E-MU bank (FORM E4B0/E5B0)")

@@ -18,6 +18,7 @@ encrypted ADX are out of scope and raise.
 import math
 import struct
 
+from acidcat.core.infra.source import open_input
 from acidcat.core.primitives.pcm import clip16, interleave_stereo
 
 _MAGIC = 0x8000
@@ -46,7 +47,7 @@ def parse_header(data):
 def is_adx(path):
     """True if `path` is a (non-encrypted) ADX, confirmed by the (c)CRI marker."""
     try:
-        with open(path, "rb") as f:
+        with open_input(path) as f:
             head = f.read(4)
             if head[:2] != b"\x80\x00":
                 return False

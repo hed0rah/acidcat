@@ -9,13 +9,12 @@ The unpacked body must match the member's CRC-16 before anything in it
 is reported.
 """
 
-import os
 import time
 
 from acidcat.core.codecs import lha
 from acidcat.core.formats import ym as ymmod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # The largest real YM measured unpacks to well under 1 MB (a six-minute
@@ -29,8 +28,8 @@ _VOICES = "ABC"
 
 
 def inspect_ym(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _YM_READ_CAP))
     warns = []
     if size > _YM_READ_CAP:

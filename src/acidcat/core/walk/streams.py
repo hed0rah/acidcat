@@ -22,10 +22,9 @@ Every decoder these call was already here, used by `extract` to pull audio out.
 The structure was being parsed and then thrown away; this reports it.
 """
 
-import os
 
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 # Each of these reads its whole header from a bounded prefix. The audio is not
 # read at all, so the cap is a bound on the header search rather than on the
@@ -53,8 +52,8 @@ def _stream(codec, channels, rate, frames, extra=None):
 
 
 def _read(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         return fh.read(min(size, _HEAD_CAP)), size
 
 

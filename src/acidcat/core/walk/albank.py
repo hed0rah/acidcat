@@ -14,10 +14,9 @@ step; the structure here is self-contained.
 Reference: libultra libaudio.h (AL_BANK_VERSION=0x4231); n64decomp/sm64.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 MAGIC = 0x4231
 MAX_CTL_BYTES = 8 * 1024 * 1024
@@ -48,8 +47,8 @@ def _ptr(d, o):
 
 def inspect_albank(filepath, deep=False):
     """Walk a .ctl ALBankFile. Returns (chunks, file_warnings)."""
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         d = f.read(min(MAX_CTL_BYTES, size))
     warns = []
     if len(d) < 4 or _u16(d, 0) != MAGIC:

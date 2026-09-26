@@ -12,10 +12,9 @@ width from anything but this bit puts the file size check off by 2x and
 reports every float32 table as corrupt.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 WTF_IS_SAMPLE = 0x01        # a one-shot sample rather than a wavetable
 WTF_LOOP_SAMPLE = 0x02      # that sample loops
@@ -37,8 +36,8 @@ def _describe(flags):
 
 
 def inspect_wt(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         head = fh.read(12)
     warns = []
     if head[:4] != b"vawt":

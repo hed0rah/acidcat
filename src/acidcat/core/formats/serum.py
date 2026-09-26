@@ -6,11 +6,14 @@ block, then binary wavetable/modulation data. Decoding lives in the
 walker (core/walk/serum.py); this module keeps the magic check.
 """
 
+from acidcat.core.infra.source import open_input
+
+
 
 def is_serum_preset(filepath):
     """Check if file is a Serum preset."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             header = f.read(8)
             return header == b"XferJson"
     except Exception:

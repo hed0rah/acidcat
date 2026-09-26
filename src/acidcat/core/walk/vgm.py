@@ -13,11 +13,10 @@ spanning the gzip with every field unpositioned and the layout described
 in the summary.
 """
 
-import os
 
 from acidcat.core.formats import vgm as vgmmod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # The largest real VGM measured is a few MB; 64 MB reads anything a chip
@@ -55,8 +54,8 @@ def _seconds(samples):
 
 
 def inspect_vgm(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _VGM_READ_CAP))
     warns = []
     if size > _VGM_READ_CAP:

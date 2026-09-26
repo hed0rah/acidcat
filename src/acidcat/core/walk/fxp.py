@@ -3,10 +3,9 @@ kind), the plugin id (a FourCC), the version fields, and the preset name. All
 multi-byte fields are big-endian. Preset payload (params or an opaque chunk) is
 reported as a region, not decoded (it is plugin-specific)."""
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 _FX_MAGIC = {
     b"FxCk": "regular preset (float params)",
@@ -23,8 +22,8 @@ def _cstr(b):
 
 
 def inspect_fxp(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         head = f.read(min(size, 65536))
     warns = []
     if head[:4] != b"CcnK":

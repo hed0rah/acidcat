@@ -1,7 +1,6 @@
 """AIFF/AIFC structural walker: per-chunk field decoding for inspect.
 The embedded 'ID3 ' chunk reuses the MP3 walker's ID3v2 frame decoder."""
 
-import os
 import struct
 
 from acidcat.core.formats import mp3 as mp3mod
@@ -14,7 +13,7 @@ from acidcat.core.walk.apple import (_parse_apple_meta, _parse_cate,
                                      _parse_chan, _parse_resu,
                                      _parse_trns)
 from acidcat.core.walk.base import (VENDOR_CHUNKS, _PAYLOAD_CAP, _bu16,
-                                    _bu32, _dtext, _f, parse_opaque)
+                                    _bu32, _dtext, _f, parse_opaque, _open, _size)
 from acidcat.util.midi import midi_note_to_name
 
 # AIFC compression types that store real PCM sample frames (so frames/rate
@@ -307,14 +306,14 @@ def inspect_aiff(filepath, form_type, ctx=None):
     per-chunk parsers accumulate (channels, rate, frames, bits, duration,
     NAME/AUTH/copyright text, basc beats/root) so the scan path can read
     them instead of running a second decoder."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     if ctx is None:
         ctx = {}
     chunks = []
     file_warns = []
     seen = []
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12:
             # reachable via fmt_override, which promises to degrade like any

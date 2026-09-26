@@ -26,11 +26,10 @@ end of the file, so a walker that advances by the padded size reports every
 well-formed Wave64 as running past EOF.
 """
 
-import os
 import struct
 
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _PAYLOAD_CAP, _f
+from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _open, _size
 from acidcat.core.walk.wav import _PARSERS, _parse_data
 
 from acidcat.core.formats.wave64 import (
@@ -47,11 +46,11 @@ _MAX_CHUNKS = 4096             # a forged size cannot make the walk spin
 
 def inspect_wave64(filepath):
     """Walk a Wave64 file: a 40-byte header, then GUID/u64 chunks."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     ctx = {"file_size": file_size}
     chunks, file_warns = [], []
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(_HEADER)
         if len(hdr) < _HEADER:
             # reachable through fmt_override, which promises to degrade like

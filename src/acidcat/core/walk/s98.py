@@ -6,11 +6,10 @@ finds, decodes the dump to its end marker, and counts syncs and writes
 per device.
 """
 
-import os
 
 from acidcat.core.formats import s98 as s98mod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # The largest real S98 measured is a few MB; 64 MB reads anything.
@@ -20,8 +19,8 @@ _S98_COMMAND_CAP = 4_000_000
 
 
 def inspect_s98(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _S98_READ_CAP))
     warns = []
     if size > _S98_READ_CAP:

@@ -54,6 +54,8 @@ from the X68000 MDX Master Library.
 
 import struct
 
+from acidcat.core.infra.source import open_input, input_size
+
 TITLE_END = b"\x0d\x0a\x1a"
 
 # A title longer than this is not a title. The longest in 27,166 real tunes is
@@ -307,10 +309,9 @@ SNIFF_READ = 4096
 
 def looks_like_mdx_file(path):
     """`looks_like_mdx` for a path, reading enough to see the offset table."""
-    import os
     try:
-        with open(path, "rb") as fh:
+        with open_input(path) as fh:
             head = fh.read(SNIFF_READ)
-        return looks_like_mdx(head, os.path.getsize(path))
+        return looks_like_mdx(head, input_size(path))
     except OSError:
         return False

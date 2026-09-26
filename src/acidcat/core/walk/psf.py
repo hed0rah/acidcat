@@ -9,11 +9,11 @@ header only on platforms where that header is documented and verified.
 See core/formats/psf.py for the layout and where it came from.
 """
 
-import os
 
 from acidcat.core.formats import psf as psfmod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.source import as_source
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # A GSF library carrying a whole 16 MB GBA ROM compresses to a few MB. The
@@ -24,8 +24,8 @@ _PSF_TAG_LIST_CAP = 64
 
 
 def inspect_psf(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _PSF_READ_CAP))
     if not psfmod.is_psf(raw):
         raise _Unsupported("not a PSF (no PSF magic with a known version)")
@@ -42,7 +42,8 @@ def inspect_psf(filepath, deep=False):
             warns + ["header did not resolve: %s" % h["why"]]
 
     short, machine = h["platform"]
-    is_lib = os.path.splitext(filepath)[1].lower().endswith("lib")
+    src = as_source(filepath)
+    is_lib = src.ext.endswith("lib")
     chunks = [_header_chunk(h, short, machine)]
 
     if h["reserved_size"]:
@@ -90,10 +91,12 @@ def inspect_psf(filepath, deep=False):
         # a library carries no tags by design; a mini without them is odd
         warns.append("no [TAG] block, so no title, length or library reference")
 
-    if h["libs"] and not is_lib:
+    if h["libs"] and not is_lib and src.path is not None:
         for lib in h["libs"]:
-            beside = os.path.join(os.path.dirname(filepath), lib)
-            if not os.path.exists(beside):
+            beside = src.sibling(lib)
+            if beside is not None:
+                beside.close()
+            else:
                 warns.append("names library %r and it is not beside this file, "
                              "so the tune cannot play" % lib)
     return chunks, warns

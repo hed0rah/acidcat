@@ -1,6 +1,5 @@
 """RIFF/WAVE structural walker: per-chunk field decoding for inspect."""
 
-import os
 import struct
 
 from acidcat.core.formats.riff import iter_chunks
@@ -11,7 +10,7 @@ from acidcat.core.primitives.notes import coverage, is_coverage
 from acidcat.core.walk.apple import _parse_apple_meta, _parse_resu
 from acidcat.core.walk.base import (
     VENDOR_CHUNKS, _PAYLOAD_CAP, _dtext, _f, _u16, _u32, _cstr, _flag_names,
-    parse_opaque, parse_padding,
+    parse_opaque, parse_padding, _open, _size,
 )
 from acidcat.util.midi import midi_note_to_name
 
@@ -1222,14 +1221,14 @@ def inspect_wav(filepath, ctx=None):
     smpl_root, ...) -- the scan/index path reads those instead of running
     a second decoder over the same bytes.
     """
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     if ctx is None:
         ctx = {}
     chunks = []
     file_warns = []
     seen = []
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12:
             # a sub-header file (empty/truncated) reaches here via the info

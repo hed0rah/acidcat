@@ -4,10 +4,9 @@ The chunk internals beyond the creator/name strings and the slice count are
 proprietary, so they are reported as regions, not decoded. Byte-level facts only.
 """
 
-import os
 from acidcat.core.primitives.notes import coverage
 
-from acidcat.core.walk.base import _f, _bu32, _dtext
+from acidcat.core.walk.base import _f, _bu32, _dtext, _open, _size
 
 _MAX = 4 * 1024 * 1024
 
@@ -34,8 +33,8 @@ def _count_slices(data, start, end, depth=0):
 
 
 def inspect_rx2(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(size, _MAX))
     warns = []
     if data[:4] != b"CAT ":

@@ -7,9 +7,10 @@ shared value tables the AIFF walker (core/walk/aiff.py) consumes.
 """
 
 import math
-import os
 import struct
+
 from acidcat.core.formats.riff import safe_fourcc
+from acidcat.core.infra.source import open_input, input_size
 
 
 # AIFC compression types in common circulation. Apple's spec defines
@@ -67,7 +68,7 @@ def _parse_ieee_extended(data):
 def is_aiff(filepath):
     """Check if file is AIFF/AIFC format."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             header = f.read(12)
             if len(header) < 12:
                 return False
@@ -79,8 +80,8 @@ def is_aiff(filepath):
 
 def iter_chunks(filepath):
     """Yield (chunk_id_str, offset, size) for each chunk in an AIFF file."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = input_size(filepath)
+    with open_input(filepath) as f:
         header = f.read(12)
         if len(header) < 12 or header[0:4] != b"FORM":
             return

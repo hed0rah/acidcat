@@ -2,13 +2,13 @@
 Xing/LAME/VBRI first-frame headers. Frame and tag primitives live in
 core/mp3.py; this module shapes them into the chunk model."""
 
-import os
 import re
 import struct
 
 from acidcat.core.formats import mp3 as mp3mod
 from acidcat.core.walk.base import (
     _FRAME_LISTING_CAP, _ID3_READ_CAP, _PAYLOAD_CAP, _bu16, _bu32, _f,
+    _open, _size,
 )
 
 _ID3_TEXT_FRAMES = {
@@ -239,7 +239,7 @@ def _id3v2_frames(filepath, hdr):
     fields, warns = [], []
     major = hdr["major"]
     tag_size = hdr["size"]
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         f.seek(10)
         body = f.read(min(tag_size, _ID3_READ_CAP))
     fields.append(_f(0x03, 1, "version", f"2.{major}.{hdr['revision']}"))
@@ -463,7 +463,7 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     b"Xing" (VBR), b"Info" (CBR), or None if no tag is present."""
     fields, warns = [], []
     xoff = _xing_offset(hdr)
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         f.seek(frame_off)
         buf = f.read(max(hdr["frame_length"], xoff + 200, 64))
     # VBRI (Fraunhofer) sits at a fixed offset, 32 bytes past the 4-byte frame
@@ -562,7 +562,7 @@ def inspect_mp3(filepath, deep=False):
     first frame fully decoded and any Xing/LAME header), and an optional
     ID3v1 trailer. With ``deep``, the frame run carries a per-frame
     listing (offset, bitrate, sample rate, channel mode, size)."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     chunks = []
     file_warns = []
 
@@ -592,7 +592,7 @@ def inspect_mp3(filepath, deep=False):
     frame_off, fh = first
     if frame_off > audio_start:
         gap = frame_off - audio_start
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(audio_start)
             skipped = f.read(min(gap, _PAYLOAD_CAP))
         # all-zero is the damaged-head case rather than the stray-bytes one: a
@@ -744,7 +744,7 @@ def inspect_mp3(filepath, deep=False):
     chunks.append(frames_entry)
 
     if id3v1_off is not None:
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(id3v1_off)
             tag = f.read(128)
         v1_fields, title = _id3v1_fields(tag)

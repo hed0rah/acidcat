@@ -19,12 +19,11 @@ trap: a file whose desc flags are 0 stores big-endian samples, and decoding its
 data little-endian reproduces noise rather than the tone that is there.
 """
 
-import os
 import struct
 
 from acidcat.core.primitives.notes import coverage, is_coverage
 from acidcat.core.walk.apple import _parse_chan
-from acidcat.core.walk.base import _PAYLOAD_CAP, _f
+from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _open, _size
 
 MAGIC = b"caff"
 
@@ -233,11 +232,11 @@ _KNOWN_OPAQUE = {
 
 def inspect_caf(filepath):
     """Walk a CAF file: an 8-byte header, then 4cc/s64 chunks."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     ctx = {"file_size": file_size}
     chunks, file_warns = [], []
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(_HEADER)
         if len(hdr) < _HEADER:
             # reachable through fmt_override, which promises to degrade like

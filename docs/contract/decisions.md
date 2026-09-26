@@ -163,6 +163,26 @@ the catalogue.
 | X1 | Branching (doc decision 6) **(recommended, accepted)**; refined by R2 | One branch per milestone, merged by PR on a green full tier (into `next` during 2.0) | Since September work has gone straight to `main`, so CI checks after the fact; the TUI rebuild touches one large file across several releases | PR per release; CI's three-OS matrix gates each merge |
 | X2 | Where the spec lives | `docs/contract/` in the repo, pushed for review, no code until approved | Reviewable by any agent or person, versioned with the code it describes | this directory |
 
+## Order after review (2026-09-26)
+
+The review accepted the architecture in direction and changed the order:
+engine first (Source, Limits, structured findings, layers), then the TUI
+(DocumentModel, context hex, inspectors, layers, caps-driven actions: the 2.1
+to 2.5 work moves ahead of the CLI), then one breaking pass (CLI
+consolidation, `acidcat.open()`, the edit API, JSON v1 as default, Python 3.11,
+`core/grammar/` removed). MCP structure tools and index schema v4 are parked.
+All 2.0 work lands on `next`, one commit per finished milestone; non-breaking
+milestones ship from `main` as 1.9.x after the corpus check. The CLI mapping
+(every command and flag, what it becomes, the alias that keeps it working
+through 2.x) is written as `docs/contract/cli-2.0.md` before any CLI code.
+
+E1 as built: walker signatures stay `inspect_x(filepath, ...)` with `filepath`
+a path or a Source; siblings come from a fixed directory lookup rather than an
+injected resolver; `head`, `child` and the slice backend wait for layers.
+architecture-2.0.md section 2 describes what exists.
+
+The table below is the plan as first written.
+
 ## Release plan
 
 | Release | Branch | Ships | Done when |

@@ -6,11 +6,10 @@ part MIDI does not have, sixteen bytes of OPL2 registers each, and each
 is a chunk of its own so a patch can be carved.
 """
 
-import os
 
 from acidcat.core.formats import cmf as cmfmod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 from acidcat.core.walk.midi import _scan_track
 
@@ -22,8 +21,8 @@ _CMF_INSTRUMENT_LIST_CAP = 128
 
 
 def inspect_cmf(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _CMF_READ_CAP))
     warns = []
     if size > _CMF_READ_CAP:

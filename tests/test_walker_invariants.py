@@ -4,7 +4,8 @@ Three invariants that used to be conventions a human had to re-verify by
 reading every walker:
 
 1. Bounded reads: no argless ``.read()`` inside ``core/walk/`` (the class
-   behind the historical sf2/rmid memory-amplification bugs).
+   behind the historical sf2/rmid memory-amplification bugs), and no direct
+   filesystem access: a walker reads the Source it is given.
 2. The ctx key registry: every semantic ctx key the fixed-key walkers
    (wav/aiff/midi) publish is in ``vocab.CTX_KEYS``, so a walker rename
    cannot silently desynchronize from the scan path. (The WAV half runs
@@ -47,6 +48,40 @@ def test_no_argless_reads_in_walkers():
                 offenders.append(f"{os.path.basename(py)}:{node.lineno}")
     assert not offenders, (
         f"argless .read() in walkers (unbounded allocation): {offenders}")
+
+
+# a walker reads its Source (core/infra/source.py), never the filesystem: a
+# walker that opens or stats a path cannot walk bytes in memory, which is what
+# stdin, carved regions and decoded layers are
+_FS_CALLS = {("open",), ("os", "path", "getsize"), ("os", "path", "exists"),
+             ("os", "path", "isfile"), ("os", "stat"), ("os", "path", "join"),
+             ("os", "path", "dirname"), ("zipfile", "ZipFile"), ("gzip", "open")}
+
+
+def _dotted(func):
+    parts = []
+    while isinstance(func, ast.Attribute):
+        parts.append(func.attr)
+        func = func.value
+    if isinstance(func, ast.Name):
+        parts.append(func.id)
+        return tuple(reversed(parts))
+    return None
+
+
+def test_walkers_do_not_touch_the_filesystem():
+    offenders = []
+    for py in sorted(glob.glob(os.path.join(WALK_DIR, "*.py"))):
+        with open(py, "r", encoding="utf-8") as f:
+            tree = ast.parse(f.read(), filename=py)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _dotted(node.func) in _FS_CALLS:
+                offenders.append(f"{os.path.basename(py)}:{node.lineno} "
+                                 f"{'.'.join(_dotted(node.func))}")
+    assert not offenders, (
+        "walkers reaching the filesystem instead of their Source "
+        "(use _open, _size, _name, zip_open, gzip_open, source.sibling): "
+        + ", ".join(offenders))
 
 
 # ── 2. ctx keys stay registered ────────────────────────────────────

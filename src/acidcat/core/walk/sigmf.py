@@ -20,7 +20,8 @@ import os
 import re
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.source import as_source
+from acidcat.core.walk.base import _f, _open
 
 _EXT_KEY_CAP = 48                  # metadata keys to list (mirrors _ZONE_CAP)
 _ANNOTATION_CAP = 64
@@ -41,7 +42,7 @@ _IQ_EXT_GEOMETRY = {
 def _gqrx_name(path):
     """A GQRX capture filename match (gqrx_DATE_TIME_center_rate_fc.raw), or None.
     Shared with sniff() so a bare .raw is accepted only under this convention."""
-    return _GQRX_RE.search(os.path.basename(path))
+    return _GQRX_RE.search(os.path.basename(path or ""))
 
 
 def _parse_datatype(dt):
@@ -86,7 +87,7 @@ def _first_samples(data_path, geo, n=4):
     if not geo:
         return ""
     try:
-        with open(data_path, "rb") as f:
+        with _open(data_path) as f:
             raw = f.read(geo["sample_bytes"] * n)
     except OSError:
         return ""
@@ -110,7 +111,7 @@ def _clip_count(vals, geo):
 def _deep_stats(chunk, data_path, geo):
     """DC offset (I/Q means) and clipping percentage from the first 8 MB."""
     try:
-        with open(data_path, "rb") as f:
+        with _open(data_path) as f:
             raw = f.read(_DEEP_READ)
     except OSError:
         return
@@ -130,7 +131,7 @@ def _deep_stats(chunk, data_path, geo):
 
 def _sha512(data_path):
     h = hashlib.sha512()
-    with open(data_path, "rb") as f:
+    with _open(data_path) as f:
         for blk in iter(lambda: f.read(1 << 20), b""):
             h.update(blk)
     return h.hexdigest()
@@ -157,15 +158,26 @@ def _samples_chunk(data_path, data_size, geo, dt, deep):
     return chunk, n_samp
 
 
-def _pair_paths(path):
-    low = path.lower()
+def _pair_names(name):
+    low = name.lower()
     if low.endswith(".sigmf-meta"):
-        stem = path[:-len(".sigmf-meta")]
+        stem = name[:-len(".sigmf-meta")]
     elif low.endswith(".sigmf-data"):
-        stem = path[:-len(".sigmf-data")]
+        stem = name[:-len(".sigmf-data")]
     else:
-        stem = os.path.splitext(path)[0]
+        stem = os.path.splitext(name)[0]
     return stem + ".sigmf-meta", stem + ".sigmf-data"
+
+
+def _pair(src):
+    """(meta Source, data Source, meta name): the input is one half of the
+    pair and the other is its sibling; either may be None."""
+    name = src.name or ""
+    meta_name, data_name = _pair_names(name)
+    low = name.lower()
+    meta = src if low.endswith(".sigmf-meta") else src.sibling(meta_name)
+    data = src if low.endswith(".sigmf-data") else src.sibling(data_name)
+    return meta, data, meta_name
 
 
 def _num(v):
@@ -177,15 +189,17 @@ def _num(v):
 
 
 def inspect_sigmf(path, deep=False):
-    meta_path, data_path = _pair_paths(path)
+    src = as_source(path)
+    meta, data_src, meta_name = _pair(src)
+    data_path = data_src
     warns = []
     g, captures, annotations, meta_ok = {}, [], [], False
-    if os.path.isfile(meta_path) and os.path.getsize(meta_path) > _META_CAP:
+    if meta is not None and meta.size > _META_CAP:
         warns.append(coverage(f"sidecar exceeds {_META_CAP >> 20} MB; not parsed"))
-    elif os.path.isfile(meta_path):
+    elif meta is not None:
         try:
-            with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
-                m = json.loads(f.read(_META_CAP))  # size gated above; bounded read
+            text = meta.read(0, _META_CAP).decode("utf-8", "replace")
+            m = json.loads(text)  # size gated above; bounded read
             if not isinstance(m, dict):
                 raise ValueError("top-level SigMF JSON is not an object")
             g = m.get("global") if isinstance(m.get("global"), dict) else {}
@@ -197,8 +211,8 @@ def inspect_sigmf(path, deep=False):
     else:
         warns.append("no .sigmf-meta sidecar; datatype unknown (SigMF requires the pair)")
 
-    data_size = os.path.getsize(data_path) if os.path.isfile(data_path) else 0
-    if not os.path.isfile(data_path):
+    data_size = data_src.size if data_src is not None else 0
+    if data_src is None:
         warns.append("no .sigmf-data beside this .sigmf-meta")
 
     dt = g.get("core:datatype", "")
@@ -222,7 +236,7 @@ def inspect_sigmf(path, deep=False):
     if meta_ok:
         sha = g.get("core:sha512")
         sha_note = "not verified (use --deep)"
-        if deep and sha and os.path.isfile(data_path):
+        if deep and sha and data_src is not None:
             sha_note = "verified" if _sha512(data_path) == sha.lower() else "MISMATCH"
             if sha_note == "MISMATCH":
                 warns.append("core:sha512 does not match the data file")
@@ -257,7 +271,7 @@ def inspect_sigmf(path, deep=False):
             "id": "global", "offset": 0, "size": 0, "payload_base": 0,
             "summary": (f"{dt or 'unknown'}  "
                         + (f"{fs / 1e6:g} Msps  " if fs else "")
-                        + f"{n_samp:,} samples{dur_s}  ({os.path.basename(meta_path)})"),
+                        + f"{n_samp:,} samples{dur_s}  ({os.path.basename(meta_name)})"),
             "fields": gfields, "warnings": [],
         })
 
@@ -331,36 +345,37 @@ def inspect_sigmf(path, deep=False):
 
 
 def inspect_iq(path, deep=False):
-    size = os.path.getsize(path)
-    ext = os.path.splitext(path.lower())[1]
+    src = as_source(path)
+    size = src.size
+    ext = src.ext
     warns = []
     dt = None
     fs = fc = dtime = None
     provenance = ""
     meta_fields = []
 
-    gm = _gqrx_name(path)
+    gm = _gqrx_name(src.name)
     if gm:
         dt, provenance = "cf32_le", "GQRX filename"
         d, t = gm.group(1), gm.group(2)
         fc, fs = int(gm.group(3)), int(gm.group(4))
         dtime = f"{d[:4]}-{d[4:6]}-{d[6:]} {t[:2]}:{t[2:4]}:{t[4:]}"
 
-    txt = os.path.splitext(path)[0] + ".TXT"
-    if os.path.isfile(txt):
+    txt = src.sibling(os.path.splitext(src.name or "")[0] + ".TXT")
+    if txt is not None:
         provenance = provenance or "PortaPack .TXT sidecar"
         try:
-            with open(txt, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    if "=" in line:
-                        k, v = line.strip().split("=", 1)
-                        meta_fields.append(_f(None, 0, k, v))
-                        if k == "sample_rate" and v.isdigit():
-                            fs = fs or int(v)
-                        if k == "center_frequency" and v.isdigit():
-                            fc = fc or int(v)
+            lines = txt.read(0, _META_CAP).decode("utf-8", "replace").splitlines()
         except OSError:
-            pass
+            lines = []
+        for line in lines:
+            if "=" in line:
+                k, v = line.strip().split("=", 1)
+                meta_fields.append(_f(None, 0, k, v))
+                if k == "sample_rate" and v.isdigit():
+                    fs = fs or int(v)
+                if k == "center_frequency" and v.isdigit():
+                    fc = fc or int(v)
 
     ext_note = ""
     if dt is None:                     # extension gives geometry, not metadata
@@ -387,7 +402,7 @@ def inspect_iq(path, deep=False):
             "fields": mf, "warnings": [],
         })
 
-    samples, _ = _samples_chunk(path, size, geo, dt, deep)
+    samples, _ = _samples_chunk(src, size, geo, dt, deep)
     if ext_note and samples["fields"]:
         samples["fields"][0]["note"] = (samples["fields"][0]["note"] + "; "
                                         + ext_note).strip("; ")

@@ -1,12 +1,12 @@
 """FLAC structural walker: field decoding for every metadata block type
 plus the audio-frame region. Block iteration lives in core/flac.py."""
 
-import os
 from acidcat.core.primitives.notes import coverage
 import struct
 
 from acidcat.core.formats import flac as flacmod
 from acidcat.core.walk.base import parse_padding  # noqa: F401
+from acidcat.core.walk.base import _open, _size
 from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _f
 
 def _flac_streaminfo(b):
@@ -205,7 +205,7 @@ def _flac_cuesheet(b):
 
 def inspect_flac(filepath):
     """Walk a FLAC file: metadata blocks then the audio-frame region."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     chunks = []
     file_warns = []
     seen = []
@@ -220,7 +220,7 @@ def inspect_flac(filepath):
     for btype, name, off, length, is_last in flacmod.iter_metadata_blocks(filepath):
         seen.append(name)
         last_end = off + 4 + length
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(off + 4)
             payload = f.read(min(length, _PAYLOAD_CAP))
         entry = {"id": name, "offset": off, "size": length,
@@ -284,7 +284,7 @@ def inspect_flac(filepath):
     # header (known type, in-bounds length) is a block smuggled after the
     # last-metadata-block flag, which no conformant decoder reads.
     if saw_last and last_end + 4 <= file_size:
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(last_end)
             h = f.read(4)
         btype = h[0] & 0x7F

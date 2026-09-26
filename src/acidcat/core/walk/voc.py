@@ -46,10 +46,9 @@ has them, and they are NOT claimed as verified -- a walker that says it checked
 something it never saw is the more expensive kind of wrong.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 MAGIC = b"Creative Voice File\x1a"
 _HDR_MIN = 26
@@ -188,8 +187,8 @@ def _duration(s):
 
 
 def inspect_voc(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    file_size = _size(filepath)
+    with _open(filepath) as fh:
         data = fh.read(min(file_size, _READ_CAP))
     if len(data) < len(MAGIC) or not data.startswith(MAGIC):
         return [], ["not a Creative Voice File (.voc)"]

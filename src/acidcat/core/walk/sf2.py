@@ -2,11 +2,10 @@
 and structure chunks, and the named sample list. Sample carving lives in
 core/sf2.py; `acidcat convert font.sf2` extracts the samples to WAV."""
 
-import os
 from acidcat.core.primitives.notes import coverage
 
 from acidcat.core.formats import sf2 as sf2mod
-from acidcat.core.walk.base import Unsupported, _PAYLOAD_CAP, _f
+from acidcat.core.walk.base import Unsupported, _PAYLOAD_CAP, _f, _open, _size
 
 _SAMPLE_LIST_CAP = 400          # named samples to list in inspect
 # Same reasoning as the sample cap: a soundfont can carry hundreds of each,
@@ -20,8 +19,8 @@ _SF2_CAP = 512 * 1024 * 1024    # cap the whole-file read; a forged sfbk must no
 def inspect_sf2(filepath):
     """Structural view of an SF2: version + INFO metadata, the sdta/pdta chunk
     sizes, and the named sample list (each with rate, duration, loop)."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         # validate the sfbk magic before slurping, so a huge non-SoundFont is
         # rejected without being read into memory
         if not sf2mod.is_sf2(f.read(12)):

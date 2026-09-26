@@ -2,13 +2,12 @@
 per-track stats and the optional --frames per-event listing. Mirrors
 the event grammar in core/midi.py."""
 
-import os
 import struct
 
 from acidcat.core.formats import midi as midimod
 from acidcat.core.formats.midi import _read_vlq
 from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f
+from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f, _open, _size
 from acidcat.util.midi import key_signature_name, midi_note_to_name
 
 _MIDI_FORMATS = {0: "single track", 1: "multi-track sync", 2: "independent patterns"}
@@ -225,10 +224,10 @@ def inspect_midi(filepath, deep=False, ctx=None):
     With ``deep``, each MTrk carries a per-event listing. A caller-supplied
     ``ctx`` dict is filled with the semantic values the scan path reads
     (duration, tempo_bpm, key_sig, first track name, copyright)."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     scan = ctx if ctx is not None else {}
     # clamped read: read(N) pre-allocates N bytes (see core/midi.py)
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         data = f.read(min(midimod.MAX_SMF_BYTES, file_size))
     chunks = []
     file_warns = []

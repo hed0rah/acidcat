@@ -5,10 +5,9 @@ sentinels resolved through the ds64 chunk. Reuses the RIFF per-chunk
 parsers for everything but ds64.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _u32
+from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _u32, _open, _size
 from acidcat.core.walk.wav import _PARSERS, _parse_data
 
 def _parse_ds64(b, ctx):
@@ -55,14 +54,14 @@ def inspect_rf64(filepath):
     fields are 0xFFFFFFFF sentinels resolved through the ds64 chunk,
     which must be the first chunk.
     """
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     ctx = {"file_size": file_size}
     chunks = []
     file_warns = []
     seen = []
     sentinel = 0xFFFFFFFF
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12:
             # reachable via fmt_override, which promises to degrade like any

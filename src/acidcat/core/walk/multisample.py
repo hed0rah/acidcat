@@ -11,13 +11,13 @@ Entries are therefore read by seeking past the local file header, bypassing the
 CRC check. zipfile + xml.etree are both stdlib, so this adds no dependency.
 """
 
-import os
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
 
+from acidcat.core.infra.source import zip_open
 from acidcat.core.primitives.zipio import zip_data_offset
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _size
 
 _ZONE_CAP = 48                                   # don't flood the view on big kits
 
@@ -78,9 +78,9 @@ def _read_entry(z, name):
 
 
 def inspect_multisample(filepath):
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     try:
-        z = zipfile.ZipFile(filepath)
+        z = zip_open(filepath)
     except zipfile.BadZipFile:
         return ([{"id": "multisample", "offset": 0, "size": size,
                   "summary": "not a valid zip archive", "fields": [],

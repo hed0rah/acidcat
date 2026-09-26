@@ -13,11 +13,10 @@ absolute and every tune points somewhere wrong.
 See core/formats/mdx.py for the layout and where it was verified.
 """
 
-import os
 
 from acidcat.core.formats import mdx as mdxmod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 # The player itself caps an MDX at 86 KB; the largest of 27,166 real tunes is
 # far inside that. The cap is well above anything genuine so a forged offset
@@ -26,8 +25,8 @@ _MDX_READ_CAP = 4 * 1024 * 1024
 
 
 def inspect_mdx(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _MDX_READ_CAP))
     warns = []
     if size > _MDX_READ_CAP:

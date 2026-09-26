@@ -16,14 +16,14 @@ Header-level decode, never-raise. Deep pattern/sample decode is future work.
 
 import struct
 
-from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f
+from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open
 
 _CAP = 32 * 1024 * 1024
 _CHUNK_CAP = 2048
 
 
 def _read(filepath):
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         return f.read(_CAP)
 
 

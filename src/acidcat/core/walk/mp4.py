@@ -2,12 +2,11 @@
 box tree, with the stsd sample entries and their codec-config boxes
 (esds/alac/dOps) broken out. Box primitives live in core/mp4.py."""
 
-import os
 import struct
 
 from acidcat.core.formats import mp4 as mp4mod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 _CODEC_NAMES = {"mp4a": "AAC", "alac": "Apple Lossless", "Opus": "Opus",
                 "fLaC": "FLAC", "ac-3": "AC-3", "ec-3": "E-AC-3"}
@@ -391,8 +390,8 @@ def _capped_note(payload, kind):
 def inspect_mp4(filepath):
     """Structural view of an ISO-BMFF MP4/M4A file: the decoded metadata (from
     udta > meta > ilst and the movie duration) followed by the box tree."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, _HEAD_WINDOW))  # box tree from the head
         # metadata lives in moov. use the head window when the whole moov fits in
         # it; re-read the full moov when it sits at EOF (non-faststart output) OR

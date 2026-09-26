@@ -30,12 +30,11 @@ effectively single-source outside its binary blocks, so the tag semantics below
 rest on one document rather than two.
 """
 
-import os
 import re
 import struct
 
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 # An NSF is a NES ROM image: the mapper windows 4 KB banks into 32 KB of address
 # space, so past about 1 MB the data cannot be reached by any bank value. The cap
@@ -122,9 +121,9 @@ def inspect_nsf(filepath, deep=False):
     the original spec that were later given meaning, so in a version-1 file $7C
     must be ignored while $7D-$7F may still legitimately carry a trailer length.
     """
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     if size > _NSF_READ_CAP:
         warns.append(coverage("read the first %s of %s bytes"
@@ -347,8 +346,8 @@ def inspect_nsfe(filepath, deep=False):
     number by design; new revisions arrive as new mandatory chunk types, and the
     capitalisation rule is what makes that safe.
     """
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     warns = []
     if size > _NSF_READ_CAP:
@@ -412,8 +411,8 @@ def inspect_sap(filepath, deep=False):
     build one with `cat`. So the walk is two chunks, and the interesting question
     is where one stops, which the format never says.
     """
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     warns = []
     if raw[:5] != b"SAP\r\n":
@@ -606,9 +605,9 @@ def inspect_gbs(filepath, deep=False):
     addresses, a stack pointer and two timer bytes, and that is the whole
     header. Spec: gbsplay's gbsformat.txt, the format's own reference.
     """
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     if size > _NSF_READ_CAP:
         warns.append(coverage("read the first %s of %s bytes"
@@ -720,9 +719,9 @@ def inspect_hes(filepath, deep=False):
     own hes.txt and game_music_emu's reader.
     """
     from acidcat.core.walk.base import Unsupported
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _HES_READ_CAP))
     if size > _HES_READ_CAP:
         warns.append(coverage("file is %d bytes; read the first %d" % (size, _HES_READ_CAP)))
@@ -809,9 +808,9 @@ def inspect_kss(filepath, deep=False):
     fact on the bank and not a warning. Spec: libkss's reader.
     """
     from acidcat.core.walk.base import Unsupported
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _KSS_READ_CAP))
     if size > _KSS_READ_CAP:
         warns.append(coverage("file is %d bytes; read the first %d" % (size, _KSS_READ_CAP)))

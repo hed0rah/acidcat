@@ -10,13 +10,12 @@ the RAM, one chunk per sample the directory reaches.
 See core/formats/spc.py for the layout and where it came from.
 """
 
-import os
 import struct
 
 from acidcat.core.formats import spc as spcmod
 from acidcat.core.formats.spc import NUL
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # An SPC is 66,048 bytes plus an optional xid6 chunk, which real files keep
@@ -30,8 +29,8 @@ _SPC_XID6_CAP = 64
 
 
 def inspect_spc(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _SPC_READ_CAP))
     if not spcmod.is_spc(raw):
         raise _Unsupported("not an SPC (no SNES-SPC700 magic)")

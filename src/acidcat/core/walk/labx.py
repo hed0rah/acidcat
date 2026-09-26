@@ -13,14 +13,14 @@ the archive metadata. Each preset chunk is a real byte region (STORED entry, so
 a carve of it is the literal Boost archive, replayable into Analog Lab).
 """
 
-import os
 import re
 import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 
+from acidcat.core.infra.source import zip_open
 from acidcat.core.primitives.zipio import zip_data_offset
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _size
 
 _PRESET_CAP = 48                          # cap chunks like multisample's _ZONE_CAP
 _META_CAP = 8192                          # metadata sits in the first ~1 KB
@@ -186,9 +186,9 @@ def _preset_fields(head, engine, name, bank):
 
 
 def inspect_labx(filepath):
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     try:
-        z = zipfile.ZipFile(filepath)
+        z = zip_open(filepath)
     except zipfile.BadZipFile:
         return ([{"id": "labx", "offset": 0, "size": size,
                   "summary": "not a valid zip archive", "fields": [],

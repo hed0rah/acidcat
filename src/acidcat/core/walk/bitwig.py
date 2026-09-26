@@ -11,11 +11,10 @@ Two Bitwig types are NOT this container: .bwimpulse is a bare FLAC file (walked
 by the flac walker), and .wt is the 'vawt' wavetable format (walked by wt.py).
 The ZIP-based .multisample is not yet handled."""
 
-import os
 import struct
 
 from acidcat.core.formats import bitwig as bwmod
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 from acidcat.util.midi import midi_note_to_name
 
 def _flac_audio_params(raw):
@@ -74,10 +73,10 @@ def inspect_bitwig(filepath, deep=False):
     metadata block, and a note for the embedded-asset zip. With deep (--verbose
     or --frames) it also deconstructs the device/module tree and unzips and
     identifies every embedded asset."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     # read the whole preset (bounded) so the embedded-asset zip, which can sit
     # past the first few MB, is found. the meta scan is bounded internally.
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         data = f.read(min(file_size, 64 * 1024 * 1024))
     chunks, file_warns = [], []
 

@@ -32,6 +32,7 @@ from acidcat.core.formats import sid as sidmod
 from acidcat.core.formats import dsd as dsdmod
 from acidcat.core.formats import tracker as trackermod
 from acidcat.core.formats import wave64 as wave64mod
+from acidcat.core.infra.source import gzip_open, input_name, input_size, open_input, zip_open
 
 # containers an ID3v2 tag is known to wrap; the tag then does not make
 # the file an MP3.
@@ -299,7 +300,7 @@ def _is_vital(filepath):
     any real preset.
     """
     try:
-        with open(filepath, "rb") as fh:
+        with open_input(filepath) as fh:
             head = fh.read(_VITAL_WINDOW)
             if _VITAL_KEY in head:
                 return True
@@ -319,7 +320,7 @@ def _id3_wraps_other_container(filepath):
     hdr = mp3mod.read_id3v2(filepath)
     if not hdr:
         return False  # "ID3" magic but an unreadable header; treat as an MP3 attempt
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         f.seek(hdr["total"])
         nxt = f.read(4)
     return nxt in _ID3_WRAPPED_MAGICS
@@ -341,7 +342,7 @@ def _second_frame_follows(filepath, head):
     if step < 4:
         return False                       # free-format: no predictable cadence
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             f.seek(step)
             nxt = f.read(4)
     except OSError:
@@ -380,7 +381,7 @@ def _zeroed_head_mp3(filepath, head):
     if not head or any(head[:4]):
         return False                       # a real head; not this case
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             window = f.read(_ZERO_HEAD_CAP)
             start = next((i for i, b in enumerate(window) if b), -1)
             if start < 4 or start + 4 > len(window):
@@ -399,19 +400,19 @@ def _zeroed_head_mp3(filepath, head):
 def _lha_holds_ym(filepath):
     from acidcat.core.codecs import lha
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             raw = f.read(2 + 255)
         h = lha.parse_header(raw)
     except (OSError, lha.LhaError):
         return False
     return h["checksum_ok"] and (h["name"].lower().endswith(".ym")
-                                 or filepath.lower().endswith(".ym"))
+                                 or input_name(filepath).lower().endswith(".ym"))
 
 
 def sniff(filepath):
     """Sniff a file on disk. Same ids as ``sniff_bytes`` plus
     "id3-wrapped" for an ID3v2 tag around a non-MP3 container."""
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         head = f.read(20)  # 20 covers the 17-byte "Extended Module: " XM signature
     fmt = sniff_bytes(head)
     if fmt == "mp3" and head[:3] == b"ID3" and _id3_wraps_other_container(filepath):
@@ -431,7 +432,7 @@ def sniff(filepath):
     if fmt is None and head[2:7] in (b"-lh5-", b"-lh0-") and _lha_holds_ym(filepath):
         return "ym"                                    # ST-Sound YM in LHA
     # a .cue may open with REM/CATALOG lines before FILE; trust the extension
-    if fmt is None and filepath.lower().endswith(".cue"):
+    if fmt is None and input_name(filepath).lower().endswith(".cue"):
         return "cue"
     # A Doom DS* sound has no magic at all -- eight bytes of header over raw
     # samples. `03 00` as a format field is not an identification on its own,
@@ -439,10 +440,9 @@ def sniff(filepath):
     # must equal its length exactly. sniff_bytes only ever sees the head, so
     # this cannot live there and be honest.
     if fmt is None:
-        import os
         from acidcat.core.walk import dmx as dmxmod
         try:
-            if dmxmod.looks_like_dmx(head, os.path.getsize(filepath)):
+            if dmxmod.looks_like_dmx(head, input_size(filepath)):
                 return "dmx"                           # Doom DS* sound lump
         except OSError:
             pass
@@ -465,7 +465,7 @@ def sniff(filepath):
     # writes: a random file passes a three-byte test one time in a few
     # thousand, and this tree walks millions.
     if (fmt is None and pmdmod.is_pmd(head)
-            and filepath.lower().endswith((".m", ".m2", ".m86", ".mz"))):
+            and input_name(filepath).lower().endswith((".m", ".m2", ".m86", ".mz"))):
         return "pmd"                                   # PC-98 PMD score
     # every Ableton document except .asd and .amxd is gzipped XML, so the magic
     # is just gzip's. Identifying it needs one decompressed block, which is why
@@ -511,12 +511,12 @@ def sniff(filepath):
     # a PT2 has no signature: the counts agree, every pointer is inside the
     # file and the first region begins where the header ends. Gated on the
     # extension the world uses for them, like PMD.
-    if fmt is None and filepath.lower().endswith(".pt2") and _is_pt2(filepath):
+    if fmt is None and input_name(filepath).lower().endswith(".pt2") and _is_pt2(filepath):
         return "pt3"
     # STC has no magic either: pointers in order, whole 99-byte sample
     # records, a positions block that ends at the ornaments, a pattern table
     # ended by 0xFF. Gated on the extension, like PT2.
-    if fmt is None and filepath.lower().endswith(".stc") and _is_stc(filepath):
+    if fmt is None and input_name(filepath).lower().endswith(".stc") and _is_stc(filepath):
         return "stc"
     # S3M's 'SCRM' magic sits at 0x2C (outside the head), a disk-level confirm.
     # It runs before the MOD check (MOD's offset-1080 heuristic can false-
@@ -532,10 +532,10 @@ def sniff(filepath):
         return "snesrom"
     # a .sigmf-meta is JSON starting with '{', which sniff_bytes reads as vital;
     # the mandated extension reroutes it, exactly like the id3-wrapped demotion.
-    if fmt == "vital" and filepath.lower().endswith(".sigmf-meta"):
+    if fmt == "vital" and input_name(filepath).lower().endswith(".sigmf-meta"):
         return "sigmf"
     # an MPC .mpcpattern is also bare JSON ('{'); reroute on its extension.
-    if fmt == "vital" and filepath.lower().endswith(".mpcpattern"):
+    if fmt == "vital" and input_name(filepath).lower().endswith(".mpcpattern"):
         return "mpcpattern"
     # a bare '{' is the weakest magic here: it claims every JSON file, and every
     # RTF, since those open "{\rtf". That stole real files -- an RTF licence
@@ -554,17 +554,17 @@ def sniff(filepath):
     # <Engine>/User|Factory/<Bank>/<Preset> layout of boost text archives. The
     # multisample check (an exact member name) is more specific, so it runs first.
     if fmt is None and head[:4] == b"PK\x03\x04" \
-            and (filepath.lower().endswith(".labx") or _is_labx(filepath)):
+            and (input_name(filepath).lower().endswith(".labx") or _is_labx(filepath)):
         return "labx"
     # an Akai MPC .xpn expansion package is a zip carrying an Expansion.xml
     # manifest alongside its .xpm programs and samples.
     if fmt is None and head[:4] == b"PK\x03\x04" \
-            and (filepath.lower().endswith(".xpn") or _is_xpn(filepath)):
+            and (input_name(filepath).lower().endswith(".xpn") or _is_xpn(filepath)):
         return "xpn"
     # an MPC3 .xtd track/kit is gzip wrapping an ACVS container; confirm the
     # ACVS magic inside rather than claiming every .xtd gzip.
     if fmt is None and head[:2] == b"\x1f\x8b" \
-            and filepath.lower().endswith(".xtd") and _is_xtd(filepath):
+            and input_name(filepath).lower().endswith(".xtd") and _is_xtd(filepath):
         return "xtd"
     # a .vgz is a VGM in gzip and nothing else; confirmed by the magic
     # inside and not by the extension, since a .vgm.gz is the same thing
@@ -589,7 +589,7 @@ def sniff(filepath):
     # SigMF pair members and bare IQ captures are headerless: accept them only
     # when no magic matched, keyed on the mandated / conventional extensions.
     if fmt is None:
-        low = filepath.lower()
+        low = input_name(filepath).lower()
         if low.endswith(".sigmf-data") or low.endswith(".sigmf-meta"):
             return "sigmf"
         if low.endswith(_IQ_EXTS) or (low.endswith(".raw") and _gqrx_sniff(filepath)):
@@ -620,7 +620,7 @@ def _is_albank(filepath):
     import os
     import struct
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             head = f.read(65536)
     except OSError:
         return False
@@ -642,15 +642,14 @@ def _is_snes_rom(filepath):
     complement that xor to 0xFFFF -- a 1-in-65536 gate. A 512-byte copier header
     shifts both locations by 0x200. The map-mode byte (0x20..0x3F) is a sanity
     check so a chance complement pair in non-ROM data is not mistaken for a cart."""
-    import os
     try:
-        size = os.path.getsize(filepath)
+        size = input_size(filepath)
     except OSError:
         return False
     if size < 0x8000 or size > 0x800000:               # 32 KiB .. 8 MiB (SNES range)
         return False
     base = 0x200 if size % 0x400 == 0x200 else 0        # strip a 512-byte copier header
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         for hdr in (0x7FC0, 0xFFC0):                    # LoROM, HiROM header locations
             f.seek(base + hdr)
             h = f.read(0x20)
@@ -668,12 +667,11 @@ def _is_mod(filepath):
     """A ProTracker module by its magic at 1080, or a 15-instrument
     Soundtracker one by arithmetic: no magic, so the header's pattern count
     and sample lengths have to add up to the file's size."""
-    import os
     from acidcat.core.formats import tracker as tkmod
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             head = f.read(1084)
-        return tkmod.is_mod(head) or tkmod.is_mod15(head, os.path.getsize(filepath))
+        return tkmod.is_mod(head) or tkmod.is_mod15(head, input_size(filepath))
     except OSError:
         return False
 
@@ -686,7 +684,7 @@ def _is_stm(filepath):
     confirm, the same shape as the S3M one below.
     """
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             return trackermod.is_stm(f.read(48))
     except OSError:
         return False
@@ -695,7 +693,7 @@ def _is_stm(filepath):
 def _is_s3m(filepath):
     from acidcat.core.formats import tracker as tkmod
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             return tkmod.is_s3m(f.read(48))
     except OSError:
         return False
@@ -707,14 +705,14 @@ _IQ_EXTS = (".cu8", ".c16", ".c8", ".cs8", ".cs16", ".cf32", ".cfile")
 
 def _gqrx_sniff(filepath):
     from acidcat.core.walk import sigmf
-    return sigmf._gqrx_name(filepath) is not None
+    return sigmf._gqrx_name(input_name(filepath)) is not None
 
 
 def _is_mpc_program(filepath):
     """An MPC .xpm is XML with an <MPCVObject> root; distinguishes it from an
     X11 pixmap, which also uses .xpm."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             return b"<MPCVObject" in f.read(512)
     except OSError:
         return False
@@ -724,7 +722,7 @@ def _is_mpc2000_pgm(filepath):
     """An MPC2000/2000XL .pgm: a 17-byte sample-name record at offset 2 (a
     printable name then a 0 at [18]). The MPC1000 form is caught by magic."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             h = f.read(20)
     except OSError:
         return False
@@ -736,7 +734,7 @@ def _is_mpc_snd(filepath):
     use 4, some exporters 2), then a printable name -- not a NeXT/Sun .snd
     (which starts with the ASCII magic '.snd')."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             h = f.read(3)
     except OSError:
         return False
@@ -748,16 +746,14 @@ def _free_format_mp3(filepath, head):
     hdr = mp3mod.decode_frame_header(head[:4], allow_free=True)
     if hdr is None or not hdr.get("free_format"):
         return False
-    import os
-    end = min(os.path.getsize(filepath), 2 * mp3mod._FREE_SCAN_CAP)
-    with open(filepath, "rb") as f:
+    end = min(input_size(filepath), 2 * mp3mod._FREE_SCAN_CAP)
+    with open_input(filepath) as f:
         return mp3mod._free_frame_length(f, 0, hdr, end) is not None
 
 
 def _is_multisample(filepath):
     try:
-        import zipfile
-        with zipfile.ZipFile(filepath) as z:
+        with zip_open(filepath) as z:
             return "multisample.xml" in z.namelist()
     except Exception:
         return False
@@ -767,8 +763,7 @@ def _is_labx(filepath):
     """A zip whose entries follow <Engine>/User|Factory/<Bank>/<Preset> and hold
     boost text-serialization archives (Arturia Analog Lab bank export)."""
     try:
-        import zipfile
-        with zipfile.ZipFile(filepath) as z:
+        with zip_open(filepath) as z:
             for n in z.namelist()[:8]:
                 if len(n.split("/")) >= 3 and ("/User/" in n or "/Factory/" in n):
                     # open().read(40) inflates ~40 bytes; z.read(n)[:40]
@@ -788,40 +783,36 @@ def _is_labx(filepath):
 def _is_xpn(filepath):
     """A zip carrying an Expansion.xml manifest (Akai MPC expansion package)."""
     try:
-        import zipfile
-        with zipfile.ZipFile(filepath) as z:
+        with zip_open(filepath) as z:
             return "Expansion.xml" in z.namelist()
     except Exception:
         return False
 
 
 def _is_pt2(filepath):
-    import os
     from acidcat.core.formats import pt3 as pt3mod
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             raw = f.read(65536)
-        return pt3mod.parse_pt2(raw, os.path.getsize(filepath))["ok"]
+        return pt3mod.parse_pt2(raw, input_size(filepath))["ok"]
     except OSError:
         return False
 
 
 def _is_stc(filepath):
-    import os
     from acidcat.core.formats import stc as stcmod
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             raw = f.read(65536)
-        return stcmod.parse(raw, os.path.getsize(filepath))["ok"]
+        return stcmod.parse(raw, input_size(filepath))["ok"]
     except OSError:
         return False
 
 
 def _is_vgz(filepath):
     """A gzip stream whose decompressed head is the Vgm magic."""
-    import gzip
     try:
-        with gzip.open(filepath, "rb") as g:
+        with gzip_open(filepath) as g:
             return g.read(4) == b"Vgm "
     except Exception:
         return False
@@ -829,9 +820,8 @@ def _is_vgz(filepath):
 
 def _is_xtd(filepath):
     """A gzip stream whose decompressed head is the ACVS magic (MPC3 .xtd)."""
-    import gzip
     try:
-        with gzip.open(filepath, "rb") as g:
+        with gzip_open(filepath) as g:
             return g.read(4) == b"ACVS"
     except Exception:
         return False

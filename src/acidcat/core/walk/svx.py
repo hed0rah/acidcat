@@ -13,9 +13,8 @@ and a pad byte when the size is odd. Unknown chunks are surfaced by id and size
 without guessing at their bodies; the walk degrades on any malformed input.
 """
 
-import os
 
-from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f
+from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open, _size
 
 _READ_CAP = 64 * 1024 * 1024
 _CHUNK_CAP = 4096
@@ -28,8 +27,8 @@ _CHAN = {2: "left", 4: "right", 6: "stereo (left + right)"}
 
 def inspect_8svx(filepath):
     """Walk an IFF 8SVX file, returning (chunks, file_warnings)."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         b = f.read(min(file_size, _READ_CAP))
     chunks, warns = [], []
     if len(b) < 12 or b[:4] != b"FORM" or b[8:12] != b"8SVX":

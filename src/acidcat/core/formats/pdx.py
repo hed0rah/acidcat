@@ -43,6 +43,7 @@ against 132,305 files of everything else: 3,256 accepted, 0 false positives.
 
 import struct
 
+from acidcat.core.infra.source import open_input, input_size
 from acidcat.core.formats.mdx import packer_stamp
 
 SLOT = 8
@@ -131,10 +132,9 @@ def looks_like_pdx(raw, filesize):
 
 
 def looks_like_pdx_file(path):
-    import os
     try:
-        with open(path, "rb") as fh:
+        with open_input(path) as fh:
             head = fh.read(MAX_BANKS * BANK)
-        return looks_like_pdx(head, os.path.getsize(path))
+        return looks_like_pdx(head, input_size(path))
     except OSError:
         return False

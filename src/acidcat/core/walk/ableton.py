@@ -33,12 +33,12 @@ reverse engineering; it is walked here so the whole Ableton footprint in a
 sample library reports as one thing.
 """
 
-import os
 from acidcat.core.primitives.notes import coverage
 import struct
 
 from acidcat.core.formats import ableton as abmod
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.source import as_source
+from acidcat.core.walk.base import _f, _open, _size
 
 # a .asd is a few hundred KB at most in the wild (largest of 8,196: 648 KB).
 # capped so a forged count cannot make us allocate on a hostile file.
@@ -69,8 +69,8 @@ def _sections(names):
 
 
 def inspect_asd(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(_ASD_READ_CAP)
     warns = []
 
@@ -227,13 +227,16 @@ def inspect_asd(filepath):
 
         # a .asd is named "<audio>.asd" and lives beside its audio, so when the
         # sibling is there its size can be checked against what Live recorded
-        sibling = filepath[:-4] if filepath.lower().endswith(".asd") else None
-        if sibling and os.path.exists(sibling):
-            ssize = os.path.getsize(sibling)
+        src = as_source(filepath)
+        sname = (src.name or "")[:-4] if (src.name or "").lower().endswith(".asd") else None
+        sibling = src.sibling(sname) if sname else None
+        if sibling is not None:
+            ssize = sibling.size
+            sibling.close()
             if not abmod.references_size(raw, ssize, h["order"]):
                 warns.append(
                     f"this sidecar does not reference the current size of "
-                    f"{os.path.basename(sibling)} ({ssize:,} bytes); the audio "
+                    f"{sname} ({ssize:,} bytes); the audio "
                     f"was changed after the analysis was written")
 
         marks = abmod.warp_markers(raw, h["order"])
@@ -374,7 +377,7 @@ _COUNTED = (
 def inspect_ableton_xml(filepath, fmt_id="als"):
     """Walk a gzipped Ableton XML document (.als/.alc/.adg/.adv)."""
     label = abmod.xml_label(fmt_id)
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
     try:
         xml, truncated = abmod.gunzip_capped(filepath)
@@ -426,8 +429,8 @@ _AMXD_MAX_CHUNKS = 64
 
 def inspect_amxd(filepath):
     """Walk a Max for Live device: an 'ampf' header then an id/length chain."""
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(_ASD_READ_CAP)
     warns = []
     if raw[:4] != b"ampf":

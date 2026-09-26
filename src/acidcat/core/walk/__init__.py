@@ -10,9 +10,9 @@ in this package, and add one registry entry below.
 """
 
 import os
-import tempfile
 
 from acidcat.core.infra import geometry
+from acidcat.core.infra.source import BytesSource, Source, as_source
 from acidcat.core.infra import sniff as sniffmod
 from acidcat.core.walk import (
     ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, caf, chiptune, cmf, containers, dmx,
@@ -181,6 +181,10 @@ _WALKERS = {
 def walk_file(filepath, deep=False, fmt_override=None):
     """Sniff the magic and dispatch to the format walker.
 
+    ``filepath`` is a path or a Source (core/infra/source.py). A path is
+    mapped once for the whole walk and closed afterwards; a Source is the
+    caller's to close.
+
     ``fmt_override`` forces a walker by format id, skipping the sniff -- the
     reverse-engineering case where you recognize a variant the sniffer does not
     (an old RIFF dialect, a vendor container built on a format we model).
@@ -193,6 +197,18 @@ def walk_file(filepath, deep=False, fmt_override=None):
     walk degrades to zero chunks plus a walker-error warning instead of
     crashing on hostile input. ACIDCAT_WALKER_RAISE=1 (set by the test
     suite) re-raises so a walker bug stays a loud traceback in CI."""
+    # one Source for the whole walk: the file is mapped once, and a caller
+    # holding bytes (a decoded layer, stdin) walks them without a temp file
+    owned = not isinstance(filepath, Source)
+    src = as_source(filepath)
+    try:
+        return _walk(src, deep, fmt_override)
+    finally:
+        if owned:
+            src.close()
+
+
+def _walk(filepath, deep, fmt_override):
     if fmt_override:
         # the caller says what this is. an old or odd variant of a format we do
         # model often parses fine once dispatch stops depending on the magic --
@@ -270,38 +286,21 @@ def walk_file(filepath, deep=False, fmt_override=None):
 
 def walk_bytes(data, deep=False, fmt_override=None, suffix=".bin",
                scratch_dir=None):
-    """Walk bytes rather than a path, by giving them a path.
+    """Walk bytes rather than a path.
 
-    Every walker takes a filepath -- they open it, stat it, and mmap it -- so
-    this writes a temp file and deletes it again. That is not free: measured at
-    3,000 iterations over a small WAV, the write is 84.8% of each one, 756
-    walks per second against 4,974 for the same walk on a file already on disk.
+    Every walker reads a Source (core/infra/source.py), so bytes in memory walk
+    exactly as a file does, with no temp file. (Until 2.0 this wrote one: 84.8%
+    of each call at 300 bytes, and 400x the walk itself at 64 MB.)
 
-    It exists anyway, for two reasons. It puts that cost in ONE place, so a
-    future bytes-capable walker path makes every caller faster at once instead
-    of one caller at a time. And it makes fuzzing a call rather than a chore:
-    the reason the differential fuzzer covered one format out of 52 was never
-    that anyone chose WAV, it was that each new target meant writing the
-    plumbing again.
-
-    `suffix` matters: a few walkers consult the extension when the magic is
+    `suffix` matters: a few formats consult the extension when the magic is
     ambiguous, so a fuzz harness should hand over the one its seed would really
-    have.
+    have. `scratch_dir` is accepted for compatibility and unused.
     """
-    fd, tmp = tempfile.mkstemp(prefix="acidcat_walk_", suffix=suffix,
-                               dir=scratch_dir)
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        return walk_file(tmp, deep=deep, fmt_override=fmt_override)
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+    return walk_file(BytesSource(data, name="walk" + suffix),
+                     deep=deep, fmt_override=fmt_override)
 
 
-def _normalized(filepath, walked):
+def _normalized(src, walked):
     """Give every chunk leaving this boundary the same geometry vocabulary.
 
     Here rather than in each walker, and here rather than in each consumer,
@@ -310,9 +309,5 @@ def _normalized(filepath, walked):
     until they have something better to say than the default.
     """
     label, chunks, warns = walked
-    try:
-        size = os.path.getsize(filepath)
-    except OSError:
-        return walked
-    geometry.normalize(chunks, size)
+    geometry.normalize(chunks, src.size)
     return (label, chunks, warns)

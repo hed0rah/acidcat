@@ -27,10 +27,9 @@ The id is "au"; the MPC2000 ".snd" is a different format (id "snd") with no
 ".snd" magic, told apart from this one at sniff time by content.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 MAGIC = b".snd"
 _HDR_MIN = 24
@@ -135,8 +134,8 @@ def _duration(size, rate, bits, channels, fixed):
 
 
 def inspect_au(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    file_size = _size(filepath)
+    with _open(filepath) as fh:
         data = fh.read(min(file_size, _HEAD_CAP))
     if len(data) < len(MAGIC) or data[:4] != MAGIC:
         return [], ["not a Sun/NeXT audio file (.au/.snd)"]

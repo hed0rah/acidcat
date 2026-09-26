@@ -6,9 +6,10 @@ the grammar strategy consume, container info, and the acid/smpl field
 vetting helpers. Chunk field decoding lives in core/walk/wav.py.
 """
 
-import os
 import struct
 from collections import namedtuple
+
+from acidcat.core.infra.source import open_input, input_size
 
 # cap on payload bytes read per chunk (a forged size cannot force an unbounded
 # allocation); the declared size is still reported in full.
@@ -45,8 +46,8 @@ def iter_chunks(filepath):
 
     Lightweight iterator -- doesn't parse chunk contents.
     """
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = input_size(filepath)
+    with open_input(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12 or hdr[0:4] != b"RIFF" or hdr[8:12] != b"WAVE":
             return
@@ -74,9 +75,9 @@ def iter_spans(filepath):
     the payload read plus the traversal warnings (riff_size mismatch, chunk
     overrun) in the walker's exact wording. Degrades, never raises.
     """
-    file_size = os.path.getsize(filepath)
+    file_size = input_size(filepath)
     spans, warns = [], []
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12:
             return [], [f"file is {len(hdr)} bytes; a RIFF header needs 12"]
@@ -151,7 +152,7 @@ def effective_acid_beats(meta, duration):
 
 def get_riff_info(filepath):
     """Return RIFF container size and type string, or None if not RIFF."""
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12 or hdr[0:4] != b"RIFF":
             return None

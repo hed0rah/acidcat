@@ -4,6 +4,29 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Added
+
+- **A description of every walk as one document (contract v1).**
+  `core/infra/contract.py` turns a walk into the Document that
+  `docs/contract/node-v1.md` specifies: a node tree with stable ids, fields
+  located absolutely with a machine value beside the display string and the
+  storage type they were read as, the play/decode/render capabilities, and one
+  findings list. Nothing reads it yet; `inspect --json` is unchanged.
+
+### Changed
+
+- **Walkers read a Source, not a path.** A walk maps the file once, and bytes
+  in memory walk exactly as a file does: `walk_bytes` no longer writes a temp
+  file (it cost 1.9x the walk at 300 bytes and 400x at 64 MB), and an RMID's
+  wrapped SMF is walked in memory rather than through one. The helpers the
+  walkers share take a path or a Source, and open a plain path as before.
+  Checked: every seed and `data/` fixture walks to identical output from a
+  path before and after, deep and shallow; from bytes the output is the same
+  except where a file beside it would be checked (a cue sheet's BIN, a PSF's
+  library), which cannot happen without a directory.
+
 ## [1.8.6] - 2026-09-25
 
 ### Fixed

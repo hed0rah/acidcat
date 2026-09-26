@@ -37,44 +37,57 @@ Three rules hold across it:
 
 ## 2. Source: what walkers read
 
-Walkers stop taking a path. They take a `Source`:
+Built (2.0 engine, first milestone). Walkers read a `Source` instead of a
+path:
 
 ```python
-class Source(Protocol):
+class Source:
     size: int
-    name: str | None                 # display name and extension hint
-    def view(self, off: int, n: int) -> memoryview   # short at EOF, never raises
-    def head(self, n: int) -> memoryview
-    def file(self) -> BinaryIO       # seekable, for zipfile / gzip / tarfile
-    def sibling(self, name: str) -> "Source | None"  # via the Resolver
-    def child(self, data, name=None, origin=None) -> "Source"   # a decoded layer
+    name: str | None      # display name; its extension is a format hint
+    path: str | None      # the file on disk, None for bytes in memory
+    def view(self, off, n) -> memoryview   # short at the end, never raises
+    def read(self, off, n) -> bytes
+    def file(self) -> BinaryIO             # seekable, for zipfile, gzip, seeks
+    def sibling(self, name) -> "Source | None"
 ```
 
 | Backend | Used for |
 |---|---|
 | `MappedSource` | a file on disk (built on `core/infra/mapped.map_file`); zero-copy views |
-| `BytesSource` | bytes in memory: stdin, `acidcat.open(b"...")`, a decoded layer |
-| `SliceSource` | a sub-range of another Source (an `exact` layer, a carved region, `explore`) |
+| `BytesSource` | bytes in memory: stdin, a carved region, the SMF inside an RMID, later a decoded layer |
+
+A walker's signature is unchanged: `filepath` is a path or a Source, and the
+walker reads it through `_open`, `_size` and `_name` (`walk/base.py`) and
+`zip_open` / `gzip_open` (`core/infra/source.py`). The format helpers the
+walkers call (`riff.iter_chunks`, `aiff.iter_chunks`,
+`flac.iter_metadata_blocks`, the `mp3` readers, `mp4.find_moov`, the container
+and codec probes, sniff's disk checks) take a path or a Source the same way,
+and for a plain path they open the file exactly as before, so a caller outside
+the walk never gets a mapping it did not ask for. `walk_file` maps a path once
+per walk and closes it; a Source passed in is the caller's to close.
 
 **Siblings** (a PSF's `_lib`, a cue sheet's BIN, an Ableton `.asd`'s audio
-file, a SigMF data file) go through an injected `Resolver`. The default
-resolver looks in the file's directory; an in-memory Source has none, and a
-walker that cannot check a sibling emits an `environment` finding
-(`sibling.unchecked`) instead of calling the file defective.
+file, a SigMF pair, a PortaPack `.TXT`) come from `source.sibling(name)`,
+which looks in the file's directory and is None for bytes in memory. A walker
+that has no directory to look in skips the check: psf says nothing, cue marks
+each BIN "not checked". The `sibling.unchecked` environment finding arrives
+with structured findings (section 4).
 
-**What this removes:** `walk_bytes`' temp file (1.9x slower at 300 bytes,
-400x at 64 MB), RMID's temp-file re-walk, the double `os.path.getsize`, and
-walkers reading a filename for data (akai and mpc names come from
-`source.name`).
+**What this removed:** `walk_bytes`' temp file (1.9x slower at 300 bytes,
+400x at 64 MB), RMID's temp-file re-walk (the inner SMF is walked in memory),
+the second `getsize` at the
+walk boundary, and filename reads through the path (akai and mpc names come
+from `_name`).
 
-**Enforced by** an AST test over `core/walk/` and `core/formats/` that bans
-`open(`, `os.path.*`, `os.stat`, argless `.read()` and `zipfile.ZipFile(<str>)`
-(extending today's argless-read test).
+**Enforced by** `tests/test_walker_invariants.py`, which bans `open`,
+`os.path.getsize/exists/isfile/join/dirname`, `os.stat`, `zipfile.ZipFile` and
+`gzip.open` in `core/walk/`, and `tests/test_source.py`, which requires every
+seed's Document from bytes to equal the one from disk except the ledgered
+sibling checks (cue, psf).
 
-**Migration:** about 45 walkers read one capped head and parse bytes; each is a
-one-line port. The seek-based helpers (`riff.iter_chunks`, `aiff.iter_chunks`,
-`flac.iter_metadata_blocks`, three in `mp3`, `mp4.find_moov`) change signature.
-Zip and gzip users call `source.file()`.
+Deferred to layers (section 6 of the plan): `SliceSource` (a window onto
+another Source) and deriving a child Source from a decoded image. Nothing
+calls them yet.
 
 ## 3. Limits: one budget, visible when hit
 

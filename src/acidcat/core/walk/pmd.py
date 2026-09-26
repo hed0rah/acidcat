@@ -12,11 +12,10 @@ what a reader came for. See core/formats/pmd.py for the layout and where it
 was verified.
 """
 
-import os
 
 from acidcat.core.formats import pmd as pmdmod
 from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # The largest real PMD file measured is under 64 KB, and the part offsets are
@@ -32,8 +31,8 @@ _PMD_TONE_LIST_CAP = 64
 
 
 def inspect_pmd(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _PMD_READ_CAP))
     if not pmdmod.is_pmd(raw):
         raise _Unsupported("not a compiled PMD file (no PMD header bytes)")

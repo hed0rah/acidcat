@@ -19,6 +19,8 @@ sector geometry and the root directory.
 import os
 import struct
 
+from acidcat.core.infra.source import open_input
+
 _USER = 2048                         # ISO logical block size
 
 
@@ -89,7 +91,7 @@ def _clean_name(raw):
 def walk(path):
     """Yield {path, lba, size} for every file in the ISO 9660 tree (depth-first).
     Returns nothing if `path` has no ISO filesystem."""
-    with open(path, "rb") as f:
+    with open_input(path) as f:
         layout = _layout(f)
         if layout is None:
             return
@@ -119,7 +121,7 @@ def read_file(path, entry, limit=None):
     """Read a file's bytes from its walk() entry. `limit` caps the bytes read (a
     prefix, for content sniffing). Reads Form1/2048 user data; XA (Form2) audio
     files are decoded via core.cdxa by sector range instead."""
-    with open(path, "rb") as f:
+    with open_input(path) as f:
         layout = _layout(f)
         if layout is None:
             raise ValueError("no ISO 9660 filesystem")

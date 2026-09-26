@@ -12,11 +12,10 @@ distinct region, and each names every slot that reaches it.
 See core/formats/pdx.py for the layout and where it was verified.
 """
 
-import os
 
 from acidcat.core.formats import pdx as pdxmod
 from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 # The largest real bank measured holds 77 samples. A bank claiming hundreds is
 # legal arithmetic, so the listing is bounded and says when it bit.
@@ -27,8 +26,8 @@ _PDX_SLOT_FIELD_CAP = 96
 
 
 def inspect_pdx(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         # only the table is read; the samples are located, not loaded.
         # Eight banks is the format's own ceiling, so this is not a cap on
         # the answer -- a table that needs more is not a table.

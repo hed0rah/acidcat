@@ -21,6 +21,8 @@ install dependency-light:  pip install acidcat[crypto]
 import os
 import struct
 
+from acidcat.core.infra.source import open_input
+
 _MAX_DEPTH = 64          # a real disc nests a handful deep
 
 MAGIC = 0x5D1C9EA3                   # Wii disc magic word, at offset 0x18
@@ -41,7 +43,7 @@ class WiiError(Exception):
 def is_wii(path):
     """True if `path` is a Wii disc image (by the 0x18 magic word)."""
     try:
-        with open(path, "rb") as f:
+        with open_input(path) as f:
             f.seek(_MAGIC_OFF)
             return struct.unpack(">I", f.read(4))[0] == MAGIC
     except (OSError, struct.error):
@@ -74,7 +76,7 @@ class WiiDisc:
         if not is_wii(path):
             raise WiiError("not a Wii disc image")
         self.path = path
-        self._f = open(path, "rb")
+        self._f = open_input(path)
         self._cache = {}
         self._load_partition()
         self._load_fst()

@@ -1,11 +1,10 @@
 """Ogg structural walker: page census, codec identity, and the
 Vorbis/Opus comment header. Page primitives live in core/ogg.py."""
 
-import os
 
 from acidcat.core.formats import ogg as oggmod
 from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 # A comment header is a handful of tags; 200 is far above any real one
 # and bounds a crafted header rather than a normal file.
@@ -14,8 +13,8 @@ _TAG_LIST_CAP = 200
 def inspect_ogg(filepath):
     """Structural view of an Ogg stream: page count/codec and the Vorbis/Opus
     comment header (vendor + tags). The audio packets are opaque."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 16 * 1024 * 1024))
     pages = list(oggmod.iter_pages(data))
     ch = oggmod.comment_header(data)

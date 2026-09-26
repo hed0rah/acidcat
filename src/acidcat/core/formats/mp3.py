@@ -9,8 +9,9 @@ walker in core/walk/mp3.py shapes these into the chunk model and decodes the
 Xing/LAME and ID3-frame detail for display.
 """
 
-import os
 import struct
+
+from acidcat.core.infra.source import open_input, input_size
 
 # bitrate (kbps) by (version, layer) -> 16-entry table. index 0 is the
 # "free" format, index 15 is the reserved/invalid marker.
@@ -73,7 +74,7 @@ ID3V1_GENRES = [
 def is_mp3(filepath):
     """Check for an ID3v2 tag or an MPEG frame sync in the first bytes."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             head = f.read(3)
             if head == b"ID3":
                 return True
@@ -176,7 +177,7 @@ def read_id3v2(filepath):
     after the 10-byte header), total (header + payload + footer), and
     has_footer, or None if no ID3v2 tag is present.
     """
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         hdr = f.read(10)
     if len(hdr) < 10 or hdr[:3] != b"ID3":
         return None
@@ -224,7 +225,7 @@ def list_id3v2_frames(path, max_bytes=8 * 1024 * 1024):
     if not tag:
         return []
     major = tag["major"]
-    with open(path, "rb") as fh:
+    with open_input(path) as fh:
         data = fh.read(min(10 + tag["size"], max_bytes))
     pos, end = 10, min(len(data), 10 + tag["size"])
     idlen, hdrlen = (3, 6) if major == 2 else (4, 10)
@@ -384,7 +385,7 @@ def iter_frames(filepath, start, end, max_frames=None):
     count = 0
     free_len = None
     lost = 0                    # contiguous non-frame bytes since the last frame
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         pos = start
         buf = b""
         buf_start = start
@@ -429,10 +430,10 @@ def iter_frames(filepath, start, end, max_frames=None):
 
 def find_id3v1(filepath):
     """Return the offset of a trailing 128-byte ID3v1 tag, or None."""
-    size = os.path.getsize(filepath)
+    size = input_size(filepath)
     if size < 128:
         return None
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         f.seek(size - 128)
         if f.read(3) == b"TAG":
             return size - 128

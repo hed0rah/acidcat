@@ -17,7 +17,8 @@ file it does not itself contain.
 
 import os
 
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.source import as_source
+from acidcat.core.walk.base import _f, _open, _size
 
 # Red Book: 75 sectors of audio per second.
 _SECTORS_PER_SECOND = 75
@@ -44,7 +45,7 @@ def inspect_cue(filepath, deep=False):
     never true of a parser that had already read every line.
     """
     from acidcat.core.containers import cue as cuemod
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
     try:
         tracks = cuemod.parse(filepath)
@@ -78,10 +79,18 @@ def inspect_cue(filepath, deep=False):
         warns.append("%d track(s) name no file; the sheet's FILE line is "
                      "missing or damaged, so their positions index into "
                      "nothing" % unnamed)
+    src = as_source(filepath)
     for name in files:
-        here = os.path.join(os.path.dirname(os.path.abspath(filepath)),
-                            os.path.basename(name))
-        present = os.path.isfile(here)
+        if src.path is None:
+            # bytes with no directory: there is nowhere to look, which is not
+            # the same as the file being absent
+            fields.append(_f(None, 0, "file", os.path.basename(name),
+                             "not checked: the sheet was read from memory"))
+            continue
+        sib = src.sibling(os.path.basename(name))
+        present = sib is not None
+        if sib is not None:
+            sib.close()
         fields.append(_f(None, 0, "file", os.path.basename(name),
                          "present beside the sheet" if present
                          else "NOT found beside the sheet"))
@@ -113,9 +122,9 @@ def inspect_gcm(filepath, deep=False):
     """
     import struct
     from acidcat.core.containers import gcm
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         head = fh.read(0x440)
     if len(head) < 0x440:
         return [{"id": "header", "offset": 0, "size": size,
@@ -195,7 +204,7 @@ def inspect_cdxa(filepath, deep=False):
     from acidcat.core.codecs import cdxa
     from acidcat.core.primitives.notes import coverage
 
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
     info = cdxa.detect_cd_image(filepath)
     if not info:
@@ -209,7 +218,7 @@ def inspect_cdxa(filepath, deep=False):
     counts, codings = {}, {}
     audio_sectors = 0
     if info["mode"] == 2:
-        with open(filepath, "rb") as fh:
+        with _open(filepath) as fh:
             done = 0
             while done < scanned:
                 batch = min(256, scanned - done)

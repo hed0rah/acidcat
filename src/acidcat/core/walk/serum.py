@@ -2,17 +2,16 @@
 metadata block, and the opaque wavetable/modulation blob."""
 
 import json
-import os
 
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 def inspect_serum(filepath, ctx=None):
     """Structural view of an Xfer Serum preset: XferJson magic, the
     JSON metadata block, then opaque wavetable/modulation data. A
     caller-supplied ``ctx`` dict receives the parsed JSON metadata (raw
     values, tags kept as a list) for the scan path."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         raw = f.read(min(file_size, 4 * 1024 * 1024))
     chunks = []
     file_warns = []
