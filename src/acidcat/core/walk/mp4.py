@@ -5,6 +5,7 @@ box tree, with the stsd sample entries and their codec-config boxes
 import struct
 
 from acidcat.core.formats import mp4 as mp4mod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -221,7 +222,7 @@ def _stco_fields(data, b, file_size):
     if wide:
         note += ", 64-bit"
     if dangling:
-        warns.append(f"{dangling:,} chunk offset(s) point past EOF")
+        warns.append(defect("pointer.dangling", f"{dangling:,} chunk offset(s) point past EOF"))
         note += f", {dangling:,} dangling"
     if count > _STCO_CAP:
         note += f" (first {_STCO_CAP} annotated)"
@@ -464,9 +465,11 @@ def inspect_mp4(filepath):
         summary = ". " * b["depth"] + t
         fields = []
         if b["truncated"]:
-            warns.append(f"box {t!r} at 0x{b['offset']:08x} declares "
-                         f"{b.get('declared', 0):,} bytes, which overruns its "
-                         f"parent; {b['size']:,} bytes remain")
+            warns.append(defect(
+                "size.overrun",
+                f"box {t!r} at 0x{b['offset']:08x} declares "
+                f"{b.get('declared', 0):,} bytes, which overruns its "
+                f"parent; {b['size']:,} bytes remain"))
             summary += " (overruns parent)"
             fields.append(_f(0x00, 4, "declared_size", f"{b.get('declared', 0):,}",
                              "larger than what is left; not followed"))

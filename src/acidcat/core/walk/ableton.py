@@ -36,6 +36,7 @@ sample library reports as one thing.
 import struct
 
 from acidcat.core.formats import ableton as abmod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import _f, _open, _size
@@ -95,7 +96,9 @@ def inspect_asd(filepath):
     if not h["monotonic"]:
         warns.append("frame grid is not strictly increasing; positions are unreliable")
     if h["reserved"]:
-        warns.append(f"reserved u32 at offset 6 is {h['reserved']}, expected 0")
+        warns.append(defect(
+            "reserved.nonzero",
+            f"reserved u32 at offset 6 is {h['reserved']}, expected 0"))
 
     order_note = ("little-endian ('I', Intel)" if h["order"] == "<"
                   else "big-endian ('M', Motorola -- a PowerPC-era Mac file)")
@@ -435,7 +438,7 @@ def inspect_amxd(filepath):
         raw = fh.read(_ASD_READ_CAP)
     warns = []
     if raw[:4] != b"ampf":
-        warns.append("missing 'ampf' magic")
+        warns.append(defect("magic.mismatch", "missing 'ampf' magic"))
     marker = raw[8:12]
     if marker != b"aaaa":
         warns.append(f"marker at offset 8 is {marker!r}, expected b'aaaa'")

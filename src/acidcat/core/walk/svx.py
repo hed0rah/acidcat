@@ -14,6 +14,7 @@ without guessing at their bodies; the walk degrades on any malformed input.
 """
 
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open, _size
 
@@ -80,8 +81,9 @@ def inspect_8svx(filepath):
             tool = _dtext(p)
         chunk.pop("_vh", None)
         if avail < size:
-            chunk.setdefault("warnings", []).append(
-                f"chunk declares {size:,} bytes, only {avail:,} present (truncated)")
+            chunk.setdefault("warnings", []).append(defect(
+                "size.overrun",
+                f"chunk declares {size:,} bytes, only {avail:,} present (truncated)"))
         kinds[cid_s] += 1
         chunks.append(chunk)
         step = 8 + size + (size & 1)                   # pad odd sizes to even

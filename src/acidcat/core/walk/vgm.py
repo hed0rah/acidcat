@@ -15,6 +15,7 @@ in the summary.
 
 
 from acidcat.core.formats import vgm as vgmmod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
@@ -103,7 +104,9 @@ def inspect_vgm(filepath, deep=False):
     header_fields = _header_fields(h, w)
     gd3 = vgmmod.parse_gd3(image, h["gd3_at"]) if h["gd3_at"] is not None else None
     if h["gd3_at"] is not None and not gd3["ok"]:
-        warns.append("the header points at a GD3 tag and there is none at 0x%X" % h["gd3_at"])
+        warns.append(defect(
+            "pointer.dangling",
+            "the header points at a GD3 tag and there is none at 0x%X" % h["gd3_at"]))
     title = _title(gd3)
 
     if packed:

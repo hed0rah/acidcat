@@ -8,6 +8,7 @@ from acidcat.core.formats.aiff import (_AES_EMPHASIS, _AES_RATES,
                                _AIFC_KNOWN_COMPRESSION, _LOOP_MODES,
                                _parse_ieee_extended)
 from acidcat.core.formats.aiff import iter_chunks as iter_aiff_chunks
+from acidcat.core.infra.findings import defect
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.apple import (_parse_apple_meta, _parse_cate,
                                      _parse_chan, _parse_resu,
@@ -92,8 +93,9 @@ def _aiff_ssnd(b, ctx, size, avail=None):
     if overrun:
         summary += " (chunk overruns, from bytes present)"
     if offset > max(0, eff - 8):
-        warns.append(
-            f"SSND offset {offset:,} exceeds the {max(0, eff - 8):,}-byte payload"
+        warns.append(defect(
+            "size.overrun",
+            f"SSND offset {offset:,} exceeds the {max(0, eff - 8):,}-byte payload")
         )
     frames, ch, bits = ctx.get("frames"), ctx.get("channels"), ctx.get("bits")
     comp = ctx.get("compression", "NONE")
@@ -136,7 +138,8 @@ def _aiff_mark(b, ctx):
 def _aiff_inst(b, ctx):
     fields, warns = [], []
     if len(b) < 20:
-        return "truncated", fields, [f"INST payload is {len(b)} bytes, spec says 20"]
+        return "truncated", fields, [defect(
+            "chunk.short", f"INST payload is {len(b)} bytes, spec says 20")]
     base, detune = struct.unpack_from(">bb", b, 0)
     low_n, high_n, low_v, high_v = b[2], b[3], b[4], b[5]
     gain = struct.unpack_from(">h", b, 6)[0]
@@ -225,7 +228,7 @@ def _aiff_comt(b):
         marker = struct.unpack_from(">h", b, pos + 4)[0]
         count = _bu16(b, pos + 6)
         if pos + 8 + count > len(b):
-            warns.append(f"comment[{i}] text overruns payload")
+            warns.append(defect("size.overrun", f"comment[{i}] text overruns payload"))
             break
         text = _dtext(b[pos + 8:pos + 8 + count]).strip()
         bits = []
@@ -246,7 +249,8 @@ def _aiff_aesd(b):
     carries the professional/consumer, audio, emphasis, and rate bits."""
     fields, warns = [], []
     if len(b) < 24:
-        return "truncated", fields, [f"AESD is {len(b)} bytes, spec says 24"]
+        return "truncated", fields, [defect(
+            "chunk.short", f"AESD is {len(b)} bytes, spec says 24")]
     b0 = b[0]
     pro = "professional" if (b0 & 0x01) else "consumer"
     kind = "non-audio" if (b0 & 0x02) else "PCM audio"
@@ -330,9 +334,10 @@ def inspect_aiff(filepath, form_type, ctx=None):
             seen.append(cid)
             avail = max(0, file_size - offset - 8)
             if size > avail:
-                file_warns.append(
+                file_warns.append(defect(
+                    "size.overrun",
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
-                    f"but only {avail:,} remain"
+                    f"but only {avail:,} remain")
                 )
             # SSND's parser reads only its 8-byte header (offset + block_size);
             # the audio-byte count comes from size/avail, so cap that read small

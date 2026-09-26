@@ -30,6 +30,7 @@ yet. Older E-MU formats (Emulator III banks, ESI) are not handled.
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _bu16, _bu32, _f
@@ -119,9 +120,10 @@ def _walk_records(data):
             break
         records.append((tag, pos, size))
         if pos + 8 + size > len(data):
-            warns.append(
+            warns.append(defect(
+                "size.overrun",
                 f"{tag.decode('ascii', 'replace')} at {pos:#x} declares size "
-                f"{size} but only {len(data) - pos - 8} bytes remain; truncated")
+                f"{size} but only {len(data) - pos - 8} bytes remain; truncated"))
             break
         pos = _advance(data, pos, size)
     return records, warns, desync_pos

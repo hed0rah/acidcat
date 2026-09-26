@@ -6,6 +6,7 @@ import struct
 
 from acidcat.core.formats import midi as midimod
 from acidcat.core.formats.midi import _read_vlq
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f, _open, _size
@@ -302,8 +303,9 @@ def inspect_midi(filepath, deep=False, ctx=None):
         entry = {"id": "MTrk", "offset": offset, "size": trk_len,
                  "summary": "", "fields": [], "warnings": []}
         if len(trk) < trk_len:
-            entry["warnings"].append(
-                f"declares {trk_len:,} bytes but only {len(trk):,} remain"
+            entry["warnings"].append(defect(
+                "size.overrun",
+                f"declares {trk_len:,} bytes but only {len(trk):,} remain")
             )
         st = _scan_track(trk, ctx, collect=deep)
         if deep:

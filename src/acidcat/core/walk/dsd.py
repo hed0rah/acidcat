@@ -17,6 +17,7 @@ from acidcat.core.formats.dsd import (
     DSF_CHANNEL_LAYOUTS, DSF_CHANNEL_TYPES,
     dsd_duration, dsf_header, rate_name,
 )
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _f, _open, _size
@@ -133,7 +134,7 @@ def inspect_dsf(filepath, ctx=None):
         fmt_warns.append(f"block_size is {hdr['block_size']}, not the "
                          f"{DSF_BLOCK_SIZE} the spec fixes")
     if hdr["reserved"]:
-        fmt_warns.append("the reserved field is not zero")
+        fmt_warns.append(defect("reserved.nonzero", "the reserved field is not zero"))
 
     dur = dsd_duration(hdr["sample_count"], rate)
     if dur:
@@ -184,9 +185,10 @@ def inspect_dsf(filepath, ctx=None):
                f"{audio * 8 // max(chans, 1):,} bits per channel"),
         ]
         if data_off + dsize > file_size:
-            dwarns.append(
+            dwarns.append(defect(
+                "size.overrun",
                 f"data claims {dsize:,} bytes at 0x{data_off:x} but only "
-                f"{file_size - data_off:,} remain (file is truncated)")
+                f"{file_size - data_off:,} remain (file is truncated)"))
         elif expect and abs(audio - expect) > DSF_BLOCK_SIZE * chans:
             # one bit per sample: bytes = samples/8 per channel, rounded up to
             # the fixed block. A gap wider than one block on every channel
@@ -531,9 +533,10 @@ def inspect_dsdiff(filepath, ctx=None):
                      "payload_base": pos + 12, "payload_len": size,
                      "extent_len": 12 + size}
             if pos + 12 + size > file_size:
-                entry["warnings"].append(
+                entry["warnings"].append(defect(
+                    "size.overrun",
                     f"claims {size:,} bytes but only "
-                    f"{max(0, file_size - pos - 12):,} remain")
+                    f"{max(0, file_size - pos - 12):,} remain"))
             read = min(size, _TAG_CAP)
             payload = f.read(read) if read else b""
             try:
@@ -579,9 +582,10 @@ def inspect_dsdiff(filepath, ctx=None):
                                           "one per DST frame: offset and "
                                           "length, for seeking")]
                     if size % 12:
-                        entry["warnings"].append(
+                        entry["warnings"].append(defect(
+                            "length.misaligned",
                             f"{size:,} bytes is not a whole number of 12-byte "
-                            f"index entries")
+                            f"index entries"))
                 elif cid == b"MANF":
                     entry["summary"] = (
                         f"manufacturer-specific, {size:,} bytes")

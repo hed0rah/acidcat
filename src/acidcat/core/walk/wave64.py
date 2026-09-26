@@ -28,6 +28,7 @@ well-formed Wave64 as running past EOF.
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _open, _size
 from acidcat.core.walk.wav import _PARSERS, _parse_data
@@ -58,12 +59,14 @@ def inspect_wave64(filepath):
             return chunks, [f"file is {len(hdr)} bytes; a Wave64 header needs "
                             f"{_HEADER}"]
         if hdr[:16] != RIFF_GUID:
-            file_warns.append("missing the Wave64 RIFF GUID")
+            file_warns.append(defect("magic.mismatch", "missing the Wave64 RIFF GUID"))
         declared = struct.unpack_from("<Q", hdr, 16)[0]
         form = hdr[24:40]
         form_id, _note = _chunk_id(form)
         if form != WAVE_GUID:
-            file_warns.append(f"form GUID is {form_id!r}, expected 'wave'")
+            file_warns.append(defect(
+                "magic.mismatch",
+                f"form GUID is {form_id!r}, expected 'wave'"))
         # Unlike RIFF, this counts the whole file including its own 40-byte
         # header, so it is compared against the file size directly.
         if declared != file_size:
@@ -122,9 +125,10 @@ def inspect_wave64(filepath):
             avail = max(0, file_size - pos - _CHUNK_HEADER)
             truncated = payload_len > avail
             if truncated:
-                file_warns.append(
+                file_warns.append(defect(
+                    "size.overrun",
                     f"chunk {cid!r} claims {payload_len:,} payload bytes but "
-                    f"only {avail:,} remain")
+                    f"only {avail:,} remain"))
             real_len = min(payload_len, avail)
 
             payload = f.read(min(real_len, _PAYLOAD_CAP))
@@ -153,7 +157,9 @@ def inspect_wave64(filepath):
                 entry["warnings"].append(
                     f"parse error: {e.__class__.__name__}: {e}")
             if truncated:
-                entry["warnings"].append("payload runs past the end of the file")
+                entry["warnings"].append(defect(
+                    "size.overrun",
+                    "payload runs past the end of the file"))
             chunks.append(entry)
             seen += 1
 

@@ -15,6 +15,7 @@ See core/formats/mdx.py for the layout and where it was verified.
 
 
 from acidcat.core.formats import mdx as mdxmod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -76,10 +77,12 @@ def inspect_mdx(filepath, deep=False):
 
     for i, a in enumerate(h["mml_abs"]):
         if a > len(raw):
-            warns.append("channel %s points past the end of the file"
-                         % mdxmod.channel_name(i, h["channels"]))
+            warns.append(defect(
+                "pointer.dangling",
+                "channel %s points past the end of the file"
+                % mdxmod.channel_name(i, h["channels"])))
     if h["voice_abs"] > len(raw):
-        warns.append("the voice block points past the end of the file")
+        warns.append(defect("pointer.dangling", "the voice block points past the end of the file"))
     return chunks, warns
 
 

@@ -11,6 +11,7 @@ See core/formats/psf.py for the layout and where it came from.
 
 
 from acidcat.core.formats import psf as psfmod
+from acidcat.core.infra.findings import defect, environment
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
@@ -52,7 +53,9 @@ def inspect_psf(filepath, deep=False):
         sv = h["save"]
         if sv and sv["ok"]:
             if sv["crc_ok"] is False:
-                warns.append("the SAVE block's CRC32 does not match its header")
+                warns.append(defect(
+                    "checksum.mismatch",
+                    "the SAVE block's CRC32 does not match its header"))
             if sv["inflated_size"] is None:
                 warns.append("the SAVE block does not inflate as zlib")
             elif sv["consistent"] is False:
@@ -62,8 +65,10 @@ def inspect_psf(filepath, deep=False):
     prog = _program_chunk(h, short, is_lib)
     chunks.append(prog)
     if h["crc_ok"] is False:
-        warns.append("the program's CRC32 does not match the header: the "
-                     "compressed program has been altered or damaged")
+        warns.append(defect(
+            "checksum.mismatch",
+            "the program's CRC32 does not match the header: the "
+            "compressed program has been altered or damaged"))
     if h["program_size"] == 0:
         pass                    # nothing to inflate; the program chunk says so
     elif h["inflated_size"] is None:
@@ -92,14 +97,21 @@ def inspect_psf(filepath, deep=False):
         # a library carries no tags by design; a mini without them is odd
         warns.append("no [TAG] block, so no title, length or library reference")
 
-    if h["libs"] and not is_lib and src.path is not None:
+    if h["libs"] and not is_lib and src.path is None:
+        warns.append(environment(
+            "sibling.unchecked",
+            "names library %s; not looked for, the file was read from memory"
+            % ", ".join(repr(lib) for lib in h["libs"])))
+    elif h["libs"] and not is_lib:
         for lib in h["libs"]:
             beside = src.sibling(lib)
             if beside is not None:
                 beside.close()
             else:
-                warns.append("names library %r and it is not beside this file, "
-                             "so the tune cannot play" % lib)
+                warns.append(environment(
+                    "sibling.missing",
+                    "names library %r and it is not beside this file, "
+                    "so the tune cannot play" % lib))
     return chunks, warns
 
 

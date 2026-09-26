@@ -11,11 +11,13 @@ identifications.
 
 import os
 
+from acidcat.core.primitives.notes import code_of
 from acidcat.core.walk import walk_file
 
-
-_MAGIC_COMPLAINT = ("magic", "not a zip", "does not parse", "unknown iq",
-                    "no .sigmf-meta", "spec says")
+# the codes by which a walker says "these bytes are not really my format",
+# chosen by code rather than by matching the message text
+_WRONG_FORMAT = frozenset({"magic.mismatch", "parse.failed", "chunk.short",
+                           "sibling.missing", "encoding.unknown"})
 
 
 def _forced_candidates(filepath, deep):
@@ -60,8 +62,7 @@ def _forced_candidates(filepath, deep):
                     fh.seek(c.get("offset", 0))
                     if fh.read(4) == cid.encode("latin-1", "replace"):
                         anchored += 1
-        complaint = next((w for w in warns
-                          if any(k in w.lower() for k in _MAGIC_COMPLAINT)), "")
+        complaint = next((w for w in warns if code_of(w) in _WRONG_FORMAT), "")
         rows.append({
             "format": fmt, "label": label,
             "chunks": len(chunks),

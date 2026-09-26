@@ -145,27 +145,67 @@ annotation listing and triage's chunk listing are swept).
 - `hit()` returns the note for the walker to append; there is no context
   object recording hits on the side. The notes are the record, which keeps the
   walkers' signatures and their tests unchanged.
-- The sandboxed walk (`inspect --sandbox`) returns its result as JSON, which
-  drops every note's kind, so a sandboxed walk still reports cap hits as
-  defects. That predates 2.0 and is fixed with structured findings, when the
-  worker returns findings instead of strings.
+- The sandboxed walk (`inspect --sandbox`) returned its result as JSON, which
+  dropped every note's kind, so a sandboxed walk reported cap hits as defects.
+  Fixed with structured findings (section 4).
 
 ## 4. Findings
 
 One record for walker warnings and forensic findings; the fields are in
-[node-v1.md section 9](node-v1.md#9-findings). In code:
+[node-v1.md section 9](node-v1.md#9-findings).
+
+As built in 2.0.0a1: a walker warning stays a `Note`, the `str` subclass every
+consumer already handles, and gains a `code`. The kinds are `defect`,
+`coverage`, `environment`, `info` and `error`. A walker makes one with the
+helper for its kind:
 
 ```python
-emit.defect("size.overrun", "chunk runs 12 bytes past the file", node=..., at=...)
-emit.coverage(limits.hit("list_rows", used=1024, cap=256), "listing the first 256 of 1,024")
-emit.environment("sibling.missing", "seed.gsflib not found beside the file")
+warns.append(defect("size.overrun", f"chunk {cid} claims {n} bytes but only {k} remain"))
+warns.append(environment("sibling.missing", f"names library {lib!r} and it is not beside this file"))
+warns.append(hit("list_rows", _CAP, total, f"listing the first {_CAP} of {total}"))
 ```
 
-Codes live in `core/infra/findings.py` with their default kind and severity; a
-test fails on an unregistered code. Existing messages keep their text. During
-migration a walker that still appends a plain string produces
-`kind: defect, code: legacy`, counted in `typing.findings_legacy` so the
-remainder is visible and only falls.
+Codes live in `core/infra/findings.py` (`REGISTRY`: code to kind, default
+severity and meaning); a helper refuses an unregistered code or one used with
+the wrong kind, and `tests/test_findings.py` fails on a literal code the
+registry lacks and on a registered code nothing emits. Messages keep their
+text: every seed and fixture walks to the same text as before, and only the
+kind or code changed (cue, psf, stm, the generic triage).
+
+**Converted:** 100 emit sites carry a code: `size.overrun` 28,
+`magic.mismatch` 17, `pointer.dangling` 14, `parse.failed` 8,
+`length.misaligned` 6, `reserved.nonzero` 5, `header.truncated` 5,
+`checksum.mismatch` 4, `chunk.short` 3, `sibling.missing` 3,
+`sibling.unchecked` 2, and one each of `encoding.unknown`, `walker.error`,
+`geometry.error`, `geometry.invalid`, `triage.generic`; plus the seven
+`cap.*` codes on all 101 cap hits. **Legacy:** 292 plain-string sites in the
+walkers remain, `kind: defect, code: legacy`, counted per Document in
+`typing.findings_legacy` and held by a ratchet in `tests/test_findings.py`
+that only falls.
+
+**Consumers:** `anomalies.scan` reports a walker note by its kind
+(`environment` and `info` are their own rules, not `structure`) and gives
+every finding a `code` (`anomaly.<rule>` for its own rules); `audit` no longer
+fails a file for an `environment` or `info` finding (a PSF whose library is
+not beside it exits 0); the forced parse picks a walker's complaint by code,
+not by the words "magic" or "spec says"; the TUI hides the triage preamble by
+its code. The sandboxed walk carries each note's kind and code across its JSON
+boundary.
+
+**Departures from the plan, and why:**
+
+- No `emit` object and no `node=`/`at=` on a walker's finding. The walker's
+  note already sits on its chunk, which the normaliser turns into the node, so
+  `node` is filled there; a byte locator per finding waits for a walker that
+  needs one.
+- Forensic findings keep their dict shape (`severity`, `offset`, `rule`,
+  `message`) and gain `code`; the Document does not yet include them. Merging
+  them is one call in the normaliser once `acidcat.open()` decides when the
+  forensic scan runs (it reads the file tail, which a plain walk does not).
+- The forensic rules are coded `anomaly.<rule>` rather than the spec's
+  illustrative names (`text.control_bytes` is `anomaly.nonprintable_text`):
+  one rule, one code, no second vocabulary to keep in step.
+- A severity is the code's default; no site raises or lowers it yet.
 
 ## 5. FormatSpec: a format is one record
 

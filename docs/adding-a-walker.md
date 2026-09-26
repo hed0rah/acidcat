@@ -133,6 +133,25 @@ That distinction is carried through the API (`rate_exact`), into the field note
 ("lower bound -- grid never hit the cap"), and into a test. Reporting the lower
 bound as a reading would be indistinguishable from correct until it wasn't.
 
+### Give every warning a code
+
+A warning is read by scripts, `audit` and the TUI, which select it by its code,
+never by its words. Make it with the helper for what it is, from
+`acidcat.core.infra.findings`:
+
+```python
+warns.append(defect("size.overrun", f"chunk {cid!r} claims {size:,} bytes "
+                                    f"but only {avail:,} remain"))
+warns.append(environment("sibling.missing", f"names library {lib!r} and it "
+                                            f"is not beside this file"))
+```
+
+`defect` is the file breaking its format, `environment` is something outside
+it (a sibling file), `info` is worth knowing. The codes are in `REGISTRY`; add
+one there when none fits, with its kind and severity. A plain string still
+works and is reported as `legacy`, but `tests/test_findings.py` counts those
+and the count only falls.
+
 ### Report absence as a finding
 
 Everyone expects `.asd` to hold the tempo. It does not: Live stores warp

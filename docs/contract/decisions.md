@@ -188,6 +188,11 @@ architecture-2.0.md section 3 lists the departures. The CLI mapping is
 `docs/contract/cli-2.0.md`, with a test that fails on any verb or flag it does
 not map.
 
+Findings as built: a warning stays a `Note` and gains a registered `code`;
+helpers per kind in `core/infra/findings.py`; 100 walker sites converted, 292
+left as `legacy` behind a falling ratchet; forensic findings gain `code` but
+join the Document only with `acidcat.open()`. architecture-2.0.md section 4.
+
 The table below is the plan as first written.
 
 ## Release plan

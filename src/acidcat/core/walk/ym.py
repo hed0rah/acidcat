@@ -13,6 +13,7 @@ import time
 
 from acidcat.core.codecs import lha
 from acidcat.core.formats import ym as ymmod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
@@ -199,7 +200,9 @@ def _packed(raw, warns):
                            "an LHA member that is not a YM tune: %s" % y["why"])
     warns.extend(y["warnings"])
     if not h["checksum_ok"]:
-        warns.append("the LHA header checksum does not match its bytes")
+        warns.append(defect(
+            "checksum.mismatch",
+            "the LHA header checksum does not match its bytes"))
     nlen = len(h["name"])
     hfields = [
         _f(0, 1, "header_size", h["header_len"] - 2),

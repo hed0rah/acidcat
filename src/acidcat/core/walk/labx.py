@@ -18,6 +18,7 @@ import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.source import zip_open
 from acidcat.core.primitives.zipio import zip_data_offset
 from acidcat.core.walk.base import _f, _size
@@ -192,8 +193,9 @@ def inspect_labx(filepath):
     except zipfile.BadZipFile:
         return ([{"id": "labx", "offset": 0, "size": size,
                   "summary": "not a valid zip archive", "fields": [],
-                  "warnings": ["not a zip archive"], "payload_base": 0}],
-                ["not a zip archive"])
+                  "warnings": [defect("magic.mismatch", "not a zip archive")],
+                  "payload_base": 0}],
+                [defect("magic.mismatch", "not a zip archive")])
 
     warns = []
     with z:
@@ -261,7 +263,7 @@ def inspect_labx(filepath):
             else:
                 fields = [_f(None, 0, "engine", engine), _f(None, 0, "name", name)]
                 suffix = ""
-                pwarn.append("entry is not a boost text archive")
+                pwarn.append(defect("magic.mismatch", "entry is not a boost text archive"))
             chunks.append({"id": "preset", "offset": doff,
                            "size": zi.compress_size,
                            "summary": f"{engine}: {name}{suffix}",

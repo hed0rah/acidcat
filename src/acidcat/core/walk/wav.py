@@ -3,6 +3,7 @@
 import struct
 
 from acidcat.core.formats.riff import iter_chunks
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.vocab import (WAVE_FORMAT_TAGS as _FORMAT_TAGS,
                                 WAV_SPEAKER_POSITIONS as _SPEAKER_POSITIONS,
                                 KSDATAFORMAT_TAIL as _KSDATAFORMAT_TAIL)
@@ -381,7 +382,7 @@ def _parse_list(b, ctx):
         sub_size = _u32(b, pos + 4)
         start, end = pos + 8, pos + 8 + sub_size
         if end > len(b):
-            warns.append(f"sub-chunk {sub_id!r} overruns LIST payload")
+            warns.append(defect("size.overrun", f"sub-chunk {sub_id!r} overruns LIST payload"))
             break
         if list_type == "adtl" and sub_id in ("labl", "note") and sub_size >= 4:
             cue_id = _u32(b, start)
@@ -574,8 +575,10 @@ def _parse_clm(b, ctx):
         fields.append(_f(None, 0, "frames", f"{n:,}",
                          "data length divided by the frame size"))
         if rem:
-            warns.append(f"{frames:,} sample frames is not a whole number of "
-                         f"{frame:,}-sample wavetable frames ({rem:,} trail)")
+            warns.append(defect(
+                "length.misaligned",
+                f"{frames:,} sample frames is not a whole number of "
+                f"{frame:,}-sample wavetable frames ({rem:,} trail)"))
     elif frame:
         summary = f"wavetable, {frame:,}-sample frames"
     if "xfer" in text.lower():
@@ -1252,9 +1255,10 @@ def inspect_wav(filepath, ctx=None):
             seen.append(cid)
             avail = max(0, file_size - offset - 8)
             if size > avail and not (cid == "data" and size in _STREAM_SENTINELS):
-                file_warns.append(
+                file_warns.append(defect(
+                    "size.overrun",
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
-                    f"but only {avail:,} remain"
+                    f"but only {avail:,} remain")
                 )
             parser = _PARSERS.get(cid)
             # _parse_data derives frames/duration from size + ctx and never reads
@@ -1344,8 +1348,9 @@ def inspect_wav(filepath, ctx=None):
                                       "data length divided by the frame size"))
             entry["summary"] = f"wavetable, {n:,} frames of {size:,} samples"
             if rem:
-                entry["warnings"].append(
+                entry["warnings"].append(defect(
+                    "length.misaligned",
                     f"{frames:,} sample frames is not a whole number of "
-                    f"{size:,}-sample wavetable frames ({rem:,} trail)")
+                    f"{size:,}-sample wavetable frames ({rem:,} trail)"))
 
     return chunks, file_warns

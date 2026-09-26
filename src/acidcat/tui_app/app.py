@@ -21,6 +21,7 @@ from textual.widgets import Footer, Input, Static, Tree
 from acidcat.core.infra import geometry
 from acidcat.core.infra.sniff import sniff_bytes
 from acidcat.core.walk import walk_file, Unsupported
+from acidcat.core.primitives.notes import code_of
 from acidcat.core.forensics import anomalies as ac_anom
 from acidcat.core.forensics import explore
 from acidcat.core.forensics import locate as locatemod
@@ -1037,7 +1038,7 @@ class AcidcatTUI(App):
             # container, so at depth it repeats once per level and buries the
             # warnings that are about THIS file. The summary on the node
             # already says "contents unknown".
-            if w.startswith("generic structural triage:"):
+            if code_of(w) == "triage.generic":
                 continue
             node.add_leaf(Text(f"  {w}", style=AMBER))
         if not n and not node.children:

@@ -624,7 +624,7 @@ def run(args):
             if findings is not None and lsb_info and lsb_info["uniform_high"]:
                 findings.append({
                     "severity": "notice", "offset": lsb_info["region"][0],
-                    "rule": "lsb_entropy",
+                    "rule": "lsb_entropy", "code": "anomaly.lsb_entropy",
                     "message": f"uniformly high LSB entropy (min {lsb_info['min']}, "
                                f"mean {lsb_info['mean']}): consistent with LSB "
                                f"steganography, but also with a noisy/dithered/"

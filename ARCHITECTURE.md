@@ -26,11 +26,16 @@ exact on-disk bytes (the editor/repair contract); `xref` marks a pointer field.
 This one shape flows through inspect, the TUI, probe, anomalies, and indexing
 unchanged.
 
-A warning is a defect (a plain string: the file has something to answer for)
-or a coverage note (the walk stopped at one of our limits). A coverage note is
-made only by `core/infra/limits.hit(name, limit, used, message)`, so it always
-names the limit it hit; the v1 Document turns it into a `coverage` finding and
-lists the limit in `limits.hit`.
+A warning is a `Note`: a `str` that also carries its kind and a finding code
+(`core/infra/findings.py`). The kinds are `defect` (the file breaks its
+format), `coverage` (the walk stopped at one of our limits), `environment`
+(something outside the file, like a sibling not beside it), `info` and `error`
+(acidcat failed). A walker makes one with `defect(code, message)`,
+`environment(...)` or `info(...)`, and a coverage note only with
+`core/infra/limits.hit(name, limit, used, message)`, so it always names the
+limit it hit. Consumers (`audit`, the forced parse, the TUI) select by kind and
+code, never by message text. A plain string is still accepted and reported as
+a defect with code `legacy`.
 
 ## Layer stack (bottom to top)
 
@@ -87,13 +92,13 @@ lists the limit in `limits.hit`.
 
 ```
 src/acidcat/
-  core/            203 modules
+  core/            204 modules
     formats/       per-format byte decoders (35)
     walk/          57 walker modules -> 88 format labels (58)
     primitives/    shared byte readers (6)
     codecs/        sample-data decoders, unpackers, the 6510/SID and SPC700/S-DSP players (21)
     containers/    disc images and archives (5)
-    infra/         sniff, fieldcodec, mmap, Source, Limits, rendering, the v1 contract (13)
+    infra/         sniff, fieldcodec, mmap, Source, Limits, finding codes, rendering, the v1 contract (14)
     forensics/     anomalies, entropy/viz, audioscan, provenance (19)
     analysis/      PCM decode, BPM/key, features, bandwidth (8)
     write/         strict IFF engine, constraints, repairers (12)
@@ -105,7 +110,7 @@ src/acidcat/
   mcp_server/      schema, handlers, transport (19 tools)
   tui_app/         Textual inspector/editor
   util/            small shared helpers
-  cli.py  explorer.py  tui_theme.py  __init__.py     (260 modules in total)
+  cli.py  explorer.py  tui_theme.py  __init__.py     (261 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

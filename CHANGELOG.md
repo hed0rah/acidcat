@@ -20,6 +20,12 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   the note names the limit, the bound and how much the file asked for, and the
   Document lists it in `limits.hit` with a `cap.*` finding.
   `contract.walk()` takes `limits=`.
+- **Finding codes.** Every warning can carry a stable code consumers key on
+  instead of its wording (`core/infra/findings.py`): `size.overrun`,
+  `pointer.dangling`, `magic.mismatch`, `parse.failed`, `checksum.mismatch`,
+  `sibling.missing` and others, 100 walker sites so far. The rest report as
+  `legacy` and are counted. Forensic findings (`inspect --anomalies`,
+  `audit --json`) gain a `code` key.
 - **`docs/contract/cli-2.0.md`**: every 1.8 command and flag, what it becomes
   in 2.0, and which old spellings keep working through 2.x. A test fails when
   the parser grows a flag the page does not map.
@@ -34,6 +40,14 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   triage's read window and chunk listing. They are coverage notes now, with the
   same text. A coverage note cannot be made without naming its limit, so a new
   cap cannot be misfiled.
+- **A missing sibling is not a defect.** A PSF whose library, a cue sheet
+  whose BIN, or a SigMF recording whose sidecar is not beside it is now an
+  `environment` finding: still printed, but `audit` exits 0 for it. Read from
+  memory, PSF and cue say the sibling was not looked for.
+- **`inspect --sandbox` keeps each warning's kind.** The sandbox returned its
+  walk as JSON and every coverage note came back a defect.
+- The forced parse (`inspect --force`, the TUI's force view) picks each
+  walker's complaint by code, not by the words "magic" or "spec says".
 - **Walkers read a Source, not a path.** A walk maps the file once, and bytes
   in memory walk exactly as a file does: `walk_bytes` no longer writes a temp
   file (it cost 1.9x the walk at 300 bytes and 400x at 64 MB), and an RMID's
@@ -46,6 +60,8 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Removed
 
+- `acidcat.core.forensics.forced._MAGIC_COMPLAINT`, the words the forced parse
+  matched; it matches finding codes.
 - `acidcat.core.primitives.notes.coverage(text)`. Use
   `acidcat.core.infra.limits.hit(name, limit, used, text)`; `Note(text,
   "coverage")` without a `cap` now raises `ValueError`.

@@ -4,8 +4,9 @@ Pure header math on what the walker already decoded, plus a bounded tail scan.
 Reports: the walker's own lint warnings, trailing data past the declared
 container end, an appended second-format magic (polyglot detection), and control
 bytes smuggled into text fields. No sample-data analysis (that is the deferred
-`deep` tier). Findings are {severity, offset, rule, message}; severity is one of
-alert > warn > notice.
+`deep` tier). Findings are {severity, offset, rule, code, message}; severity is
+one of alert > warn > notice > info, and `code` is the finding's registered id
+(core/infra/findings.py): the walker note's own code, or `anomaly.<rule>`.
 
 Framed as detection, not exploitation: acidcat says what looks off and where.
 """
@@ -14,8 +15,17 @@ import os
 import struct
 
 from acidcat.core.infra.fieldcodec import _field_abs
+from acidcat.core.infra.findings import anomaly_code
+from acidcat.core.primitives.notes import (
+    COVERAGE, ENVIRONMENT, INFO, code_of, kind_of,
+)
 from acidcat.core.primitives.signal import byte_entropy
-from acidcat.core.primitives.notes import is_coverage
+
+# how a walker note of each kind is reported; anything else (a defect, a
+# walker error, a plain string) is "structure" at warn
+_NOTE_RULE = {COVERAGE: ("coverage", "info"),
+              ENVIRONMENT: ("environment", "notice"),
+              INFO: ("info", "info")}
 
 # second-format magics worth flagging when appended after an audio container
 _MAGICS = [
@@ -343,16 +353,15 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
     # Note the classification happens BEFORE the chunk id is prefixed below:
     # string formatting returns a plain str and drops the kind.
     for w in warns or []:
-        cov = is_coverage(w)
-        findings.append({"severity": "info" if cov else "warn", "offset": 0,
-                         "rule": "coverage" if cov else "structure",
-                         "message": w})
+        rule, sev = _NOTE_RULE.get(kind_of(w), ("structure", "warn"))
+        findings.append({"severity": sev, "offset": 0, "rule": rule,
+                         "code": code_of(w) or "legacy", "message": w})
     for c in chunks:
         for w in c.get("warnings") or []:
-            cov = is_coverage(w)
-            findings.append({"severity": "info" if cov else "warn",
+            rule, sev = _NOTE_RULE.get(kind_of(w), ("structure", "warn"))
+            findings.append({"severity": sev,
                              "offset": c.get("offset", 0) or 0,
-                             "rule": "coverage" if cov else "structure",
+                             "rule": rule, "code": code_of(w) or "legacy",
                              "message": f"{str(c.get('id', '?')).strip()}: {w}"})
 
     # 2. trailing data past the DECLARED container end, and a tail magic scan.
@@ -784,7 +793,7 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
             end = _json_object_end(doc)
             if end is None:
                 findings.append({"severity": "warn", "offset": 0,
-                                 "rule": "structure",
+                                 "rule": "structure", "code": "parse.failed",
                                  "message": "the top-level JSON object never closes"})
             else:
                 tail = doc[end:].strip()
@@ -839,4 +848,6 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
 
     findings.sort(key=lambda x: (-_SEVERITY.get(x["severity"], 0),
                                  x["offset"] if x["offset"] is not None else -1))
+    for f in findings:
+        f.setdefault("code", anomaly_code(f["rule"]))
     return findings

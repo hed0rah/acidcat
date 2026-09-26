@@ -7,6 +7,7 @@ parsers for everything but ds64.
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _u32, _open, _size
 from acidcat.core.walk.wav import _PARSERS, _parse_data
 
@@ -43,9 +44,10 @@ def _parse_ds64(b, ctx):
         ctx["ds64_table"] = table
     file_size = ctx.get("file_size")
     if file_size is not None and data_size > file_size:
-        warns.append(
+        warns.append(defect(
+            "size.overrun",
             f"data_size {data_size:,} exceeds the whole file "
-            f"({file_size:,} bytes)")
+            f"({file_size:,} bytes)"))
     return f"64-bit sizes: data {data_size:,} bytes", fields, warns
 
 

@@ -17,6 +17,7 @@ file it does not itself contain.
 
 import os
 
+from acidcat.core.infra.findings import defect, environment
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -80,6 +81,11 @@ def inspect_cue(filepath, deep=False):
                      "missing or damaged, so their positions index into "
                      "nothing" % unnamed)
     src = as_source(filepath)
+    if files and src.path is None:
+        warns.append(environment(
+            "sibling.unchecked",
+            "the files the sheet names were not looked for: it was read "
+            "from memory"))
     for name in files:
         if src.path is None:
             # bytes with no directory: there is nowhere to look, which is not
@@ -95,9 +101,11 @@ def inspect_cue(filepath, deep=False):
                          "present beside the sheet" if present
                          else "NOT found beside the sheet"))
         if not present:
-            warns.append("the sheet names %r, which is not beside it; the "
-                         "positions below index into a file that is absent"
-                         % os.path.basename(name))
+            warns.append(environment(
+                "sibling.missing",
+                "the sheet names %r, which is not beside it; the "
+                "positions below index into a file that is absent"
+                % os.path.basename(name)))
 
     for t in tracks:
         lba = t.get("start_lba", 0)
@@ -157,7 +165,9 @@ def inspect_gcm(filepath, deep=False):
            "by extension: %s" % ", ".join(audio_ext)),
     ]
     if fst_off >= size:
-        warns.append("the file-system table is declared past the end of the image")
+        warns.append(defect(
+            "pointer.dangling",
+            "the file-system table is declared past the end of the image"))
     if not entries:
         warns.append("no files could be read from the file-system table")
 

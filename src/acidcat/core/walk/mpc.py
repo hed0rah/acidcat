@@ -22,6 +22,7 @@ import zipfile
 import zlib
 from collections import Counter
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import gzip_open, zip_open
 from acidcat.core.primitives.zipio import zip_data_offset
@@ -178,8 +179,9 @@ def inspect_xpn(filepath):
     except zipfile.BadZipFile:
         return ([{"id": "xpn", "offset": 0, "size": size,
                   "summary": "not a valid zip archive", "fields": [],
-                  "warnings": ["not a zip archive"], "payload_base": 0}],
-                ["not a zip archive"])
+                  "warnings": [defect("magic.mismatch", "not a zip archive")],
+                  "payload_base": 0}],
+                [defect("magic.mismatch", "not a zip archive")])
 
     warns = []
     with z:
@@ -200,7 +202,7 @@ def inspect_xpn(filepath):
                     if v:
                         man[tag] = v
             except Exception:
-                warns.append("Expansion.xml did not parse")
+                warns.append(defect("parse.failed", "Expansion.xml did not parse"))
         else:
             warns.append("no Expansion.xml manifest")
 
@@ -285,7 +287,7 @@ def inspect_xtd(filepath):
             obj = json.loads(raw[brace:])
             kit = obj.get("data", {}) if isinstance(obj, dict) else {}
         except (ValueError, RecursionError):
-            warns.append("ACVS JSON payload did not parse")
+            warns.append(defect("parse.failed", "ACVS JSON payload did not parse"))
     elif truncated:
         warns.append(hit("inflate_bytes", _XTD_CAP, _XTD_CAP,
                          f"decompressed payload exceeds {_XTD_CAP // (1 << 20)} MB cap; "

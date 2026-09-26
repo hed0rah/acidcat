@@ -17,6 +17,7 @@ id, a u32 size, the payload, no pad byte observed. The walk degrades on any
 malformed input and never raises.
 """
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 
 from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open, _size
@@ -81,9 +82,10 @@ def inspect_bfdlac(filepath):
                     f"(the {_READ_CAP // (1024 * 1024)} MB read window, not a "
                     f"short file)"))
             else:
-                chunk.setdefault("warnings", []).append(
+                chunk.setdefault("warnings", []).append(defect(
+                    "size.overrun",
                     f"chunk declares {size:,} bytes, only "
-                    f"{max(0, file_size - payload):,} present (truncated)")
+                    f"{max(0, file_size - payload):,} present (truncated)"))
         chunks.append(chunk)
         if cid == b"data":                              # data is the final, huge chunk
             break

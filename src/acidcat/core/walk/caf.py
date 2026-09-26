@@ -21,6 +21,7 @@ data little-endian reproduces noise rather than the tone that is there.
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.apple import _parse_chan
@@ -137,9 +138,10 @@ def _parse_data(b, ctx, size):
         if rate > 0:
             summary += f", {frames / rate:.3f} s"
         if audio % bpp:
-            warns.append(
+            warns.append(defect(
+                "length.misaligned",
                 f"{audio:,} audio bytes is not a whole number of {bpp}-byte "
-                f"packets ({audio % bpp} trail)")
+                f"packets ({audio % bpp} trail)"))
     elif bpp == 0:
         # Not a defect: a variable-bitrate format says so with bpp 0 and puts
         # the sizes in `pakt`. Saying that beats reporting no duration at all.
@@ -246,7 +248,7 @@ def inspect_caf(filepath):
             return chunks, [f"file is {len(hdr)} bytes; a CAF header needs "
                             f"{_HEADER}"]
         if hdr[:4] != MAGIC:
-            file_warns.append("missing the 'caff' magic")
+            file_warns.append(defect("magic.mismatch", "missing the 'caff' magic"))
         version, flags = struct.unpack_from(">HH", hdr, 4)
         if version != 1:
             file_warns.append(f"file version is {version}, the spec defines 1")
@@ -296,9 +298,10 @@ def inspect_caf(filepath):
             else:
                 real = min(size, avail)
                 if size > avail:
-                    file_warns.append(
+                    file_warns.append(defect(
+                        "size.overrun",
                         f"chunk {cid!r} claims {size:,} bytes but only "
-                        f"{avail:,} remain")
+                        f"{avail:,} remain"))
 
             payload = f.read(min(real, _PAYLOAD_CAP))
             entry = {
@@ -330,7 +333,9 @@ def inspect_caf(filepath):
             # defect primitives.notes exists to prevent.
             file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
             if size != _TO_EOF and size > avail:
-                entry["warnings"].append("payload runs past the end of the file")
+                entry["warnings"].append(defect(
+                    "size.overrun",
+                    "payload runs past the end of the file"))
             chunks.append(entry)
             seen.append(cid)
 

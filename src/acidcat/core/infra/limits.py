@@ -61,5 +61,5 @@ def hit(name, limit, used, message):
     for `used`. Not a statement about the file."""
     if name not in NAMES:
         raise ValueError(f"unknown limit {name!r}; expected one of {NAMES}")
-    return Note(message, COVERAGE,
+    return Note(message, COVERAGE, code=CODES[name],
                 cap={"name": name, "limit": int(limit), "used": int(used)})

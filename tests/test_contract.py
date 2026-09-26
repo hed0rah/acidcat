@@ -423,3 +423,19 @@ def test_every_limit_has_a_registered_code():
     from acidcat.core.infra.limits import CODES, NAMES
     assert set(CODES) == set(NAMES)
     assert set(NAMES) | {"decode", "hit"} == set(SCHEMA["$defs"]["limits"]["properties"])
+
+
+# ── rule 9: findings ───────────────────────────────────────────────────
+
+def test_every_finding_code_is_registered_and_kind_matches(docs):
+    from acidcat.core.infra.findings import REGISTRY
+    bad = []
+    for name, path, (doc, _data) in _ok(docs):
+        for f in doc["findings"]:
+            kind, sev, _about = REGISTRY.get(f["code"], (None, None, None))
+            if kind != f["kind"] or sev != f["severity"]:
+                bad.append((name, f["code"], f["kind"], f["message"][:60]))
+            if f["kind"] == "coverage" and f["cap"]["name"] not in doc["limits"]["hit"]:
+                bad.append((name, f["code"], "not in limits.hit", f["message"][:60]))
+    assert not bad, "findings off the registry:\n" + "\n".join(
+        f"  {n}: {c} {k}: {m}" for n, c, k, m in bad[:10])

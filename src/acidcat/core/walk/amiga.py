@@ -16,6 +16,7 @@ Header-level decode, never-raise. Deep pattern/sample decode is future work.
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open
 
@@ -159,7 +160,9 @@ def inspect_okt(filepath):
         if size > have:
             # a chunk that declares more than the file holds: say so and
             # own only what is there, so its payload stays inside the file
-            c["warnings"].append("declares %d bytes; %d remain in the file" % (size, have))
+            c["warnings"].append(defect(
+                "size.overrun",
+                "declares %d bytes; %d remain in the file" % (size, have)))
             c["size"] = have
             c["payload_len"] = have
             c["payload_base"] = off + 8

@@ -19,6 +19,7 @@ import os
 import re
 import struct
 
+from acidcat.core.infra.findings import defect, environment, info
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import as_source
 from acidcat.core.walk.base import _f, _open
@@ -208,9 +209,13 @@ def inspect_sigmf(path, deep=False):
             annotations = m.get("annotations") if isinstance(m.get("annotations"), list) else []
             meta_ok = True
         except (ValueError, OSError) as e:
-            warns.append(f"sidecar JSON did not parse: {e.__class__.__name__}")
+            warns.append(defect(
+                "parse.failed",
+                f"sidecar JSON did not parse: {e.__class__.__name__}"))
     else:
-        warns.append("no .sigmf-meta sidecar; datatype unknown (SigMF requires the pair)")
+        warns.append(environment(
+            "sibling.missing",
+            "no .sigmf-meta sidecar; datatype unknown (SigMF requires the pair)"))
 
     data_size = data_src.size if data_src is not None else 0
     if data_src is None:
@@ -220,13 +225,17 @@ def inspect_sigmf(path, deep=False):
     geo = _parse_datatype(dt)
     sb = geo["sample_bytes"] if geo else 0
     if dt and geo is None:
-        warns.append(f"core:datatype {dt!r} does not parse; sample geometry unknown")
+        warns.append(defect(
+            "parse.failed",
+            f"core:datatype {dt!r} does not parse; sample geometry unknown"))
     elif geo and not geo["cplx"]:
         warns.append("datatype is real (rN); this is a scalar sample stream, not IQ")
     n_samp = data_size // sb if sb else 0
     if sb and data_size % sb:
-        warns.append(f"data size {data_size:,} is not a whole number of {dt} "
-                     f"samples ({data_size % sb} bytes trail)")
+        warns.append(defect(
+            "length.misaligned",
+            f"data size {data_size:,} is not a whole number of {dt} "
+            f"samples ({data_size % sb} bytes trail)"))
     _fs_raw = g.get("core:sample_rate")
     fs = _num(_fs_raw)
     if _fs_raw is not None and fs is None:
@@ -295,8 +304,10 @@ def inspect_sigmf(path, deep=False):
                 if k not in ("core:frequency", "core:sample_start"):
                     cf.append(_f(None, 0, k.split(":")[-1], str(v)[:120]))
             if sb and off > data_size:
-                warns.append(f"capture[{i}] sample_start implies offset "
-                             f"0x{off:x} past EOF")
+                warns.append(defect(
+                    "pointer.dangling",
+                    f"capture[{i}] sample_start implies offset "
+                    f"0x{off:x} past EOF"))
             elif sb and off + span * sb > data_size:
                 # The START was checked and the END was not, so a segment that
                 # begins inside the stream and runs off the end of it was
@@ -318,8 +329,10 @@ def inspect_sigmf(path, deep=False):
             cnt = int(_num(a.get("core:sample_count")) or 0)
             off = s0 * sb
             if sb and off > data_size:
-                warns.append(f"annotation[{i}] sample_start implies offset "
-                             f"0x{off:x} past EOF")
+                warns.append(defect(
+                    "pointer.dangling",
+                    f"annotation[{i}] sample_start implies offset "
+                    f"0x{off:x} past EOF"))
             elif sb and off + cnt * sb > data_size:
                 # as for captures: sample_count was never checked against the
                 # data plane, so a label spanning more samples than exist read
@@ -414,10 +427,12 @@ def inspect_iq(path, deep=False):
     chunks.append(samples)
 
     if dt is None:
-        warns.append("unknown IQ encoding; geometry from extension only")
+        warns.append(info("encoding.unknown", "unknown IQ encoding; geometry from extension only"))
     if fs is None:
         warns.append("sample rate unknown; duration not derivable")
     if sb and size % sb:
-        warns.append(f"data size {size:,} is not a whole number of {dt} "
-                     f"samples ({size % sb} bytes trail)")
+        warns.append(defect(
+            "length.misaligned",
+            f"data size {size:,} is not a whole number of {dt} "
+            f"samples ({size % sb} bytes trail)"))
     return chunks, warns

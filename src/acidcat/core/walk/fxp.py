@@ -5,6 +5,7 @@ reported as a region, not decoded (it is plugin-specific)."""
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.walk.base import _f, _open, _size
 
 _FX_MAGIC = {
@@ -27,7 +28,7 @@ def inspect_fxp(filepath):
         head = f.read(min(size, 65536))
     warns = []
     if head[:4] != b"CcnK":
-        warns.append("missing CcnK magic")
+        warns.append(defect("magic.mismatch", "missing CcnK magic"))
     if len(head) < 28:
         return ([{"id": "fxp", "offset": 0, "size": size,
                   "summary": "truncated FXP header", "fields": [],

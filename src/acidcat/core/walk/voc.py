@@ -48,6 +48,7 @@ something it never saw is the more expensive kind of wrong.
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -93,8 +94,10 @@ def _blocks(data, warns):
         return
     start = struct.unpack_from("<H", data, 20)[0]
     if not _HDR_MIN <= start <= len(data):
-        warns.append(f"header claims the blocks start at {start}, which is "
-                     f"outside the file; walking from {_HDR_MIN} instead")
+        warns.append(defect(
+            "pointer.dangling",
+            f"header claims the blocks start at {start}, which is "
+            f"outside the file; walking from {_HDR_MIN} instead"))
         start = _HDR_MIN
     i = start
     while i < len(data):
@@ -109,8 +112,10 @@ def _blocks(data, warns):
         body = i + 4
         if body + length > len(data):
             have = max(0, len(data) - body)
-            warns.append(f"block {kind:02d} at 0x{i:x} declares {length:,} "
-                         f"bytes but only {have:,} remain; reading what is there")
+            warns.append(defect(
+                "size.overrun",
+                f"block {kind:02d} at 0x{i:x} declares {length:,} "
+                f"bytes but only {have:,} remain; reading what is there"))
             length = have
             yield kind, i, body, length
             return
@@ -208,12 +213,15 @@ def inspect_voc(filepath):
     want = (~info["version"] + 0x1234) & 0xFFFF
     hdr_warns = []
     if len(data) < _HDR_MIN:
-        hdr_warns.append(f"header truncated: {len(data)} bytes of the "
-                         f"{_HDR_MIN}-byte header are present")
+        hdr_warns.append(defect(
+            "header.truncated",
+            f"header truncated: {len(data)} bytes of the "
+            f"{_HDR_MIN}-byte header are present"))
     elif info["checksum"] != want:
-        hdr_warns.append(
+        hdr_warns.append(defect(
+            "checksum.mismatch",
             f"header checksum is 0x{info['checksum']:04x}, and the version "
-            f"field says it should be 0x{want:04x}")
+            f"field says it should be 0x{want:04x}"))
 
     total = sum(s["size"] for s in info["streams"])
     chunks = [{

@@ -4,6 +4,7 @@ plus the audio-frame region. Block iteration lives in core/flac.py."""
 import struct
 
 from acidcat.core.formats import flac as flacmod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import parse_padding  # noqa: F401
 from acidcat.core.walk.base import _open, _size
@@ -12,7 +13,8 @@ from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _f
 def _flac_streaminfo(b):
     fields, warns = [], []
     if len(b) < 34:
-        return "truncated", fields, [f"STREAMINFO is {len(b)} bytes, spec says 34"]
+        return "truncated", fields, [defect(
+            "chunk.short", f"STREAMINFO is {len(b)} bytes, spec says 34")]
     min_block, max_block = _bu16(b, 0), _bu16(b, 2)
     min_frame = struct.unpack(">I", b"\x00" + b[4:7])[0]
     max_frame = struct.unpack(">I", b"\x00" + b[7:10])[0]
@@ -72,7 +74,7 @@ def _flac_vorbis_comment(b):
         clen = struct.unpack_from("<I", b, pos)[0]
         start = pos + 4
         if start + clen > len(b):
-            warns.append(f"comment[{i}] overruns block")
+            warns.append(defect("size.overrun", f"comment[{i}] overruns block"))
             break
         text = b[start:start + clen].decode("utf-8", errors="replace")
         key, _, val = text.partition("=")
@@ -233,9 +235,10 @@ def inspect_flac(filepath):
         # PADDING block claiming 8,192 bytes inside a 200-byte file said
         # nothing, while RIFF reports the same damage in the file's own numbers.
         if off + 4 + length > file_size:
-            file_warns.append(
+            file_warns.append(defect(
+                "size.overrun",
                 f"block {name} at 0x{off:08x} claims {length:,} bytes but only "
-                f"{max(0, file_size - off - 4):,} remain (file is truncated)")
+                f"{max(0, file_size - off - 4):,} remain (file is truncated)"))
         try:
             if btype == 0:
                 entry["summary"], entry["fields"], entry["warnings"] = \
@@ -267,10 +270,11 @@ def inspect_flac(filepath):
         except Exception as e:
             entry["warnings"] = [f"parse error: {e.__class__.__name__}: {e}"]
         if last_end > file_size:
-            entry["warnings"].append(
+            entry["warnings"].append(defect(
+                "size.overrun",
                 f"declared length {length:,} overruns the file by "
                 f"{last_end - file_size:,} bytes "
-                f"(only {max(0, file_size - off - 4):,} present)")
+                f"(only {max(0, file_size - off - 4):,} present)"))
         chunks.append(entry)
         if is_last:
             saw_last = True
@@ -305,9 +309,10 @@ def inspect_flac(filepath):
                 target = last_end + fl.pop("_xref_rel")
                 fl["xref"] = target
                 if not (0 <= target < file_size):
-                    file_warns.append(
+                    file_warns.append(defect(
+                        "pointer.dangling",
                         f"SEEKTABLE {fl['name']} points to 0x{target:08x}, "
-                        f"outside the file (a dangling seek pointer)")
+                        f"outside the file (a dangling seek pointer)"))
     audio_bytes = file_size - last_end
     if audio_bytes > 0:
         chunks.append({"id": "frames", "offset": last_end, "size": audio_bytes,

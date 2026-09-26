@@ -8,6 +8,7 @@ per device.
 
 
 from acidcat.core.formats import s98 as s98mod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
@@ -37,7 +38,7 @@ def inspect_s98(filepath, deep=False):
     # where the dump may run to: the tag if it follows, else the end
     tag_at = h["tag_at"]
     if tag_at is not None and not 0 < tag_at < len(raw):
-        warns.append("the tag offset %d is outside the file" % tag_at)
+        warns.append(defect("pointer.dangling", "the tag offset %d is outside the file" % tag_at))
         tag_at = None
     dump_end = tag_at if (tag_at is not None and tag_at > h["dump_at"]) else len(raw)
     w = s98mod.walk_dump(raw, h["dump_at"], dump_end, h["version"], _S98_COMMAND_CAP)

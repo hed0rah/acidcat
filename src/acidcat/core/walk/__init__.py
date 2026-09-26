@@ -12,6 +12,7 @@ in this package, and add one registry entry below.
 import os
 
 from acidcat.core.infra import geometry
+from acidcat.core.infra.findings import error
 from acidcat.core.infra.source import BytesSource, Source, as_source
 from acidcat.core.infra import sniff as sniffmod
 from acidcat.core.walk import (
@@ -269,7 +270,8 @@ def _walk(filepath, deep, fmt_override):
         if os.environ.get("ACIDCAT_WALKER_RAISE"):
             raise
         return (label, [],
-                [f"walker error ({fmt}): {e.__class__.__name__}: {e}"])
+                [error("walker.error",
+                       f"walker error ({fmt}): {e.__class__.__name__}: {e}")])
     try:
         return _normalized(filepath, (label, chunks, file_warns))
     except Exception as e:
@@ -281,7 +283,8 @@ def _walk(filepath, deep, fmt_override):
             raise
         return (label, chunks,
                 list(file_warns)
-                + [f"geometry error ({fmt}): {e.__class__.__name__}: {e}"])
+                + [error("geometry.error",
+                         f"geometry error ({fmt}): {e.__class__.__name__}: {e}")])
 
 
 def walk_bytes(data, deep=False, fmt_override=None, suffix=".bin",

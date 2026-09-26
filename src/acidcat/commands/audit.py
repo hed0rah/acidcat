@@ -242,9 +242,12 @@ def _blaming_the_file(findings):
     this release is named for -- but it must not drive the exit code, or a
     structurally perfect file exits 1 for being large and
     `audit f || quarantine f` quarantines it. That was live across eighteen
-    walker sites.
+    walker sites. An `environment` finding (a sibling not beside the file) and
+    an `info` one are about the surroundings or merely worth knowing, and do
+    not blame the file either.
     """
-    return [f for f in findings if f.get("rule") != "coverage"]
+    return [f for f in findings
+            if f.get("rule") not in ("coverage", "environment", "info")]
 
 
 def _code(scanned, vios, findings, integ):

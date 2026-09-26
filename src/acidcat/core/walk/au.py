@@ -29,6 +29,7 @@ The id is "au"; the MPC2000 ".snd" is a different format (id "snd") with no
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.walk.base import _f, _open, _size
 
 MAGIC = b".snd"
@@ -167,8 +168,10 @@ def inspect_au(filepath):
         hdr_warns.append(f"data offset {data_offset} is inside the "
                          f"{_HDR_MIN}-byte header")
     elif data_offset > file_size:
-        hdr_warns.append(f"data offset {data_offset} points past the end of the "
-                         f"{file_size:,}-byte file")
+        hdr_warns.append(defect(
+            "pointer.dangling",
+            f"data offset {data_offset} points past the end of the "
+            f"{file_size:,}-byte file"))
     if encoding not in _ENC:
         hdr_warns.append(f"encoding code {encoding} is not one of the documented "
                          f"Sun/NeXT codes")

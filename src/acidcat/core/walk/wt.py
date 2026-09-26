@@ -14,6 +14,7 @@ reports every float32 table as corrupt.
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.walk.base import _f, _open, _size
 
 WTF_IS_SAMPLE = 0x01        # a one-shot sample rather than a wavetable
@@ -41,7 +42,7 @@ def inspect_wt(filepath):
         head = fh.read(12)
     warns = []
     if head[:4] != b"vawt":
-        warns.append("missing 'vawt' magic")
+        warns.append(defect("magic.mismatch", "missing 'vawt' magic"))
 
     frame_samples = struct.unpack_from("<I", head, 4)[0] if len(head) >= 8 else 0
     frame_count = struct.unpack_from("<H", head, 8)[0] if len(head) >= 10 else 0

@@ -12,6 +12,7 @@ precedes essentially every message with the ticks since the previous one.
 Reference: MMA M2-116-U (MIDI Clip File) v1.0; M2-104-UM (UMP) v1.1.2.
 """
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 
 from acidcat.core.formats import ump
@@ -31,7 +32,7 @@ def inspect_midi2(filepath, deep=False):
         file_warns.append(hit("read_bytes", MAX_CLIP_BYTES, size,
                               f"clip is {size:,} bytes; walked the first {MAX_CLIP_BYTES:,}"))
     if data[:8] != MAGIC:
-        file_warns.append("missing SMF2CLIP magic")
+        file_warns.append(defect("magic.mismatch", "missing SMF2CLIP magic"))
 
     header = {"id": "SMF2CLIP", "offset": 0, "size": 8, "summary": "MIDI Clip File header",
               "payload_base": 0, "warnings": [],

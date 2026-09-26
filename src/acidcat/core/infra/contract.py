@@ -28,8 +28,9 @@ import struct
 from typing import Any, List, Optional, TypedDict
 
 from acidcat.core.infra import fieldcodec
-from acidcat.core.infra.limits import CODES as _CAP_CODES, Limits
-from acidcat.core.primitives.notes import kind_of
+from acidcat.core.infra.findings import defect, kind_of_code, severity_of
+from acidcat.core.infra.limits import Limits
+from acidcat.core.primitives.notes import code_of
 
 CONTRACT = 1
 
@@ -252,24 +253,13 @@ def _dedupe(names):
 
 # ── findings ───────────────────────────────────────────────────────────
 
-_SEVERITY = {"defect": "warn", "coverage": "info", "environment": "notice",
-             "info": "info", "error": "alert"}
-
-
 def _finding(text, node=None):
-    kind = kind_of(text)
-    msg = str(text)
-    code = "legacy"
-    if msg.startswith("walker error ("):
-        kind, code = "error", "walker.error"
-    elif msg.startswith("geometry error ("):
-        kind, code = "error", "geometry.error"
-    elif msg.startswith("generic structural triage:"):
-        kind, code = "info", "triage.generic"
+    """One finding for one walker note. The note's code decides its kind and
+    severity; a plain string is a `legacy` defect."""
+    code = code_of(text) or "legacy"
+    f = {"kind": kind_of_code(code), "code": code,
+         "severity": severity_of(code), "message": str(text)}
     cap = getattr(text, "cap", None)
-    if cap is not None:
-        code = _CAP_CODES[cap["name"]]
-    f = {"kind": kind, "code": code, "severity": _SEVERITY[kind], "message": msg}
     if cap is not None:
         f["cap"] = dict(cap)
     if node is not None:
@@ -458,11 +448,11 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
             # geometry.py marked the claimed range as not fitting; a locator
             # must be inside its layer, so the claim becomes a finding instead
             node["geometry"] = "invalid"
-            node["_warnings"].append(
+            node["_warnings"].append(defect(
+                "geometry.invalid",
                 "the chunk claims 0x%X+%d (payload 0x%X+%d), which does not fit "
                 "in the file" % (c["offset"], c["extent_len"], c["payload_base"],
-                                 c["payload_len"]))
-            node["_invalid"] = True
+                                 c["payload_len"])))
         else:
             node["extent"] = _loc(c["offset"], c["extent_len"])
             node["payload"] = _loc(c["payload_base"], c["payload_len"])
@@ -529,13 +519,8 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
             counts["nodes"] += 1
             if n["kind"] == "unwalked":
                 counts["nodes_unwalked"] += 1
-            invalid = n.pop("_invalid", False)
-            ws = n.pop("_warnings", [])
-            for i, w in enumerate(ws):
-                f = _finding(w, nid)
-                if invalid and i == len(ws) - 1:
-                    f.update(kind="defect", code="geometry.invalid", severity="warn")
-                findings.append(f)
+            for w in n.pop("_warnings", []):
+                findings.append(_finding(w, nid))
             n.pop("_chunk", None)
             if "_idx" in n:
                 by_idx[n["_idx"]] = n

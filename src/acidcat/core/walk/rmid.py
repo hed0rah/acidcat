@@ -9,6 +9,7 @@ Little-endian RIFF sizes; the wrapped MIDI is big-endian, decoded by the delegat
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.walk import midi as midimod
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import BytesSource
@@ -27,7 +28,7 @@ def inspect_rmid(filepath, deep=False):
                          f"file exceeds {_RMID_CAP >> 20} MB; parsed the first "
                          f"{_RMID_CAP >> 20} MB"))
     if data[:4] != b"RIFF" or data[8:12] != b"RMID":
-        warns.append("missing RIFF/RMID magic")
+        warns.append(defect("magic.mismatch", "missing RIFF/RMID magic"))
     riff_size = struct.unpack_from("<I", data, 4)[0] if len(data) >= 8 else 0
     chunks = [{"id": "RIFF", "offset": 0, "size": len(data),
                "summary": "RMID (RIFF-wrapped MIDI)",
@@ -75,7 +76,7 @@ def inspect_rmid(filepath, deep=False):
         m_chunks, m_warns = midimod.inspect_midi(
             BytesSource(inner, name="wrapped.mid"), deep=deep)
     except Exception as e:                  # a malformed inner SMF should not crash
-        warns.append(f"wrapped MIDI did not parse: {e}")
+        warns.append(defect("parse.failed", f"wrapped MIDI did not parse: {e}"))
         return chunks, warns
 
     warns += m_warns

@@ -9,6 +9,7 @@ and see a dangling (past-EOF) pointer flagged. Parsing lives in core/tracker."""
 import struct
 
 from acidcat.core.formats import tracker as tk
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import Unsupported, _f, _open, _size
@@ -445,8 +446,9 @@ def inspect_stm(filepath):
             entry["warnings"].append(
                 f"volume {ins['volume']} is outside the 0-64 range")
         if ins["offset"] is not None and ins["offset"] + ins["length"] > file_size:
-            entry["warnings"].append(
-                f"sample data runs past the end of the file")
+            entry["warnings"].append(defect(
+                "size.overrun",
+                f"sample data runs past the end of the file"))
         chunks.append(entry)
     if len(s["instruments"]) > _STM_INSTRUMENT_CAP:
         chunks[0]["warnings"].append(hit(

@@ -6,6 +6,7 @@ import re
 import struct
 
 from acidcat.core.formats import mp3 as mp3mod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import (
     _FRAME_LISTING_CAP, _ID3_READ_CAP, _PAYLOAD_CAP, _bu16, _bu32, _f,
@@ -304,9 +305,10 @@ def _id3v2_frames(filepath, hdr):
             # the frame claims to run past the tag's own declared size:
             # a genuine structural error, compared against the true tag
             # size rather than however much we happened to read.
-            warns.append(
+            warns.append(defect(
+                "size.overrun",
                 f"frame {fid_s!r} size {fsize} overruns the "
-                f"{tag_size:,}-byte tag"
+                f"{tag_size:,}-byte tag")
             )
             break
         if data_start + fsize > len(body):
@@ -486,7 +488,7 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     frame_count = None
     if flags & 0x01:
         if pos + 4 > len(buf):
-            warns.append("Xing header truncated before frame_count")
+            warns.append(defect("header.truncated", "Xing header truncated before frame_count"))
             return fields, warns, frame_count, tag
         frame_count = _bu32(buf, pos)
         fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}",
@@ -494,20 +496,20 @@ def _parse_xing_lame(filepath, frame_off, hdr):
         pos += 4
     if flags & 0x02:
         if pos + 4 > len(buf):
-            warns.append("Xing header truncated before byte_count")
+            warns.append(defect("header.truncated", "Xing header truncated before byte_count"))
             return fields, warns, frame_count, tag
         nbytes = _bu32(buf, pos)
         fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}", enc=">I", raw=nbytes))
         pos += 4
     if flags & 0x04:
         if pos + 100 > len(buf):
-            warns.append("Xing header truncated before seek table")
+            warns.append(defect("header.truncated", "Xing header truncated before seek table"))
             return fields, warns, frame_count, tag
         fields.append(_f(pos, 100, "toc", "100-entry seek table"))
         pos += 100
     if flags & 0x08:
         if pos + 4 > len(buf):
-            warns.append("Xing header truncated before quality")
+            warns.append(defect("header.truncated", "Xing header truncated before quality"))
             return fields, warns, frame_count, tag
         quality = _bu32(buf, pos)
         fields.append(_f(pos, 4, "quality", quality, "0=best, 100=worst"))

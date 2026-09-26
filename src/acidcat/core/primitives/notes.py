@@ -37,18 +37,26 @@ One caveat worth knowing: string operations return plain `str`, so
 before reformatting, never after.
 """
 
-DEFECT = "defect"        # the file has something to answer for
-COVERAGE = "coverage"    # our walk stopped early; not a claim about the file
+DEFECT = "defect"            # the file has something to answer for
+COVERAGE = "coverage"        # our walk stopped early; not a claim about the file
+ENVIRONMENT = "environment"  # something outside the file: a sibling, an extra
+INFO = "info"                # worth knowing, not wrong
+ERROR = "error"              # acidcat failed (a walker bug), not the file
 
-KINDS = (DEFECT, COVERAGE)
+KINDS = (DEFECT, COVERAGE, ENVIRONMENT, INFO, ERROR)
 
 
 class Note(str):
-    """A warning string that also carries its kind."""
+    """A warning string that also carries its kind, and its finding code.
 
-    __slots__ = ("kind", "cap")
+    `code` is the stable id a consumer keys on (core/infra/findings.py); a
+    note without one is reported as `legacy`. Made through
+    `acidcat.core.infra.findings` (and `limits.hit` for coverage), which check
+    the code is registered."""
 
-    def __new__(cls, text, kind=DEFECT, cap=None):
+    __slots__ = ("kind", "cap", "code")
+
+    def __new__(cls, text, kind=DEFECT, cap=None, code=None):
         if kind not in KINDS:
             raise ValueError(f"unknown warning kind {kind!r}; expected one of "
                              f"{KINDS}")
@@ -58,15 +66,17 @@ class Note(str):
         obj = super().__new__(cls, text)
         obj.kind = kind
         obj.cap = cap
+        obj.code = code
         return obj
 
     def __repr__(self):
-        return f"Note({str.__repr__(self)}, kind={self.kind!r}, cap={self.cap!r})"
+        return (f"Note({str.__repr__(self)}, kind={self.kind!r}, "
+                f"cap={self.cap!r}, code={self.code!r})")
 
     # A Note must survive a round trip through copy/pickle with its kind, or it
     # silently downgrades to a defect wherever a structure is copied.
     def __reduce__(self):
-        return (Note, (str(self), self.kind, self.cap))
+        return (Note, (str(self), self.kind, self.cap, self.code))
 
 
 def kind_of(warning):
@@ -81,3 +91,39 @@ def kind_of(warning):
 
 def is_coverage(warning):
     return kind_of(warning) == COVERAGE
+
+
+def code_of(warning):
+    """The finding code a warning carries, or None for a plain string."""
+    return getattr(warning, "code", None)
+
+
+# ── across a JSON boundary ───────────────────────────────────────────────
+#
+# The sandboxed walk returns its result as JSON, where a Note is only its text
+# and would come back a plain string, i.e. a defect. These carry the kind, cap
+# and code across and restore the Note on the other side.
+
+_WIRE = "__note__"
+
+
+def to_wire(x):
+    """`x` with every Note replaced by a JSON-safe dict that remembers it."""
+    if isinstance(x, Note):
+        return {_WIRE: str(x), "kind": x.kind, "cap": x.cap, "code": x.code}
+    if isinstance(x, dict):
+        return {k: to_wire(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [to_wire(v) for v in x]
+    return x
+
+
+def from_wire(x):
+    """The inverse of `to_wire`, on its JSON-decoded result."""
+    if isinstance(x, dict):
+        if _WIRE in x:
+            return Note(x[_WIRE], x["kind"], cap=x["cap"], code=x["code"])
+        return {k: from_wire(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [from_wire(v) for v in x]
+    return x

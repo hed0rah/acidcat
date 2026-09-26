@@ -23,6 +23,7 @@ The structure was being parsed and then thrown away; this reports it.
 """
 
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -89,7 +90,7 @@ def inspect_adx(filepath, deep=False):
         _f(0x12, 1, "version", "0x%02X" % h["version"]),
     ])
     if h["data_offset"] > size:
-        warns.append("the header declares data beyond the end of the file")
+        warns.append(defect("size.overrun", "the header declares data beyond the end of the file"))
     return [
         {"id": "header", "offset": 0, "size": min(h["data_offset"], size),
          "summary": "CRI ADX, %s, %d ch at %s Hz"
@@ -130,7 +131,9 @@ def inspect_brstm(filepath, deep=False):
            "one DSP-ADPCM predictor table per channel, carried in HEAD"),
     ])
     if audio > size:
-        warns.append("the header points at audio beyond the end of the file")
+        warns.append(defect(
+            "pointer.dangling",
+            "the header points at audio beyond the end of the file"))
     return [
         {"id": "header", "offset": 0, "size": min(audio, size),
          "summary": "Nintendo BRSTM, DSP-ADPCM, %d ch at %s Hz"

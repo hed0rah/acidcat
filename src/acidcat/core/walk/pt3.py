@@ -10,6 +10,7 @@ walker checks that it fits.
 
 
 from acidcat.core.formats import pt3 as pt3mod
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
@@ -84,8 +85,10 @@ def inspect_pt3(filepath, deep=False):
                "pattern numbers, 0xFF-ended"),
         ]
     for kind, i, ptr in h["bad_pointers"][:8]:
-        warns.append("%s %d points at %d, past the end of the file; the module "
-                     "is truncated" % (kind, i, ptr))
+        warns.append(defect(
+            "pointer.dangling",
+            "%s %d points at %d, past the end of the file; the module "
+            "is truncated" % (kind, i, ptr)))
     if len(h["bad_pointers"]) > 8:
         warns.append("%d more pointers past the end" % (len(h["bad_pointers"]) - 8))
     if h["loop"] >= h["positions"]:

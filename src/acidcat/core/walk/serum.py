@@ -3,6 +3,7 @@ metadata block, and the opaque wavetable/modulation blob."""
 
 import json
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.walk.base import _f, _open, _size
 
 def inspect_serum(filepath, ctx=None):
@@ -23,7 +24,7 @@ def inspect_serum(filepath, ctx=None):
 
     json_start = raw.find(b"{")
     if json_start < 0:
-        file_warns.append("no JSON block after the magic")
+        file_warns.append(defect("parse.failed", "no JSON block after the magic"))
         return chunks, file_warns
 
     text = raw[json_start:].decode("utf-8", errors="replace")
@@ -32,7 +33,9 @@ def inspect_serum(filepath, ctx=None):
     try:
         parsed, end = json.JSONDecoder().raw_decode(text)
     except (ValueError, RecursionError) as e:
-        file_warns.append(f"JSON block does not parse: {e.__class__.__name__}: {e}")
+        file_warns.append(defect(
+            "parse.failed",
+            f"JSON block does not parse: {e.__class__.__name__}: {e}"))
         return chunks, file_warns
 
     if ctx is not None and isinstance(parsed, dict):

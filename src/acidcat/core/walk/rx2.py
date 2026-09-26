@@ -4,6 +4,7 @@ The chunk internals beyond the creator/name strings and the slice count are
 proprietary, so they are reported as regions, not decoded. Byte-level facts only.
 """
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 
 from acidcat.core.walk.base import _f, _bu32, _dtext, _open, _size
@@ -38,7 +39,7 @@ def inspect_rx2(filepath):
         data = f.read(min(size, _MAX))
     warns = []
     if data[:4] != b"CAT ":
-        warns.append("missing CAT container magic")
+        warns.append(defect("magic.mismatch", "missing CAT container magic"))
     form = data[8:12].decode("latin-1", "replace") if len(data) >= 12 else "?"
     cat_size = _bu32(data, 4) if len(data) >= 8 else 0
 
@@ -60,7 +61,9 @@ def inspect_rx2(filepath):
         cbody = pos + 8
         if cbody + clen > size:
             # genuinely past the end of the FILE
-            warns.append(f"{cid.decode('latin-1', 'replace')} chunk runs past EOF")
+            warns.append(defect(
+                "size.overrun",
+                f"{cid.decode('latin-1', 'replace')} chunk runs past EOF"))
             chunks.append({"id": cid.decode("latin-1", "replace"), "offset": pos,
                            "size": max(0, size - cbody), "summary": "truncated",
                            "fields": [], "warnings": ["size exceeds file"],

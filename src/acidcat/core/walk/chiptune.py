@@ -33,6 +33,7 @@ rest on one document rather than two.
 import re
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 
@@ -241,9 +242,11 @@ def inspect_nsf(filepath, deep=False):
     if start == 0 or start > max(total, 1):
         warns.append("start song %d is outside 1..%d" % (start, total))
     if region & 0xFC:
-        warns.append("region byte has reserved bits set (0x%02X)" % region)
+        warns.append(defect(
+            "reserved.nonzero",
+            "region byte has reserved bits set (0x%02X)" % region))
     if chips & 0x80:
-        warns.append("expansion byte bit 7 is reserved and set")
+        warns.append(defect("reserved.nonzero", "expansion byte bit 7 is reserved and set"))
     for label, a in (("init", init), ("play", play)):
         if a and a < 0x6000:
             warns.append("%s address %s is below $6000, which no NSF maps"
@@ -256,7 +259,7 @@ def inspect_nsf(filepath, deep=False):
     if (not pal or dual) and not ntsc_speed:
         warns.append("declared NTSC but the NTSC speed word is zero")
     if is_nsf2 and nsf2flags & 0x0F:
-        warns.append("NSF2 feature bits 0-3 are reserved and set")
+        warns.append(defect("reserved.nonzero", "NSF2 feature bits 0-3 are reserved and set"))
     if is_nsf2 and (nsf2flags & 0x80) and not data_len:
         warns.append("claims mandatory appended metadata but declares no data "
                      "length, so the trailer has no stated boundary")
@@ -318,8 +321,10 @@ def _nsfe_chunks(raw, start, end, bare=False, base=0):
         fourcc = raw[pos + 4:pos + 8]
         name = fourcc.decode("latin-1", "replace")
         if pos + 8 + length > end:
-            warns.append("chunk %r at 0x%X declares %s bytes, which runs past the "
-                         "end of the file" % (name, pos, format(length, ",")))
+            warns.append(defect(
+                "size.overrun",
+                "chunk %r at 0x%X declares %s bytes, which runs past the "
+                "end of the file" % (name, pos, format(length, ","))))
             break
         mandatory = 0x41 <= fourcc[0] <= 0x5A
         fields.append(_f(pos - base, 8, name, "%s bytes" % format(length, ","),
@@ -360,7 +365,7 @@ def inspect_nsfe(filepath, deep=False):
         return [{"id": "chunks", "offset": 0, "size": size,
                  "summary": "not an NSFe (magic is not NSFE)",
                  "fields": [], "warnings": [], "payload_base": 0}], \
-               ["magic is not NSFE"]
+               [defect("magic.mismatch", "magic is not NSFE")]
 
     fields, warns2 = _nsfe_chunks(raw, 4, len(raw))
     warns.extend(warns2)
@@ -546,9 +551,11 @@ def _sap_blocks(raw, pos, end, deep, base=0):
         length = last - start + 1
         n += 1
         if pos + 4 + length > end:
-            warns.append("block %d claims %s bytes but only %s remain; the file "
-                         "ends mid-block, which players tolerate"
-                         % (n, format(length, ","), format(end - pos - 4, ",")))
+            warns.append(defect(
+                "size.overrun",
+                "block %d claims %s bytes but only %s remain; the file "
+                "ends mid-block, which players tolerate"
+                % (n, format(length, ","), format(end - pos - 4, ","))))
             fields.append(_f(pos - base, 4, "block %d" % n,
                              "%s-%s" % (_addr(start), _addr(last)),
                              "truncated"))

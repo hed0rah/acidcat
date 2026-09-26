@@ -17,6 +17,7 @@ type/id/name without guessing at their bodies.
 
 import struct
 
+from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
 from acidcat.util.midi import midi_note_to_name
@@ -80,8 +81,9 @@ def inspect_krz(filepath):
                   f"K2000 OS v{version / 100:.2f}", enc=">i", raw=version),
            ], "warnings": []}
     if not 0 < osize <= len(b):
-        hdr["warnings"].append(
-            f"pcm_offset {osize:,} is outside the file ({len(b):,} bytes)")
+        hdr["warnings"].append(defect(
+            "pointer.dangling",
+            f"pcm_offset {osize:,} is outside the file ({len(b):,} bytes)"))
     chunks.append(hdr)
 
     # walk the object blocks: blocksize is a NEGATIVE i32 (block bytes), advance

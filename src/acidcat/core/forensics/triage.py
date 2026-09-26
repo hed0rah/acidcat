@@ -19,6 +19,7 @@ list it produces is also the starting point for writing the real walker.
 
 import struct
 
+from acidcat.core.infra.findings import info
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import open_input, input_size
 from acidcat.core.primitives.signal import byte_entropy
@@ -153,8 +154,9 @@ def generic_walk(filepath):
                         else "chunk"),
             "fields": [], "warnings": [],
         })
-    warns = ["generic structural triage: no format-specific walker; "
-             "chunk names and sizes are decoded, payloads are not"]
+    warns = [info("triage.generic",
+                  "generic structural triage: no format-specific walker; "
+                  "chunk names and sizes are decoded, payloads are not")]
     if windowed:
         warns.append(hit("read_bytes", _READ_CAP, total,
                          f"grid walked within the first {_READ_CAP:,} bytes of "
