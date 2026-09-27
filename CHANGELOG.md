@@ -168,6 +168,20 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **`constraints.repair` raised on a multi-track MP4.** It promises a report,
+  and the MP4 repairer located the audio before its guarded run, which raised
+  on a two-track video. The `repair` command already caught it; the library
+  call now declines the file the same way.
+- **MP4 timestamps used a call Python 3.12 deprecates** (`utcfromtimestamp`),
+  and it will stop working when Python removes it. Output is unchanged.
+- **A DSDIFF 1.4 file was reported as damaged.** Every 1.x revision reads
+  the same way; an earlier one is now a notice. Another major version is
+  still a defect.
+- **A SigMF recording opened by its `.sigmf-meta` was reported as broken.**
+  The walk described the data file's regions whichever half was opened, so a
+  real 1,045-byte sidecar came back with three invalid chunks and every byte
+  unaccounted for. Opened by its metadata, the walk now places only the JSON;
+  the captures and annotations are listed and say which file holds them.
 - **A cut BRSTM was reported as whole.** The RSTM header declares the file's
   size at 0x08 and the walker never read it; a stream in FFmpeg's test suite
   holds 200 KB of a declared 9.1 MB. The size is now a field, and a file
