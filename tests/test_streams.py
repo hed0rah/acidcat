@@ -210,3 +210,18 @@ def test_codec_refusals_reach_extract_as_sampleerror(tmp_path):
     p.write_bytes(MAGIC + struct.pack(">II", 32000, 5) + bytes(0x200))
     with pytest.raises(SampleError):
         list(iter_samples(str(p), fmt="hps"))
+
+
+def test_a_cut_brstm_says_it_is_cut(tmp_path):
+    """The RSTM header declares the whole file's size at 0x08. FFmpeg's test
+    suite carries a stream cut to 200 KB of a declared 9.1 MB, and the walker
+    reported it as whole because it never read that field."""
+    data = bytearray(_brstm())
+    struct.pack_into(">I", data, 0x08, len(data))
+    chunks, warns = streams.inspect_brstm(_write(tmp_path, "whole.brstm", bytes(data)))
+    assert not warns
+    assert [f["value"] for f in chunks[0]["fields"] if f["name"] == "file_size"] == [len(data)]
+    struct.pack_into(">I", data, 0x08, len(data) * 45)
+    _chunks, warns = streams.inspect_brstm(_write(tmp_path, "cut.brstm", bytes(data)))
+    assert [getattr(w, "code", None) for w in warns] == ["size.overrun"]
+    assert "the stream is cut" in str(warns[0])

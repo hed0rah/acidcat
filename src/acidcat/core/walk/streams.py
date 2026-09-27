@@ -23,6 +23,8 @@ The structure was being parsed and then thrown away; this reports it.
 """
 
 
+import struct
+
 from acidcat.core.infra.findings import defect
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
@@ -121,8 +123,10 @@ def inspect_brstm(filepath, deep=False):
 
     audio = h.get("audio_off", 0)
     body = max(0, size - audio)
+    declared = struct.unpack_from(">I", raw, 0x08)[0]
     fields = _stream("DSP-ADPCM", h["channels"], h["rate"], h["samples"], [
         _f(0x00, 4, "magic", "RSTM"),
+        _f(0x08, 4, "file_size", declared, "bytes, the whole stream", enc=">I"),
         _f(None, 0, "blocks", format(h.get("blocks", 0), ","),
            "%s bytes each" % format(h.get("block_size", 0), ",")),
         _f(None, 0, "audioOffset", "0x%08X" % audio,
@@ -134,6 +138,11 @@ def inspect_brstm(filepath, deep=False):
         warns.append(defect(
             "pointer.dangling",
             "the header points at audio beyond the end of the file"))
+    elif declared > size:
+        warns.append(defect(
+            "size.overrun",
+            "the header declares %s bytes and the file holds %s; the stream "
+            "is cut" % (format(declared, ","), format(size, ","))))
     return [
         {"id": "header", "offset": 0, "size": min(audio, size),
          "summary": "Nintendo BRSTM, DSP-ADPCM, %d ch at %s Hz"

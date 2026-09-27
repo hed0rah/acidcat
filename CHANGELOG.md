@@ -168,6 +168,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **A cut BRSTM was reported as whole.** The RSTM header declares the file's
+  size at 0x08 and the walker never read it; a stream in FFmpeg's test suite
+  holds 200 KB of a declared 9.1 MB. The size is now a field, and a file
+  shorter than it declares is a `size.overrun`.
 - **Every 12-bit AIFF and WAV was reported as damaged.** Both formats store
   a sample in whole bytes, so 12-bit takes two, but the size checks divided
   the bit depth by eight and rounded down. AIFF warned that SSND held twice
