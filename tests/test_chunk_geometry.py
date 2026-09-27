@@ -50,7 +50,7 @@ import os
 import pytest
 
 from acidcat.core.infra import geometry
-from acidcat.core.walk import walk_file
+from acidcat.core.walk import Unsupported, walk_file
 
 _MAX = 8_000_000
 
@@ -170,6 +170,10 @@ def _hunt():
                     continue
                 try:
                     label, chunks, warns = walk_file(path, deep=False)
+                except Unsupported:
+                    # a format recognised but deliberately not walked (a ROM
+                    # says to use `extract`): a refusal is an answer, not a crash
+                    continue
                 except Exception as exc:               # noqa: BLE001 (recorded, asserted below)
                     HUNT_RAISED.append((path, repr(exc)))
                     continue
