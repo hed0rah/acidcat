@@ -6,6 +6,7 @@ Fixtures are synthesized here (a JSON sidecar plus a few raw samples) -- the
 format is open and headerless, so no real capture is needed to exercise it."""
 import hashlib
 import json
+import os
 import struct
 
 from acidcat.core.infra.sniff import sniff
@@ -37,6 +38,11 @@ def _make_pair(tmp_path, extra_global=None, captures=None, annotations=None):
     return str(p), data
 
 
+def _data(meta):
+    """the byte regions live in the data file; walk that half to place them"""
+    return meta[:-len(".sigmf-meta")] + ".sigmf-data"
+
+
 def test_sigmf_sniffs_both_pair_members(tmp_path):
     meta, _ = _make_pair(tmp_path)
     assert sniff(meta) == "sigmf"
@@ -58,7 +64,7 @@ def test_sigmf_captures_are_byte_regions(tmp_path):
     meta, _ = _make_pair(tmp_path, captures=[
         {"core:sample_start": 0, "core:frequency": 8_428_190_000},
         {"core:sample_start": 4, "core:frequency": 8_500_000_000}])
-    chunks, _ = sigmf.inspect_sigmf(meta)
+    chunks, _ = sigmf.inspect_sigmf(_data(meta))
     caps = [c for c in chunks if c["id"].startswith("capture")]
     assert caps[0]["offset"] == 0 and caps[0]["size"] == 16       # samples 0..4, 4 B each
     assert caps[1]["offset"] == 16 and caps[1]["size"] == 16
@@ -69,7 +75,7 @@ def test_sigmf_captures_are_byte_regions(tmp_path):
 def test_sigmf_annotation_region(tmp_path):
     meta, _ = _make_pair(tmp_path, annotations=[
         {"core:sample_start": 2, "core:sample_count": 3, "core:label": "burst"}])
-    chunks, _ = sigmf.inspect_sigmf(meta)
+    chunks, _ = sigmf.inspect_sigmf(_data(meta))
     ann = next(c for c in chunks if c["id"].startswith("annotation"))
     assert ann["offset"] == 8 and ann["size"] == 12               # 3 samples * 4 B
     assert "burst" in ann["summary"]
@@ -77,7 +83,7 @@ def test_sigmf_annotation_region(tmp_path):
 
 def test_sigmf_deep_verifies_sha_and_stats(tmp_path):
     meta, _ = _make_pair(tmp_path)
-    chunks, warns = sigmf.inspect_sigmf(meta, deep=True)
+    chunks, warns = sigmf.inspect_sigmf(_data(meta), deep=True)
     g = next(c for c in chunks if c["id"] == "global")
     assert next(x for x in g["fields"] if x["name"] == "sha512")["note"] == "verified"
     samp = next(c for c in chunks if c["id"] == "samples")
@@ -155,3 +161,22 @@ def test_malformed_json_types_degrade(tmp_path):
         meta.write_text(js)
         chunks, warns = sigmf.inspect_sigmf(str(meta))   # must not raise
         assert chunks                                    # always a degraded result
+
+
+def test_the_meta_half_places_only_its_own_bytes(tmp_path):
+    """Opened by its .sigmf-meta, the walk laid the data file's regions over
+    the JSON: a real 1,045-byte sidecar came back with three invalid chunks
+    and every byte unaccounted for. Its own bytes are the JSON; the captures
+    and annotations are listed but point into the other file."""
+    meta, _ = _make_pair(tmp_path, annotations=[
+        {"core:sample_start": 2, "core:sample_count": 3, "core:label": "burst"}])
+    chunks, warns = sigmf.inspect_sigmf(meta)
+    assert warns == []
+    size = os.path.getsize(meta)
+    side = next(c for c in chunks if c["id"] == "sidecar")
+    assert (side["offset"], side["size"]) == (0, size)
+    for c in chunks:
+        if c["id"] != "sidecar":
+            assert c["size"] == 0, c["id"]
+            assert all("xref" not in f for f in c["fields"]), c["id"]
+    assert "(in cap.sigmf-data)" in next(c for c in chunks if c["id"] == "annotation[0]")["summary"]

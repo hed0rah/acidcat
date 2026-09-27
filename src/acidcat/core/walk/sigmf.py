@@ -325,9 +325,30 @@ def inspect_sigmf(path, deep=False):
             warns.append(f"listing the first {_ANNOTATION_CAP} of "
                          f"{len(annotations)} annotations")
 
+    if meta is not None and meta is src:
+        return _as_sidecar(chunks, meta, data_src), warns
     samples, _ = _samples_chunk(data_path, data_size, geo, dt, deep)
     chunks.append(samples)
     return chunks, warns
+
+
+def _as_sidecar(chunks, meta, data_src):
+    """The walk seen from the .sigmf-meta: its own bytes are the JSON. The
+    captures and annotations locate bytes of the .sigmf-data, so here they are
+    listed but not placed, and their pointers are not followed into this file."""
+    where = os.path.basename(data_src.name) if data_src is not None else "the .sigmf-data"
+    for c in chunks:
+        if c["id"] == "global":
+            continue
+        c.update(offset=0, size=0, payload_base=0)
+        c["summary"] += f"  (in {where})"
+        for f in c["fields"]:
+            f.pop("xref", None)
+    chunks.append({"id": "sidecar", "offset": 0, "size": meta.size, "payload_base": 0,
+                   "summary": f"SigMF metadata, {meta.size:,} bytes of JSON; "
+                              f"the samples are in {where}",
+                   "fields": [], "warnings": []})
+    return chunks
 
 
 def inspect_iq(path, deep=False):
