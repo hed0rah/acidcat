@@ -223,6 +223,15 @@ class TestDsdiff:
         assert any("the published spec is 1.5" in w
                    for w in _named(chunks, "FVER")["warnings"])
 
+    def test_an_earlier_1_x_version_is_a_notice_not_damage(self, tmp_path):
+        """FFmpeg's DST sample says 1.4. Every 1.x is read the same way, so an
+        earlier revision is noted; a different major version is a defect."""
+        for version, code in (((1, 4, 0, 0), "convention.noted"),
+                              ((2, 0, 0, 0), "value.invalid")):
+            p = _write(tmp_path, "v.dff", make_dff(version=version))
+            chunks, _w = inspect_dsdiff(p)
+            assert [w.code for w in _named(chunks, "FVER")["warnings"]] == [code]
+
     def test_multichannel_names_every_speaker(self, tmp_path):
         ids = (b"MLFT", b"MRGT", b"C   ", b"LFE ", b"LS  ", b"RS  ")
         p = _write(tmp_path, "f.dff", make_dff(channel_ids=ids))

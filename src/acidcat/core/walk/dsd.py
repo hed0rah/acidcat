@@ -17,7 +17,7 @@ from acidcat.core.formats.dsd import (
     DSF_CHANNEL_LAYOUTS, DSF_CHANNEL_TYPES,
     dsd_duration, dsf_header, rate_name,
 )
-from acidcat.core.infra.findings import defect, error
+from acidcat.core.infra.findings import defect, error, info
 from acidcat.core.infra.limits import hit
 from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.base import _f, _open, _size
@@ -559,9 +559,14 @@ def inspect_dsdiff(filepath, ctx=None):
                     entry["fields"] = [_f(0x00, 4, "version",
                                           f"{a}.{b}.{c}.{d}")]
                     entry["summary"] = f"DSDIFF version {a}.{b}"
-                    if (a, b) != (1, 5):
+                    # every 1.x revision is read the same way; an earlier one
+                    # is worth saying, not damage (FFmpeg's DST sample is 1.4)
+                    if a != 1:
                         entry["warnings"].append(
                             defect("value.invalid", f"version {a}.{b}; the published spec is 1.5"))
+                    elif b != 5:
+                        entry["warnings"].append(
+                            info("convention.noted", f"version {a}.{b}; the published spec is 1.5"))
                 elif cid == b"PROP":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _dsdiff_prop(payload)
