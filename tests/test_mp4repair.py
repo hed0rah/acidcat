@@ -209,3 +209,17 @@ def test_out_of_scope_is_still_a_quiet_note_not_damage(tmp_path, capsys):
     p.write_bytes(_box(b"ftyp", b"M4A \x00\x00\x00\x00") + tree
                   + _box(b"mdat", payload))
     assert main(["validate", str(p)]) == 0
+
+
+def test_repair_declines_a_multitrack_file_without_raising():
+    """`constraints.repair` promises a report, never an exception. The MP4
+    repairer located mdat BEFORE its guarded run, and locating it raised on a
+    multi-track file, so a real two-track video escaped as Mp4RepairError."""
+    from acidcat.core.write import constraints
+    sizes, runs, payload, start, good = _make_multichunk()
+    stbl = _stsz(sizes) + _stsc(runs) + _stco(good) + _stco(good)
+    tree = _box(b"moov", _box(b"trak", _box(b"mdia",
+               _box(b"minf", _box(b"stbl", stbl)))))
+    data = _box(b"ftyp", b"M4A \x00\x00\x00\x00") + tree + _box(b"mdat", payload)
+    new_data, _report = constraints.repair(data)
+    assert new_data == data
