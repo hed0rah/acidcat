@@ -175,9 +175,11 @@ class Mp4OffsetRepairer(Repairer):
         return self._run(data, patch=False)[1]
 
     def apply(self, data, opts=None):
-        before = self._mdat(data)
+        # locate mdat only when there is a rewrite to guard: finding it first
+        # raised on a multi-track file _run would have reported as out of scope
         new_data, report = self._run(data)
-        if report.violations and self._mdat(new_data) != before:
+        if (report.violations and new_data is not data
+                and self._mdat(new_data) != self._mdat(data)):
             raise AudioGuardError("mdat payload would change")
         return new_data, report
 
