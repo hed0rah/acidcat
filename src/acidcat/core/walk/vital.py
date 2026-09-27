@@ -5,7 +5,7 @@ in deep mode, the synth structure and modulation matrix."""
 from acidcat.core.formats import vital as vitalmod
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import defect, info
 
 def inspect_vital(filepath, deep=False):
     """Structural view of a Vital preset (bare JSON): the top-level metadata,
@@ -35,8 +35,8 @@ def inspect_vital(filepath, deep=False):
     # top-level members outside the Vital schema are an unvalidated side-channel
     unknown = sorted(k for k in obj if k not in vitalmod.KNOWN_TOP_LEVEL)
     if unknown:
-        warns.append(defect("id.unknown",
-                            "unvalidated top-level key(s) outside the Vital schema: "
+        warns.append(info("layout.unmeasured",
+                          "unvalidated top-level key(s) outside the Vital schema: "
                             + ", ".join(unknown)))
     fields = []
     for k in vitalmod.META_KEYS:

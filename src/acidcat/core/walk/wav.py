@@ -133,8 +133,8 @@ def _parse_fmt(b, ctx):
         fields.append(_f(0x18, 16, "sub_format", sub_name,
                          "KSDATAFORMAT_SUBTYPE" if tail_ok else "non-standard GUID"))
         if not tail_ok:
-            warns.append(defect("id.unknown",
-                                "sub_format GUID tail is not the standard "
+            warns.append(info("layout.unmeasured",
+                              "sub_format GUID tail is not the standard "
                                 "KSDATAFORMAT_SUBTYPE suffix"))
         ctx["format_tag"] = sub_tag
 

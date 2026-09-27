@@ -44,7 +44,7 @@ import struct
 
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import _f, _open, _size
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import coded, defect
 
 _HDR = 8
 _FORMAT_PCM = 3
@@ -118,8 +118,8 @@ def inspect_dmx(filepath):
     secs = info["count"] / float(info["rate"]) if info["rate"] else None
     warns = []
     if info["format"] != _FORMAT_PCM:
-        warns.append(defect("value.invalid",
-                            f"format {info['format']} is not the 3 every shipped "
+        warns.append(coded("layout.unmeasured",
+                           f"format {info['format']} is not the 3 every shipped "
                             f"sound carries; these samples may not be linear PCM"))
     if info["count"] == 0:
         warns.append(defect("required.missing", "the lump carries no samples"))

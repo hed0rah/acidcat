@@ -54,8 +54,8 @@ def _aiff_comm(b, ctx, form_type):
             known = "" if comp4 in _AIFC_KNOWN_COMPRESSION else "unknown type"
             fields.append(_f(0x12, 4, "compression_type", comp4, known))
             if known:
-                warns.append(defect("id.unknown",
-                                    f"compression type {comp4!r} not in the known set"))
+                warns.append(info("decode.partial",
+                                  f"compression type {comp4!r} not in the known set"))
             if len(b) >= 23:
                 name_len = b[22]
                 name = b[23:23 + name_len].decode("ascii", errors="replace")

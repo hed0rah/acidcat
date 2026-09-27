@@ -230,8 +230,8 @@ def inspect_asd(filepath):
         # directly above 400 warp markers read out of that tree.
         _bare = not present
         if present and not notable:
-            warns.append(defect("id.unknown",
-                                f"{len(present)} declared fields, none of them a "
+            warns.append(info("layout.unmeasured",
+                              f"{len(present)} declared fields, none of them a "
                                 f"recognised analysis field"))
 
         # a .asd is named "<audio>.asd" and lives beside its audio, so when the
