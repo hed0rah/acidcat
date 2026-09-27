@@ -298,6 +298,18 @@ class Document:
         loc = where if isinstance(where, Loc) else self.resolve(where)
         return self.layer_bytes(loc.layer)[loc.off:loc.off + loc.len]
 
+    def edit(self, changes, force=False):
+        """A Patch for `changes` ({ADDR or tag name: value}): see
+        `acidcat.core.edit`. Nothing is written until `patch.commit()`."""
+        from acidcat.core.edit import plan
+        name = self._path or (self._source.path if self._source is not None
+                              else None) or "document"
+        patch = plan(self.layer_bytes(0), name, changes, raw_doc=self._raw,
+                     force=force)
+        patch.path = self._path or (self._source.path if self._source is not None
+                                    else None)
+        return patch
+
     def to_json(self):
         """The contract v1 dict (a copy)."""
         return copy.deepcopy(self._raw)

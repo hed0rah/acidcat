@@ -8,10 +8,8 @@
 
 import os
 import sys
-import tempfile
 
 from acidcat.core.formats import cover as covermod
-from acidcat.core.write import edits, writer
 
 _EXT = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif",
         "image/webp": "webp"}
@@ -32,28 +30,19 @@ def register(subparsers):
     p.set_defaults(func=run)
 
 
-def _mutate(path, fn, overwrite):
-    """Run fn(tmp) on a temp copy, then commit the result to path (backup+atomic).
-    The audio payload is verified unchanged before anything is committed."""
-    with open(path, "rb") as f:
-        data = f.read()
-    fd, tmp = tempfile.mkstemp(suffix=os.path.splitext(path)[1])
+def _mutate(path, image, overwrite):
+    """Embed `image` as the cover (None removes it) through the edit front door
+    (acidcat.core.edit): the audio payload is checked unchanged, the cover is
+    read back and the file re-walked before anything is committed. Returns
+    (written, backup, record)."""
+    from acidcat.core import edit as editmod
+    patch = editmod.edit_path(path, {"cover": image})
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        fn(tmp)
-        with open(tmp, "rb") as f:
-            new = f.read()
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-    try:
-        edits._verify_audio_preserved(data, new)
-    except edits.EditError as e:
+        patch.verify()
+    except editmod.PatchError as e:
         raise covermod.CoverError(str(e))
-    return writer.commit(path, new, overwrite=overwrite)
+    written, backup = patch.commit(overwrite=overwrite)
+    return written, backup, patch.records[0]
 
 
 def run(args):
@@ -67,19 +56,14 @@ def run(args):
                 print(f"acidcat cover: {args.set_image}: No such file", file=sys.stderr)
                 return 2
             img = open(args.set_image, "rb").read()
-            written, backup = _mutate(path, lambda t: covermod.set_cover(t, img),
-                                      args.overwrite)
+            written, backup, _rec = _mutate(path, img, args.overwrite)
             note = f"  (backup: {os.path.basename(backup)})" if backup else ""
             print(f"embedded cover from {os.path.basename(args.set_image)} "
                   f"({len(img):,} bytes) into {os.path.basename(written)}{note}")
             return 0
         if args.remove:
-            removed = {"v": False}
-
-            def _rm(t):
-                removed["v"] = covermod.remove_cover(t)
-            written, backup = _mutate(path, _rm, args.overwrite)
-            if not removed["v"]:
+            written, backup, rec = _mutate(path, None, args.overwrite)
+            if not rec.field["removed"]:
                 print(f"acidcat cover: {os.path.basename(path)}: no embedded cover art")
                 return 0
             note = f"  (backup: {os.path.basename(backup)})" if backup else ""

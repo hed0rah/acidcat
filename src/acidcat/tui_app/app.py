@@ -22,6 +22,7 @@ from textual.widgets import Footer, Input, Static, Tree
 from acidcat.core.infra import capabilities, geometry
 from acidcat.core.infra.sniff import sniff_bytes
 from acidcat.core.walk import walk_file, Unsupported
+from acidcat.core.edit import plan as edit_plan
 from acidcat.core.infra.findings import coded
 from acidcat.core.primitives.notes import code_of
 from acidcat.core.forensics import anomalies as ac_anom
@@ -4532,11 +4533,17 @@ class AcidcatTUI(App):
             self.notify(f"invalid value for a {tgt['length']}-byte field",
                         severity="error")
             return
+        # through the edit front door: a byte-range Patch on the working copy.
+        # Not verified: this is a hex editor, and a size a user sets on purpose
+        # is exactly what verify() would call a new defect; the findings panel
+        # shows the consequence as soon as the edit lands.
         try:
             with open(self.work, "rb") as f:
                 data = f.read()
-            new = data[:tgt["off"]] + patch + data[tgt["off"] + tgt["length"]:]
-        except OSError as e:
+            new = edit_plan(data, self.work,
+                            {"@%d+%d" % (tgt["off"], tgt["length"]): patch},
+                            raw_doc=self.model.document).data
+        except (OSError, EditError) as e:
             self.notify(f"error: {e}", severity="error")
             return
         self._end_edit()

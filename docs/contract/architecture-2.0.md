@@ -396,6 +396,21 @@ size cascades (`structure.py`, `mp4repair`), and the metadata profiles. A field
 with `type_source: inferred` is not editable without `--force`, because its
 type is a guess.
 
+As built (`core/edit.py`): a key with `#` or `@` is an ADDR, a field (a value,
+or its bytes) or a byte range (bytes of exactly its length); `cover` is the
+cover pseudo-field; any other key is a tag of the file's profile, under the
+names `write --set` takes. The `#`/`@` rule is what keeps a tag name from ever
+being read as a node name. Only layer 0 is editable: a derived layer is a
+decoding. `verify()` reads every edit back from the new bytes (a field through
+its type and transform, a tag through its profile's own reader, the cover by
+extracting it), checks that a bit-field left its neighbours' bits alone, and
+re-walks the new bytes for defects the original did not have. The CLI's
+`write`, `write --strip` and `cover` verify before they commit. The TUI's
+value and hex edits are byte-range Patches on its working copy and are not
+verified: it is a hex editor, and a size set on purpose is exactly what
+`verify()` would call a new defect; the findings panel shows the consequence
+as soon as the edit lands.
+
 ## 8. The CLI
 
 Fifteen verbs replace twenty-nine. Every one takes `-` for stdin, `--json` /

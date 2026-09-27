@@ -99,7 +99,7 @@ layer's chunks never join the flat list.
 
 ```
 src/acidcat/
-  core/            210 modules
+  core/            211 modules
     formats/       per-format byte decoders (35)
     walk/          57 walker modules -> 88 format labels (58)
     primitives/    shared byte readers (6)
@@ -118,7 +118,7 @@ src/acidcat/
   tui_app/         Textual inspector/editor; model.py is its state, no Textual;
                    state.py what it remembers between runs (tui.json)
   util/            small shared helpers
-  cli.py  explorer.py  tui_theme.py  __init__.py     (269 modules in total)
+  cli.py  explorer.py  tui_theme.py  __init__.py     (270 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

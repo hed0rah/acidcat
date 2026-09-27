@@ -55,15 +55,28 @@ def _parse_sets(set_args):
 
 def _edit(path, changes):
     """Return (format_label, new_bytes, applied) for the file, or raise EditError.
-    Thin wrapper over the public edits.edit_metadata (EditResult unpacks the same)."""
-    return edits.edit_metadata(path, changes)
+
+    Goes through the one edit front door (acidcat.core.edit): the changes
+    become a Patch, which is verified -- every field read back through its
+    profile, no new defect on a re-walk -- before its bytes are returned."""
+    from acidcat.core import edit as editmod
+    patch = editmod.edit_path(path, changes).verify()
+    return patch.format, patch.data, patch.applied
 
 
 def _strip(path):
     """Return (format_label, new_bytes, removed) with identifying metadata gone.
-    Routes by format like _edit; audio and functional data are preserved."""
+    Routes by format like _edit; audio and functional data are preserved, and
+    the result is a verified Patch (no defect the original did not have)."""
+    from acidcat.core import edit as editmod
     with open(path, "rb") as f:
         data = f.read()
+    fmt, new, removed = _strip_data(path, data)
+    editmod.strip_patch(data, new, path, removed, fmt).verify()
+    return fmt, new, removed
+
+
+def _strip_data(path, data):
     ext = os.path.splitext(path)[1].lower()
     head = data[:16]
     if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):

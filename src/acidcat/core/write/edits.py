@@ -48,6 +48,15 @@ def edit_metadata(path, changes):
     Raises EditError for an unsupported file type. The format dispatch lives here
     (not in the CLI) so any caller gets a stable public entry point; bytes are
     returned in memory (backup/commit policy is the caller's)."""
+    with open(path, "rb") as f:
+        data = f.read()
+    return edit_metadata_data(data, path, changes)
+
+
+def edit_metadata_data(data, name, changes):
+    """`edit_metadata` on bytes already in memory. `name` is the file's name
+    (a path is fine): only its extension is read, for the formats whose
+    magic does not say which they are."""
     # Fold every known spelling to its canonical name before dispatch, so a
     # caller may say `preset_name` to a WAV or `tempo` to a FLAC and reach the
     # same field. The ledger in core/metadata.py is the one place that knows
@@ -65,9 +74,7 @@ def edit_metadata(path, changes):
         _folded[_c] = _v
     changes = _folded
 
-    with open(path, "rb") as f:
-        data = f.read()
-    ext = os.path.splitext(path)[1].lower()
+    ext = os.path.splitext(name or "")[1].lower()
     head = data[:16]
     if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
         return EditResult("Vital preset", *_spoken(edit_vital(data, changes), _spelling))

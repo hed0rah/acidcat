@@ -91,6 +91,16 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `<acidcat home>/tui.json`. The data inspector shows only where it fits
   without wrapping, and the field inspector fits its bytes to the pane
   instead of running past its edge on a narrow terminal. Keys are unchanged.
+- **One front door for edits.** `doc.edit({ADDR or tag: value})` returns a
+  Patch; `patch.verify()` reads every edit back from the new bytes and
+  re-walks them, and `patch.commit()` writes it atomically with a backup. A
+  field is written through its type and the inverse of its transform (FLAC's
+  three-bit channel count, stored minus one, beside the sample rate); raw
+  bytes replace an exact range; `cover` embeds or removes the cover; any other
+  key is a tag of the file's metadata profile. A field whose type was only
+  inferred is refused without `force=True`. `acidcat write`, `write --strip`
+  and `cover` now go through it and refuse to write an edit that does not read
+  back or that adds a defect; the TUI's field edits are Patches too.
 - **`acidcat.open()`: a file as a Document.** `acidcat.open(path | bytes |
   Source)` walks a file into read-only views over the contract v1 dict:
   `Document`, `Node`, `Field`, `Layer`, `Finding` and `Loc`. An ADDR names a
