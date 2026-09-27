@@ -6,6 +6,13 @@ and the acidcat-playground both build on. Import from the package root; the
 
     import acidcat
 
+    # a file as a Document: nodes, fields, layers and findings, by ADDR
+    doc = acidcat.open("tune.ym")                  # a path, bytes, or a Source
+    doc.field("1:lh5/header#frames").value         # a field in a decoded layer
+    doc.layer_bytes(1)[:4]                         # b"YM5!"
+    [f.code for f in doc.findings if f.kind == "defect"]
+    doc.to_json()                                  # the contract v1 dict
+
     # what is this? -- by path or by the first bytes, no file needed
     acidcat.sniff("song.wav")            # 'wav'
     acidcat.sniff_bytes(head)            # 'flac', 'ogg', ... or None
@@ -93,8 +100,20 @@ from acidcat.util import play  # noqa: E402,F401
 # ``walk`` is the public name; ``walk_file`` stays as an alias.
 walk = walk_file
 
+# 2.0: a file as a Document -- read-only views over the contract v1 dict, an
+# ADDR resolver, the layers' bytes, and the forensic findings with the
+# walker's. `open` is `acidcat.open`; inside this module the builtin is not
+# used below this line.
+from acidcat.core.document import (  # noqa: E402,F401
+    AddrError, Document, Field, Finding, Layer, Loc, Node,
+    open_document as open,
+)
+from acidcat.core.infra.limits import Limits  # noqa: E402,F401
+
 __all__ = [
     "__version__",
+    "open", "Document", "Node", "Field", "Layer", "Finding", "Loc", "Limits",
+    "AddrError",
     "walk", "walk_file", "Unsupported",
     "probe", "viz", "tui_theme", "play",
     "sniff", "sniff_bytes", "locate", "iter_pages", "decode_8svx",

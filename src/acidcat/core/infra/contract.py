@@ -681,11 +681,14 @@ def _version():
 
 # ── walking a file into a Document ─────────────────────────────────────
 
-def walk(path, deep=False, fmt_override=None, limits=None):
+def walk(path, deep=False, fmt_override=None, limits=None, on_walk=None):
     """Walk a file, or a Source, and return its v1 Document.
 
     `limits` is the Limits to walk under; without it, `deep` picks them
-    (Limits.for_deep). With it, `deep` is ignored and `limits.decode` decides."""
+    (Limits.for_deep). With it, `deep` is ignored and `limits.decode` decides.
+    `on_walk(label, chunks, warns)`, when given, receives the walk the
+    Document was made from, so a consumer that also needs it (the forensic
+    scan) does not walk the file twice."""
     from acidcat.core.infra import capabilities, sniff as sniffmod
     from acidcat.core.infra.source import Source, as_source
     from acidcat.core.walk import walk_file
@@ -696,6 +699,8 @@ def walk(path, deep=False, fmt_override=None, limits=None):
         fmt_id = fmt_override or sniffmod.sniff(src)
         label, chunks, warns = walk_file(src, deep=limits.decode,
                                          fmt_override=fmt_override)
+        if on_walk is not None:
+            on_walk(label, chunks, warns)
         return document(fmt_id, label, chunks, warns, src.buffer(),
                         forced=bool(fmt_override),
                         caps_fn=lambda f, l, c: capabilities.caps(

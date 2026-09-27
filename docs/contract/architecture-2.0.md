@@ -350,8 +350,22 @@ patch.commit("out.wav", backup=True)
 views over the v1 dict (the dict stays the source of truth, per decision C5).
 Helper namespaces stay: `acidcat.probe`, `acidcat.viz`, `acidcat.play`,
 `acidcat.locate`, `acidcat.sniff`. `read_metadata` is exported. The tuple API
-(`walk`, `walk_file`) is removed. An API reference page is generated from the
-docstrings and pinned by a test that every public name is documented.
+(`walk`, `walk_file`) stays through 2.x with a `DeprecationWarning` that names
+`acidcat.open()`, and is removed in 3.0, the same rule as the CLI aliases: a
+project outside this repository calls `walk_file`, and a deprecation cycle is
+what lets it move on its own schedule. Nothing in `src/` calls it. An API
+reference page is generated from the docstrings and pinned by a test that
+every public name is documented.
+
+The views are in `core/document.py` and the ADDR resolver, which works on the
+dict alone, in `core/infra/addr.py`. `acidcat.open()` takes a path, bytes or a
+Source; it runs the forensic scan on the walk it already made and adds the
+scan's findings (not the walker notes the scan repeats) to the Document's one
+list, each at a zero-length point in layer 0 and naming the node that holds
+it. Bytes with no path are scanned from a temporary file that is removed
+afterwards. A node or field address needs no layer prefix, because its id
+already says where it is; a prefix that disagrees with the node is an error.
+`@OFFSET` without a prefix is in layer 0.
 
 `acidcat-lab` moves to this API in the same release.
 
@@ -463,8 +477,11 @@ commits only when `dry_run` is false. `get_sample` also returns
 
 - `core/grammar/` and its three test files (git history keeps them);
   `test_ctx_keys_covers_walker` moves out first.
-- The tuple API, the retired CLI verbs and flags, `walk_bytes`' temp file,
-  `ctx`/`CTX_KEYS`, the per-builder anatomy scripts, Python 3.10.
+- The retired CLI flags, `walk_bytes`' temp file, `ctx`/`CTX_KEYS`, the
+  per-builder anatomy scripts, Python 3.10.
+- Not removed until 3.0: the tuple API (`walk`, `walk_file`) and the retired
+  CLI verb names, which stay through 2.x behind a deprecation (section 6,
+  section 8).
 
 ## 13. Platform
 

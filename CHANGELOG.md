@@ -91,6 +91,16 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `<acidcat home>/tui.json`. The data inspector shows only where it fits
   without wrapping, and the field inspector fits its bytes to the pane
   instead of running past its edge on a narrow terminal. Keys are unchanged.
+- **`acidcat.open()`: a file as a Document.** `acidcat.open(path | bytes |
+  Source)` walks a file into read-only views over the contract v1 dict:
+  `Document`, `Node`, `Field`, `Layer`, `Finding` and `Loc`. An ADDR names a
+  place (`doc.field("1:lh5/header#frames")`, `doc.node("RIFF/fmt_")`,
+  `doc.resolve("@0x10+4")`, `doc.find("**/data")`), and every view prints the
+  address that resolves back to it. `doc.layer_bytes(n)` decodes a derived
+  layer on demand, `doc.read(addr)` gives the bytes an address names, and
+  `doc.to_json()` is the v1 dict. The forensic scan's findings join the
+  walker's in `doc.findings`, once each. Additive: the tuple API is
+  unchanged.
 - **Every walker warning has a code.** The remaining plain-string warnings
   in the walkers and format decoders (about 440 sites) carry a finding code,
   so no warning a walk produces reaches a Document or `audit` as `legacy`.
