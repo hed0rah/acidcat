@@ -363,7 +363,7 @@ def _stamp(unix_time):
     raising: the field is only as trustworthy as the writer."""
     import datetime
     try:
-        return datetime.datetime.utcfromtimestamp(unix_time).strftime(
+        return datetime.datetime.fromtimestamp(unix_time, datetime.timezone.utc).strftime(
             "%Y-%m-%d %H:%M:%S UTC")
     except (OSError, OverflowError, ValueError):
         return str(unix_time)

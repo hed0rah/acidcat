@@ -397,3 +397,14 @@ def test_a_malformed_box_claims_only_the_bytes_that_remain():
     assert bad[0]["declared"] == 0x47400030
     assert bad[0]["size"] == len(full) - bad[0]["offset"]
     assert bad[0]["offset"] + bad[0]["size"] <= len(full)
+
+
+def test_a_box_timestamp_renders_without_the_deprecated_utc_call():
+    """utcfromtimestamp is deprecated from Python 3.12 and warned on every MP4
+    with a creation time; a real one in the hunt corpus failed the sweep."""
+    import warnings
+    from acidcat.core.walk.mp4 import _stamp
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _stamp(946080000) == "1999-12-25 00:00:00 UTC"
+        assert _stamp(2 ** 40) == str(2 ** 40)
