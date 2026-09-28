@@ -225,6 +225,12 @@ def _render_anomalies(findings, args):
         print(f"    {tag} {off}  {f['rule']:16} {f['message']}")
 
 
+def _at(offset):
+    """a chunk's offset for the table; a node the walk does not place
+    (an SF2 preset, a tree node) has none"""
+    return "-" if offset is None else f"0x{offset:08x}"
+
+
 def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
                   shown_as=None):
     file_size = os.path.getsize(filepath)
@@ -241,8 +247,9 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
     for i, c in enumerate(chunks):
         idx = p("dim", f"[{c.get('_idx', i):>2}]")
         cid = p("id", f"{c['id']:<5}")
-        off = p("dim", f"0x{c['offset']:08x}")
-        print(f"  {idx}  {cid} {off}  {c['size']:<11,} {c['summary']}")
+        off = p("dim", _at(c["offset"]))
+        size = "-" if c["size"] is None else f"{c['size']:,}"
+        print(f"  {idx}  {cid} {off}  {size:<11} {c['summary']}")
 
     if not args.quiet:
         for c in chunks:
@@ -250,7 +257,7 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
                 continue
             print()
             hdr_id = p("id", c["id"].strip())
-            hdr_meta = p("dim", f"@ 0x{c['offset']:08x} ({c['size']} bytes)")
+            hdr_meta = p("dim", f"@ {_at(c['offset'])} ({c['size'] if c['size'] is not None else '-'} bytes)")
             print(f"{hdr_id} {hdr_meta}")
             for fl in c["fields"]:
                 note = p("dim", f"  {fl['note']}") if fl["note"] else ""
@@ -261,7 +268,8 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
                            if o is not None else "       ")
                 off_col = p("dim", off_col)
                 val = p("val", f"{fl['value']!s:<14}")
-                if args.show_hex and fl["off"] is not None:
+                if args.show_hex and fl["off"] is not None and (
+                        c.get("payload_base") is not None or c["offset"] is not None):
                     # field offsets are measured from the chunk's payload base.
                     # RIFF/AIFF/RF64/MThd all have an 8-byte id+size header, so
                     # that is the default; formats with a different header (FLAC
@@ -329,18 +337,20 @@ def _full_chunk(chunk, filepath):
     payload base, the raw region bytes as hex (capped), and every field's
     absolute byte offset. `acidcat explore` needs nothing but this JSON."""
     c = {k: v for k, v in chunk.items() if k != "_idx"}
-    pb = chunk.get("payload_base", chunk["offset"] + 8)
+    pb = chunk.get("payload_base")
+    if pb is None and chunk["offset"] is not None:
+        pb = chunk["offset"] + 8
     c["payload_base"] = pb
     fields = []
     for f in chunk["fields"]:
         f2 = _public_field(f)
         # absolute file offset, so a field maps to raw[abs - offset]
-        f2["abs"] = pb + f["off"] if f["off"] is not None else None
+        f2["abs"] = pb + f["off"] if f["off"] is not None and pb is not None else None
         fields.append(f2)
     c["fields"] = fields
     # only carry raw bytes for chunks that actually have positioned fields;
     # audio-data regions are huge and have nothing to highlight.
-    if any(f["off"] is not None for f in chunk["fields"]):
+    if chunk["offset"] is not None and any(f["off"] is not None for f in chunk["fields"]):
         n = min(chunk["size"], _FULL_RAW_CAP)
         with open(filepath, "rb") as fh:
             fh.seek(chunk["offset"])
@@ -649,7 +659,9 @@ def run(args):
                         # tuned on trackers broke silently on RIFF. --full has
                         # always emitted the absolute offsets; plain --json now
                         # does too, at no extra cost.
-                        pb = c.get("payload_base", c["offset"] + 8)
+                        pb = c.get("payload_base")
+                        if pb is None and c["offset"] is not None:
+                            pb = c["offset"] + 8
                         oc["payload_base"] = pb
                         fields = []
                         for f in c.get("fields", []):
