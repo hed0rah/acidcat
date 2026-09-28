@@ -306,21 +306,21 @@ def test_the_footer_only_advertises_keys_that_work(keysweep):
 
 # ── mounting must not scale with a hostile chunk count ─────────────
 
-def _null_tailed_wav(path, tail_bytes):
-    """A valid WAV with a run of nulls appended.
+def _many_chunk_wav(path, n_chunks):
+    """A valid WAV holding n_chunks empty JUNK chunks inside its RIFF.
 
-    The deep walker reads each 8-byte run of zeros as a zero-size chunk, so
-    this is the cheapest way to make a file with an enormous chunk count. It is
-    not contrived: a truncated or zero-padded file from a failed transfer looks
-    exactly like this, and opening damaged files is the tool's purpose.
+    The cheapest real file with an enormous chunk count. It was built from
+    nulls appended past the RIFF end, which the walker used to read as
+    zero-size chunks; appended bytes are trailing data, not chunks, so the walk
+    now stops there, and the count has to come from chunks the RIFF declares.
     """
     import struct
     pcm = b"\x00\x01" * 200
     body = (b"WAVE" + b"fmt "
             + struct.pack("<IHHIIHH", 16, 1, 2, 44100, 176400, 4, 16)
-            + b"data" + struct.pack("<I", len(pcm)) + pcm)
-    path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body
-                     + bytes(tail_bytes))
+            + b"data" + struct.pack("<I", len(pcm)) + pcm
+            + b"JUNK\x00\x00\x00\x00" * n_chunks)
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
     return path
 
 
@@ -334,7 +334,7 @@ def test_a_huge_chunk_count_does_not_freeze_the_mount(tmp_path):
     """
     import time
     from acidcat.tui_app.app import AcidcatTUI
-    p = _null_tailed_wav(tmp_path / "tail.wav", 2 * 1024 * 1024)
+    p = _many_chunk_wav(tmp_path / "many.wav", 65_536)
 
     async def go():
         app = AcidcatTUI(str(p))
@@ -364,7 +364,7 @@ def test_the_hidden_chunks_are_counted_and_reachable(tmp_path):
     worse than the freeze. The cap has to name what it hid, and `+` must reach
     past it -- the same contract the row cap already honours."""
     from acidcat.tui_app.app import AcidcatTUI
-    p = _null_tailed_wav(tmp_path / "tail.wav", 512 * 1024)
+    p = _many_chunk_wav(tmp_path / "many.wav", 65_536)
 
     async def go():
         app = AcidcatTUI(str(p))

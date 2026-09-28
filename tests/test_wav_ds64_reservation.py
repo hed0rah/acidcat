@@ -39,26 +39,26 @@ def test_ds64_sizes_filled_in_are_named_not_flagged(tmp_path):
 def test_stale_ds64_sizes_say_the_file_grew(tmp_path):
     j = _junk(tmp_path, lambda riff: struct.pack("<QQQI", riff - 10, len(DATA), 32, 0))
     assert "filled in when the file was" in j["summary"]
-    assert [w.code for w in j["warnings"]] == ["convention.noted"]
+    assert not j["warnings"]
 
 
 def test_a_quote_is_text_not_damage(tmp_path):
     j = _junk(tmp_path, lambda riff: b"Why r u using a hex editor? ")
     assert "holding text" in j["summary"] and "hex editor" in j["summary"]
-    assert [w.code for w in j["warnings"]] == ["convention.noted"]
+    assert not j["warnings"]
 
 
 def test_riff_size_over_a_quote(tmp_path):
     j = _junk(tmp_path, lambda riff: struct.pack("<Q", riff) + b"rg is our ontology  ")
     assert "written over a text" in j["summary"]
-    assert [w.code for w in j["warnings"]] == ["convention.noted"]
+    assert not j["warnings"]
 
 
 def test_other_bytes_are_still_flagged(tmp_path):
     """The control: a non-zero reservation that is none of the three stays a
     reserved.nonzero defect."""
     j = _junk(tmp_path, lambda riff: bytes(range(1, 29)))
-    assert [w.code for w in j["warnings"]] == ["reserved.nonzero"]
+    assert len(j["warnings"]) == 1 and "not zero" in j["warnings"][0]
 
 
 def test_the_quote_names_ableton_live_as_the_writer(tmp_path):
