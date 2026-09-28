@@ -418,6 +418,15 @@ gone.
 
 ### Fixed
 
+- **`carve FILE FIELD -o PATH` writes the field's bytes**, the ones the
+  file holds (`44 ac 00 00` for a 44100 Hz rate). It wrote the display text
+  and a platform newline (`44100\r\n` on Windows), and `--encoding raw` on
+  a field was ignored. On stdout the value text is still the default;
+  `--encoding value` writes it to `-o` (with LF), `hex`/`c`/`py`/`b64`
+  format the bytes. A derived value with no bytes writes its text, and
+  refuses `--encoding raw`; a `GLOB#KEY` lists values and refuses the byte
+  encodings.
+
 - **`probe`'s standard flags go after the sub-verb too.** `probe read AT F
   --json` was an argparse error; `--output-format`, `--json` and `-o` are
   accepted before or after the sub-verb, with the same output.

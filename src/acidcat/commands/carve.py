@@ -394,7 +394,8 @@ def _write_out(blob, output, binary=True):
 
 def _emit(text, output):
     if output:
-        with open(output, "w", encoding="utf-8") as g:
+        # LF on every platform: text mode wrote 11025\r\n on Windows
+        with open(output, "w", encoding="utf-8", newline="\n") as g:
             g.write(text + "\n")
     else:
         print(text)
@@ -561,13 +562,7 @@ def _from_addr(args, filepath):
     from acidcat import AddrError
     from acidcat.commands import _addr
     if _addr.names_fields(args.addr) and args.type is None and args.struct is None:
-        try:
-            rows = _addr.fields(filepath, args.addr)
-        except AddrError as e:
-            print(f"acidcat carve: {e}", file=sys.stderr)
-            return 1
-        _emit("\n".join(str(v) for _a, v in rows), args.output)
-        return 0
+        return _carve_field(args, filepath)
     try:
         layer, start, length, _name, blob = _addr.locate(filepath, args.addr,
                                                         raw=args.raw)
@@ -587,6 +582,57 @@ def _from_addr(args, filepath):
         args._layer_file = tmp
     args.offset, args.length = str(start), str(length)
     return None
+
+
+def _carve_field(args, filepath):
+    """A field ADDR. One field: its value as text (the default on stdout,
+    and `--encoding value`), or its bytes, the ones the file holds, with -o
+    or `--encoding raw` (hex, c, py, b64 format those bytes). `carve F FIELD
+    -o PATH` wrote the display text and a platform newline (review V10). A
+    `GLOB#KEY` lists values, one per line."""
+    from acidcat import AddrError
+    from acidcat.commands import _addr
+    from acidcat.core.infra import addr as addrmod
+    enc = args.encoding
+    try:
+        if addrmod.is_glob(args.addr.rpartition("#")[0]):
+            if enc not in (None, "value"):
+                print(f"acidcat carve: {args.addr}: a GLOB#KEY lists values; "
+                      f"name one field for its bytes", file=sys.stderr)
+                return 2
+            rows = _addr.fields(filepath, args.addr)
+            _emit("\n".join(str(v) for _a, v in rows), args.output)
+            return 0
+        rows = _addr.fields(filepath, args.addr)
+        doc = _addr.open_doc(filepath)
+        f = doc.field(args.addr)
+    except AddrError as e:
+        print(f"acidcat carve: {e}", file=sys.stderr)
+        return 1
+    if enc == "value" or (enc is None and not args.output):
+        _emit(str(rows[0][1]), args.output)
+        return 0
+    if f.at is None or f.at.off is None:
+        if enc is None:                 # -o of a value with no bytes: its text
+            _emit(str(rows[0][1]), args.output)
+            return 0
+        print(f"acidcat carve: {args.addr}: a derived value, with no bytes in "
+              f"the file to carve; --encoding value prints it", file=sys.stderr)
+        return 2
+    blob = bytes(doc.read(args.addr))
+    if enc in (None, "raw"):
+        if args.output:
+            err = _write_out(blob, args.output)
+            if err:
+                print(err, file=sys.stderr)
+                return 2
+        else:
+            sys.stdout.flush()
+            sys.stdout.buffer.write(blob)
+            sys.stdout.buffer.flush()
+        return 0
+    _emit(_fmt_bytes(blob, enc), args.output)
+    return 0
 
 
 def _dir_output(args):
