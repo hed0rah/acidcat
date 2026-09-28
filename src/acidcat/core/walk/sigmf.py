@@ -325,18 +325,19 @@ def inspect_sigmf(path, deep=False):
             warns.append(f"listing the first {_ANNOTATION_CAP} of "
                          f"{len(annotations)} annotations")
 
-    if meta is not None and meta is src:
-        return _as_sidecar(chunks, meta, data_src), warns
+    if str(path).lower().endswith(".sigmf-meta") and os.path.isfile(meta_path):
+        return _as_sidecar(chunks, meta_path, data_path), warns
     samples, _ = _samples_chunk(data_path, data_size, geo, dt, deep)
     chunks.append(samples)
     return chunks, warns
 
 
-def _as_sidecar(chunks, meta, data_src):
+def _as_sidecar(chunks, meta_path, data_path):
     """The walk seen from the .sigmf-meta: its own bytes are the JSON. The
     captures and annotations locate bytes of the .sigmf-data, so here they are
     listed but not placed, and their pointers are not followed into this file."""
-    where = os.path.basename(data_src.name) if data_src is not None else "the .sigmf-data"
+    where = os.path.basename(data_path) if os.path.isfile(data_path) else "the .sigmf-data"
+    meta_size = os.path.getsize(meta_path)
     for c in chunks:
         if c["id"] == "global":
             continue
@@ -344,8 +345,8 @@ def _as_sidecar(chunks, meta, data_src):
         c["summary"] += f"  (in {where})"
         for f in c["fields"]:
             f.pop("xref", None)
-    chunks.append({"id": "sidecar", "offset": 0, "size": meta.size, "payload_base": 0,
-                   "summary": f"SigMF metadata, {meta.size:,} bytes of JSON; "
+    chunks.append({"id": "sidecar", "offset": 0, "size": meta_size, "payload_base": 0,
+                   "summary": f"SigMF metadata, {meta_size:,} bytes of JSON; "
                               f"the samples are in {where}",
                    "fields": [], "warnings": []})
     return chunks
