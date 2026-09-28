@@ -14,12 +14,8 @@ must never disagree.
 
 import pathlib
 import re
-import sys
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:                                   # 3.10 is the floor
-    tomllib = None
+import tomllib
 
 import pytest
 
@@ -31,11 +27,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 def _pyproject_version():
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    if tomllib is not None:
-        return tomllib.loads(text)["project"]["version"]
-    m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
-    assert m, "no version in pyproject.toml"
-    return m.group(1)
+    return tomllib.loads(text)["project"]["version"]
 
 
 def test_the_installed_version_matches_the_runtime_one():

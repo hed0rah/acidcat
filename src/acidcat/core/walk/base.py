@@ -21,8 +21,8 @@ underscore names from commands/inspect.py so the move stays mechanical.
 import os
 import struct
 
-# single source for the per-chunk payload read cap: the walkers and the grammar
-# strategy share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
+# single source for the per-chunk payload read cap: the walkers and riff's
+# traversal share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
 from acidcat.core.formats.riff import PAYLOAD_CAP as _PAYLOAD_CAP
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import input_name, input_size, open_input

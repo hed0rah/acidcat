@@ -56,10 +56,7 @@ layer's chunks never join the flat list.
 2. **Walkers** -- `core/walk/*.py`: 57 walkers behind one dispatcher, serving 88
    registered format labels, each emitting the field model. **The correctness oracle and the
    default.** Dispatch: `core/walk/__init__.py::walk_file`.
-3. **Declarative engine** -- `core/grammar/`: format descriptors as data plus one
-   interpreter emitting the same field model. Opt-in, test-only, validated
-   byte-for-byte against the walkers, which remain the oracle.
-4. **Analysis surface** -- `core/probe.py` (typed reads, value scan,
+3. **Analysis surface** -- `core/probe.py` (typed reads, value scan,
    `fmt.sample_rate` addressing), `core/forensics/` (entropy and Hilbert byte-map
    in `viz.py`, forensic checks in `anomalies.py`, the statistical audio detector
    in `audioscan.py`, provenance in `provenance.py`), `core/analysis/` (PCM
@@ -67,11 +64,11 @@ layer's chunks never join the flat list.
    `core/write/` (the strict IFF engine `structure.py`, `constraints.py` and
    `repairers.py` behind validate / repair), `core/extract/` (embedded-sample
    recovery).
-5. **Index / DB / MCP** -- `core/catalogue/` (per-library SQLite + FTS, the
+4. **Index / DB / MCP** -- `core/catalogue/` (per-library SQLite + FTS, the
    registry, the shared filter builder) and `mcp_server/` (19 tools over stdio or
    streamable HTTP). A **consumer** of the core; the core never imports it, so it
    is cleanly severable.
-6. **Interfaces** -- `cli.py` (17 verbs, plus the 1.8 spellings as aliases in
+5. **Interfaces** -- `cli.py` (17 verbs, plus the 1.8 spellings as aliases in
    `cli_aliases.py`) + `commands/*.py` (a module per verb; the 1.8 verbs' modules
    are the implementations behind the 2.0 ones);
    `tui_app/` (Textual inspector/editor); the public API in `acidcat/__init__`;
@@ -79,12 +76,12 @@ layer's chunks never join the flat list.
 
 ## Two facts that explain most of the design
 
-- **Walkers are the oracle.** Any new parsing path (the grammar engine) is proven
-  by diffing its output against the walkers across a large corpus, field for field.
+- **Walkers are the oracle.** Any new parsing path is proven by diffing its
+  output against the walkers across a large corpus, field for field.
 - **Two container engines, on purpose.** `core/write/structure.py` is strict
   (clamps sizes, rejects malformed input) and drives write / repair; the lenient
   traversal (`formats/riff.iter_chunks`, and `iter_spans` built on it, which the
-  walker and the grammar strategy both consume) reports a chunk's
+  WAV walker consumes) reports a chunk's
   declared-but-wrong size, degrades, and never raises, and drives dissection.
   Malformed files are the subject, not an error.
 
@@ -92,7 +89,7 @@ layer's chunks never join the flat list.
 
 - `commands/` depends on `core/`; `core/` never imports `commands/`.
 - DB connections live only in `core/catalogue/index.py` and `core/catalogue/registry.py`.
-- The dissection core (walk, grammar, probe, forensics, write) imports nothing
+- The dissection core (walk, probe, forensics, write) imports nothing
   from the index / DB / MCP layer. The dependency arrow points inward only.
 - Every label `walk_file` can dispatch is a label `sniff` can produce
   (`tests/test_formats.py::test_walker_keys_are_known_formats`).
@@ -101,7 +98,7 @@ layer's chunks never join the flat list.
 
 ```
 src/acidcat/
-  core/            211 modules
+  core/            202 modules
     formats/       per-format byte decoders (35)
     walk/          57 walker modules -> 88 format labels (58)
     primitives/    shared byte readers (6)
@@ -113,14 +110,13 @@ src/acidcat/
     write/         strict IFF engine, constraints, repairers, tag-edit profiles (13)
     extract/       embedded-sample recovery (4)
     catalogue/     SQLite index, registry, query builder, search (8)
-    grammar/       declarative descriptor engine (opt-in) (9)
     data/          shipped JSON tables (provenance signatures)
   commands/        17 CLI verbs and the 1.8 implementations behind them (38 modules)
   mcp_server/      schema, handlers, transport (19 tools)
   tui_app/         Textual inspector/editor; model.py is its state, no Textual;
                    state.py what it remembers between runs (tui.json)
   util/            small shared helpers
-  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (278 modules in total)
+  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (269 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,
@@ -168,4 +164,3 @@ the first.
 - Add a format: teach `core/infra/sniff.py` the magic, write `core/walk/<fmt>.py`, add one
   `_WALKERS` entry in `core/walk/__init__.py`
 - The enc-language: `core/infra/fieldcodec.py`
-- The declarative engine and its design: `core/grammar/` + `internal_docs/grammar-engine-*.md`

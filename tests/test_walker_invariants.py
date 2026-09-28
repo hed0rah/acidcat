@@ -9,7 +9,7 @@ reading every walker:
 2. The ctx key registry: every semantic ctx key the fixed-key walkers
    (wav/aiff/midi) publish is in ``vocab.CTX_KEYS``, so a walker rename
    cannot silently desynchronize from the scan path. (The WAV half runs
-   corpus-wide in test_grammar_wav.py.)
+   corpus-wide in test_ctx_keys.py.)
 3. The walk_file degradation boundary: a walker bug degrades to a
    warning in production and re-raises under ACIDCAT_WALKER_RAISE.
 """

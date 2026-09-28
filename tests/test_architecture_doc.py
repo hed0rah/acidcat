@@ -11,9 +11,10 @@ without fixing the mechanism just resets the clock, so they are asserted here.
 
 THE COUNTING RULE, because the doc previously used two and the disagreement is
 what made the drift hard to see: a module is a .py file, counted RECURSIVELY,
-INCLUDING __init__.py. core/grammar/ has a nested formats/ directory, so a
-non-recursive count reads 6 where the recursive one reads 9 -- both defensible,
-which is exactly why the rule has to be written down rather than inferred.
+INCLUDING __init__.py. A package with a nested directory (core/grammar/ had
+one, until 2.0 removed it) reads fewer modules non-recursively than
+recursively -- both defensible, which is exactly why the rule has to be
+written down rather than inferred.
 
 The one deliberate exception is "34 walker modules", which excludes
 core/walk/__init__.py: that file is the dispatcher, not a walker, so counting it
@@ -84,7 +85,6 @@ def test_walker_module_count(doc):
     ("core", r"^  core/\s+(\d+) modules"),
     ("core/formats", r"per-format byte decoders \((\d+)\)"),
     ("core/forensics", r"anomalies, entropy/viz, audioscan, provenance \((\d+)\)"),
-    ("core/grammar", r"declarative descriptor engine \(opt-in\) \((\d+)\)"),
 ])
 def test_directory_module_counts(doc, rel, pattern):
     stated = _stated(doc, pattern)

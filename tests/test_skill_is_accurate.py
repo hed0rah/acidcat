@@ -14,7 +14,6 @@ the point of this file.
 
 import pathlib
 import re
-import sys
 
 import pytest
 
@@ -29,10 +28,7 @@ def _text():
 
 
 def _pyproject():
-    if sys.version_info >= (3, 11):
-        import tomllib
-    else:                                     # 3.10 has no tomllib
-        tomllib = pytest.importorskip("tomli")
+    import tomllib
     with open(ROOT / "pyproject.toml", "rb") as fh:
         return tomllib.load(fh)
 

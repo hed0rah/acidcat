@@ -1,17 +1,13 @@
 """Shared format vocabulary in one core-owned home: value->label tables and
-the semantic ctx-key contract, so the hand-written walkers and the
-declarative grammar engine read the SAME definitions instead of one
-importing the other's internals.
+the semantic ctx-key contract, so the walkers, `info` and the scan path read
+the SAME definitions instead of one importing another's internals.
 
-Value->label tables live here, not in a walker, because the descriptor
-engine that will eventually supersede a walker must outlive it. Bit-field
-enum tables used by the enc-language keep living in fieldcodec (_BITMAPS /
-_DYNMAPS, already sourced from core primitives); this module is the
-byte-field value->label side. One namespace for both is the goal: a grammar
-table id and a fieldcodec bitsmap MAPID cannot then drift apart.
+Bit-field enum tables used by the enc-language keep living in fieldcodec
+(_BITMAPS / _DYNMAPS, already sourced from core primitives); this module is
+the byte-field value->label side.
 """
 
-# ── value->label tables (referenced by name by grammar Enum + the walkers) ──
+# ── value->label tables ──
 
 # The `fmt ` chunk's format tag, and the sub-format inside a
 # WAVEFORMATEXTENSIBLE GUID -- one table, both readers.
@@ -65,9 +61,6 @@ WAVE_FORMAT_TAGS = {
     0xFFFE: "extensible",
 }
 
-MP3_PADDING = {0: "ISO padding", 1: "padding always", 2: "padding never"}
-MPEGLAYER3_ID = {1: "MPEGLAYER3_ID_MPEG"}
-
 # WAVEFORMATEXTENSIBLE channel-mask bit positions (bit i -> speaker), and the
 # fixed 14-byte tail of every KSDATAFORMAT_SUBTYPE GUID (its first 2 bytes are
 # the format tag, little-endian).
@@ -104,33 +97,14 @@ AUDIO_CHANNEL_LAYOUT_TAGS = {
 
 KSDATAFORMAT_TAIL = bytes.fromhex("000000001000800000aa00389b71")
 
-# a grammar Enum/NoteLookup names a value->label table by its id; the walker and
-# the descriptor share these canonical dicts, so there is a single source of
-# truth (no divergence for a parity test to miss).
-TABLES = {
-    "wave_format_tags": WAVE_FORMAT_TAGS,
-    "mp3_padding": MP3_PADDING,
-    "mpeglayer3_id": MPEGLAYER3_ID,
-}
-
-# flag tables for NoteFlags: a bit-position -> name list decomposed against the
-# raw value (the walk/base._flag_names / _channel_mask_names pattern).
-FLAGS = {
-    "wav_speaker_positions": WAV_SPEAKER_POSITIONS,
-    # ACID type_flags bits 0..3 (walk/wav.py _ACID_FLAGS: 0x1/0x2/0x4/0x8)
-    "acid_flags": ["one-shot", "root set", "stretch", "disk-based"],
-}
-
 
 # ── the semantic ctx-key contract ──
 # the file-global ctx dict is the decode-once handoff the scan/index path reads
-# (core/indexing.py) and the walkers use for cross-chunk facts. A grammar Field
-# may publish its raw value under one of these keys via Field.ctx; the name is
-# validated at descriptor construction, so a typo fails loudly in trusted code
-# instead of silently missing an index column. Extend this set (citing the
-# source) when a descriptor publishes a genuinely new semantic key.
+# (core/indexing.py) and the walkers use for cross-chunk facts. Extend this set
+# (citing the source) when a walker publishes a genuinely new semantic key.
+# It retires with ctx itself (decisions K1).
 CTX_KEYS = frozenset({
-    # WAV fmt fields the descriptor publishes today (walk/wav.py)
+    # WAV fmt fields (walk/wav.py)
     "format_tag", "channels", "sample_rate", "block_align", "bits",
     # WAV cross-chunk + scan/index-read keys (walk/wav.py, core/indexing.py)
     "data_off", "data_bytes", "fact_samples", "frames", "duration",
@@ -145,9 +119,8 @@ CTX_KEYS = frozenset({
     "note_count", "note_min", "note_max", "duration_ticks", "channels_used",
     "division", "format", "tracks",
 })
-# invariant (test_ctx_keys_covers_walker in test_grammar_wav.py, plus the
-# aiff/midi checks in test_walker_invariants.py): CTX_KEYS must stay a superset
-# of every ctx key the fixed-key walkers (wav/aiff/midi) publish, so a real key
-# can never fail Field.ctx validation and a walker rename cannot silently
+# invariant (test_ctx_keys.py, plus the aiff/midi checks in
+# test_walker_invariants.py): CTX_KEYS must stay a superset of every ctx key the
+# fixed-key walkers (wav/aiff/midi) publish, so a walker rename cannot silently
 # desynchronize from the scan path. The Serum walker is excluded on purpose:
 # it publishes the preset's raw JSON keys, an open set.

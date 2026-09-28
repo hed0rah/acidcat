@@ -1,12 +1,12 @@
-"""Build a small, deterministic WAV corpus so the grammar/walker parity sweeps
-run on a fresh clone.
+"""Build a small, deterministic WAV corpus so the corpus sweep runs on a fresh
+clone.
 
 Why this exists
 ---------------
-`test_grammar_wav.py` asserts that the grammar interpreter and the hand-written
-walker agree, parametrized over a corpus. That corpus defaulted to
-`~/sample_packs` -- 2,327 files that exist on exactly one machine. The result:
-those three assertions produced 6,998 of the suite's 8,515 collected tests
+`test_ctx_keys.py` checks the WAV walker's ctx keys, parametrized over a
+corpus. It was written for the grammar engine's parity sweeps, removed in 2.0.
+The corpus defaulted to `~/sample_packs` -- 2,327 files that exist on
+exactly one machine. The result: the grammar sweeps' three assertions produced 6,998 of the suite's 8,515 collected tests
 locally and **three skips** on CI, so 82% of the headline test count was
 unreproducible anywhere else.
 
@@ -16,12 +16,10 @@ every byte written here is synthetic, deterministic, and ours.
 
 What it covers
 --------------
-The grammar describes `fmt`, `inst` and `acid`, so those get the most variation.
-Undescribed chunks (`data`, `fact`, `smpl`, `cue `, `LIST`) are included too
-because the skeleton-parity test compares the full chunk sequence, and the
-awkward cases (odd-sized payloads needing a pad byte, trailing bytes past the
-declared end, WAVE_FORMAT_EXTENSIBLE) are exactly where an interpreter and a
-walker are most likely to disagree.
+`fmt`, `inst` and `acid` get the most variation; `data`, `fact`, `smpl`,
+`cue ` and `LIST` are there because each publishes ctx keys, and the awkward
+cases (odd-sized payloads needing a pad byte, trailing bytes past the declared
+end, WAVE_FORMAT_EXTENSIBLE) are where a walker most often goes wrong.
 
     python tests/make_corpus.py [outdir]
 

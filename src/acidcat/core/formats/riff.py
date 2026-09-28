@@ -1,8 +1,8 @@
 """
 RIFF/WAVE chunk primitives.
 
-The lenient traversal (iter_chunks / iter_spans) that the WAV walker and
-the grammar strategy consume, container info, and the acid/smpl field
+The lenient traversal (iter_chunks / iter_spans) the WAV walker consumes,
+container info, and the acid/smpl field
 vetting helpers. Chunk field decoding lives in core/walk/wav.py.
 """
 
@@ -70,8 +70,7 @@ def iter_chunks(filepath):
 
 
 def iter_spans(filepath):
-    """Lenient RIFF/WAVE traversal, the single source both the walker and the
-    grammar strategy consume. Returns ``(spans, warnings)``. Enumerates via
+    """Lenient RIFF/WAVE traversal, the WAV walker's. Returns ``(spans, warnings)``. Enumerates via
     ``iter_chunks`` so the chunk-walk arithmetic has exactly one home, and adds
     the payload read plus the traversal warnings (riff_size mismatch, chunk
     overrun) in the walker's exact wording. Degrades, never raises.

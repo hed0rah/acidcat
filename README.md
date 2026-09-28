@@ -29,7 +29,7 @@ full-text.
 
 ## Install
 
-Python 3.10+.
+Python 3.11+.
 
     pip install acidcat              # core + mutagen, one dependency
     pip install acidcat[analysis]    # + librosa BPM/key detection + features

@@ -5,9 +5,9 @@
 
 ## The corpus
 
-Three parity sweeps in `test_grammar_wav.py` compare the grammar interpreter
-against the hand-written walker across many real files. They need a corpus, and
-which one you get depends on `ACIDCAT_CORPUS`:
+`test_ctx_keys.py` checks the ctx keys the WAV walker publishes across many
+files. (It is what is left of the grammar engine's three parity sweeps, removed
+in 2.0.) It needs a corpus, and which one you get depends on `ACIDCAT_CORPUS`:
 
 | `ACIDCAT_CORPUS` | corpus used | sweep size |
 |---|---|---|
@@ -15,13 +15,13 @@ which one you get depends on `ACIDCAT_CORPUS`:
 | set to a directory | every `*.wav` under it, recursively | as large as you like |
 
     # the wide sweep, on a machine that has a sample library
-    ACIDCAT_CORPUS=~/sample_packs pytest tests/test_grammar_wav.py
+    ACIDCAT_CORPUS=~/sample_packs pytest tests/test_ctx_keys.py
     ACIDCAT_CORPUS_LIMIT=200 ACIDCAT_CORPUS=~/sample_packs pytest   # cap it
 
 ### Why generated rather than committed
 
 The corpus used to default to `~/sample_packs`, which exists on one developer's
-machine. That made those three assertions expand to **6,998 of 8,515 collected
+machine. That made the grammar sweeps' three assertions expand to **6,998 of 8,515 collected
 tests locally and three skips on CI** -- 82% of the headline test count was
 unreproducible, and a green CI run was covering a sixth of what the number
 implied.
@@ -29,10 +29,8 @@ implied.
 Committing the real corpus was not an option: it is licensed third-party sample
 content and this repository is public. So `make_corpus.py` generates one
 instead. Every byte is synthetic and deterministic, and it deliberately targets
-the places an interpreter and a walker diverge -- the `fmt`/`inst`/`acid`
-regions the grammar describes, undescribed chunks (`smpl`, `cue `, `LIST`,
-`fact`) that skeleton parity still compares, odd-sized payloads that need a pad
-byte, `WAVE_FORMAT_EXTENSIBLE` where the real tag hides in a GUID, `data`
+the places a walker goes wrong -- `fmt`, `inst` and `acid` in many shapes,
+`smpl`, `cue `, `LIST` and `fact`, odd-sized payloads that need a pad byte, `WAVE_FORMAT_EXTENSIBLE` where the real tag hides in a GUID, `data`
 before `fmt`, an empty `data`, and bytes past the declared RIFF end.
 
 Regenerate at any time; it is idempotent:

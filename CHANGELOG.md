@@ -188,6 +188,16 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Removed
 
+- **Python 3.10.** acidcat and acidcat-lab require Python 3.11 or later;
+  CI tests 3.11, 3.12 and 3.13. 3.10 reaches end of life in October 2026.
+- **The declarative grammar engine, `acidcat.core.grammar`,** and its tests
+  (`test_grammar_wav.py`, `test_grammar_flac.py`, `test_descriptor_fuzz.py`).
+  It described two formats, ran only in tests, and the walkers it was checked
+  against remain the oracle. `vocab.TABLES`, `vocab.FLAGS`,
+  `vocab.MP3_PADDING` and `vocab.MPEGLAYER3_ID` went with it; nothing else
+  read them. The check that `CTX_KEYS` covers every ctx key the WAV walker
+  publishes moved to `test_ctx_keys.py` and still runs over the generated
+  corpus (or `ACIDCAT_CORPUS`).
 - `acidcat.core.forensics.forced._MAGIC_COMPLAINT`, the words the forced parse
   matched; it matches finding codes.
 - `acidcat.core.primitives.notes.coverage(text)`. Use

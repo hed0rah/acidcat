@@ -113,7 +113,6 @@ src/acidcat/
                          registry preset_meta paths
     infra/               plumbing: sniff render vocab sandbox mapped
                          bytefields fieldcodec
-    grammar/             declarative descriptors -- parked, test oracle only
     data/                json sidecars (provenance signatures)
     probe.py tagged.py   the public API facade (acidcat.probe, read_tags)
     census.py            standalone corpus survey
