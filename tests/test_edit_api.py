@@ -364,7 +364,9 @@ def test_repair_reports_what_it_changed_and_nothing_else(tmp_path):
     patch = doc.edit({"RIFF/fmt_#sample_rate": 22050}).repair()
     align = doc.field("RIFF/fmt_#block_align").value
     old = doc.field("RIFF/fmt_#avg_bytes_per_sec").value
-    assert patch.repairs == [("RIFF/fmt_#avg_bytes_per_sec", old, 22050 * align)]
+    assert patch.repairs == [("RIFF/fmt_#avg_bytes_per_sec", old, 22050 * align,
+                              "sample_rate * block_align")]
+    assert patch.repairs[0].follows == "sample_rate * block_align"
     assert not patch.verified
     patch.verify()
 
@@ -398,7 +400,7 @@ def test_a_rate_that_was_already_wrong_follows_the_new_one(tmp_path):
     p.write_bytes(bytes(raw))
     doc = acidcat.open(p, forensics=False)
     patch = doc.edit({"RIFF/fmt_#sample_rate": 48000}).repair()
-    assert [k for k, _o, _n in patch.repairs] == ["RIFF/fmt_#avg_bytes_per_sec"]
+    assert [r.addr for r in patch.repairs] == ["RIFF/fmt_#avg_bytes_per_sec"]
 
 
 def test_the_smpl_period_follows_the_rate(tmp_path):
@@ -413,7 +415,7 @@ def test_the_smpl_period_follows_the_rate(tmp_path):
     assert raterepair.analyze(wav) == []
     doc = acidcat.open(wav, forensics=False)
     patch = doc.edit({"RIFF/fmt_#sample_rate": 48000}).repair()
-    fields = {k for k, _o, _n in patch.repairs}
+    fields = {r.addr for r in patch.repairs}
     assert fields == {"RIFF/fmt_#avg_bytes_per_sec", "RIFF/smpl#sample_period"}
     assert struct.unpack_from("<I", patch.data, 12 + 24 + 8 + 8)[0] == round(1e9 / 48000)
 
@@ -425,3 +427,52 @@ def test_commit_backup_false_writes_in_place_without_one(tmp_path):
     assert written == str(p) and backup is None
     assert not os.path.exists(str(p) + "_original") and not [
         n for n in os.listdir(tmp_path) if "_original" in n]
+
+
+# ── the CLI cascades (review R2, follow-up) ─────────────────────────────
+
+def test_the_cli_edit_cascades_and_says_so(tmp_path, capsys):
+    from acidcat.cli import main
+    src = tmp_path / "f.wav"
+    src.write_bytes(seeds.build("wav"))
+    out = tmp_path / "out.wav"
+    before = acidcat.open(src, forensics=False)
+    old = before.field("RIFF/fmt_#avg_bytes_per_sec").value
+    align = before.field("RIFF/fmt_#block_align").value
+    rc = main(["edit", str(src), "--set", "RIFF/fmt_#sample_rate=22050",
+               "-o", str(out)])
+    got = capsys.readouterr()
+    assert rc == 0, got.err
+    assert ("  RIFF/fmt_#avg_bytes_per_sec: %d -> %d (follows sample_rate * "
+            "block_align)" % (old, 22050 * align)) in got.out.splitlines()
+    doc = acidcat.open(out, forensics=False)
+    assert doc.field("RIFF/fmt_#sample_rate").value == 22050
+    assert doc.field("RIFF/fmt_#avg_bytes_per_sec").value == 22050 * align
+    assert src.read_bytes() == seeds.build("wav")
+
+
+def test_the_cli_edit_no_cascade_refuses(tmp_path, capsys):
+    from acidcat.cli import main
+    src = tmp_path / "f.wav"
+    src.write_bytes(seeds.build("wav"))
+    out = tmp_path / "out.wav"
+    rc = main(["edit", str(src), "--set", "RIFF/fmt_#sample_rate=22050",
+               "--no-cascade", "-o", str(out)])
+    got = capsys.readouterr()
+    assert rc == 1 and "new field.inconsistent defect" in got.err
+    assert not out.exists()
+
+
+def test_the_cli_edit_json_lists_the_cascade(tmp_path, capsys):
+    import json
+    from acidcat.cli import main
+    src = tmp_path / "f.wav"
+    src.write_bytes(seeds.build("wav"))
+    rc = main(["edit", str(src), "--set", "RIFF/fmt_#sample_rate=22050",
+               "--dry-run", "--json"])
+    got = capsys.readouterr()
+    assert rc == 0, got.err
+    row = json.loads(got.out)
+    row = row[0] if isinstance(row, list) else row
+    assert [c["field"] for c in row["cascade"]] == ["RIFF/fmt_#avg_bytes_per_sec"]
+    assert row["cascade"][0]["follows"] == "sample_rate * block_align"

@@ -62,6 +62,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   constraint engine for what the patch put out of step, and refuses when the
   original already had violations it would also rewrite. `Patch.commit()`
   takes `backup=` (default True) in place of `overwrite=`.
+- **`edit --set ADDR=VALUE` cascades.** Setting `RIFF/fmt_#sample_rate`
+  also sets `avg_bytes_per_sec` (and a `smpl` chunk's `sample_period`),
+  one line each saying what it follows; `--no-cascade` refuses instead.
+  A field edit through the CLI no longer stops with an internal error.
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

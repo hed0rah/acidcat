@@ -38,7 +38,7 @@ import os
 import struct
 import tempfile
 from collections import Counter
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 from acidcat.core.infra import addr as addrmod
 from acidcat.core.infra import contract, fieldcodec
@@ -48,6 +48,15 @@ from acidcat.core.write.edits import EditError
 
 class PatchError(EditError):
     """verify() found an edit that does not read back, or a new defect."""
+
+
+class Repair(NamedTuple):
+    """One field repair() changed: its address, the value it held, the value
+    it now holds, and what that value follows from."""
+    addr: str
+    old: Any
+    new: Any
+    follows: str
 
 
 class Record(NamedTuple):
@@ -256,6 +265,8 @@ def plan(data, name, changes, raw_doc=None, force=False):
     if cover is not None:
         out, rec = _cover_edit(out, name, cover[1])
         records.append(rec)
+    if fmt is None and raw_doc is not None:
+        fmt = raw_doc["format"].get("label")    # a field or byte-range patch
     return Patch(data, out, records, name, fmt, raw_doc, force, notes)
 
 
@@ -302,8 +313,9 @@ def _walk_bytes(data, name):
 
 class Patch:
     """A planned edit: the file image it makes (`data`), one Record per edit
-    (`records`), the edits reported as (field, old, new) (`applied`), and the
-    profile's format label for a metadata edit (`format`). `notes` says what
+    (`records`), the edits reported as (field, old, new) (`applied`), and a
+    format label (`format`: the profile's for a metadata edit, the walked
+    file's for a field or byte-range edit). `notes` says what
     was stored other than as asked (a mode the acid chunk cannot hold)."""
 
     def __init__(self, before, data, records, name, fmt=None, raw_doc=None,
@@ -316,7 +328,7 @@ class Patch:
         self._raw_doc = raw_doc
         self.force = force
         self.notes = list(notes)
-        self.repairs = []       # (path#field, old, new) repair() changed
+        self.repairs = []       # Repair records, one per field repair() set
         self.verified = False
         self.path = None        # the file it was made from, when there is one
 
@@ -419,8 +431,8 @@ class Patch:
         already had one the engine would also rewrite, that is refused, since repairing it is a decision
         about the file, not about this edit (`acidcat check --fix` makes it).
         A violation with no witness cannot be repaired and is refused too.
-        Returns the Patch, with `repairs` listing what changed; call
-        verify() after it."""
+        Returns the Patch, with `repairs` listing what changed (Repair:
+        addr, old, new, follows); call verify() after it."""
         from acidcat.core.write import constraints
 
         def violations(data):
@@ -446,8 +458,8 @@ class Patch:
                 % (len(standing), "; ".join(v.describe() for v in standing)))
         fixed, _report = constraints.repair(self.data)
         self.data = fixed
-        self.repairs = [("%s#%s" % (v.path, v.field), v.stored, v.computed)
-                        for v in new]
+        self.repairs = [Repair("%s#%s" % (v.path, v.field), v.stored,
+                               v.computed, v.witness) for v in new]
         self.verified = False
         return self
 

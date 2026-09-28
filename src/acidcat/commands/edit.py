@@ -43,6 +43,10 @@ def register(subparsers):
                    help="Skip the _original backup on in-place edits.")
     p.add_argument("--force", action="store_true",
                    help="Write a typed field whose type the walk only inferred.")
+    p.add_argument("--no-cascade", action="store_false", dest="cascade",
+                   help="Do not set the fields a field edit ties to (a WAV's "
+                        "avg_bytes_per_sec after its sample_rate): refuse the "
+                        "edit instead, as a new inconsistency.")
     p.add_argument("--strip", action="store_true",
                    help="Remove identifying metadata (tags/bext/iXML/ID3/...); "
                         "keeps audio and functional chunks.")
@@ -115,4 +119,5 @@ def run(args):
     _legacy.switch(argv, "--strip", args.strip)
     ns = _legacy.parser_for(write, "write").parse_args(argv)
     ns.force = args.force
+    ns.cascade = args.cascade
     return write.run(ns)

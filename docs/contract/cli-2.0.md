@@ -495,6 +495,10 @@ Where the build refines this page, and what it does not do yet:
   A 1.8 `--offset N` with no length becomes the anchor `N`.
 - `inspect --quiet` is inspect's own chunk table; `chunks` output changes to
   it. csv and tsv give it as rows (one per chunk) and need `--quiet`.
+- `edit --set ADDR=VALUE` on a field a constraint ties to others sets
+  those too and prints each on its own line (`RIFF/fmt_#avg_bytes_per_sec:
+  44100 -> 88200 (follows sample_rate * block_align)`; `cascade` in
+  `--json`); `--no-cascade` refuses the edit instead, as a new defect.
 - `edit --unset NAME` clears a tag (`--set NAME=` did); `edit --force` writes
   a typed field whose type was only inferred.
 - `stats --by meta|shape` print one line per file in table mode.

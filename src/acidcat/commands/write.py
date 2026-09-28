@@ -53,14 +53,24 @@ def _parse_sets(set_args):
     return changes
 
 
-def _edit(path, changes, force=False):
+def _edit(path, changes, force=False, cascade=True, repairs=None):
     """Return (format_label, new_bytes, applied) for the file, or raise EditError.
 
     Goes through the one edit front door (acidcat.core.edit): the changes
     become a Patch, which is verified -- every field read back through its
-    profile, no new defect on a re-walk -- before its bytes are returned."""
+    profile, no new defect on a re-walk -- before its bytes are returned.
+
+    With `cascade`, an edit to a field or byte range first has the fields a
+    constraint ties to it follow (Patch.repair(): a WAV's avg_bytes_per_sec
+    after its sample_rate); what changed that way is appended to `repairs`.
+    Without it, such an edit is refused by verify() as a new defect."""
     from acidcat.core import edit as editmod
-    patch = editmod.edit_path(path, changes, force=force).verify()
+    patch = editmod.edit_path(path, changes, force=force)
+    if cascade and any(r.kind in ("field", "bytes") for r in patch.records):
+        patch.repair()
+        if repairs is not None:
+            repairs += patch.repairs
+    patch.verify()
     for note in patch.notes:
         # stored, but not all of what was asked: say so, once, on stderr
         print(f"acidcat edit: {path}: {note}", file=sys.stderr)
@@ -218,9 +228,12 @@ def run(args):
             print(f"acidcat edit: {path}: No such file", file=sys.stderr)
             rc = 2
             continue
+        cascaded = []
         try:
             fmt, new_data, applied = _edit(path, changes,
-                                           force=getattr(args, "force", False))
+                                           force=getattr(args, "force", False),
+                                           cascade=getattr(args, "cascade", True),
+                                           repairs=cascaded)
         except (edits.EditError,) + _mutagen_errors() as e:
             print(f"acidcat edit: {path}: {e}", file=sys.stderr)
             rc = max(rc, 1)
@@ -231,12 +244,17 @@ def run(args):
                    "dry_run": bool(args.dry_run), "error": None,
                    "detail": "; ".join(f"{f}: {o!r} -> {n!r}" for f, o, n in applied),
                    "changes": [{"field": f, "old": o, "new": n}
-                               for f, o, n in applied]}
+                               for f, o, n in applied],
+                   "cascade": [{"field": r.addr, "old": r.old, "new": r.new,
+                                "follows": r.follows} for r in cascaded]}
             rows.append(row)
         else:
             print(f"{os.path.basename(path)}  [{fmt}]")
             for field, old, new in applied:
                 print(f"  {field}: {old!r} -> {new!r}")
+            for r in cascaded:
+                # a field that follows the edit, one line each, saying why
+                print(f"  {r.addr}: {r.old!r} -> {r.new!r} (follows {r.follows})")
         if "experimental" in fmt:
             print("  note: proprietary preset editing is experimental -- verify "
                   "the preset reloads in its app; a _original backup is kept.",
