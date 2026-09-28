@@ -17,9 +17,6 @@ and the acidcat-playground both build on. Import from the package root; the
     acidcat.sniff("song.wav")            # 'wav'
     acidcat.sniff_bytes(head)            # 'flac', 'ogg', ... or None
 
-    # structural walk: format label, chunk/field tree, lint warnings
-    fmt, chunks, warns = acidcat.walk("song.wav")
-
     # the inverse: find containers inside something that is not a file yet --
     # a blob, a disk image, a carved region
     for hit in acidcat.locate(blob):
@@ -44,7 +41,10 @@ and the acidcat-playground both build on. Import from the package root; the
     report = acidcat.analyze(data)                     # derived-field violations
     fixed, report = acidcat.repair(data)               # re-satisfy the constraints
     findings = acidcat.anomalies_scan("song.wav")      # walks internally
-    findings = acidcat.anomalies_scan("song.wav", fmt, chunks, warns)  # reuse a walk
+
+``walk`` and ``walk_file``, the 1.x tuple API (format label, chunk dicts,
+warnings), still work through 2.x with a DeprecationWarning naming
+``acidcat.open()``, and go in 3.0.
 
 Importing acidcat pulls only the zero-optional-dependency core (the walkers, the
 dissection primitives, the constraint model). Tagging (mutagen), the TUI
@@ -59,8 +59,9 @@ __version__ = "1.8.6"
 from acidcat.core import probe  # noqa: E402,F401
 from acidcat.core.forensics import viz
 
-# structural walking
-from acidcat.core.walk import walk_file  # noqa: E402
+# structural walking: the dispatcher behind acidcat.open() and, until 3.0,
+# the deprecated tuple API below
+from acidcat.core.walk import walk_file as _walk_file  # noqa: E402
 from acidcat.core.walk.base import Unsupported  # noqa: E402,F401
 
 # identification. Exported because a tool whose whole job is "what is this
@@ -97,8 +98,27 @@ from acidcat import tui_theme  # noqa: E402,F401
 # what an interactive caller needs to stay responsive.
 from acidcat.util import play  # noqa: E402,F401
 
-# ``walk`` is the public name; ``walk_file`` stays as an alias.
-walk = walk_file
+
+def _tuple_api(name):
+    """`walk` / `walk_file`: the 1.x tuple API, deprecated in 2.0 and removed
+    in 3.0 (architecture-2.0.md section 6). Nothing in acidcat calls it
+    (tests/test_tuple_api_deprecated.py)."""
+    import functools
+    import warnings
+
+    @functools.wraps(_walk_file)
+    def deprecated(*args, **kwargs):
+        warnings.warn(
+            f"acidcat.{name}() is deprecated and is removed in 3.0; use "
+            f"acidcat.open(), which returns a Document (its to_json() is the "
+            f"contract v1 dict)", DeprecationWarning, stacklevel=2)
+        return _walk_file(*args, **kwargs)
+    deprecated.__name__ = deprecated.__qualname__ = name
+    return deprecated
+
+
+walk = _tuple_api("walk")
+walk_file = _tuple_api("walk_file")
 
 # 2.0: a file as a Document -- read-only views over the contract v1 dict, an
 # ADDR resolver, the layers' bytes, and the forensic findings with the

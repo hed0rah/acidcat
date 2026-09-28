@@ -20,12 +20,9 @@ the shape of the overhang.
 
 
 import io
-import os
 import zipfile
-import tempfile
 
-
-from acidcat import Unsupported, walk_file  # noqa: E402
+import acidcat
 
 
 def build_wav_zip(wav_bytes, payload):
@@ -41,22 +38,15 @@ def verify(polyglot):
     """Confirm the same bytes parse as BOTH a WAV (acidcat) and a ZIP."""
     ok_wav = ok_zip = False
     wav_detail = zip_detail = ""
-    fd, tmp = tempfile.mkstemp(suffix=".wav")
     try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(polyglot)
-        try:
-            fmt, chunks, _ = walk_file(tmp, deep=False)
-            ok_wav = True
-            ids = ",".join(c["id"].strip() for c in chunks[:6])
-            wav_detail = f"{fmt}: {ids}"
-        except Exception as e:
-            wav_detail = f"{e.__class__.__name__}: {e}"
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+        doc = acidcat.open(polyglot, forensics=False)
+        ok_wav = True
+        # the chunks the walker read; the Document's unwalked spans (the
+        # overhang among them) are geometry, which is not what this names
+        ids = [n.name.strip() for n in doc.nodes if n.kind != "unwalked"]
+        wav_detail = f"{doc.format.label}: {','.join(ids[:6])}"
+    except Exception as e:
+        wav_detail = f"{e.__class__.__name__}: {e}"
     try:
         zf = zipfile.ZipFile(io.BytesIO(polyglot))
         bad = zf.testzip()

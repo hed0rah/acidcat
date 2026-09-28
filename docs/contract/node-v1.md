@@ -525,8 +525,9 @@ style of `KNOWN_COLLISIONS`.
   already requires.
 - Removing or renaming a key, or changing a key's meaning, is `contract: 2`.
 - The contract ships as **2.0.0** (decisions D2 and D25). From 2.0.0,
-  `inspect --json` emits v1 and nothing else, `acidcat.walk()` returns a
-  Document, and every internal consumer (inspect, od, chunks, carve `--field`,
+  `inspect --json` emits v1 and nothing else, `acidcat.open()` returns a
+  Document (`acidcat.walk()`, the tuple API, is deprecated through 2.x and
+  removed in 3.0; architecture-2.0.md section 6), and every internal consumer (inspect, od, chunks, carve `--field`,
   the explorer, anomalies, lsb, provenance, extract, the TUI) reads v1. There
   is no `--contract 0`: acidcat has not been announced, so there is no
   installed base to carry a legacy shape for. The legacy chunk dicts stay as

@@ -49,6 +49,14 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- **`acidcat.walk()` and `acidcat.walk_file()` are deprecated.** The 1.x
+  tuple API still returns `(label, chunks, warnings)` and now warns with a
+  `DeprecationWarning` naming `acidcat.open()`; it is removed in 3.0.
+  Nothing in acidcat or acidcat-lab calls it, and
+  `tests/test_tuple_api_deprecated.py` keeps it that way.
+- **acidcat-lab reads files through `acidcat.open()`** and requires
+  acidcat 2 (`acidcat>=2.0.0a1,<3`). `polyglot verify` reports the same
+  chunks as before and no longer writes a temporary file.
 - **The 2.0 command line: seventeen verbs** (`docs/contract/cli-2.0.md`):
   inspect, od, carve, probe, classify, locate, audit, check, edit, stats,
   analyze, lib, convert, extract, formats, explore, tui. `od` and `carve`

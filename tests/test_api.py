@@ -3,6 +3,8 @@ and importing it does not pull the optional (textual/librosa/mutagen) deps."""
 import struct
 import sys
 
+import pytest
+
 import acidcat
 
 
@@ -23,10 +25,18 @@ def test_public_names_present():
     assert set(acidcat.__all__) <= set(dir(acidcat))
 
 
-def test_walk_via_api(tmp_path):
-    fmt, chunks, warns = acidcat.walk(_wav(tmp_path))
-    assert fmt == "RIFF/WAVE"
-    assert any(str(c["id"]).strip() == "data" for c in chunks)
+def test_open_via_api(tmp_path):
+    doc = acidcat.open(_wav(tmp_path))
+    assert doc.format.label == "RIFF/WAVE"
+    assert any(n.name == "data" for n in doc.nodes)
+
+
+def test_the_tuple_api_still_walks_and_says_it_is_deprecated(tmp_path):
+    for name in ("walk", "walk_file"):
+        with pytest.warns(DeprecationWarning, match=r"acidcat\.open\(\)"):
+            fmt, chunks, warns = getattr(acidcat, name)(_wav(tmp_path))
+        assert fmt == "RIFF/WAVE"
+        assert any(str(c["id"]).strip() == "data" for c in chunks)
 
 
 def test_probe_via_api(tmp_path):

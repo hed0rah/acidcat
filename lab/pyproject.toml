@@ -35,11 +35,12 @@ classifiers = [
 ]
 # A compatible range rather than a hard pin. `==` would force a lab release for
 # every engine patch; the lab only ever touches acidcat's public facade
-# (`sniff`, `walk_file`, `Unsupported`, `util.outpath`) and
-# `tests/test_lab_boundary.py` is the standing evidence for that, so a minor
-# engine release cannot move something the lab reaches.
+# (`sniff`, `open`, `util.outpath`) and `tests/test_lab_boundary.py` is the
+# standing evidence for that, so a minor engine release cannot move something
+# the lab reaches. 2.0 is the floor: the lab reads files through
+# `acidcat.open()`, which 1.x does not have.
 dependencies = [
-    "acidcat>=1.5.0,<2",
+    "acidcat>=2.0.0a1,<3",
 ]
 
 [project.urls]
