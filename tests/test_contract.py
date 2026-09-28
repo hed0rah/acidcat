@@ -396,16 +396,20 @@ def test_the_wav_seed_reads_the_way_the_spec_example_does(tmp_path):
     p.write_bytes(seeds.build("wav"))
     doc = contract.walk(str(p))
     ids = [n["id"] for n in contract.iter_nodes(doc)]
-    assert "fmt_" in ids and "data" in ids
-    fmt = contract.node(doc, "fmt_")
+    assert ids == ["RIFF", "RIFF/fmt_", "RIFF/data"]
+    fmt = contract.node(doc, "RIFF/fmt_")
     rate = next(f for f in fmt["fields"] if f["name"] == "sample_rate")
     assert rate["value"] == 44100 and rate["type"] == "u32le"
     assert rate["at"] == {"layer": 0, "off": 24, "len": 4}
-    audio = contract.node(doc, "data")["caps"]["audio"]
-    assert audio["rate"] == 44100 and "fmt_#sample_rate" in audio["fields"]
-    # nothing describes the RIFF header yet: the gap is shown, not hidden
-    assert ids[0] == "unwalked" and contract.node(doc, "unwalked")["extent"] == \
-        {"layer": 0, "off": 0, "len": 12}
+    audio = contract.node(doc, "RIFF/data")["caps"]["audio"]
+    assert audio["rate"] == 44100 and "RIFF/fmt_#sample_rate" in audio["fields"]
+    # the header is the root chunk: no gap, and its three fields placed
+    root = contract.node(doc, "RIFF")
+    assert root["extent"] == {"layer": 0, "off": 0, "len": len(p.read_bytes())}
+    assert root["payload"]["off"] == 12
+    assert [(f["key"], f["at"]["off"], f["type"]) for f in root["fields"]] == [
+        ("magic", 0, "fourcc"), ("riff_size", 4, "u32le"), ("form_type", 8, "fourcc")]
+    assert doc["typing"]["nodes_unwalked"] == 0
 
 
 # ── the TypedDicts mirror the schema ───────────────────────────────────

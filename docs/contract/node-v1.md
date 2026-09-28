@@ -199,6 +199,14 @@ across runs of the same file and the same acidcat version, which is what
 bookmarks, `--layer` arguments and golden tests key on. They are not promised
 stable across versions.
 
+An IFF-shaped layer (RIFF, RIFX, RF64, BW64, FORM, Wave64) has one root node,
+the container its header declares, and the chunks inside it are its children:
+`RIFF/fmt_`, `FORM/COMM`, `RF64/ds64`. The root's extent ends where its size
+field says, clamped to the layer, so a chunk past the declared end (an
+appended archive, a size that undercounts) is the root's sibling. A walker
+that describes its own container keeps its own root (`sfbk` for SoundFont 2,
+`APRG` for an Akai program).
+
 ### 5.2 Children
 
 Walkers emit a flat chunk list today; nesting is implied by extent enclosure
@@ -378,7 +386,7 @@ names it; nothing is copied up to file level, so nothing is reported twice.
 
 {"kind": "defect", "code": "text.control_bytes", "severity": "notice",
  "message": "3 control bytes in a text field",
- "at": {"layer": 0, "off": 1234, "len": 12}, "node": "RIFF/LIST/INAM"}
+ "at": {"layer": 0, "off": 1234, "len": 12}, "node": "RIFF/LIST"}
 ```
 
 | Key | Type | Req | Meaning |
@@ -560,11 +568,11 @@ style of `KNOWN_COLLISIONS`.
  "nodes": [
   {"id": "RIFF", "name": "RIFF", "kind": "container",
    "extent": {"layer": 0, "off": 0, "len": 172},
-   "payload": {"layer": 0, "off": 8, "len": 164}, "geometry": "declared",
-   "summary": "WAVE, 164 bytes",
+   "payload": {"layer": 0, "off": 12, "len": 160}, "geometry": "declared",
+   "summary": "WAVE, 160 bytes of chunks",
    "fields": [
-    {"name": "id", "key": "id", "at": {"layer": 0, "off": 0, "len": 4},
-     "type": "fourcc", "type_source": "declared",
+    {"name": "magic", "key": "magic", "at": {"layer": 0, "off": 0, "len": 4},
+     "type": "fourcc", "type_source": "enc",
      "value": "RIFF", "display": "RIFF", "note": ""}],
    "caps": {},
    "children": [
@@ -593,8 +601,8 @@ style of `KNOWN_COLLISIONS`.
             "inflate_bytes": 67108864, "work_steps": 4000000,
             "list_rows": null, "frame_rows": 100000, "depth": 32,
             "decode": false, "hit": []},
- "typing": {"fields": 2, "positioned": 2, "typed_declared": 1,
-              "typed_enc": 1, "typed_inferred": 0, "caps_declared": 0,
+ "typing": {"fields": 2, "positioned": 2, "typed_declared": 0,
+              "typed_enc": 2, "typed_inferred": 0, "caps_declared": 0,
               "caps_inferred": 2, "nodes": 3, "nodes_unwalked": 0,
             "findings_legacy": 0}}
 ```

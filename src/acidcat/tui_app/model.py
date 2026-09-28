@@ -186,8 +186,26 @@ class DocumentModel:
                            == self.layer), None)
             roots = [c for c in (opener or {}).get("children", [])
                      if c.get("extent", {}).get("layer") == self.layer]
-        return sorted((n for n in roots if n.get("extent")),
-                      key=lambda n: n["extent"]["off"])
+        out = []
+        for n in roots:
+            if n.get("extent"):
+                out += self._opened(n)
+        return sorted(out, key=lambda n: n["extent"]["off"])
+
+    def _opened(self, n):
+        """A container that starts the layer and holds its chunks (an IFF
+        file's RIFF or FORM, a SoundFont's sfbk) is drawn as its header and
+        the chunks inside it, the units the tree lists, rather than as one
+        span the width of the file."""
+        e = n["extent"]
+        kids = [c for c in n.get("children") or []
+                if c.get("extent", {}).get("layer") == self.layer]
+        p = n.get("payload")
+        if e["off"] != 0 or not kids or not p:
+            return [n]
+        head = {"kind": n.get("kind"), "extent": dict(e, len=p["off"] - e["off"]),
+                "payload": dict(p, len=0)}
+        return [head] + kids
 
     def spans(self, node=None):
         """(off, len) of each positioned field of `node` in the current layer:

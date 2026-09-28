@@ -60,7 +60,7 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 - **The 2.0 command line: seventeen verbs** (`docs/contract/cli-2.0.md`):
   inspect, od, carve, probe, classify, locate, audit, check, edit, stats,
   analyze, lib, convert, extract, formats, explore, tui. `od` and `carve`
-  take an address (`od FILE fmt`, `carve FILE 'LIST[0]#title'`,
+  take an address (`od FILE fmt`, `carve FILE 'RIFF/LIST#INAM'`,
   `carve FILE @0x2c+16`); `inspect --summary` and `--tags` are the two
   views; `check` validates and `check --fix` repairs; `edit` sets tags,
   typed fields, byte ranges and the cover; `stats --by meta|shape|chunks`

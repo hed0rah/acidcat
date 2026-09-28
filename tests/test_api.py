@@ -28,7 +28,7 @@ def test_public_names_present():
 def test_open_via_api(tmp_path):
     doc = acidcat.open(_wav(tmp_path))
     assert doc.format.label == "RIFF/WAVE"
-    assert any(n.name == "data" for n in doc.nodes)
+    assert any(n.id == "RIFF/data" for n in doc.walk())
 
 
 def test_the_tuple_api_still_walks_and_says_it_is_deprecated(tmp_path):

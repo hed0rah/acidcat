@@ -38,7 +38,7 @@ def test_a_declared_bit_field_with_a_transform_writes_and_reads_back(tmp_path):
 
 def test_an_inferred_type_is_refused_without_force(tmp_path):
     p, doc = _open(tmp_path, "wav")
-    f = doc.field("fmt_#block_align")
+    f = doc.field("RIFF/fmt_#block_align")
     assert f.type_source == "inferred"
     with pytest.raises(EditError, match="inferred type"):
         doc.edit({f.addr: 4})
@@ -74,7 +74,7 @@ def test_a_derived_layer_is_not_editable(tmp_path):
 
 def test_raw_bytes_replace_an_exact_range(tmp_path):
     p, doc = _open(tmp_path, "wav")
-    off = doc.field("fmt_#sample_rate").at.off
+    off = doc.field("RIFF/fmt_#sample_rate").at.off
     patch = doc.edit({"@%d+4" % off: b"\x44\xac\x00\x00"}).verify()
     assert patch.spans() == [(off, b"\x44\xac\x00\x00", b"\x44\xac\x00\x00")]
     with pytest.raises(EditError, match="4 bytes; 3 given"):
@@ -83,7 +83,7 @@ def test_raw_bytes_replace_an_exact_range(tmp_path):
 
 def test_overlapping_edits_are_refused(tmp_path):
     p, doc = _open(tmp_path, "wav")
-    off = doc.field("fmt_#sample_rate").at.off
+    off = doc.field("RIFF/fmt_#sample_rate").at.off
     with pytest.raises(EditError, match="overlaps"):
         doc.edit({"@%d+4" % off: b"\x00" * 4, "@%d+2" % (off + 2): b"\x00" * 2})
 
@@ -126,8 +126,8 @@ def test_verify_catches_a_new_defect(tmp_path):
     """A sample rate changed alone leaves avg_bytes_per_sec disagreeing."""
     p, doc = _open(tmp_path, "wav")
     with pytest.raises(PatchError, match="new field.inconsistent defect"):
-        doc.edit({"fmt_#sample_rate": 48000}, force=True).verify()
-    doc.edit({"fmt_#sample_rate": 48000, "fmt_#avg_bytes_per_sec": 96000},
+        doc.edit({"RIFF/fmt_#sample_rate": 48000}, force=True).verify()
+    doc.edit({"RIFF/fmt_#sample_rate": 48000, "RIFF/fmt_#avg_bytes_per_sec": 96000},
              force=True).verify()
 
 

@@ -129,7 +129,8 @@ _STRUCT_TYPES = {
     "Q": "u64", "q": "i64",
     "f": "f32", "d": "f64",
 }
-_NAMED_TYPES = {"float80": "f80be", "u24be": "u24be", "synchsafe": "synchsafe"}
+_NAMED_TYPES = {"float80": "f80be", "u24be": "u24be", "synchsafe": "synchsafe",
+                "fourcc": "fourcc"}
 
 # Fixed-width integer types: name -> (width, signed, byteorder).
 _INT_TYPES = {}
@@ -418,11 +419,93 @@ def _unwalked(off, n, layer=0):
             "fields": [], "children": [], "caps": {}}
 
 
+# IFF-shaped headers: magic -> (header length, byte order of the size). The
+# size counts from byte 8, except Wave64's, which counts the whole file.
+_IFF_HEADS = {b"RIFF": (12, "<"), b"RIFX": (12, ">"), b"RF64": (12, "<"),
+              b"BW64": (12, "<"), b"FORM": (12, ">")}
+_W64_RIFF = bytes.fromhex("726966662e91cf11a5d628db04c10000")
+
+
+def _iff_header(data):
+    """(header length, end of the root chunk) for an IFF-shaped layer, or
+    None. The end is where the header's size says, clamped to the layer: a
+    sentinel (RF64's 0xFFFFFFFF) or a size past the layer means the layer."""
+    if data is None or len(data) < 12:
+        return None
+    size, head = len(data), bytes(data[:4])
+    if head in _IFF_HEADS:
+        hdr, order = _IFF_HEADS[head]
+        if not all(32 <= b < 127 for b in bytes(data[8:12])):
+            return None                   # no form type: not IFF-shaped
+        end = 8 + struct.unpack(order + "I", bytes(data[4:8]))[0]
+    elif len(data) >= 40 and bytes(data[:16]) == _W64_RIFF:
+        hdr, end = 40, struct.unpack("<Q", bytes(data[16:24]))[0]
+    else:
+        return None
+    if end < hdr or end > size:
+        end = size
+    return hdr, end
+
+
+def _iff_root(data, chunks):
+    """The walker's chunks with an IFF-shaped layer's root chunk made whole.
+
+    A RIFF, RIFX, RF64, BW64, FORM or Wave64 file is one chunk holding the
+    rest: that is what `RIFF/fmt_#sample_rate` and `FORM/COMM` address
+    (node-v1.md section 13). Walkers describe the header one of two ways, and
+    neither was a root: most read it and describe only the chunks inside,
+    leaving the 12 bytes an `unwalked` gap; some (8SVX, SMUS, Wave64) give it
+    a node of its own that ends where the header does. The first gets a root
+    read from the header's own bytes, added last so every walker chunk keeps
+    its index (caps are keyed by it); the second's node is grown to the
+    extent its size declares, keeping its name and fields. A walker node at
+    offset 0 that already holds the chunks is left as it is. The walkers'
+    flat chunk lists, the 1.x tuple API, do not change: this is a copy.
+
+    The root ends where its size says, clamped to the layer: chunks a walker
+    read past the declared end (an appended archive, a size that undercounts)
+    are its siblings, which is where the file puts them."""
+    head = _iff_header(data)
+    if head is None:
+        return chunks
+    hdr, end = head
+    chunks = list(chunks or [])
+    at0 = [i for i, c in enumerate(chunks) if _positioned(c) and c["offset"] == 0]
+    if at0:
+        i = at0[0]
+        c = chunks[i]
+        if c["extent_len"] != hdr or c["payload_base"] != 0:
+            return chunks                 # it describes its own container
+        grown = dict(c, extent_len=end, payload_base=hdr, payload_len=end - hdr)
+        grown["fields"] = [dict(f, off=f["off"] - hdr)
+                           if isinstance(f.get("off"), int) else f
+                           for f in c.get("fields") or []]
+        chunks[i] = grown
+        return chunks
+    magic = bytes(data[:4])
+    form = bytes(data[8:12]).decode("latin-1")
+    order = _IFF_HEADS[magic][1]
+    declared = struct.unpack(order + "I", bytes(data[4:8]))[0]
+    chunks.append({
+        "id": magic.decode("latin-1"), "offset": 0, "extent_len": end,
+        "payload_base": hdr, "payload_len": end - hdr, "geometry": "declared",
+        "summary": f"{form.strip()}, {end - hdr:,} bytes of chunks",
+        # named as the walkers that describe a header name it (8SVX, RMID)
+        "fields": [{"name": "magic", "value": magic.decode("latin-1"),
+                    "off": -12, "len": 4, "enc": "fourcc"},
+                   {"name": "form_size" if magic == b"FORM" else "riff_size",
+                    "value": declared, "off": -8, "len": 4, "enc": order + "I"},
+                   {"name": "form_type", "value": form, "off": -4, "len": 4,
+                    "enc": "fourcc"}]})
+    return chunks
+
+
 def _tree(chunks, data, layer, prefer_be, ctx, top):
     """The node tree for one layer's chunks: nodes by enclosure, the gaps
     filled, then any layer a node declares walked into as its children."""
     size = len(data) if data is not None else 0
     nodes, descend = [], []
+    chunks = _iff_root(data, chunks)
     for idx, c in enumerate(chunks or []):
         name = str(c.get("id", "?"))
         node = {"name": name.strip() or name, "kind": "chunk",
