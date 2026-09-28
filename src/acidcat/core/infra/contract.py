@@ -855,27 +855,46 @@ def walk(path, deep=False, fmt_override=None, limits=None, on_walk=None):
     `on_walk(label, chunks, warns)`, when given, receives the walk the
     Document was made from, so a consumer that also needs it (the forensic
     scan) does not walk the file twice."""
-    from acidcat.core.infra import capabilities, sniff as sniffmod
     from acidcat.core.infra.source import Source, as_source
     from acidcat.core.walk import walk_file
     owned = not isinstance(path, Source)
     src = as_source(path)
     try:
         limits = limits or Limits.for_deep(deep)
-        fmt_id = fmt_override or sniffmod.sniff(src)
         label, chunks, warns = walk_file(src, deep=limits.decode,
                                          fmt_override=fmt_override)
         if on_walk is not None:
             on_walk(label, chunks, warns)
-        return document(fmt_id, label, chunks, warns, src.buffer(),
-                        forced=bool(fmt_override),
-                        caps_fn=lambda f, l, c: capabilities.caps(
-                            f, l, c, head=src.read(0, 16), name=src.path or src.name),
-                        prefer_be=capabilities.prefers_be(fmt_id, label),
-                        limits=limits)
+        return _from_source(src, label, chunks, warns, fmt_override, limits)
     finally:
         if owned:
             src.close()
+
+
+def from_walk(path, label, chunks, warns, *, fmt_override=None, limits=None,
+              chunk_ids=None):
+    """The v1 Document for a walk already made of the file at `path` (inspect
+    walks once, in a sandbox or a region copy if asked, and prints every view
+    from that walk). `limits` are the ones it ran under; `chunk_ids` as for
+    document()."""
+    from acidcat.core.infra.source import as_source
+    src = as_source(path)
+    try:
+        return _from_source(src, label, chunks, warns, fmt_override,
+                            limits or Limits(), chunk_ids)
+    finally:
+        src.close()
+
+
+def _from_source(src, label, chunks, warns, fmt_override, limits, chunk_ids=None):
+    from acidcat.core.infra import capabilities, sniff as sniffmod
+    fmt_id = fmt_override or sniffmod.sniff(src)
+    return document(fmt_id, label, chunks, warns, src.buffer(),
+                    forced=bool(fmt_override),
+                    caps_fn=lambda f, l, c: capabilities.caps(
+                        f, l, c, head=src.read(0, 16), name=src.path or src.name),
+                    prefer_be=capabilities.prefers_be(fmt_id, label),
+                    limits=limits, chunk_ids=chunk_ids)
 
 
 # ── lookups ────────────────────────────────────────────────────────────

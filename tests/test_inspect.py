@@ -1184,8 +1184,9 @@ class TestRunCli:
         path = _wav(tmp_path, _fmt(), _data())
         assert run(self._args(path, output_format="json")) == 0
         doc = json.loads(capsys.readouterr().out)
-        assert doc["format"] == "RIFF/WAVE"
-        assert [c["id"] for c in doc["chunks"]] == ["fmt ", "data"]
+        assert doc["contract"] == 1 and doc["format"] == {"id": "wav",
+                                                          "label": "RIFF/WAVE"}
+        assert [c["name"] for c in doc["nodes"][0]["children"]] == ["fmt", "data"]
 
     def test_flac_dispatch(self, tmp_path, capsys):
         path = _flac(tmp_path, _flac_block(0, _streaminfo(), last=True))
@@ -1281,7 +1282,8 @@ class TestRunCli:
         lines = [l for l in capsys.readouterr().out.splitlines() if l.strip()]
         assert len(lines) == 2
         docs = [json.loads(l) for l in lines]  # each line parses on its own
-        assert [d["format"] for d in docs] == ["RIFF/WAVE", "RIFF/WAVE"]
+        assert [d["format"]["label"] for d in docs] == ["RIFF/WAVE", "RIFF/WAVE"]
+        assert [d["file"]["path"] for d in docs] == [a, b]
 
     def test_missing_among_present_keeps_going_exit_1(self, tmp_path, capsys):
         a = _wav(tmp_path, _fmt(), _data(), name="a.wav")
@@ -1356,8 +1358,9 @@ class TestRunCli:
         p = _wav(tmp_path, _fmt(), _data(), _acid())
         assert run(self._args(p, only="acid", output_format="json")) == 0
         doc = json.loads(capsys.readouterr().out)
-        assert [c["id"] for c in doc["chunks"]] == ["acid"]
-        assert "_idx" not in doc["chunks"][0]  # helper key stays internal
+        # the tree cut to the node and its ancestors
+        assert [n["id"] for n in doc["nodes"]] == ["RIFF"]
+        assert [c["id"] for c in doc["nodes"][0]["children"]] == ["RIFF/acid"]
 
 
 class TestParseFmtExtensible:

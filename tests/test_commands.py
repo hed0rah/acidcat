@@ -137,8 +137,10 @@ class TestChunksCommand:
     def test_json_output(self, minimal_wav):
         code, out, err = run_cli("inspect", "--chunks", minimal_wav, "--json")
         assert code == 0 or code is None
-        data = json.loads(out)
-        assert {c["id"].strip() for c in data["chunks"]} >= {"fmt", "data"}
+        data = json.loads(out)                    # the contract v1 Document
+        assert data["contract"] == 1
+        assert {c["id"] for c in data["nodes"][0]["children"]} >= {
+            "RIFF/fmt_", "RIFF/data"}
 
     def test_chunk_rows_as_csv(self, minimal_wav):
         code, out, err = run_cli("inspect", "--chunks", minimal_wav, "--csv")

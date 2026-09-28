@@ -543,5 +543,9 @@ Where the build refines this page, and what it does not do yet:
   `--noatime` and `--no-fadvise` are census's reader, which serves
   `--by chunks` only so far: `--by meta` and `--by shape` accept them and say
   on stderr that they have no effect there. `--no-recurse` and
-  `--limit NAME=VALUE` are on no verb yet (`--limit` arrives with the Document
-  JSON, milestone 4).
+  `--limit NAME=VALUE` are on no verb yet.
+- `inspect --json` is the contract v1 Document (node-v1.md), one compact
+  object per file per line, the one `acidcat.open()` builds from the same
+  walk, plus `file.path` and, with `--anomalies`, the forensic findings.
+  `--only/--exclude` cut its tree to the chosen nodes and their ancestors.
+  `--full` (1.8's positioned dump) is `--json`.

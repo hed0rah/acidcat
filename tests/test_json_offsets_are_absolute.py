@@ -63,32 +63,37 @@ def test_a_node_carved_raw_starts_at_its_header(wav):
 
 
 def test_inspect_field_abs_is_the_real_byte(wav):
+    """2.0: --json is the v1 Document, whose `at` is absolute by contract."""
     doc = json.loads(_run("inspect", "--json", wav).splitlines()[0])
-    fmt = [c for c in doc["chunks"] if c["id"].strip() == "fmt"][0]
-    assert fmt["payload_base"] == fmt["offset"] + 8
+    fmt = [c for c in doc["nodes"][0]["children"] if c["id"] == "RIFF/fmt_"][0]
+    assert fmt["payload"]["off"] == fmt["extent"]["off"] + 8
 
-    by_name = {f["name"]: f for f in fmt["fields"]}
-    rate = by_name["sample_rate"]
+    by_key = {f["key"]: f for f in fmt["fields"]}
+    rate = by_key["sample_rate"]["at"]
 
-    raw = _run("carve", wav, "--offset", str(rate["abs"]),
+    raw = _run("carve", wav, "--offset", str(rate["off"]),
                "--length", str(rate["len"]), "--encoding", "hex")
     assert struct.unpack("<I", bytes.fromhex(raw.replace(" ", "")))[0] == 44100
 
-    chans = by_name["channels"]
-    raw = _run("carve", wav, "--offset", str(chans["abs"]),
+    chans = by_key["channels"]["at"]
+    raw = _run("carve", wav, "--offset", str(chans["off"]),
                "--length", str(chans["len"]), "--encoding", "hex")
     assert struct.unpack("<H", bytes.fromhex(raw.replace(" ", "")))[0] == 2
 
 
-def test_full_and_plain_json_agree_on_absolute_offsets(wav):
-    """--full was already correct; the two must not drift apart again."""
+def test_the_document_and_explores_dump_agree_on_absolute_offsets(wav, capsys):
+    """explore builds its page from inspect's in-process positioned dump;
+    the Document --json prints must place every field where that does."""
+    from acidcat.commands import _legacy, inspect
     plain = json.loads(_run("inspect", "--json", wav).splitlines()[0])
-    full = json.loads(_run("inspect", "--full", wav).splitlines()[0])
+    ns = _legacy.parser_for(inspect, "inspect").parse_args([wav, "--json"])
+    ns.full = True
+    capsys.readouterr()
+    assert inspect.run(ns) == 0
+    full = json.loads(capsys.readouterr().out.splitlines()[0])
 
-    def abs_map(doc):
-        return {(c["id"], f["name"]): f.get("abs")
-                for c in doc["chunks"] for f in c["fields"]
-                if f.get("off") is not None}
-
-    a, b = abs_map(plain), abs_map(full)
+    a = {(n["name"], f["name"]): f["at"]["off"]
+         for n in plain["nodes"][0]["children"] for f in n["fields"] if "at" in f}
+    b = {(c["id"].strip(), f["name"]): f.get("abs")
+         for c in full["chunks"] for f in c["fields"] if f.get("off") is not None}
     assert a and a == b

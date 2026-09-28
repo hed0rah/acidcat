@@ -67,8 +67,8 @@ def test_carve_into_inspect_composes(wav, tmp_path):
 
     assert inspect.returncode == 0, err.decode()
     doc = json.loads(out.decode().splitlines()[0])
-    assert doc["format"] == "RIFF/WAVE"
-    assert {c["id"].strip() for c in doc["chunks"]} == {"fmt", "data"}
+    assert doc["format"]["label"] == "RIFF/WAVE"
+    assert {c["id"] for c in doc["nodes"][0]["children"]} == {"RIFF/fmt_", "RIFF/data"}
 
 
 @pytest.mark.parametrize("verb", ["inspect", "classify"])
@@ -88,7 +88,9 @@ def test_json_names_stdin_not_the_temp_copy(wav, verb):
     # pretty-printed array. Both are documented; parse each as what it is.
     doc = json.loads(text.splitlines()[0] if verb == "inspect" else text)
     rec = doc[0] if isinstance(doc, list) else doc
-    assert rec["file"] == "<stdin>"
+    # inspect's is a Document, whose file carries the path the caller gave
+    got = rec["file"]["path"] if isinstance(rec["file"], dict) else rec["file"]
+    assert got == "<stdin>"
 
 
 @pytest.mark.parametrize("verb", ["inspect", "classify"])

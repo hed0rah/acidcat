@@ -6,6 +6,66 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Migrating from 1.x
+
+What a 1.8 user or script has to change. Everything else keeps working
+through 2.x, with a note on stderr where a spelling has a new name.
+
+**Python.** 3.11 or later.
+
+**The command line.** Seventeen verbs replace twenty-nine. Every 1.8 verb
+and flag still runs as an alias: it prints one line on stderr naming the 2.0
+spelling, then runs exactly that (`docs/contract/cli-2.0.md` has the table).
+The aliases go in 3.0. What does not alias:
+
+- `-f`, `--no-color`, `formats --format-out` and `carve --format`, deprecated
+  in 1.x, are removed; each exits 2 naming what to write instead
+  (`--output-format`, `--color never`, `--encoding`).
+- `inspect -q` only quiets stderr. The chunk table alone is `inspect
+  --chunks` (what `chunks` now runs).
+- `inspect --only/--exclude` take node ids, globs or names and match
+  exactly; a pattern that names no chunk exits 1.
+- Exit codes: `inspect` on a file no walker reads exits 2 (was 1), as do a
+  bad argument value (`formats nope`, `inspect --force-format nope`) and
+  `edit` on a missing file. `classify` and `inspect --try-all` still answer 1.
+- `stats` (and the `survey` and `census` aliases) stop at 10,000 files
+  unless `--max-files` says otherwise (`0` for no limit); the `scan` alias
+  keeps its 1.8 default of 500.
+- Addresses print and take the node ids of the Document: `RIFF/fmt_`,
+  `RIFF/fmt_#sample_rate`, `FORM/COMM`. A bare name (`fmt`) still resolves.
+  `probe read data FILE` reads the chunk's payload (1.8 gave its header).
+
+**`inspect --json` is the contract v1 Document** (`docs/contract/node-v1.md`,
+`node-v1.schema.json`), one object per file per line. The 1.8 keys map as:
+
+| 1.8 | 2.0 |
+|---|---|
+| `file` (a string) | `file.path` |
+| `format` (the label) | `format.label`; `format.id` is the registry id |
+| `size` | `file.size` |
+| `chunks[]` | `nodes[]`, a tree: an IFF file's chunks are the children of its `RIFF`/`FORM` root |
+| chunk `id` | node `name`; node `id` is the address (`RIFF/fmt_`) |
+| chunk `offset`, `size` | `extent` and `payload` (`{layer, off, len}`) |
+| chunk `payload_base` | `payload.off` |
+| field `name`, `value` | `name`, `key`; `display` is 1.8's value, `value` the machine value |
+| field `off` (relative), `abs` | `at.off` (absolute), `at.len` |
+| `warnings`, chunk `warnings` | `findings[]` with `kind`, `code`, `severity`, `node` |
+| `anomalies` (with `--anomalies`) | more `findings[]`, codes `anomaly.*` |
+| `lsb` | the `anomaly.lsb_entropy` finding when it fires |
+
+`--full` was the positioned dump; the Document is positioned throughout, so
+`--full` is `--json`.
+
+**The Python API.** `acidcat.open(path | bytes | Source)` returns a
+`Document`; `doc.to_json()` is the dict above,
+`doc.field("RIFF/fmt_#sample_rate")` a field, `doc.edit({...})` a `Patch`
+(`repair()`, `verify()`, `commit(out, backup=True)`). `acidcat.walk()` and `acidcat.walk_file()`
+still return `(label, chunks, warnings)` with a `DeprecationWarning`, and go
+in 3.0. `acidcat.probe.resolve()` takes an ADDR. `acidcat.core.grammar` is
+gone.
+
+**acidcat-lab** requires acidcat 2.
+
 ### Added
 
 - **A description of every walk as one document (contract v1).**
@@ -94,6 +154,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `padding` node, not `unwalked`. MP3 frame rows are `index`,
   `bitrate_kbps`, `sample_rate`, `mode`, `bytes`, with a real `at.len`
   (so are the columns of `inspect --frames` on an MP3).
+- **`inspect --json` is the contract v1 Document** (see Migrating from
+  1.x): the one `acidcat.open()` builds, with `file.path` and, with
+  `--anomalies`, the forensic findings. `--only/--exclude` cut its tree
+  to the chosen nodes and their ancestors.
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

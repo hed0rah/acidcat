@@ -319,24 +319,35 @@ def _node_id(c):
     return c.get("_id") or str(c["id"]).strip()
 
 
-def _node_ids(filepath, fmt_label, chunks, file_warns):
-    """(the v1 dict, {chunk index: node id}) for one walk: the normaliser's
-    ids, so the table prints what `od`, `carve` and `--only` accept."""
+def _node_ids(filepath, fmt_label, chunks, file_warns, fmt_override=None,
+              deep=False):
+    """(the v1 Document, {chunk index: node id}) for one walk: what --json
+    prints, and the normaliser's ids, so the table prints what `od`, `carve`
+    and `--only` accept."""
     from acidcat.core.infra import contract
-    from acidcat.core.infra.mapped import map_file
+    from acidcat.core.infra.limits import Limits
     ids = {}
     try:
-        data, close = map_file(filepath)
-    except OSError:
-        return None, ids
-    try:
-        doc = contract.document(None, fmt_label, chunks, file_warns, data,
-                                chunk_ids=ids)
+        doc = contract.from_walk(filepath, fmt_label, chunks, file_warns,
+                                 fmt_override=fmt_override,
+                                 limits=Limits.for_deep(deep), chunk_ids=ids)
     except Exception:                 # the table never fails over its ids
         return None, {}
-    finally:
-        close()
     return doc, ids
+
+
+def _prune(nodes, keep):
+    """The node tree cut to the nodes in `keep` (each with its subtree) and
+    their ancestors, for --only/--exclude on the Document."""
+    out = []
+    for n in nodes:
+        if n["id"] in keep:
+            out.append(n)
+            continue
+        kids = _prune(n["children"], keep)
+        if kids:
+            out.append(dict(n, children=kids))
+    return out
 
 
 def _select_chunks(chunks, only, exclude, doc=None, ids=None):
@@ -665,6 +676,7 @@ def _run_inspect(args):
                                  source_path=source_path, as_json=as_json)
                 exit_code = exit_code or rc
                 continue
+            walked_label = None     # the walker's label, before a region note
             try:
                 if sandbox_profile:
                     from acidcat.core.infra import sandbox as _sb
@@ -682,6 +694,7 @@ def _run_inspect(args):
                     fmt_label, chunks, file_warns = walk_file(
                         filepath, deep,
                         fmt_override=getattr(args, "fmt_override", None))
+                    walked_label = fmt_label
                     if region_scope:
                         fmt_label = f"{fmt_label}  [region {region_scope}]"
             except Unsupported as e:
@@ -724,7 +737,10 @@ def _run_inspect(args):
                 continue
 
             total = len(chunks)
-            doc, ids = _node_ids(filepath, fmt_label, chunks, file_warns)
+            doc, ids = _node_ids(filepath, walked_label or fmt_label,
+                                 chunks, file_warns,
+                                 fmt_override=getattr(args, "fmt_override", None),
+                                 deep=deep)
             shown, missing = _select_chunks(chunks, only, exclude, doc, ids)
             if missing:
                 # a filter that names nothing is a mistake, not an empty table
@@ -761,49 +777,36 @@ def _run_inspect(args):
                      "offset": c["offset"], "size": c["size"],
                      "summary": c["summary"]}
                     for i, c in enumerate(shown))
-            elif as_json:
-                # NDJSON: one compact record per file per line, so the stream
-                # pipes cleanly into jq -c and other line-oriented tools.
-                if full:
-                    out_chunks = [_full_chunk(c, filepath) for c in shown]
-                else:
-                    out_chunks = []
-                    for c in shown:
-                        oc = {k: v for k, v in c.items() if k not in ("_idx", "_id")}
-                        if c.get("_id"):
-                            oc["addr"] = c["_id"]
-                        # `offset` is the chunk header, `field.off` is relative
-                        # to the payload, so `chunk.offset + field.off` read
-                        # eight bytes early -- format-dependent, because a
-                        # headerless model like MOD has no skew and a script
-                        # tuned on trackers broke silently on RIFF. --full has
-                        # always emitted the absolute offsets; plain --json now
-                        # does too, at no extra cost.
-                        pb = c.get("payload_base")
-                        if pb is None and c["offset"] is not None:
-                            pb = c["offset"] + 8
-                        oc["payload_base"] = pb
-                        fields = []
-                        for f in c.get("fields", []):
-                            f2 = _public_field(f)
-                            f2["abs"] = (pb + f["off"]
-                                         if f.get("off") is not None else None)
-                            fields.append(f2)
-                        oc["fields"] = fields
-                        out_chunks.append(oc)
+            elif full:
+                # the positioned legacy dump explore builds its page from
+                # (in process; `--full` on the command line is --json now)
                 sys.stdout.write(json.dumps({
-                    # source_path, not filepath: with `-` the latter is a temp
-                    # copy whose name means nothing to the caller and is gone
-                    # by the time they read the record
-                    "file": source_path,
-                    "format": fmt_label,
-                    "size": os.path.getsize(filepath),
-                    "full": full,
-                    "chunks": out_chunks,
+                    "file": source_path, "format": fmt_label,
+                    "size": os.path.getsize(filepath), "full": True,
+                    "chunks": [_full_chunk(c, filepath) for c in shown],
                     "warnings": file_warns,
                     **({"anomalies": findings} if findings is not None else {}),
                     **({"lsb": lsb_info} if lsb_info else {}),
                 }) + "\n")
+            elif as_json:
+                # the contract v1 Document (docs/contract/node-v1.md), one
+                # compact object per file per line, so many files are NDJSON
+                if doc is None:
+                    print(f"acidcat inspect: {source_path}: could not describe "
+                          f"the walk as a Document", file=sys.stderr)
+                    exit_code = max(exit_code, 1)
+                    continue
+                out = dict(doc)
+                # the caller named the file, so the path is theirs to see
+                # (node-v1.md section 2); never a stdin temp copy's name
+                out["file"] = dict(doc["file"], path=source_path)
+                if findings is not None:
+                    from acidcat.core.document import forensic_findings
+                    out["findings"] = doc["findings"] + forensic_findings(doc, findings)
+                if only is not None or exclude is not None:
+                    out["nodes"] = _prune(doc["nodes"], {c["_id"] for c in shown
+                                                         if c.get("_id")})
+                sys.stdout.write(json.dumps(out) + "\n")
             else:
                 pretty = getattr(args, "pretty", False)
                 if multi and not pretty:
