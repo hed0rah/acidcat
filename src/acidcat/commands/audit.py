@@ -281,6 +281,17 @@ def _run_one(args):
         print(f"acidcat audit: {path}: {e}", file=sys.stderr)
         return 2
     size = os.path.getsize(path)
+    # a format acidcat recognises but only extracts from (a console ROM) is
+    # not "unknown", and `extract` is the verb that gets at its audio
+    extract_only = None
+    if not scanned:
+        from acidcat.core.infra import sniff
+        from acidcat.core.walk import _EXTRACT_ONLY
+        what = _EXTRACT_ONLY.get(sniff.sniff(path))
+        if what:
+            extract_only = what.split(" ", 1)[1]
+            label = label or extract_only
+    todo = "extract" if extract_only else "locate"
 
     if chosen_format(args) == "json":
         out = {
@@ -332,8 +343,9 @@ def _run_one(args):
 
     if not scanned:
         print("  FORENSICS   not scanned -- no walker for this format")
-        print("                try: acidcat locate " +
-              os.path.basename(path) + "   (finds embedded audio regardless)")
+        print(f"                try: acidcat {todo} " + os.path.basename(path)
+              + ("   (recovers its samples)" if extract_only
+                 else "   (finds embedded audio regardless)"))
     elif not other:
         print("  FORENSICS   nothing else flagged")
     else:
@@ -381,6 +393,6 @@ def _run_one(args):
         # "clean" is a claim about checks that ran. With no walker they did not,
         # and the honest answer is that this verb had nothing to say -- `locate`
         # still finds embedded containers in a format we cannot walk.
-        bits.append("clean" if scanned else "not analyzable -- no walker; try acidcat locate")
+        bits.append("clean" if scanned else f"not analyzable -- no walker; try acidcat {todo}")
     print(f"\n  VERDICT: {', '.join(bits) if bits else 'no structural fixes; review findings'}")
     return _code(scanned, vios, findings, integ)
