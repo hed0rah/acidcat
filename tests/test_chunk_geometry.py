@@ -243,6 +243,10 @@ def _collisions(chunks):
     return out
 
 
+# findings that call out a chunk whose payload leaves the file
+_OVERSHOOT_CODES = {"size.overrun", "pointer.dangling", "container.trailing"}
+
+
 @pytest.fixture(scope="module")
 def walked():
     got = list(_corpus())
@@ -262,7 +266,13 @@ class TestTheGeometryIsReadableByOneRule:
                 if (label, cid) in KNOWN_DEFECTS:
                     continue
                 # Damage the walker already called out in the file's own numbers
-                # is the tool working, not failing.
+                # is the tool working, not failing. Keyed on the finding code
+                # where there is one: wording changes, codes do not, and bytes
+                # appended past the declared end read as a chunk header are
+                # container.trailing, not the chunk's own overrun.
+                if any(getattr(w, "code", None) in _OVERSHOOT_CODES and cid in str(w)
+                       for w in warns):
+                    continue
                 if any(str(size) in w or "remain" in w or "claims" in w
                        for w in warns):
                     continue
