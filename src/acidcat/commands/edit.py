@@ -99,14 +99,15 @@ def run(args):
                   file=sys.stderr)
             return 2
         from acidcat.commands import cover as covercmd
+        if kind != "get":
+            # set and remove here, not through `cover`'s parser: its -o means
+            # "extract to", and it has no --dry-run, so both were dropped and
+            # a dry run, or an -o copy, rewrote the input in place
+            return covercmd.change(args.inputs[0], value if kind == "set" else None,
+                                   out=args.output, dry_run=args.dry_run,
+                                   overwrite=args.overwrite)
         argv = [args.inputs[0]]
-        if kind == "get":
-            _legacy.flag(argv, "-o", args.output)
-        elif kind == "set":
-            argv += ["--set", value]
-        else:
-            argv.append("--remove")
-        _legacy.switch(argv, "--overwrite", args.overwrite)
+        _legacy.flag(argv, "-o", args.output)
         return _legacy.run(covercmd, "cover", argv)
 
     from acidcat.commands import write

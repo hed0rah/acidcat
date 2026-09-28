@@ -393,6 +393,15 @@ gone.
 
 ### Fixed
 
+- **`edit`'s cover honours `--dry-run` and `-o`.** `edit --set cover=@IMG`
+  ran through the 1.8 `cover` verb, which has no dry run and reads `-o` as
+  "extract to": a dry run embedded the cover and made a backup, and `-o
+  copy.mp3` rewrote the input in place. `--unset cover` on a file with no
+  cover no longer rewrites it. A WAV or AIFF takes a cover: the audio guard
+  hashed a RIFF or FORM file whole, so the ID3 chunk mutagen adds after the
+  sound data read as changed audio and every such edit was refused. It now
+  compares the `data` or `SSND` payload.
+
 - **`write FILE.wav --set key=Am` and `--set root=C3` exited 1** ("the patch
   does not verify"), as did clearing the key with `--set key=`. The WAV
   writer reported the old key as None (or "set") instead of reading the

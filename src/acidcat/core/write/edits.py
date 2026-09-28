@@ -228,6 +228,22 @@ def _audio_digest(data):
                 h.update(mv[b["offset"] + b["hdr"]:b["offset"] + b["size"]])
                 found = True
         return "mp4", h.hexdigest() if found else None
+    if len(data) >= 12 and data[:4] in (b"RIFF", b"FORM"):
+        # WAV and AIFF: the sample chunk's payload. mutagen adds or rewrites
+        # an ID3 chunk after it; before this branch a RIFF file fell through
+        # to the mp3 rule, hashed whole, and every cover edit looked like
+        # changed audio
+        big = data[:4] == b"FORM"
+        want = b"SSND" if big else b"data"
+        pos = 12
+        while pos + 8 <= len(data):
+            cid = data[pos:pos + 4]
+            size = int.from_bytes(data[pos + 4:pos + 8], "big" if big else "little")
+            if cid == want:
+                h.update(mv[pos + 8:min(pos + 8 + size, len(data))])
+                return "iff", h.hexdigest()
+            pos += 8 + size + (size & 1)
+        return "iff", None
     if data[:4] == b"OggS":
         from acidcat.core.formats import ogg as oggmod
         return "ogg", tuple((p["serial"], p["granule"], p["data_len"])

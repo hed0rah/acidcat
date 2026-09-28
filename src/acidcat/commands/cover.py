@@ -30,19 +30,61 @@ def register(subparsers):
     p.set_defaults(func=run)
 
 
-def _mutate(path, image, overwrite):
+def _mutate(path, image, overwrite, out=None, dry_run=False):
     """Embed `image` as the cover (None removes it) through the edit front door
     (acidcat.core.edit): the audio payload is checked unchanged, the cover is
-    read back and the file re-walked before anything is committed. Returns
-    (written, backup, record)."""
+    read back and the file re-walked before anything is committed. Nothing
+    is written on a dry run, or when there was no cover to remove. Returns
+    (written or None, backup, record)."""
     from acidcat.core import edit as editmod
     patch = editmod.edit_path(path, {"cover": image})
     try:
         patch.verify()
     except editmod.PatchError as e:
         raise covermod.CoverError(str(e))
-    written, backup = patch.commit(backup=not overwrite)
-    return written, backup, patch.records[0]
+    rec = patch.records[0]
+    if dry_run or (image is None and not rec.field["removed"]):
+        return None, None, rec
+    written, backup = patch.commit(out=out, backup=not overwrite)
+    return written, backup, rec
+
+
+def change(path, image_path, out=None, dry_run=False, overwrite=False):
+    """`edit --set cover=@IMAGE` (image_path) or `edit --unset cover` (None),
+    honouring -o and --dry-run. The exit code."""
+    if not os.path.isfile(path):
+        print(f"acidcat edit: {path}: No such file", file=sys.stderr)
+        return 2
+    img = None
+    if image_path is not None:
+        if not os.path.isfile(image_path):
+            print(f"acidcat edit: {image_path}: No such file", file=sys.stderr)
+            return 2
+        with open(image_path, "rb") as fh:
+            img = fh.read()
+    try:
+        written, backup, rec = _mutate(path, img, overwrite, out=out,
+                                       dry_run=dry_run)
+    except covermod.CoverError as e:
+        print(f"acidcat edit: {path}: {e}", file=sys.stderr)
+        return 1
+    base = os.path.basename(path)
+    if img is None and not rec.field["removed"]:
+        print(f"acidcat edit: {base}: no embedded cover art", file=sys.stderr)
+        return 0
+    if dry_run:
+        what = (f"embed the cover from {os.path.basename(image_path)} "
+                f"({len(img):,} bytes)" if img is not None
+                else "remove the cover art")
+        print(f"{base}: would {what} (dry run, nothing written)")
+        return 0
+    note = f"  (backup: {os.path.basename(backup)})" if backup else ""
+    if img is not None:
+        print(f"embedded cover from {os.path.basename(image_path)} "
+              f"({len(img):,} bytes) into {os.path.basename(written)}{note}")
+    else:
+        print(f"removed cover art from {os.path.basename(written)}{note}")
+    return 0
 
 
 def run(args):
