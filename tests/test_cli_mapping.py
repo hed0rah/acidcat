@@ -365,3 +365,17 @@ def test_stats_has_a_default_max_files_and_lib_index_has_none():
     assert stats.DEFAULT_MAX_FILES == 10000
     lib_index = _subparsers(verbs["lib"])["index"]
     assert "--max-files" not in _flags(lib_index)
+
+
+def test_no_walker_and_bad_values_are_could_not_run(files):
+    """Review R5: a file no walker reads is 2 for inspect, as for audit and
+    check; a bad argument value is 2. classify's "opaque" and --try-all's
+    leads are answers, so 1."""
+    junk = files["tmp"] / "junk.bin"
+    junk.write_bytes(bytes(range(256)) * 16)
+    for argv in (["inspect", str(junk)], ["audit", str(junk)], ["check", str(junk)],
+                 ["formats", "nope"], ["formats", "--fields"],
+                 ["inspect", "--force-format", "nope", files["wav"]]):
+        assert _run(argv)[0] == 2, argv
+    assert _run(["classify", str(junk)])[0] == 1
+    assert _run(["inspect", "--try-all", str(junk)])[0] == 1

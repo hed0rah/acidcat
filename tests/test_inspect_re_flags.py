@@ -27,7 +27,7 @@ def test_region_walks_a_blob_inside_a_larger_image(tmp_path, capsys):
     img = tmp_path / "disk.img"
     img.write_bytes(b"\x00" * 4096 + _wav_bytes() + b"\xff" * 512)
 
-    assert main(["inspect", str(img)]) == 1          # the image itself: no walker
+    assert main(["inspect", str(img)]) == 2          # the image itself: no walker, so 2
     capsys.readouterr()
 
     rc = main(["inspect", str(img), "--region", "0"])
@@ -74,8 +74,8 @@ def test_format_override_rejects_an_unknown_id(tmp_path, capsys):
     p.write_bytes(_wav_bytes())
     rc = main(["inspect", str(p), "--format", "notaformat"])
     err = capsys.readouterr().err
-    assert rc == 1
-    assert "no walker for" in err
+    assert rc == 2
+    assert "no walker by that id" in err
 
 
 def test_force_reports_candidates_not_a_verdict(tmp_path, capsys):

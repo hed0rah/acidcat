@@ -49,6 +49,13 @@ when a 2.0 flag is not named here.
 - **Exit codes**: 0 ok, 1 the answer is no (a defect finding, a failed check,
   nothing matched), 2 could not run (bad arguments, unreadable input, a missing
   extra). `coverage`, `environment` and `info` findings never exit 1.
+  A file no walker reads is could-not-run for the verbs that need a walker
+  (`inspect`, `audit`, `check`: 2), and so is a bad argument value
+  (`formats nope`, `inspect --force-format nope`: 2). Two verbs answer it
+  instead: `classify`'s job is to say what a file is, and "opaque, no walker"
+  is its answer (1, so `classify f && inspect f` stops there); `inspect
+  --try-all` runs every walker and reports what each made of it (1: still
+  unidentified, but the report is the answer).
 - `acidcat --version` is unchanged.
 
 ## 2. Verbs

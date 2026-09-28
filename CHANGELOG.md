@@ -81,6 +81,11 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 - **Opening a large file no longer copies its audio.** The normaliser
   read every field's bytes to infer a type, a 48 MB data payload
   included; it reads at most 64 KiB of a field.
+- **Exit codes.** `inspect` on a file no walker reads exits 2, as `audit`
+  and `check` do (it was 1); a bad argument value exits 2 (`formats
+  nope`, `formats --fields` with no format, `inspect --force-format
+  nope`, which is now checked before any file is read). `classify`'s
+  "opaque" and `inspect --try-all`'s leads stay 1: they are answers.
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

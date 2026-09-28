@@ -595,6 +595,13 @@ def _run_inspect(args):
         print("acidcat inspect: --output-format %s gives the chunk table; add "
               "--chunks (or use --summary)" % args.output_format, file=sys.stderr)
         return 2
+    fmt_override = getattr(args, "fmt_override", None)
+    if fmt_override:
+        from acidcat.core.walk import _WALKERS
+        if fmt_override not in _WALKERS:
+            print(f"acidcat inspect: --force-format {fmt_override!r}: no walker by "
+                  f"that id (`acidcat formats` lists them)", file=sys.stderr)
+            return 2
     table_rows = []
     multi = len(targets) > 1
     only = _parse_id_list(getattr(args, "only", None))
@@ -706,7 +713,9 @@ def _run_inspect(args):
                               f"    acidcat inspect {arg} --try-all   try every walker anyway\n"
                               f"    acidcat inspect {arg} --force-format wav   parse as a known type",
                               file=sys.stderr)
-                    exit_code = 1
+                    # no walker read it: inspect could not do its job, which
+                    # is 2, as audit and check say for the same file
+                    exit_code = max(exit_code, 2)
                     continue
             except Exception as e:  # a walker bug must not sink the whole run
                 print(f"acidcat inspect: {filepath}: {e.__class__.__name__}: {e}",

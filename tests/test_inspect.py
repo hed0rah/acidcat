@@ -1206,7 +1206,7 @@ class TestRunCli:
             + b"WAVE" + _fmt() + _data(4)
         p = tmp_path / "x.wav"
         p.write_bytes(_id3v2(_id3_text_frame(b"TIT2", "x")) + wav)
-        assert run(self._args(str(p))) == 1
+        assert run(self._args(str(p))) == 2   # no walker reads it: could not run (review R5)
         assert "not" in capsys.readouterr().err.lower()
 
     def test_adts_aac_not_dispatched_as_mp3(self, tmp_path, capsys):
@@ -1215,7 +1215,7 @@ class TestRunCli:
         aac = b"\xff\xf1\x50\x80" + b"\x00" * 380
         p = tmp_path / "t.aac"
         p.write_bytes(aac * 4)
-        assert run(self._args(str(p))) == 1
+        assert run(self._args(str(p))) == 2   # no walker reads it (review R5)
         assert "not a" in capsys.readouterr().err
 
     def test_frames_flag_renders_rows(self, tmp_path, capsys):
@@ -1231,10 +1231,10 @@ class TestRunCli:
         out = capsys.readouterr().out
         assert "no per-element structure" in out
 
-    def test_not_riff_exits_1(self, tmp_path, capsys):
+    def test_not_riff_exits_2(self, tmp_path, capsys):
         p = tmp_path / "x.bin"
         p.write_bytes(b"\x00" * 64)
-        assert run(self._args(str(p))) == 1
+        assert run(self._args(str(p))) == 2   # no walker: could not run (review R5)
 
     def test_missing_file_exits_1(self):
         assert run(self._args("does/not/exist.wav")) == 2

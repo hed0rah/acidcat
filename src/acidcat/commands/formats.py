@@ -158,7 +158,7 @@ def run(args):
         if not args.format:
             print("acidcat formats --fields: needs a format "
                   "(try `acidcat formats` for the list)", file=sys.stderr)
-            return 1
+            return 2                        # a usage error, not an answer
         return _print_fields(args.format.lower())
     rows = _matrix()
     if args.format:
@@ -166,7 +166,7 @@ def run(args):
         if not rows:
             print(f"acidcat formats: no format {args.format!r} "
                   f"(try `acidcat formats` for the list)", file=sys.stderr)
-            return 1
+            return 2                        # a bad argument value, not an answer
 
     if args.output_format == "json":
         format_json(rows, sys.stdout)
