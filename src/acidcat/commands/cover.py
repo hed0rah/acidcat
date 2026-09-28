@@ -67,7 +67,8 @@ def change(path, image_path, out=None, dry_run=False, overwrite=False):
                                        dry_run=dry_run)
     except covermod.CoverError as e:
         print(f"acidcat edit: {path}: {e}", file=sys.stderr)
-        return 1
+        # no cover support for this kind of file is could-not-run
+        return 2 if isinstance(e, covermod.CoverUnmodelled) else 1
     base = os.path.basename(path)
     if img is None and not rec.field["removed"]:
         print(f"acidcat edit: {base}: no embedded cover art", file=sys.stderr)
@@ -128,4 +129,5 @@ def run(args):
         return 0
     except covermod.CoverError as e:
         print(f"acidcat edit: {path}: {e}", file=sys.stderr)
-        return 1
+        # no cover support for this kind of file is could-not-run
+        return 2 if isinstance(e, covermod.CoverUnmodelled) else 1

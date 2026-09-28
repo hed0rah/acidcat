@@ -41,6 +41,11 @@ class SampleError(Exception):
     """Raised when a format has no extractable samples."""
 
 
+class SampleUnmodelled(SampleError):
+    """No extractor for this kind of file: could not run (exit 2), the answer
+    `inspect` and `check` give the same file (review V7)."""
+
+
 def _wav(frames, rate, channels=1, sampwidth=2):
     return pcm_wav(frames, rate or _TRACKER_RATE, channels, sampwidth)
 
@@ -816,12 +821,12 @@ def iter_samples(filepath, fmt=None):
             return
         fn = _EXTRACTORS.get(fmt)
         if fn is None:
-            raise SampleError(f"no sample extractor for {fmt or 'unrecognized'} "
+            raise SampleUnmodelled(f"no sample extractor for {fmt or 'unrecognized'} "
                               f"(extractable: {', '.join(sorted(EXTRACTABLE))})")
         with open(filepath, "rb") as f:
             data = f.read()
         yield from fn(data)
     except Unsupported as e:
-        raise SampleError(str(e))
+        raise SampleUnmodelled(str(e))
     except _MALFORMED as e:
         raise SampleError(f"{fmt or 'file'}: {e}")

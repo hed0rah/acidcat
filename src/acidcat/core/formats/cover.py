@@ -11,6 +11,10 @@ class CoverError(Exception):
     pass
 
 
+class CoverUnmodelled(CoverError):
+    """No cover support for this kind of file: could not run (exit 2)."""
+
+
 def _ext_mime(image_bytes):
     """Sniff (mime, ext) from the image magic; default jpeg."""
     if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
@@ -40,7 +44,7 @@ def _open(path):
         raise CoverError(f"mutagen could not read this file: "
                          f"{e.__class__.__name__}: {e}")
     if m is None:
-        raise CoverError("mutagen could not read this file")
+        raise CoverUnmodelled("mutagen could not read this file")
     return m
 
 
@@ -105,7 +109,7 @@ def set_cover(path, image_bytes):
         pic = _make_flac_picture(image_bytes, mime)
         m["metadata_block_picture"] = [base64.b64encode(pic.write()).decode("ascii")]
     else:
-        raise CoverError(f"embedding cover art into {cls} is not supported")
+        raise CoverUnmodelled(f"embedding cover art into {cls} is not supported")
     m.save()
 
 

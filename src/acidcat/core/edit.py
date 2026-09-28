@@ -248,8 +248,9 @@ def plan(data, name, changes, raw_doc=None, force=False):
             if raw_doc is None:
                 raw_doc = _walk_bytes(data, name)
                 if raw_doc is None:
-                    raise EditError("%s: the file is not one acidcat reads, so "
-                                    "no address resolves in it" % key)
+                    raise edits.EditUnmodelled(
+                        "%s: the file is not one acidcat reads, so no address "
+                        "resolves in it" % key)
             rec, b = _plan_byte_edit(raw_doc, key, value, force, data)
             _l, off, n = rec.loc
             if any(off < e and s < off + n for s, e in spans):

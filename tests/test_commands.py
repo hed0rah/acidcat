@@ -205,7 +205,9 @@ class TestScanCommand:
 
     def test_scan_empty_directory(self, tmp_path):
         code, out, err = run_cli("scan", str(tmp_path), "-q")
-        assert code == 0 or code is None
+        # nothing to read is the answer no, in every stats mode (review V7);
+        # not a crash, not could-not-run
+        assert code == 1
 
     def test_scan_takes_a_file(self, minimal_wav):
         """2.0: `stats FILE` works (review R9), so its scan alias does."""

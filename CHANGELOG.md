@@ -27,7 +27,11 @@ The aliases go in 3.0. What does not alias:
   exactly; a pattern that names no chunk exits 1.
 - Exit codes: `inspect` on a file no walker reads exits 2 (was 1), as do a
   bad argument value (`formats nope`, `inspect --force-format nope`) and
-  `edit` on a missing file. `classify` and `inspect --try-all` still answer 1.
+  `edit` on a missing file. `edit` and `extract` on a file they have no
+  editor or extractor for (tags, strip, an address, the cover) exit 2 (was
+  1); a refused edit of a file they do edit is still 1. `stats` exits 1
+  when no target is a file its mode reads, in every mode (`--by meta` said
+  0). `classify` and `inspect --try-all` still answer 1.
 - `stats` (and the `survey` and `census` aliases) stop at 10,000 files
   unless `--max-files` says otherwise (`0` for no limit); the `scan` alias
   keeps its 1.8 default of 500.

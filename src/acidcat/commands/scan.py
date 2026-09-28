@@ -261,7 +261,9 @@ def run(args):
     if not rows:
         if not quiet:
             print("acidcat stats: No audio files found.", file=sys.stderr)
-        return 0
+        # nothing its mode reads is the answer no, as --by shape and --by
+        # chunks say it (review V7)
+        return 1
 
     # fieldnames: core set, then any extras from features
     base_fieldnames = [

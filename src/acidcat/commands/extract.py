@@ -66,7 +66,7 @@ def run(args):
         records = list(smod.iter_samples(path))
     except smod.SampleError as e:
         print(f"acidcat extract: {display}: {e}", file=sys.stderr)
-        return 1
+        return 2 if isinstance(e, smod.SampleUnmodelled) else 1
     finally:
         if tmp:
             try:

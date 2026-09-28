@@ -116,7 +116,7 @@ def _strip_data(path, data):
               or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
     if tagged:
         return ("tagged audio",) + edits.strip_tagged(data, ext or ".mp3")
-    raise edits.EditError("no metadata to strip for this file type")
+    raise edits.EditUnmodelled("no metadata to strip for this file type")
 
 
 def _run_strip(args):
@@ -137,7 +137,7 @@ def _run_strip(args):
             fmt, new_data, removed = _strip(path)
         except (edits.EditError,) + _mutagen_errors() as e:
             print(f"acidcat edit: {path}: {e}", file=sys.stderr)
-            rc = max(rc, 1)
+            rc = max(rc, 2 if isinstance(e, edits.Unmodelled) else 1)
             continue
         row = None
         if rows is not None:
@@ -246,7 +246,9 @@ def run(args):
                                            quiet=getattr(args, "quiet", False))
         except (edits.EditError,) + _mutagen_errors() as e:
             print(f"acidcat edit: {path}: {e}", file=sys.stderr)
-            rc = max(rc, 1)
+            # no editor for this kind of file is could-not-run (2); a refused
+            # edit of a file it does edit is the answer no (1)
+            rc = max(rc, 2 if isinstance(e, edits.Unmodelled) else 1)
             continue
         row = None
         if rows is not None:

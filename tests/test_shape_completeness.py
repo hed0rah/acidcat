@@ -47,7 +47,9 @@ def test_every_file_gets_a_row(tmp_path):
 def test_single_unknown_file_is_not_silence(tmp_path):
     (tmp_path / "mystery.ch1").write_bytes(bytes(range(256)) * 8)
     r = _shape(tmp_path, "mystery.ch1")
-    assert r.returncode == 0
+    # the row is printed; the exit says no walker read it, as --by meta and
+    # --by chunks say of the same file (review V7)
+    assert r.returncode == 1
     assert r.stdout.strip(), "an unknown file produced no output at all"
     assert r.stdout.startswith("?unwalked")
 

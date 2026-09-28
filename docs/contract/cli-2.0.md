@@ -50,7 +50,8 @@ when a 2.0 flag is not named here.
   nothing matched), 2 could not run (bad arguments, unreadable input, a missing
   extra). `coverage`, `environment` and `info` findings never exit 1.
   A file no walker reads is could-not-run for the verbs that need a walker
-  (`inspect`, `audit`, `check`: 2), and so is a bad argument value
+  (`inspect`, `audit`, `check`: 2), as is a file a verb has no editor,
+  extractor or converter for (`edit`, `extract`, `convert`: 2), and so is a bad argument value
   (`formats nope`, `inspect --force-format nope`: 2). Two verbs answer it
   instead: `classify`'s job is to say what a file is, and "opaque, no walker"
   is its answer (1, so `classify f && inspect f` stops there); `inspect

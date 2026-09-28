@@ -221,5 +221,8 @@ def _run(args):
         else:
             _render(rows, fmt=fmt)
     # a filter that matched nothing is a negative result, not a success --
-    # `shape lib --format flac && ...` used to proceed on an empty listing
-    return 0 if emitted else 1
+    # `shape lib --format flac && ...` used to proceed on an empty listing;
+    # and so is a listing of files no walker reads, the answer --by meta and
+    # --by chunks give the same targets (review V7)
+    walked = any(r.get("label", r.get("format")) != _UNWALKED for r in rows)
+    return 0 if emitted and walked else 1

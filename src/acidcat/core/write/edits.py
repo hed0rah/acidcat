@@ -16,8 +16,18 @@ import tempfile
 from typing import NamedTuple
 
 
+class Unmodelled(ValueError):
+    """Mixed into an error that means the verb has nothing for this kind of
+    file (no editor, no extractor, no walker): could not run, exit 2, as
+    `check` and `inspect` answer the same file (review V7)."""
+
+
 class EditError(ValueError):
     """A requested edit cannot be applied (unsupported field, wrong format, ...)."""
+
+
+class EditUnmodelled(EditError, Unmodelled):
+    """No editor for this file type."""
 
 
 class EditResult(NamedTuple):
@@ -100,7 +110,7 @@ def edit_metadata_data(data, name, changes, notes=None):
               or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
     if tagged:
         return EditResult("tagged audio", *_spoken(edit_tagged(data, ext or ".mp3", changes), _spelling))
-    raise EditError("no metadata editor for this file type")
+    raise EditUnmodelled("no metadata editor for this file type")
 
 
 # ── Vital (bare JSON) ──────────────────────────────────────────────
