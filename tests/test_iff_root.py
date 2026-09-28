@@ -203,3 +203,16 @@ def test_appended_bytes_after_a_straddle_are_still_found(tmp_path):
     doc = acidcat.open(data)
     trailing = [f for f in doc.findings if f.code == "anomaly.trailing_data"]
     assert trailing and trailing[0].at.off == len(data) - 16
+
+
+def test_a_soundfonts_presets_and_instruments_are_the_roots():
+    """Review V12: sf2's preset[N] and inst[N] nodes are read from the pdta
+    and have no extent of their own; they were top-level beside `sfbk` (400
+    of them in a real font). They are the root's children, after the
+    positioned ones, and resolve by id and by last step."""
+    doc = acidcat.open(seeds.build("sf2"), forensics=False)
+    assert [n.id for n in doc.nodes] == ["sfbk"]
+    kids = [n.id for n in doc.nodes[0].children]
+    assert kids[-1] == "sfbk/preset[0]"
+    assert doc.node("preset[0]").id == "sfbk/preset[0]"
+    assert doc.field("sfbk/preset[0]#bank").value == 0

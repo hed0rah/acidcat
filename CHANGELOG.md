@@ -139,6 +139,12 @@ gone.
 
 ### Changed
 
+- **A SoundFont's presets and instruments are `sfbk`'s children.** They
+  are read from the pdta and have no extent of their own, so they were
+  top-level nodes beside the root (`preset[0]`, 400 of them in a real font).
+  In any IFF-shaped file an unpositioned node is now the root's child, after
+  the positioned ones: `sfbk/preset[0]`, `sfbk/inst[3]`. `preset[0]` still
+  resolves as a unique last step.
 - **Every number in the Document is a number.** Only whole-number display
   strings were parsed; a duration, a fade, a rate with its unit stayed text.
   A field's `value` is now the float (`"0.25"`), the number in its base unit

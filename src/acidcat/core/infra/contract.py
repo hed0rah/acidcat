@@ -687,6 +687,18 @@ def _tree(chunks, data, layer, prefer_be, ctx, top):
                             key=lambda x: x["extent"]["off"])
         roots = positioned + [r for r in roots if "extent" not in r]
 
+    # an unpositioned node in an IFF-shaped layer describes the container's
+    # content (a SoundFont's presets and instruments, read from its pdta), so
+    # it is the root's child, after the positioned ones; it was a top-level
+    # node beside the root (review V12)
+    iff_root = next((r for r in roots if head and "extent" in r
+                     and r["extent"]["off"] == 0 and r["children"]), None)
+    if iff_root is not None:
+        loose = [r for r in roots if "extent" not in r]
+        if loose:
+            iff_root["children"] = iff_root["children"] + loose
+            roots = [r for r in roots if "extent" in r]
+
     # after the gaps: a derived layer's nodes are not in this layer's bytes
     for n in descend:
         _descend(n, data, layer, prefer_be, ctx)
