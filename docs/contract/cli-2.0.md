@@ -197,8 +197,14 @@ Every flag of every 1.8 verb. "same" means the flag is unchanged.
 
 ### `probe`
 
+`read`, `table` and `scan` take an ADDR where 1.8 took a chunk id or
+`chunk.field` (which still works); a node means its payload, where 1.8's
+chunk id gave its header's offset. An address in a decoded layer is refused
+with a pointer to `od` and `carve`, which read layers.
+
 | 1.8 | 2.0 | |
 |---|---|---|
+| `AT`, `--count-at`, `--base`, `--end`: `chunk`, `chunk.field` | an ADDR (`RIFF/fmt_#sample_rate`, `@0x2c+4`); `chunk.field` still resolves | |
 | `--output-format`, `--json` | same | |
 | `-f` | `--output-format` | removed |
 | `table`: `--type`, `-t`, `--count`, `-n`, `--count-at`, `--count-type`, `--base`, `--end` | same | |
@@ -483,6 +489,9 @@ Where the build refines this page, and what it does not do yet:
   `{addr, offset, length, hex}` per address. An address that names nothing
   is named on stderr and skipped, as `dump` skipped a missing chunk: exit 0
   when at least one resolved, 1 when none did.
+- `od` and `carve` follow an address into a decoded layer
+  (`1:program/program_header`, `1:@0+16`, `1:lh5/header#frames`): the bytes
+  are the layer's and so are the offsets, and the header names the layer.
 - A 1.8 implementation's messages carry the 2.0 verb that runs it
   (`acidcat edit:` from what was `write`, `acidcat lib:` from `index`).
 - `carve FILE GLOB#KEY` prints that field from every node the glob matches:

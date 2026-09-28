@@ -281,6 +281,9 @@ def _positioned(c):
             and c.get("geometry") != "unpositioned")
 
 
+_INFER_CAP = 1 << 16
+
+
 def _infer(value, b, prefer_be):
     """The one storage type consistent with an int value and its bytes, given
     the format's native order, or None. A byte string that reads the same both
@@ -353,7 +356,11 @@ def _field(fl, node_pos, data, prefer_be, key, layer=0):
         return out
 
     out["at"] = _loc(at, n, layer)
-    b = bytes(data[at:at + n]) if data is not None else b""
+    # the bytes are read only to infer a type: an integer is at most 8 bytes
+    # and text is compared whole, so a field the size of an audio payload
+    # (48 MB of 8-bit samples) is never copied to find it has no type
+    b = (bytes(data[at:at + n]) if data is not None and n <= _INFER_CAP
+         else b"")
     typ = _infer(value, b, prefer_be) if len(b) == n else None
     if typ is None and isinstance(value, str) and n and len(b) == n:
         text = b.decode("latin-1")

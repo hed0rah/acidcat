@@ -74,6 +74,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   table. The chunk-table view is `inspect --chunks` (`chunks` aliases
   to it); `-q` now only quiets stderr, so 1.8's `inspect -q` prints the
   field detail too.
+- **Addresses everywhere.** `probe read/table/scan` take an ADDR
+  (`chunk.field` still works; a node now means its payload), and `od`
+  and `carve` read an address in a decoded layer (`1:@0+16`,
+  `1:program/program_header`) where they refused it.
+- **Opening a large file no longer copies its audio.** The normaliser
+  read every field's bytes to infer a type, a 48 MB data payload
+  included; it reads at most 64 KiB of a field.
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

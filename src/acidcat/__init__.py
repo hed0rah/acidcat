@@ -23,7 +23,7 @@ and the acidcat-playground both build on. Import from the package root; the
         hit["offset"], hit["end"], hit["format"]
 
     # byte dissection (the RE surface): resolve a name to an offset, read typed
-    off, length, note = acidcat.probe.resolve("song.wav", "fmt.sample_rate")
+    off, length, note = acidcat.probe.resolve("song.wav", "RIFF/fmt_#sample_rate")
     data = open("song.wav", "rb").read()
     (rate,) = acidcat.probe.read_typed(data, off, "u32", 1, "little")
     acidcat.probe.scan_value(data, 44100, "u32")     # Cheat-Engine value scan

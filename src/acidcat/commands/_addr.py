@@ -52,15 +52,27 @@ def resolve(path, addr, raw=False):
 
 
 def resolve_named(path, addr, raw=False):
-    """(start, length, name) in layer 0 for an ADDR in the file at `path`,
-    `name` being the node id (with `#key` for a field) the address resolved
-    to, so a header can print what pastes back, or the ADDR itself for a
-    plain byte range. A node
-    means its payload, or its whole extent with `raw`; a field its bytes; a
-    plain byte range is read without walking the file, and `@OFF` alone runs
-    to the end of it. Raises acidcat.AddrError for an address that names
-    nothing there, and ValueError for one that names bytes outside layer 0 or
-    none at all, or a node in a file no walker reads."""
+    """(start, length, name) in layer 0 for an ADDR in the file at `path`;
+    see locate. Raises ValueError for an address in a decoded layer, for the
+    verbs that read the file's own bytes."""
+    layer, off, n, name, _data = locate(path, addr, raw)
+    return _layer0(addr, layer, off, n) + (name,)
+
+
+def locate(path, addr, raw=False):
+    """(layer, start, length, name, layer bytes) for an ADDR in the file at
+    `path`. `name` is the node id (with `#key` for a field) the address
+    resolved to, so a header can print what pastes back, or the ADDR itself
+    for a byte range or a sub-range; it carries `N:` in layer N. The layer
+    bytes are None for layer 0 (the file) and the decoded image otherwise
+    (`1:lh5/header#frames`, `1:@0+16`), which od and carve read from.
+
+    A node means its payload, or its whole extent with `raw`; a field its
+    bytes; a plain byte range in the file is read without walking it, and
+    `@OFF` alone runs to the end. Raises acidcat.AddrError for an address
+    that names nothing there, and ValueError for one that names no bytes (an
+    unpositioned node), bytes past the file, or a node in a file no walker
+    reads."""
     import os
     from acidcat.core.infra import addr as addrmod
     rng = byte_range(addr)
@@ -69,7 +81,7 @@ def resolve_named(path, addr, raw=False):
         size = os.path.getsize(path)
         if off > size:
             raise ValueError("0x%x is past the end of the %d-byte file" % (off, size))
-        return off, (size - off if n is None else n), str(addr)
+        return 0, off, (size - off if n is None else n), str(addr), None
     from acidcat.core.walk.base import Unsupported
     try:
         doc = open_doc(path)
@@ -84,19 +96,22 @@ def resolve_named(path, addr, raw=False):
         own = (t.field or {}).get("at") if t.field is not None else t.node.get("payload")
         if own and (own.get("off"), own.get("len")) == (t.off, t.len):
             name = t.node["id"] + ("#" + t.field["key"] if t.field is not None else "")
-    if raw and t.node is not None and t.field is None:
-        e = t.node.get("extent")
-        if e:
-            return _layer0(addr, e["layer"], e["off"], e["len"]) + (name,)
-    if t.off is None:
+            if t.layer:
+                name = "%d:%s" % (t.layer, name)
+    layer, off, n = t.layer, t.off, t.len
+    if raw and t.node is not None and t.field is None and t.node.get("extent"):
+        e = t.node["extent"]
+        layer, off, n = e["layer"], e["off"], e["len"]
+    if off is None:
         raise ValueError("%s has no byte range (it is unpositioned)" % addr)
-    return _layer0(addr, t.layer, t.off, t.len) + (name,)
+    return layer, off, n, name, (doc.layer_bytes(layer) if layer else None)
 
 
 def _layer0(addr, layer, off, n):
     if layer != 0:
-        raise ValueError("%s is in layer %d, a decoded image; `carve --layer %d` "
-                         "writes that layer's bytes" % (addr, layer, layer))
+        raise ValueError("%s is in layer %d, a decoded image, and this reads "
+                         "the file's own bytes; `od` and `carve` read a layer"
+                         % (addr, layer))
     return off, n
 
 

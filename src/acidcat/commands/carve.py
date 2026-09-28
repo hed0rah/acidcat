@@ -569,13 +569,22 @@ def _from_addr(args, filepath):
         _emit("\n".join(str(v) for _a, v in rows), args.output)
         return 0
     try:
-        start, length = _addr.resolve(filepath, args.addr, raw=args.raw)
+        layer, start, length, _name, blob = _addr.locate(filepath, args.addr,
+                                                        raw=args.raw)
     except AddrError as e:
         print(f"acidcat carve: {e}", file=sys.stderr)
         return 1
     except ValueError as e:
         print(f"acidcat carve: {e}", file=sys.stderr)
         return 2
+    if blob is not None:
+        # an address in a decoded layer (`1:lh5/header`, `1:@0+16`): its
+        # offsets are the layer's, so the carve reads the decoded image
+        import tempfile
+        fd, tmp = tempfile.mkstemp(prefix="acidcat_layer%d_" % layer)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(bytes(blob))
+        args._layer_file = tmp
     args.offset, args.length = str(start), str(length)
     return None
 
@@ -628,6 +637,18 @@ def _run_as_wav(args, filepath):
 
 
 def run(args):
+    try:
+        return _run_carve(args)
+    finally:
+        tmp = getattr(args, "_layer_file", None)
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def _run_carve(args):
     filepath = args.target
     # attributes 2.0 added; an args object built by hand may not carry them
     for name, default in (("addr", None), ("as_wav", False), ("raw", False),
@@ -646,6 +667,12 @@ def run(args):
         if rc is not None:
             return rc
         _dir_output(args)
+        out = getattr(args, "output", None)
+        if out and not args.batch and outpath.same_file(filepath, out):
+            print(f"acidcat carve: {out}: output is the input; refusing to "
+                  f"overwrite the file being carved from", file=sys.stderr)
+            return 2
+        filepath = getattr(args, "_layer_file", None) or filepath
 
     # carve's own --help promises "File to carve from (never modified)". With
     # -o pointing back at the target that promise was broken silently and

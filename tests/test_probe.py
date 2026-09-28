@@ -64,8 +64,10 @@ def test_resolve_raw_offset(tmp_path):
 
 def test_resolve_chunk_and_field(tmp_path):
     p = _wav(tmp_path, rate=48000)
+    # 2.0: an ADDR; a node is its payload (1.8 gave the header's offset)
     off, ln, note = pr.resolve(p, "data")
-    assert note == "chunk data" and ln == 8
+    assert note == "RIFF/data" and ln == 8
+    assert open(p, "rb").read()[off - 8:off] == b"data" + (8).to_bytes(4, "little")
     foff, flen, fnote = pr.resolve(p, "fmt.sample_rate")
     # reading that field back gives the rate
     data = open(p, "rb").read()

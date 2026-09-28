@@ -283,7 +283,7 @@ def _run_addrs(args, path, addrs, on):
     ranges, failed = [], 0
     for a in addrs:
         try:
-            start, length, name = _addr.resolve_named(path, a)
+            layer, start, length, name, blob = _addr.locate(path, a)
         except AddrError as e:
             print(f"acidcat od: {path}: {e}", file=sys.stderr)
             failed = max(failed, 1)
@@ -296,22 +296,26 @@ def _run_addrs(args, path, addrs, on):
             print(f"acidcat od: {path}: {e}", file=sys.stderr)
             failed = 2
             continue
-        ranges.append((name, start, length))
+        ranges.append((name, start, length, blob))
     if not ranges:
         return failed
     data, close = map_file(path)
     try:
+        # an address in a decoded layer reads that layer's bytes, and its
+        # offsets are the layer's (`1:@0+16`, `1:lh5/header#frames`)
         if getattr(args, "json", False):
             format_json([{"addr": a, "offset": s, "length": n,
-                          "hex": bytes(data[s:s + n]).hex()}
-                         for a, s, n in ranges], sys.stdout)
+                          "hex": bytes((data if blob is None else blob)[s:s + n]).hex()}
+                         for a, s, n, blob in ranges], sys.stdout)
             return 0
         rc = 0
-        for a, start, length in ranges:
-            rc = _raw_dump(data, start, length, args.width, on,
+        for a, start, length, blob in ranges:
+            src = data if blob is None else blob
+            rc = _raw_dump(src, start, length, args.width, on,
                            f"{path}  {a}  0x{start:08x} .. 0x{start + length:08x}"
                            f"  ({length:,} bytes)",
-                           _marks_for(args, data, start, length)) or rc
+                           _marks_for(args, src, start, length)
+                           if blob is None else None) or rc
         return rc
     finally:
         close()

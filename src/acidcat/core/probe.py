@@ -52,14 +52,52 @@ def _walk(filepath):
 
 def resolve(filepath, spec):
     """Resolve an address ``spec`` to (offset, length, note). ``spec`` is a raw
-    offset (0x.. / decimal), a chunk id, or ``chunk.field``. length is the chunk
-    payload size or field length when known, else None. Raises KeyError if a
-    named target is not found."""
+    offset (0x.. / decimal), or an ADDR (node-v1.md section 13): a node
+    (``RIFF/fmt_``, ``fmt``: its payload), a field (``RIFF/fmt_#sample_rate``)
+    or a byte range (``@0x2c+4``, ``RIFF/fmt_[4:4]``). The 1.8 spelling
+    ``chunk.field`` still works. The note is the id the address resolved to.
+    length is None when the spec is a bare offset. Raises KeyError when the
+    spec names nothing in the file, or names bytes in a decoded layer (probe
+    reads the file's own bytes; ``od`` and ``carve`` read a layer)."""
     # a raw numeric offset
     try:
         return parse_int(spec), None, "offset"
     except ValueError:
         pass
+    from acidcat.core.infra import addr as addrmod
+    try:
+        t = _addr_target(filepath, spec)
+    except addrmod.AddrError as e:
+        if "." in spec and "#" not in spec and "/" not in spec:
+            return _resolve_chunk_field(filepath, spec)     # the 1.8 spelling
+        raise KeyError(f"{e} (try: acidcat inspect {os.path.basename(filepath)})") from None
+    if t.layer:
+        raise KeyError(f"{spec} is in layer {t.layer}, a decoded image; probe "
+                       f"reads the file's own bytes (od and carve read a layer)")
+    if t.off is None:
+        raise KeyError(f"{spec} has no byte range (it is unpositioned)")
+    note = spec
+    if t.node is not None:
+        note = t.node["id"] + ("#" + t.field["key"] if t.field is not None else "")
+    return t.off, t.len, note
+
+
+def _addr_target(filepath, spec):
+    """addr.resolve on the file's Document; AddrError when it names nothing,
+    and for a file no walker reads."""
+    from acidcat.core.document import open_document
+    from acidcat.core.infra import addr as addrmod
+    from acidcat.core.walk.base import Unsupported
+    try:
+        doc = open_document(filepath, forensics=False)
+    except Unsupported:
+        raise addrmod.AddrError("no walker reads this file, so only an offset "
+                                "or a byte range names anything in it") from None
+    return addrmod.resolve(doc.to_json(), spec)
+
+
+def _resolve_chunk_field(filepath, spec):
+    """The 1.8 ``chunk.field`` / ``chunk`` spelling, by the walker's ids."""
     label, chunks, _warns = _walk(filepath)
     cid, _, fname = spec.partition(".")
     cid = cid.strip()

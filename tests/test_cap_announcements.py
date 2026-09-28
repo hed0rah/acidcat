@@ -124,6 +124,12 @@ class Reason(enum.Enum):
 # covered, if anywhere. An exemption pointing at another test is a redirect; one
 # pointing at nothing is a hole.
 EXEMPT = {
+    ("acidcat.core.infra.contract", "_INFER_CAP"):
+        (Reason.SEARCH_WINDOW, "how many of a field's bytes the normaliser reads "
+                               "to infer its type (an integer needs at most 8); a "
+                               "longer field keeps type display, type_source none, "
+                               "which the Document's typing counts show. Pinned by "
+                               "test_command_memory's probe read on a 48 MB WAV."),
     ("acidcat.core.formats.sndh", "_TEXT_MAX"):
         (Reason.FIELD_SANITY, "how far an SNDH text tag may run before its "
                               "NUL. A tag longer than that is reported as "

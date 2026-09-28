@@ -95,7 +95,7 @@ def register(subparsers):
                      help="File(s) to dissect, or '-' for stdin.")
 
     r = sub.add_parser("read", help="Read AT as typed values (pwndbg x).")
-    r.add_argument("at", help="Offset (0x.. / decimal) or name (chunk / chunk.field).")
+    r.add_argument("at", help="An offset (0x.. / decimal) or an ADDR (RIFF/fmt_#sample_rate, @0x2c+4; 1.8's chunk.field too).")
     r.add_argument("--type", "-t", default="u32", choices=sorted(pr.FMT_STRUCT),
                    help="Value type (default u32).")
     r.add_argument("--count", "-n", type=int, default=1, help="How many values.")
@@ -334,7 +334,8 @@ def _dispatch(args, verb, path, data):
         try:
             recs, meta = _table_regions(args, path, data, order)
         except (KeyError, ValueError) as e:
-            print(f"acidcat probe: {e}", file=sys.stderr)
+            # a KeyError's str() is its repr, quotes and all
+            print(f"acidcat probe: {e.args[0] if e.args else e}", file=sys.stderr)
             return 2
         if _emit(args, {"verb": "table", **meta, "regions": recs}):
             return 0 if recs else 1
@@ -352,7 +353,8 @@ def _dispatch(args, verb, path, data):
         try:
             off, _ln, note = pr.resolve(path, args.at)
         except (KeyError, ValueError) as e:
-            print(f"acidcat probe: {e}", file=sys.stderr)
+            # a KeyError's str() is its repr, quotes and all
+            print(f"acidcat probe: {e.args[0] if e.args else e}", file=sys.stderr)
             return 2
         order = _byteorder(args, label)
         vals = pr.read_typed(data, off, args.type, args.count, order)
@@ -428,7 +430,8 @@ def _dispatch(args, verb, path, data):
         try:
             off, ln, _note = pr.resolve(path, args.at)
         except (KeyError, ValueError) as e:
-            print(f"acidcat probe: {e}", file=sys.stderr)
+            # a KeyError's str() is its repr, quotes and all
+            print(f"acidcat probe: {e.args[0] if e.args else e}", file=sys.stderr)
             return 2
         length = args.length if args.length != 256 else (ln or 256)
         print(pr.hexdump(data, off, length))
