@@ -451,6 +451,25 @@ def test_the_limits_object_is_what_the_document_records(tmp_path):
     assert set(doc["limits"]) == set(SCHEMA["$defs"]["limits"]["properties"])
 
 
+def test_a_cap_that_fired_is_recorded_at_its_bound():
+    """Review V5: an E4B listing its first 512 rows recorded `list_rows:
+    null` beside `hit: ["list_rows"]`, a limit named without the value that
+    stopped the walk. A built-in cap is recorded at the bound that fired, the
+    smallest when several did; a caller's own value (depth) stays as given."""
+    from acidcat.core.infra.limits import Limits, hit
+    data = seeds.build("wav")
+    warns = [hit("list_rows", 512, 900, "listing the first 512 of 900"),
+             hit("list_rows", 40, 50, "listing the first 40 of 50"),
+             hit("depth", 3, 4, "stopped at depth 3")]
+    doc = contract.document("wav", "RIFF/WAVE", [], warns, data)
+    lim = doc["limits"]
+    assert lim["hit"] == ["depth", "list_rows"]
+    assert lim["list_rows"] == 40
+    assert lim["depth"] == Limits().depth
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.Draft202012Validator(SCHEMA).validate(doc)
+
+
 def test_every_limit_has_a_registered_code():
     from acidcat.core.infra.limits import CODES, NAMES
     assert set(CODES) == set(NAMES)

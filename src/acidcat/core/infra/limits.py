@@ -45,9 +45,24 @@ class Limits:
     def record(self, hit=()):
         """The Document's `limits` object: these values, `applied` (the ones
         a caller's value changes: decode, depth, inflate_bytes; the others
-        are the walkers' built-in caps, recorded at their fixed values), and
-        which were hit."""
-        return dict(asdict(self), applied=list(APPLIED), hit=sorted(set(hit)))
+        are the walkers' built-in caps), and which were hit.
+
+        `hit` is names, or (name, limit) pairs from the coverage findings'
+        caps. A built-in cap that fired is recorded at the bound that fired,
+        the smallest when several did (each finding's `cap` has its own):
+        `list_rows: null` beside `hit: ["list_rows"]` named a limit without
+        the value that stopped the walk (review V5). A caller's value (the
+        `applied` ones) is recorded as given."""
+        out = dict(asdict(self), applied=list(APPLIED))
+        names, fired = set(), {}
+        for h in hit:
+            name, limit = (h, None) if isinstance(h, str) else h
+            names.add(name)
+            if isinstance(limit, int) and name not in APPLIED:
+                fired[name] = min(limit, fired.get(name, limit))
+        out.update(fired)
+        out["hit"] = sorted(names)
+        return out
 
 
 NAMES = tuple(f.name for f in fields(Limits) if f.name != "decode")

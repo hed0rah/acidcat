@@ -826,7 +826,7 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
         "nodes": roots,
         "findings": findings,
         "limits": limits.record(
-            f["cap"]["name"] for f in findings if "cap" in f),
+            (f["cap"]["name"], f["cap"].get("limit")) for f in findings if "cap" in f),
         "typing": counts,
     }
 

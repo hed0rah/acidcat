@@ -413,7 +413,7 @@ reported as defects today, and the two consumers that match message text
 
 ```json
 {"read_bytes": 67108864, "chunk_payload": 65536, "inflate_bytes": 67108864,
- "work_steps": 4000000, "list_rows": null, "frame_rows": 100000, "depth": 32,
+ "work_steps": 4000000, "list_rows": 512, "frame_rows": 100000, "depth": 32,
  "decode": false, "applied": ["decode", "depth", "inflate_bytes"],
  "hit": ["list_rows"]}
 ```
@@ -424,8 +424,11 @@ something, each with its `coverage` finding. Two walks of the same file with
 the same limits give the same Document. `decode: true` is what `deep` meant
 when it meant "do the extra decoding work"; `list_rows: null` means each
 walker's own display default. `applied` names the limits a caller's value
-changes; the others record the walkers' built-in caps at their fixed values,
-so a Document never claims a setting it ignored.
+changes; the others record the walkers' built-in caps, so a Document never
+claims a setting it ignored. A built-in cap that stopped something is
+recorded at the bound that fired (the smallest, when several lists were cut
+at different bounds; each finding's `cap` has its own), so a hit never sits
+beside a null.
 
 A coverage finding's `cap` says which limit (`name`), the bound the walker
 applied (`limit`, the format's own value when it has one) and how much the

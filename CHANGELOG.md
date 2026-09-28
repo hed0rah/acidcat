@@ -127,6 +127,12 @@ gone.
 
 ### Changed
 
+- **A cap that fired is recorded at its bound.** The Document's `limits`
+  said `list_rows: null` beside `hit: ["list_rows"]` (an E4B listing its
+  first 512 rows): a limit named without the value that stopped the walk. A
+  built-in cap that fired is now recorded at the bound that fired, the
+  smallest when several lists were cut; each coverage finding's `cap` still
+  has its own. A caller's value (`depth`, `inflate_bytes`) stays as given.
 - **Every forensic finding row has a `kind`** (`audit --json`'s `hidden`
   and `forensics`, `acidcat.anomalies_scan()`): `defect`, `coverage`,
   `environment`, `info` or `error`, the walker note's own or its code's. A
