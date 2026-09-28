@@ -698,7 +698,7 @@ vital	as-built	.mpcpattern	mpcpattern
 vital	as-built	.sigmf-meta	sigmf
 vital	as-built	.vital	vital
 vital	first-byte-flipped	.vital	-
-vital	head16	.vital	vital
+vital	head16	.vital	-
 vital	head256	.vital	vital
 vital	sniff_bytes	-	vital
 vital	zero-pad-front	.vital	-

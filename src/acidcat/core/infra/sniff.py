@@ -281,6 +281,7 @@ def sniff_bytes(head):
 
 _VITAL_WINDOW = 64 * 1024
 _VITAL_KEY = b'"synth_version"'
+_VITAL_BODY = b'"settings"'
 
 
 def _is_vital(filepath):
@@ -299,11 +300,18 @@ def _is_vital(filepath):
     the sniffer stricter than the parser and left `inspect` unable to reach
     any real preset.
     """
+    # A .vitalskin (Vital's UI theme) also carries synth_version, but it is a
+    # table of colours and sizes with no `settings`: read as a preset, every key
+    # came back as an unknown one, "carrier" alerts included.
+    if input_name(filepath).lower().endswith(".vitalskin"):
+        return False
     try:
         with open_input(filepath) as fh:
             head = fh.read(_VITAL_WINDOW)
             if _VITAL_KEY in head:
-                return True
+                size = fh.seek(0, 2)
+                # the whole file was read and holds no preset body
+                return size > _VITAL_WINDOW or _VITAL_BODY in head
             size = fh.seek(0, 2)
             if size <= _VITAL_WINDOW:
                 return False                      # the head already was the file
