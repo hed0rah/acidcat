@@ -223,8 +223,11 @@ that:
    (`KNOWN_COLLISIONS`, empty) carries over.
 5. Children need not tile their parent. A gap of at least one byte inside a
    parent's payload, or between top-level nodes in layer 0, becomes a
-   synthesised node, `kind: "unwalked"`, `origin: "normaliser"`. Bytes that are
-   the parent's own header (extent minus payload) are not a gap. This is what
+   synthesised node, `kind: "unwalked"`, `origin: "normaliser"`; a gap inside
+   a payload whose bytes are all zero (a SoundFont's sample guards,
+   alignment) is `kind: "padding"` instead, since fill is not unread bytes.
+   Bytes that are the parent's own header (extent minus payload) are not a
+   gap. This is what
    makes a byte map honest: a clean WAV has no unaccounted bytes, and a real
    cavity shows up as a node you can select.
 
@@ -246,14 +249,14 @@ that:
 | `type` | type string | yes | How the bytes are stored (section 6.1). `display` when nothing better is known. |
 | `type_source` | enum | yes | `declared` (the walker said), `enc` (from a legacy `enc`), `inferred` (the normaliser guessed), `none` (type is `display`). |
 | `xform` | xform string | no | How the stored value becomes `value` (section 6.2). |
-| `value` | JSON value | yes | The machine value: an int, a float, a string, a bool, a list of ints for `bytes`. Never a formatted number. |
+| `value` | JSON value | yes | The machine value: an int, a float, a string, a bool, a list of ints for `bytes`. Never a formatted number: a display string that is a whole number (`"8"`, `"8,755"`) is the int, except in a field typed as text (`ascii`, `fourcc`), whose value is the text. |
 | `display` | string | yes | What a human reads: today's `value`, verbatim. |
 | `note` | string | yes | As today; may be empty. |
 | `unit` | string | no | `Hz`, `bytes`, `frames`, `samples`, `ms`, `cents`, `dB`, ... |
 | `enum` | string | no | For enumerations: the label of `value` (`display` usually repeats it). |
 | `flags` | array of string | no | For bit sets: the names of the set bits. |
 | `ptr` | locator | no | This field is a pointer, and this is where it points. |
-| `derived_from` | array of string | no | Field keys (same node) or `node_id#key` this value was computed from. Only on unpositioned fields. |
+| `derived_from` | array of string | derived | What this value came from: field addresses (`node_id#key`), or a node id when all that is known is that it was computed on that node. Required on every `type: derived` field. A walker may name same-node keys; the normaliser qualifies them. A value that repeats a positioned field with the same key names that field. Only on unpositioned fields. |
 | `remote` | bool | no | `true`: the field describes this node but its bytes are stored outside the node's extent (a MOD sample's header lives in the module header, not beside its PCM). |
 
 `value` and `display` split what today's `value` mixes. Today 363 of 1,074
@@ -445,7 +448,7 @@ Rows are not typed in v1.
 | `payload_base`, `payload_len` | `payload` |
 | `geometry` | `geometry` |
 | `size` | dropped (it meant two different things; `extent` and `payload` are the answers) |
-| flat list | `children` by enclosure (section 5.2), gaps as `unwalked` nodes |
+| flat list | `children` by enclosure (section 5.2), gaps as `unwalked` nodes (`padding` when all zero inside a payload) |
 | field `off` (relative) | `at.off` = `payload_base + off` (absolute) |
 | field `off = None` | no `at` |
 | field `value` | `display` = `str(value)` as today's renderers print it; `value` = `raw` if present, else a number parsed from an int-valued `value`, else the decoded bytes for a typed field, else `value` unchanged |
@@ -467,12 +470,15 @@ Per Document, and summed per format by `acidcat formats`:
 ```json
 {"fields": 41, "positioned": 38, "typed_declared": 12, "typed_enc": 9,
  "typed_inferred": 14, "caps_declared": 1, "caps_inferred": 2,
- "nodes": 9, "nodes_unwalked": 0, "findings_legacy": 0}
+ "nodes": 9, "nodes_unwalked": 0, "findings_legacy": 0, "derived_by_node": 0}
 ```
 
 Only `typed_declared` and `typed_enc` count toward the floor a new walker must
 meet. The floor starts at today's measurement and only rises.
 `findings_legacy` counts findings still carrying `code: legacy`; it only falls.
+`derived_by_node` counts derived fields whose `derived_from` can only name
+their node (the walker did not say which fields they came from); it only
+falls.
 
 ## 13. Addresses
 
@@ -604,7 +610,7 @@ style of `KNOWN_COLLISIONS`.
  "typing": {"fields": 2, "positioned": 2, "typed_declared": 0,
               "typed_enc": 2, "typed_inferred": 0, "caps_declared": 0,
               "caps_inferred": 2, "nodes": 3, "nodes_unwalked": 0,
-            "findings_legacy": 0}}
+            "findings_legacy": 0, "derived_by_node": 0}}
 ```
 
 ### 17.2 A packed YM, abridged
@@ -639,7 +645,8 @@ style of `KNOWN_COLLISIONS`.
                 {"name": "duration", "key": "duration",
                  "type": "derived", "type_source": "declared",
                  "value": 175.1, "display": "2:55.10", "note": "",
-                 "unit": "s", "derived_from": ["frames", "frame_rate"]}]}]}]}
+                 "unit": "s", "derived_from": ["lh5/header#frames",
+                                               "lh5/header#frame_rate"]}]}]}]}
 ```
 
 ### 17.3 A path-located field (Bitwig multisample, abridged)

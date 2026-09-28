@@ -472,7 +472,10 @@
               "required": [
                 "at"
               ]
-            }
+            },
+            "required": [
+              "derived_from"
+            ]
           }
         },
         {
@@ -901,7 +904,8 @@
         "caps_inferred",
         "nodes",
         "nodes_unwalked",
-        "findings_legacy"
+        "findings_legacy",
+        "derived_by_node"
       ],
       "properties": {
         "fields": {
@@ -932,6 +936,9 @@
           "$ref": "#/$defs/uint"
         },
         "findings_legacy": {
+          "$ref": "#/$defs/uint"
+        },
+        "derived_by_node": {
           "$ref": "#/$defs/uint"
         }
       }

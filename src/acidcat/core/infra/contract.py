@@ -312,9 +312,26 @@ def _infer(value, b, prefer_be):
     return next((h for h in hits if h.endswith(want)), None)
 
 
+# a display string that is a whole number, with or without thousands commas
+_INT_TEXT = re.compile(r"^-?(?:\d{1,3}(?:,\d{3})+|\d+)$")
+
+
 def _field(fl, node_pos, data, prefer_be, key, layer=0):
     """One legacy field -> one v1 field, located in `layer` (whose bytes are
-    `data`)."""
+    `data`). `value` is a machine value, never a formatted number (spec 11):
+    an int-valued display string becomes the int, except in a field whose
+    type says it is text."""
+    out = _field_raw(fl, node_pos, data, prefer_be, key, layer)
+    v = out["value"]
+    if (isinstance(v, str) and out["type"] not in ("ascii", "fourcc")
+            and _INT_TEXT.match(v.strip())):
+        out["value"] = int(v.strip().replace(",", ""))
+    if fl.get("derived_from") and "at" not in out:
+        out["derived_from"] = [str(x) for x in fl["derived_from"]]
+    return out
+
+
+def _field_raw(fl, node_pos, data, prefer_be, key, layer=0):
     value = fl.get("value")
     out = {"name": str(fl.get("name")), "key": key, "note": str(fl.get("note") or ""),
            "display": "" if value is None else str(value)}
@@ -380,13 +397,15 @@ def _field(fl, node_pos, data, prefer_be, key, layer=0):
 def _rows(rows, size, layer=0):
     """Legacy per-element rows -> {total, kept, cap, items} (spec 10). A row's
     position becomes a byte locator under `at`: MP3 writes `offset` as a hex
-    string, the rest as ints."""
+    string, the rest as ints; its length is `size`, else the row's `bytes`."""
     from acidcat.core.walk.base import _FRAME_LISTING_CAP
     items = []
     for r in rows:
         r = dict(r)
         off = r.pop("offset", None)
         n = r.pop("size", None)
+        if n is None:
+            n = r.get("bytes")
         if isinstance(off, str):
             try:
                 off = int(off, 0)
@@ -416,6 +435,23 @@ def _gaps(lo, hi, spans):
     if pos < hi:
         out.append((pos, hi - pos))
     return [(o, n) for o, n in out if n > 0]
+
+
+def _padding(off, n, layer=0):
+    """A gap inside a payload whose bytes are all zero: fill, not unread."""
+    return {"name": "padding", "kind": "padding", "origin": "normaliser",
+            "extent": _loc(off, n, layer), "payload": _loc(off, n, layer),
+            "geometry": "declared", "summary": f"{n:,} zero bytes",
+            "fields": [], "children": [], "caps": {}}
+
+
+def _gap(off, n, layer, data, inside):
+    """The node for bytes no walker node describes: `padding` when they sit
+    inside a payload and are all zero (sample guards, alignment), else
+    `unwalked`."""
+    if inside and data is not None and n and not any(bytes(data[off:off + n])):
+        return _padding(off, n, layer)
+    return _unwalked(off, n, layer)
 
 
 def _unwalked(off, n, layer=0):
@@ -563,17 +599,17 @@ def _tree(chunks, data, layer, prefer_be, ctx, top):
     roots += [n for n in nodes if "extent" not in n]
 
     # gaps: inside each parent's payload, and across the layer at the top
-    def fill(parent_nodes, lo, hi):
+    def fill(parent_nodes, lo, hi, inside=False):
         spans = [(c["extent"]["off"], c["extent"]["len"])
                  for c in parent_nodes if "extent" in c]
-        return [_unwalked(o, n, layer) for o, n in _gaps(lo, hi, spans)]
+        return [_gap(o, n, layer, data, inside) for o, n in _gaps(lo, hi, spans)]
 
     def walk(n):
         for c in n["children"]:
             walk(c)
         if n["children"]:
             p = n["payload"]
-            gaps = fill(n["children"], p["off"], p["off"] + p["len"])
+            gaps = fill(n["children"], p["off"], p["off"] + p["len"], inside=True)
             if gaps:
                 n["children"] = sorted(n["children"] + gaps,
                                        key=lambda x: x["extent"]["off"])
@@ -674,7 +710,8 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
     # ids, findings, caps, and the private keys removed
     counts = {"fields": 0, "positioned": 0, "typed_declared": 0, "typed_enc": 0,
               "typed_inferred": 0, "caps_declared": 0, "caps_inferred": 0,
-              "nodes": 0, "nodes_unwalked": 0, "findings_legacy": 0}
+              "nodes": 0, "nodes_unwalked": 0, "findings_legacy": 0,
+              "derived_by_node": 0}
 
     by_idx = {}
 
@@ -710,6 +747,7 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
                 n.pop(k, None)
             finish(n["children"], nid)
     finish(roots, "")
+    _provenance(roots, counts)
     if chunk_ids is not None:
         chunk_ids.update({i: n["id"] for i, n in by_idx.items()
                           if i < len(chunks or [])})
@@ -768,6 +806,38 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
             f["cap"]["name"] for f in findings if "cap" in f),
         "typing": counts,
     }
+
+
+def _provenance(roots, counts):
+    """Every derived field says what it came from (`derived_from`). A walker
+    that said keeps its word. A value that repeats a positioned field with
+    the same key elsewhere (YM's `lh5#frames`, read again from the unpacked
+    `1:lh5/header#frames`) is that field's copy and names it. Anything else
+    was computed on its node, which is all this can say of it: it names the
+    node, and `typing.derived_by_node` counts those, so a walker declaring
+    real sources shows as the count falling."""
+    placed = {}
+    for n in iter_nodes({"nodes": roots}):
+        for f in n["fields"]:
+            if "at" in f:
+                placed.setdefault((f["key"], f["display"]), n["id"] + "#" + f["key"])
+    for n in iter_nodes({"nodes": roots}):
+        keys = {f["key"] for f in n["fields"]}
+        for f in n["fields"]:
+            if f.get("derived_from"):
+                # a walker's same-node names become addresses: an entry with
+                # `#` is a field, one without is a node
+                f["derived_from"] = [x if "#" in x or x not in keys
+                                     else n["id"] + "#" + x
+                                     for x in f["derived_from"]]
+            if f["type"] != "derived" or f.get("derived_from"):
+                continue
+            twin = placed.get((f["key"], f["display"]))
+            if twin is not None:
+                f["derived_from"] = [twin]
+            else:
+                f["derived_from"] = [n["id"]]
+                counts["derived_by_node"] += 1
 
 
 def _version():

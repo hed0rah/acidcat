@@ -1146,7 +1146,8 @@ class TestInspectMp3:
         frames = next(c for c in chunks if c["id"] == "frames")
         assert "rows" in frames
         assert len(frames["rows"]) == 3
-        assert frames["rows"][0]["kbps"] == 128
+        assert frames["rows"][0]["bitrate_kbps"] == 128   # snake_case (review R6)
+        assert frames["rows"][0]["index"] == 0 and frames["rows"][0]["sample_rate"] == 44100
         assert frames["rows"][0]["offset"] == "0x00000000"
 
     def test_default_has_no_rows(self, tmp_path):

@@ -86,6 +86,14 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   nope`, `formats --fields` with no format, `inspect --force-format
   nope`, which is now checked before any file is read). `classify`'s
   "opaque" and `inspect --try-all`'s leads stay 1: they are answers.
+- **Document values.** A field's `value` is never a formatted number
+  (`"8,755"` is `8755`; text-typed fields keep their text). Every
+  derived field carries `derived_from`: its walker's sources, the
+  positioned field it repeats, or its node (counted in the new
+  `typing.derived_by_node`). An all-zero gap inside a payload is a
+  `padding` node, not `unwalked`. MP3 frame rows are `index`,
+  `bitrate_kbps`, `sample_rate`, `mode`, `bytes`, with a real `at.len`
+  (so are the columns of `inspect --frames` on an MP3).
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

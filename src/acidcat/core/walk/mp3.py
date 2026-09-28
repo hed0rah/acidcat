@@ -710,14 +710,19 @@ def inspect_mp3(filepath, deep=False):
         count += 1
         bitrates.add(f2["bitrate"])
         if deep and len(rows) < _FRAME_LISTING_CAP:
-            rows.append({
-                "#": len(rows),
+            # snake_case keys holding machine values, like every other
+            # walker's rows; `bytes` is also the frame's at.len in the Document
+            row = {
+                "index": len(rows),
                 "offset": f"0x{off:08x}",
-                "kbps": "free" if f2.get("free_format") else f2["bitrate"],
-                "Hz": f2["sample_rate"],
+                "bitrate_kbps": None if f2.get("free_format") else f2["bitrate"],
+                "sample_rate": f2["sample_rate"],
                 "mode": f2["channel_mode_name"],
                 "bytes": f2["frame_length"],
-            })
+            }
+            if f2.get("free_format"):
+                row["free_format"] = True
+            rows.append(row)
         elif deep:
             truncated = True
     walked = count

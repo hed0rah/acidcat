@@ -49,8 +49,12 @@ _ID3_READ_CAP = 16 * 1024 * 1024
 
 
 def _f(off, length, name, value, note="", enc=None, raw=None, xref=None,
-       remote=False):
+       remote=False, derived_from=None):
     d = {"off": off, "len": length, "name": name, "value": value, "note": note}
+    if derived_from:
+        # an unpositioned value's sources: field names on this chunk, or
+        # `node_id#key` elsewhere (node-v1.md section 6)
+        d["derived_from"] = list(derived_from)
     if remote:
         # stored outside this chunk's extent; off still locates the bytes
         d["remote"] = True
