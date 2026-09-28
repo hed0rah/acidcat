@@ -322,6 +322,45 @@ def _infer(value, b, prefer_be):
 
 # a display string that is a whole number, with or without thousands commas
 _INT_TEXT = re.compile(r"^-?(?:\d{1,3}(?:,\d{3})+|\d+)$")
+_NUM = r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+_NUM_TEXT = re.compile(r"^(" + _NUM + r")(?:\s*([A-Za-z]+))?$")
+_CLOCK_TEXT = re.compile(r"^(?:(\d+):)?(\d+):(\d{2}(?:\.\d+)?)$")
+_INT_LIST_TEXT = re.compile(r"^-?\d+(?:, -?\d+)+$")
+# a display's unit, and the factor to the value's base unit: seconds, hertz,
+# bits per second; a count keeps its number
+_UNITS = {"s": 1, "sec": 1, "ms": "0.001", "Hz": 1, "kHz": 1000,
+          "MHz": 1000000, "bps": 1, "kbps": 1000, "bytes": 1, "byte": 1,
+          "BPM": 1, "bpm": 1, "frames": 1, "samples": 1}
+# the keys whose m:ss text is a duration; elsewhere a clock may be a CD
+# address (mm:ss:ff), which is not seconds
+_CLOCK_KEY = re.compile(r"length|fade|duration", re.I)
+_VERSION_KEY = re.compile(r"version", re.I)
+
+
+def _machine_value(text, key):
+    """The number (or list of ints) a display string states, or None: an
+    int, a float, a number with a unit in the base unit (`"0.008 s"` ->
+    0.008, `"10000 ms"` -> 10, `"44,100 Hz"` -> 44100), an m:ss duration in
+    a length, fade or duration field (`"1:00"` -> 60), or a list of ints
+    (`"0, 255"`). Review V6: ints were parsed and every other number stayed
+    text."""
+    from decimal import Decimal
+    t = text.strip()
+    m = _NUM_TEXT.match(t)
+    if m and "." in m.group(1) and not m.group(2) and _VERSION_KEY.search(key or ""):
+        return None                   # "1.10" is a version, not 1.1
+    if m and (m.group(2) is None or m.group(2) in _UNITS):
+        d = Decimal(m.group(1).replace(",", "")) * Decimal(_UNITS.get(m.group(2), 1))
+        return int(d) if d == d.to_integral_value() and "." not in m.group(1) \
+            or (m.group(2) and d == d.to_integral_value()) else float(d)
+    m = _CLOCK_TEXT.match(t)
+    if m and _CLOCK_KEY.search(key or ""):
+        d = (Decimal(m.group(1) or 0) * 3600 + Decimal(m.group(2)) * 60
+             + Decimal(m.group(3)))
+        return int(d) if d == d.to_integral_value() else float(d)
+    if _INT_LIST_TEXT.match(t):
+        return [int(x) for x in t.split(", ")]
+    return None
 
 
 def _field(fl, node_pos, data, prefer_be, key, layer=0):
@@ -331,9 +370,10 @@ def _field(fl, node_pos, data, prefer_be, key, layer=0):
     type says it is text."""
     out = _field_raw(fl, node_pos, data, prefer_be, key, layer)
     v = out["value"]
-    if (isinstance(v, str) and out["type"] not in ("ascii", "fourcc")
-            and _INT_TEXT.match(v.strip())):
-        out["value"] = int(v.strip().replace(",", ""))
+    if isinstance(v, str) and out["type"] not in ("ascii", "fourcc"):
+        parsed = _machine_value(v, key)
+        if parsed is not None:
+            out["value"] = parsed
     if fl.get("derived_from") and "at" not in out:
         out["derived_from"] = [str(x) for x in fl["derived_from"]]
     return out

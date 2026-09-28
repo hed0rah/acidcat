@@ -259,9 +259,12 @@ def _keymap_body(b, off, block_end):
     fields = [
         _f(2, 2, "method", f"0x{method:04x}", layout, enc=">H", raw=method),
         _f(6, 2, "cents_per_entry", cents),
+        # raw is the list: the display's bare commas read as a thousands
+        # separator ("1,234" was the int 1234, review V6)
         _f(None, 0, "sample_refs",
            ",".join(str(s) for s in sorted(sample_ids)) or "(none)",
-           f"{len(sample_ids)} unique sample(s) across {keys} keys"),
+           f"{len(sample_ids)} unique sample(s) across {keys} keys",
+           raw=sorted(sample_ids)),
     ]
     return f"{len(sample_ids)} sample(s), {keys} keys", fields, []
 

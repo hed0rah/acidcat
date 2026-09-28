@@ -127,6 +127,15 @@ gone.
 
 ### Changed
 
+- **Every number in the Document is a number.** Only whole-number display
+  strings were parsed; a duration, a fade, a rate with its unit stayed text.
+  A field's `value` is now the float (`"0.25"`), the number in its base unit
+  (`"0.008 s"` 0.008, `"10000 ms"` 10, `"44,100 Hz"` 44100, `"192 kbps"`
+  192000, `"4 bytes"` 4), the seconds of an `m:ss` length, fade or duration
+  (`"1:00"` 60) or the list of ints (`"0, 255"`); `display` keeps the text.
+  A version (`"1.10"`) and a CD address (`00:00:04`) stay text. A Kurzweil
+  keymap's `sample_refs` is the list of sample ids (its display `1,234` was
+  the int 1234).
 - **A cap that fired is recorded at its bound.** The Document's `limits`
   said `list_rows: null` beside `hit: ["list_rows"]` (an E4B listing its
   first 512 rows): a limit named without the value that stopped the walk. A

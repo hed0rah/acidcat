@@ -451,6 +451,39 @@ def test_the_limits_object_is_what_the_document_records(tmp_path):
     assert set(doc["limits"]) == set(SCHEMA["$defs"]["limits"]["properties"])
 
 
+@pytest.mark.parametrize("text,key,want", [
+    ("8,755", "count", 8755), ("0.25", "gain", 0.25),
+    ("0.008 s", "duration", 0.008), ("10000 ms", "fade", 10),
+    ("44,100 Hz", "sampleRate", 44100), ("3.57954 MHz", "SN76489", 3579540),
+    ("192 kbps", "avg_bitrate", 192000), ("4 bytes", "channel A", 4),
+    ("1:00", "length", 60), ("3:25.500", "LENGTH", 205.5),
+    ("0, 255", "order", [0, 255]),
+    # not numbers: a version, a CD address, hex, prose
+    ("1.10", "version", None), ("00:00:04", "discTime", None),
+    ("0x40", "object_type", None), ("0 (runs to EOF)", "dataLength", None),
+    ("12 parsecs", "x", None),
+])
+def test_a_display_string_that_states_a_number_is_the_number(text, key, want):
+    """Review V6: ints were parsed and every other number stayed text (a
+    duration, a fade, a rate with its unit). A unit is folded into the base
+    unit (seconds, Hz, bits per second), so the value never depends on which
+    unit a walker printed."""
+    assert contract._machine_value(text, key) == want
+    if want is not None:
+        assert type(contract._machine_value(text, key)) is type(want)
+
+
+def test_the_seeds_carry_their_numbers(tmp_path):
+    import acidcat
+    got = {}
+    for fmt, key in (("8svx", "duration"), ("psf", "length"), ("spc", "fade"),
+                     ("xm", "version")):
+        d = acidcat.open(seeds.build(fmt), forensics=False).to_json()
+        got[fmt] = [f["value"] for n in contract.iter_nodes(d)
+                    for f in n["fields"] if f["key"] == key]
+    assert got == {"8svx": [0.008], "psf": [60], "spc": [10], "xm": ["1.04"]}
+
+
 def test_a_cap_that_fired_is_recorded_at_its_bound():
     """Review V5: an E4B listing its first 512 rows recorded `list_rows:
     null` beside `hit: ["list_rows"]`, a limit named without the value that

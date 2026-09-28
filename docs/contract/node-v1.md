@@ -250,7 +250,7 @@ that:
 | `type` | type string | yes | How the bytes are stored (section 6.1). `display` when nothing better is known. |
 | `type_source` | enum | yes | `declared` (the walker said), `enc` (from a legacy `enc`), `inferred` (the normaliser guessed), `none` (type is `display`). |
 | `xform` | xform string | no | How the stored value becomes `value` (section 6.2). |
-| `value` | JSON value | yes | The machine value: an int, a float, a string, a bool, a list of ints for `bytes`. Never a formatted number: a display string that is a whole number (`"8"`, `"8,755"`) is the int, except in a field typed as text (`ascii`, `fourcc`), whose value is the text. |
+| `value` | JSON value | yes | The machine value: an int, a float, a string, a bool, a list of ints for `bytes`. Never a formatted number: a display string that states a number is the number, except in a field typed as text (`ascii`, `fourcc`) and a version (`"1.10"`), whose value is the text. A whole number (`"8"`, `"8,755"`) is the int, a decimal (`"0.25"`) the float; a unit is folded into its base unit, seconds, Hz or bits per second (`"0.008 s"` is 0.008, `"10000 ms"` 10, `"44,100 Hz"` 44100, `"192 kbps"` 192000; a count such as `"4 bytes"` is 4); an `m:ss` time in a length, fade or duration field is seconds (`"1:00"` is 60); a list of ints (`"0, 255"`) is the list. |
 | `display` | string | yes | What a human reads: today's `value`, verbatim. |
 | `note` | string | yes | As today; may be empty. |
 | `unit` | string | no | `Hz`, `bytes`, `frames`, `samples`, `ms`, `cents`, `dB`, ... |
@@ -458,7 +458,7 @@ Rows are not typed in v1.
 | flat list | `children` by enclosure (section 5.2), gaps as `unwalked` nodes (`padding` when all zero inside a payload) |
 | field `off` (relative) | `at.off` = `payload_base + off` (absolute) |
 | field `off = None` | no `at` |
-| field `value` | `display` = `str(value)` as today's renderers print it; `value` = `raw` if present, else a number parsed from an int-valued `value`, else the decoded bytes for a typed field, else `value` unchanged |
+| field `value` | `display` = `str(value)` as today's renderers print it; `value` = `raw` if present, else the number (or list of ints) a display string states (section 6), else the decoded bytes for a typed field, else `value` unchanged |
 | field `enc` | `type` per the mapping table, `type_source: "enc"` |
 | field `raw` | `value` |
 | field `xref` | `ptr` |
