@@ -53,7 +53,7 @@ def _parse_sets(set_args):
     return changes
 
 
-def _edit(path, changes, force=False, cascade=True, repairs=None):
+def _edit(path, changes, force=False, cascade=True, repairs=None, quiet=False):
     """Return (format_label, new_bytes, applied) for the file, or raise EditError.
 
     Goes through the one edit front door (acidcat.core.edit): the changes
@@ -71,7 +71,7 @@ def _edit(path, changes, force=False, cascade=True, repairs=None):
         if repairs is not None:
             repairs += patch.repairs
     patch.verify()
-    for note in patch.notes:
+    for note in ([] if quiet else patch.notes):
         # stored, but not all of what was asked: say so, once, on stderr
         print(f"acidcat edit: {path}: {note}", file=sys.stderr)
     return patch.format, patch.data, patch.applied
@@ -233,7 +233,8 @@ def run(args):
             fmt, new_data, applied = _edit(path, changes,
                                            force=getattr(args, "force", False),
                                            cascade=getattr(args, "cascade", True),
-                                           repairs=cascaded)
+                                           repairs=cascaded,
+                                           quiet=getattr(args, "quiet", False))
         except (edits.EditError,) + _mutagen_errors() as e:
             print(f"acidcat edit: {path}: {e}", file=sys.stderr)
             rc = max(rc, 1)
@@ -255,7 +256,7 @@ def run(args):
             for r in cascaded:
                 # a field that follows the edit, one line each, saying why
                 print(f"  {r.addr}: {r.old!r} -> {r.new!r} (follows {r.follows})")
-        if "experimental" in fmt:
+        if "experimental" in fmt and not getattr(args, "quiet", False):
             print("  note: proprietary preset editing is experimental -- verify "
                   "the preset reloads in its app; a _original backup is kept.",
                   file=sys.stderr)

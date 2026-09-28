@@ -17,7 +17,7 @@ def register(subparsers):
     p = subparsers.add_parser(
         "explore",
         help="Build a standalone interactive HTML byte-explorer of a file.")
-    p.add_argument("file")
+    p.add_argument("file", metavar="FILE")
     p.add_argument("-o", "--output",
                    help="Output HTML path (default: the input name with .html).")
     p.set_defaults(func=run)

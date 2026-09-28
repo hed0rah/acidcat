@@ -43,7 +43,7 @@ def register(subparsers):
         "convert",
         help="Bitwig clip -> MIDI, NCW/8SVX/AU -> WAV, or SF2 -> a folder of WAVs.",
     )
-    p.add_argument("input", help="Input file (.bwclip / .ncw / .sf2 / .8svx / "
+    p.add_argument("input", metavar="FILE", help="Input file (.bwclip / .ncw / .sf2 / .8svx / "
                                  ".au), or a directory to batch-convert every "
                                  ".ncw within.")
     p.add_argument("-o", "--output",

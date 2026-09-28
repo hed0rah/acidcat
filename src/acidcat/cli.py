@@ -202,6 +202,18 @@ def _run_one(argv):
         # no verb is a usage error, the same class as a bad flag
         parser.print_help(sys.stderr)
         return 2
+    report_to = getattr(args, "report_to", None)
+    if report_to:
+        # -o on a verb whose -o only redirects its report (add_report_arg)
+        import contextlib
+        try:
+            fh = open(report_to, "w", encoding="utf-8", newline="")
+        except OSError as e:
+            print(f"acidcat {args.command}: {report_to}: {e.strerror or e}",
+                  file=sys.stderr)
+            return 2
+        with fh, contextlib.redirect_stdout(fh):
+            return args.func(args)
     return args.func(args)
 
 

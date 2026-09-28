@@ -133,3 +133,13 @@ def snake(key):
     import re
     return re.sub(r"[^a-z0-9]+", "_", str(key).lower()).strip("_") or "_"
 
+
+def add_report_arg(parser):
+    """`-o/--output PATH` for a verb whose -o means only "the report goes
+    here": the dispatcher sends stdout to PATH for the run (cli._run_one), so
+    the verb's own printing needs no change. Verbs whose -o names something
+    else (carve's bytes, convert's file, edit's copy) keep their own."""
+    parser.add_argument("-o", "--output", dest="report_to", metavar="PATH",
+                        help="Write the report here instead of stdout.")
+    return parser
+

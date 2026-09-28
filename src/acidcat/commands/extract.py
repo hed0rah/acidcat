@@ -26,7 +26,7 @@ def register(subparsers):
     p = subparsers.add_parser(
         "extract", help="Extract embedded samples (MOD/XM/IT, 8SVX, NCW, SF2, PDX) or a "
                         "PS1/CD-XA disc soundtrack to WAVs.")
-    p.add_argument("input", help="Bank/module/disc image to extract from, or '-' "
+    p.add_argument("input", metavar="FILE", help="Bank/module/disc image to extract from, or '-' "
                                  "for stdin.")
     p.add_argument("-o", "--output", metavar="DIR",
                    help="Output directory (default: <input>_samples).")

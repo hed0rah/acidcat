@@ -24,7 +24,7 @@ def register(subparsers):
     p = subparsers.add_parser(
         "edit", help="Change tags, typed fields or the cover (verified, with a "
                      "backup).")
-    p.add_argument("inputs", nargs="+", metavar="target", help="File(s) to edit.")
+    p.add_argument("inputs", nargs="+", metavar="FILE", help="File(s) to edit.")
     p.add_argument("--set", dest="sets", action="append", default=[],
                    metavar="NAME=VALUE",
                    help="Set a tag, a typed field (an ADDR) or the cover "
@@ -43,6 +43,8 @@ def register(subparsers):
                    help="Skip the _original backup on in-place edits.")
     p.add_argument("--force", action="store_true",
                    help="Write a typed field whose type the walk only inferred.")
+    p.add_argument("-q", "--quiet", action="store_true",
+                   help="Nothing on stderr but errors (no notes).")
     p.add_argument("--no-cascade", action="store_false", dest="cascade",
                    help="Do not set the fields a field edit ties to (a WAV's "
                         "avg_bytes_per_sec after its sample_rate): refuse the "
@@ -120,4 +122,5 @@ def run(args):
     ns = _legacy.parser_for(write, "write").parse_args(argv)
     ns.force = args.force
     ns.cascade = args.cascade
+    ns.quiet = args.quiet
     return write.run(ns)

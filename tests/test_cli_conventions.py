@@ -103,6 +103,9 @@ def test_options_may_follow_operands(two_wavs):
 def test_dash_reads_stdin(verb):
     """Invariant 3. shape, audit and validate had no stdin handling at all --
     audit got it for free once it routed through targets.each."""
+    if verb == "detect":
+        # analyze exits 2, once, without the analysis extra; CI installs it
+        pytest.importorskip("librosa")
     from conftest import CORPUS_WAV as src
     raw = open(src, "rb").read()
     r = subprocess.run([sys.executable, "-m", "acidcat", verb, "-"],

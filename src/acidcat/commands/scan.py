@@ -129,11 +129,25 @@ def _scan_tagged(filepath):
     }, []
 
 
+def _groups(targets):
+    """(dir, [names]) groups as os.walk gives them, for directories and for
+    files named directly (`stats FILE`), in the order given."""
+    for t in targets:
+        if os.path.isfile(t):
+            yield os.path.dirname(t) or ".", [], [os.path.basename(t)]
+        else:
+            yield from os.walk(t)
+
+
 def run(args):
-    directory = args.target
-    if not os.path.isdir(directory):
-        print(f"acidcat stats: {directory}: Not a directory", file=sys.stderr)
-        return 2
+    # `targets` when stats passes several (files or directories); 1.8's
+    # parser gave one directory as `target`
+    targets = list(getattr(args, "targets", None) or [args.target])
+    for t in targets:
+        if not os.path.exists(t):
+            print(f"acidcat stats: {t}: No such file or directory", file=sys.stderr)
+            return 2
+    directory = ", ".join(targets)
 
     # stdout unless -o names a file. This used to invent
     # `<dirname>_metadata.csv` in whatever directory you happened to be
@@ -166,7 +180,7 @@ def run(args):
     rows = []
     count = 0
 
-    for root, _, files in os.walk(directory):
+    for root, _, files in _groups(targets):
         for file in files:
             ext = os.path.splitext(file)[1].lower()
             if ext not in AUDIO_EXTENSIONS:

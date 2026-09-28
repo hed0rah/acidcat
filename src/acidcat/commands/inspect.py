@@ -43,7 +43,7 @@ def register(subparsers):
         "inspect",
         help="readelf-style structural dump of an audio or synth/DAW preset file.",
     )
-    p.add_argument("targets", nargs="+", metavar="target",
+    p.add_argument("targets", nargs="+", metavar="FILE",
                    help="One or more audio, sampler or synth/DAW preset files. "
                         "Run `acidcat formats` for the full list of what has a "
                         "walker. With more than one target, each is printed "

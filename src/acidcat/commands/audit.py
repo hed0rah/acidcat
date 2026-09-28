@@ -29,7 +29,7 @@ import json
 import os
 import sys
 
-from acidcat.commands._output import (add_output_format_arg,
+from acidcat.commands._output import (add_output_format_arg, add_report_arg,
                                       chosen_format)
 from acidcat.core.forensics import anomalies, integrity, provenance
 from acidcat.core.write import constraints
@@ -68,6 +68,10 @@ def register(subparsers):
     # was an error on the forensic one. table+json only: an audit verdict is
     # nested (violations, findings, provenance) with no honest csv shape.
     add_output_format_arg(p, only=("table", "json"))
+    add_report_arg(p)
+    p.add_argument("-q", "--quiet", action="store_true",
+                   help="Nothing on stderr but errors (no per-file banners, "
+                        "no skip note).")
     p.add_argument("--signal", action="store_true",
                    help="Also analyze the decoded audio: bandwidth (is a WAV "
                         "really a decoded MP3) and channel relationship (is "
@@ -279,12 +283,15 @@ def run(args):
     """One or many, files or directories -- audit is a per-file report,
     and it took a single file while `inspect` next to it took a list."""
     from acidcat.util import targets
+    quiet = getattr(args, "quiet", False)
     if chosen_format(args) != "json":
-        return targets.each(args, "input", _run_one, verb="audit")
+        return targets.each(args, "input", _run_one, verb="audit",
+                            header=not quiet, quiet=quiet)
     # one row per file in one array, the shape `check` gives (cli-2.0.md
     # section 4.1); it was one pretty object per file, back to back
     args._rows = []
-    rc = targets.each(args, "input", _run_one, verb="audit", header=False)
+    rc = targets.each(args, "input", _run_one, verb="audit", header=False,
+                      quiet=quiet)
     print(json.dumps(args._rows, indent=2, default=str))
     return rc
 

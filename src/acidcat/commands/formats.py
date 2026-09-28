@@ -20,7 +20,7 @@ Turning them into real format tables is the next housekeeping step.
 import argparse
 import sys
 
-from acidcat.commands._output import add_output_format_arg
+from acidcat.commands._output import add_output_format_arg, add_report_arg
 from acidcat.core.infra.render import format_json
 
 # Convert and Repair have no format-keyed registry to read (they branch on magic
@@ -65,6 +65,7 @@ def register(subparsers):
                    help="Show which metadata fields the format can hold and "
                         "where each one lands. Needs a format.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"), deprecated_f=False)
+    add_report_arg(p)
     p.set_defaults(func=run)
 
 

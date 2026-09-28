@@ -53,8 +53,8 @@ def register(subparsers):
 def run(args):
     roots = []
     for t in args.target:
-        if not os.path.isdir(t):
-            print(f"acidcat stats: {t}: Not a directory", file=sys.stderr)
+        if not os.path.exists(t):
+            print(f"acidcat stats: {t}: No such file or directory", file=sys.stderr)
             return 2
         roots.append(t)
 

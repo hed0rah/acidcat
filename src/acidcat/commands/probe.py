@@ -26,7 +26,7 @@ import json
 import os
 import sys
 
-from acidcat.commands._output import (add_output_format_arg,
+from acidcat.commands._output import (add_output_format_arg, add_report_arg,
                                       chosen_format)
 from acidcat.util.stdin import display_name
 from acidcat.util.color import add_color_arg, color_enabled, fg
@@ -63,6 +63,7 @@ def register(subparsers):
     # offsets, entropy windows, byte ranges) and there is no single column set a
     # csv could honestly claim to be.
     add_output_format_arg(p, only=("table", "json"))
+    add_report_arg(p)                  # before the subverb, like --output-format
     sub = p.add_subparsers(dest="verb", metavar="VERB")
 
     # The gap between acidcat-as-hex-viewer and acidcat-as-RE-workbench. You

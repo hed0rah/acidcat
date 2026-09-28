@@ -20,7 +20,7 @@ the bytes -- reported null, with common candidates).
 import sys
 
 from acidcat.core.forensics import audioscan
-from acidcat.commands._output import add_output_format_arg
+from acidcat.commands._output import add_output_format_arg, add_report_arg
 from acidcat.core.forensics import locate as locatemod
 from acidcat.core.infra.render import format_json
 from acidcat.util.stdin import is_stdin_target
@@ -34,7 +34,7 @@ def register(subparsers):
     p = subparsers.add_parser(
         "locate",
         help="Find audio regions in a blob or disk image (containers + raw PCM).")
-    p.add_argument("input", help="File to scan, or '-' to read the blob from stdin.")
+    p.add_argument("input", metavar="FILE", help="File to scan, or '-' to read the blob from stdin.")
     p.add_argument("--mode", choices=locatemod.MODES, default="normal",
                    help="Forensics level: strict (validated containers only), "
                         "normal (+ high-confidence blobs), aggressive (every "
@@ -48,6 +48,7 @@ def register(subparsers):
                         "obfuscation lens. The reported key is a candidate "
                         "(polarity/low-bits are ambiguous). Reads at most 16 MB.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"))
+    add_report_arg(p)
     p.add_argument("--min-confidence", type=float, default=0.0, metavar="C",
                    help="Only report regions at or above this confidence (0..1). "
                         "A signature-matched container is 0.90; a headerless "

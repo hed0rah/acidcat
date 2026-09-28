@@ -24,6 +24,7 @@ import sys
 from acidcat.util.color import add_color_arg, color_enabled
 
 from acidcat.core.infra import bytefields as bf
+from acidcat.commands._output import add_output_format_arg, chosen_format, add_report_arg
 from acidcat.core.infra.mapped import map_file
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
@@ -35,14 +36,16 @@ _FIELD_COLORS = (36, 32, 33, 35, 34, 31, 96, 92, 93, 95)
 def register(subparsers):
     p = subparsers.add_parser(
         "od", help="objdump-x-style annotated, colored hex dump of a file's structure")
-    p.add_argument("target", help="File to dump, or '-' for stdin.")
+    p.add_argument("target", metavar="FILE", help="File to dump, or '-' for stdin.")
     p.add_argument("addrs", nargs="*", metavar="ADDR",
                    help="What to dump: a node (its payload: RIFF/smpl), a field "
                         "(RIFF/fmt_#sample_rate) or bytes (@0x100+64, "
                         "@0x100..0x200). Several are dumped in turn. Without "
                         "one, the whole file, annotated by its structure.")
-    p.add_argument("--json", action="store_true",
-                   help="With an ADDR: each range as {addr, offset, length, hex}.")
+    # table (the dump) or json: with an ADDR, each range as
+    # {addr, offset, length, hex}
+    add_output_format_arg(p, only=("table", "json"), deprecated_f=False)
+    add_report_arg(p)
     add_color_arg(p)
     p.add_argument("--width", type=int, default=16, metavar="N",
                    help="hex bytes per line, and per field before eliding "
@@ -303,7 +306,7 @@ def _run_addrs(args, path, addrs, on):
     try:
         # an address in a decoded layer reads that layer's bytes, and its
         # offsets are the layer's (`1:@0+16`, `1:lh5/header#frames`)
-        if getattr(args, "json", False):
+        if chosen_format(args) == "json":
             format_json([{"addr": a, "offset": s, "length": n,
                           "hex": bytes((data if blob is None else blob)[s:s + n]).hex()}
                          for a, s, n, blob in ranges], sys.stdout)
@@ -334,7 +337,7 @@ def _run(args):
     addrs = getattr(args, "addrs", None) or []
     if addrs:
         return _run_addrs(args, path, addrs, on)
-    if getattr(args, "json", False):
+    if chosen_format(args) == "json":
         print("acidcat od: --json needs an ADDR (the bytes to give as JSON)",
               file=sys.stderr)
         return 2

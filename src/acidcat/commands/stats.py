@@ -29,7 +29,7 @@ def register(subparsers):
     p = subparsers.add_parser(
         "stats", help="Per-file rows (--by meta, shape) or counts (--by chunks) "
                       "over a tree.")
-    p.add_argument("targets", nargs="+", metavar="target",
+    p.add_argument("targets", nargs="+", metavar="FILE",
                    help="Directories or files ('-' is stdin for --by shape).")
     p.add_argument("--by", choices=_BY, default="meta",
                    help="meta: format, tempo, key and duration per file "
@@ -93,14 +93,21 @@ _CHUNKS_ONLY = (("jobs", "auto"), ("io_hint", "auto"), ("follow_symlinks", False
                 ("no_fadvise", False), ("examples", None), ("top", 60))
 
 
-def _unused_note(args):
-    """Name the --by chunks flags a meta or shape run was given, rather than
-    let them do nothing in silence."""
-    given = ["--" + k.replace("_", "-") for k, off in _CHUNKS_ONLY
-             if getattr(args, k) != off]
-    if given:
-        print(f"acidcat stats: {', '.join(given)}: for --by chunks only, "
-              f"no effect with --by {args.by}", file=sys.stderr)
+# the flags each --by takes beyond the shared ones; one given to a mode that
+# does not read it is refused, not ignored (review R9)
+_SHAPE_ONLY = (("only_format", None), ("no_path", False), ("coarse", False),
+               ("fast", False), ("anomalies", False), ("warn_only", False))
+_META_ONLY = (("has", None),)
+_FOR = {"meta": _META_ONLY, "shape": _SHAPE_ONLY,
+        "chunks": _CHUNKS_ONLY + (("has", None),)}
+
+
+def _wrong_flags(args):
+    """The flags given that the chosen --by does not take."""
+    own = {k for k, _off in _FOR[args.by]}
+    every = _CHUNKS_ONLY + _SHAPE_ONLY + _META_ONLY
+    return sorted({"--" + k.replace("_", "-") for k, off in every
+                   if k not in own and getattr(args, k, off) != off})
 
 
 def run(args):
@@ -109,13 +116,12 @@ def run(args):
         print("acidcat stats: --max-files must be 0 (no limit) or more",
               file=sys.stderr)
         return 2
-    if args.by != "chunks":
-        _unused_note(args)
+    wrong = _wrong_flags(args)
+    if wrong:
+        print(f"acidcat stats: {', '.join(wrong)}: not for --by {args.by}",
+              file=sys.stderr)
+        return 2
     if args.by == "meta":
-        if len(args.targets) != 1:
-            print("acidcat stats: --by meta takes one directory",
-                  file=sys.stderr)
-            return 2
         from acidcat.commands import scan
         cap = _limit(args.max_files)
         argv = [args.targets[0], "--output-format", fmt,
@@ -125,6 +131,7 @@ def run(args):
         _legacy.switch(argv, "-v", args.verbose)
         _legacy.flag(argv, "--has", args.has)
         ns = _legacy.parser_for(scan, "scan").parse_args(argv)
+        ns.targets = list(args.targets)      # files and directories, any number
         ns.cap_flag = "--max-files" if cap else None
         return scan.run(ns)
     if args.by == "shape":

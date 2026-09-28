@@ -181,6 +181,15 @@ gone.
   appended reports it and exits 0 (it exited 1). A RIFF or FORM size
   short of the file is `container.trailing` (info) when nothing past it
   is a chunk, and still `count.mismatch` when something is.
+- **Standard flags.** `-o PATH` writes the report on every verb that has
+  one (`od`, `probe`, `classify`, `locate`, `audit`, `formats`, `lib
+  list`/`stats` gained it); `-q` on `audit` and `edit`; `od
+  --output-format`; positional files are `FILE` in every usage line.
+  `stats FILE` works in every `--by`, and a flag for another `--by` is
+  refused (exit 2) instead of noted and ignored. `analyze` takes several
+  files (one array of rows) and exits 2 once without librosa (it printed
+  the error per file and emitted empty rows). `--no-recurse` and
+  `--limit NAME=VALUE` are not in 2.0.0a1.
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

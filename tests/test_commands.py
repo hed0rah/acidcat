@@ -207,9 +207,10 @@ class TestScanCommand:
         code, out, err = run_cli("scan", str(tmp_path), "-q")
         assert code == 0 or code is None
 
-    def test_scan_not_a_directory(self, minimal_wav):
+    def test_scan_takes_a_file(self, minimal_wav):
+        """2.0: `stats FILE` works (review R9), so its scan alias does."""
         code, out, err = run_cli("scan", minimal_wav, "-q")
-        assert code == 2
+        assert code == 0 and minimal_wav in out
 
     def test_scan_csv_has_header(self, tmp_path, minimal_wav):
         import shutil
@@ -382,9 +383,10 @@ class TestDumpJson:
         # tree it had found nothing in.
         assert code == 1
 
-    def test_survey_not_directory(self, minimal_wav):
+    def test_survey_takes_a_file(self, minimal_wav):
+        """2.0: `stats FILE --by chunks` reads the file it is named."""
         code, out, err = run_cli("survey", minimal_wav)
-        assert code == 2
+        assert code == 0 and "1 IFF-family" in out
 
 
 class TestInfoMidiDivision:

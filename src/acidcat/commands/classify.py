@@ -19,7 +19,7 @@ import json
 import os
 import sys
 
-from acidcat.commands._output import add_output_format_arg
+from acidcat.commands._output import add_output_format_arg, add_report_arg
 from acidcat.util import stdin as stdinmod
 from acidcat.core.forensics.classify import classify as classify_file
 from acidcat.core.infra.render import output
@@ -43,13 +43,14 @@ def register(subparsers):
         "classify",
         help="Triage a file: single format, container, damaged, or not audio -- "
              "and what to run next.")
-    p.add_argument("targets", nargs="+", metavar="target",
+    p.add_argument("targets", nargs="+", metavar="FILE",
                    help="Files or directories to triage.")
     p.add_argument("--shallow", action="store_true",
                    help="Magic and chunk structure only -- skip the embedded "
                         "container sweep and resync. For large trees where the "
                         "per-file sweep would dominate.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"))
+    add_report_arg(p)
     add_color_arg(p)
     p.add_argument("--problems-only", action="store_true",
                    help="Report only files that are not a plain single file of "

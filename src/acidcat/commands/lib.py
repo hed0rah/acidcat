@@ -14,7 +14,7 @@
 import sys
 
 from acidcat.commands import _legacy
-from acidcat.commands._output import add_output_format_arg, chosen_format
+from acidcat.commands._output import add_output_format_arg, add_report_arg, chosen_format
 
 _KINDS = ("loop", "one_shot", "any")
 
@@ -30,7 +30,7 @@ def register(subparsers):
     sub = p.add_subparsers(dest="lib_command", metavar="SUBCOMMAND")
 
     ix = sub.add_parser("index", help="Index a directory as a library.")
-    ix.add_argument("target", nargs="?", help="Directory to index.")
+    ix.add_argument("target", nargs="?", metavar="DIR", help="Directory to index.")
     ix.add_argument("--label", help="The library's label (default: the "
                                     "directory's name).")
     ix.add_argument("--in-tree", action="store_true",
@@ -68,6 +68,7 @@ def register(subparsers):
     ls.add_argument("--orphans", action="store_true",
                     help="Only libraries whose DB file is missing.")
     _registry(ls)
+    add_report_arg(ls)
 
     st = sub.add_parser("stats", help="A library's counts, from its index.")
     st.add_argument("target", nargs="?", metavar="LIB",
@@ -76,6 +77,7 @@ def register(subparsers):
                     help="Re-read the DB(s) and refresh the registry's counts "
                          "(every library without LIB).")
     _registry(st)
+    add_report_arg(st)
 
     fg = sub.add_parser("forget", help="Unregister a library.")
     fg.add_argument("target", metavar="LIB", help="A library by label or path.")
@@ -113,7 +115,7 @@ def register(subparsers):
     add_output_format_arg(q, only=("table", "json", "csv", "tsv"), deprecated_f=False)
 
     sm = sub.add_parser("similar", help="The nearest files by audio features.")
-    sm.add_argument("target", help="The file to match.")
+    sm.add_argument("target", metavar="FILE", help="The file to match.")
     sm.add_argument("--top", type=int, default=5, help="Keep the first N (5).")
     sm.add_argument("--kind", choices=_KINDS, help="loop, one_shot or any.")
     sm.add_argument("--no-kind-filter", action="store_true",

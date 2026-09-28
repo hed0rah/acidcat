@@ -52,7 +52,7 @@ def register(subparsers):
     p = subparsers.add_parser(
         "carve", help="Extract a byte range or a typed field (chunk / offset / "
                       "anchored / struct) to a file or stdout.")
-    p.add_argument("target", help="File to carve from (never modified); '-' "
+    p.add_argument("target", metavar="FILE", help="File to carve from (never modified); '-' "
                                   "is stdin with --as-wav.")
     p.add_argument("addr", nargs="?", metavar="ADDR",
                    help="What to carve: a node (its payload: RIFF/data), a field "

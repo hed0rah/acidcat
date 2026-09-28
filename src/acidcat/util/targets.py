@@ -117,7 +117,8 @@ def expand(inputs, *, accept=None, recurse=True, follow_links=False):
     return files, skipped
 
 
-def each(args, attr, single, *, verb, accept=None, header=True, stream=None):
+def each(args, attr, single, *, verb, accept=None, header=True, stream=None,
+         quiet=False):
     """Run a single-file command once per operand.
 
     ``audit`` and ``inspect`` are the same kind of verb -- read a file, print
@@ -171,7 +172,7 @@ def each(args, attr, single, *, verb, accept=None, header=True, stream=None):
             worst = max(worst, single(args) or 0)
 
     note = skip_note(skipped)
-    if note:
+    if note and not quiet:
         print(f"  {note}", file=sys.stderr)
     return worst
 

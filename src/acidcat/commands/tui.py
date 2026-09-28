@@ -13,7 +13,7 @@ import sys
 def register(subparsers):
     p = subparsers.add_parser(
         "tui", help="Interactive terminal inspector/editor (needs acidcat[tui]).")
-    p.add_argument("file", nargs="?",
+    p.add_argument("file", nargs="?", metavar="FILE",
                    help="Audio or synth/DAW preset file. Omit to browse.")
     # No --theme flag, and that is not an omission.
     #

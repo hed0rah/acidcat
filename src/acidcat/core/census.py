@@ -24,6 +24,7 @@ set of named flags (RIFX, BW64, Wave64, ID3-in-WAV, Pro Tools / ADM chunks, ...)
 """
 
 import os
+import stat
 import struct
 import sys
 import threading
@@ -135,6 +136,9 @@ def walk_tree(roots, opts, exts=_EXTS, skipped=None):
         try:
             rst = os.stat(root)
         except OSError:
+            continue
+        if stat.S_ISREG(rst.st_mode):
+            yield os.fspath(root)      # named directly: read whatever its extension
             continue
         root_dev = rst.st_dev
         ident = (rst.st_dev, rst.st_ino)

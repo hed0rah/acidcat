@@ -16,7 +16,7 @@ def register(subparsers):
     p = subparsers.add_parser(
         "check", help="Check derived fields (sizes, counts, rates) against the "
                       "data; --fix rewrites them.")
-    p.add_argument("inputs", nargs="+", metavar="target",
+    p.add_argument("inputs", nargs="+", metavar="FILE",
                    help="Files or directories to check.")
     p.add_argument("--fix", action="store_true",
                    help="Rewrite what is inconsistent (with a _original backup "

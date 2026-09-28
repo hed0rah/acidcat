@@ -24,18 +24,16 @@ when a 2.0 flag is not named here.
   | `--json` | shorthand for `--output-format json` |
   | `--csv` | shorthand for `--output-format csv`, where the verb has rows |
   | `--output-format table\|json\|csv\|tsv` | default `table` on every verb (1.8 defaults `scan` and `features` to csv and `shape` to tsv) |
-  | `--color auto\|always\|never` | every verb that prints to a terminal |
-  | `-o/--output PATH` | write here instead of stdout |
-  | `-q/--quiet` | drop progress and summary lines on stderr; never changes stdout |
+  | `--color auto\|always\|never` | every verb whose output has colour: `inspect`, `od`, `classify`, `probe map` |
+  | `-o/--output PATH` | write here instead of stdout: on every verb with a report (`od`, `probe`, `classify`, `locate`, `audit`, `formats` and `lib list`/`stats` included); on `carve`, `convert`, `extract` and `edit` it names what they write |
+  | `-q/--quiet` | drop progress, notes and summary lines on stderr (errors stay); never changes stdout. On every verb that prints any |
   | `-v/--verbose` | add diagnostic lines on stderr; never changes stdout |
   | `--max-files N` | stop after N files (replaces `-n/--num` where it counted files, and `census --limit`) |
-  | `--no-recurse` | do not descend into directories given as targets |
   | `--top N` | keep the first N results (replaces `similar -n`, `query --limit`) |
   | `--byte-order be\|le\|both` | replaces `carve --endian`, `probe --be/--le`, `wrap --endian` |
   | `--only-format FMT` | filter targets by format (replaces `shape --format`, `query --format`) |
   | `--force-format FMT` | parse as FMT whatever the magic says (replaces `inspect --format`) |
   | `--deep` | `Limits(decode=True)`: do the extra decoding work (frames, checksums, compressed subtrees) |
-  | `--limit NAME=VALUE` | set one limit (`read_bytes`, `list_rows`, `frame_rows`, ...; node-v1.md section 9.1) |
 
 - **`--deep` means one thing.** In 1.8 it meant "decode more" on `validate`
   and `index`, and "run librosa" on `info`. The librosa meaning moves to
@@ -561,9 +559,14 @@ Where the build refines this page, and what it does not do yet:
   the 10,000 default applies, which neither 1.8 verb had.
 - `--jobs`, `--io-hint`, `--follow-symlinks`, `--one-file-system`,
   `--noatime` and `--no-fadvise` are census's reader, which serves
-  `--by chunks` only so far: `--by meta` and `--by shape` accept them and say
-  on stderr that they have no effect there. `--no-recurse` and
-  `--limit NAME=VALUE` are on no verb yet.
+  `--by chunks` only. A flag that belongs to another `--by` is refused
+  (exit 2), not ignored. `stats FILE` works in every mode.
+- Not in 2.0.0a1, and so not in the standard-flag table: `--no-recurse`
+  and `--limit NAME=VALUE`. Adding either later is additive.
+- Positional files are `FILE` in every usage line (`DIR` for `lib index`).
+  `analyze` takes several; its rows are one array, and it exits 2 once
+  when the analysis extra is missing.
+- `od --output-format table|json` (`--json` as before).
 - `inspect --json` is the contract v1 Document (node-v1.md), one compact
   object per file per line, the one `acidcat.open()` builds from the same
   walk, plus `file.path` and, with `--anomalies`, the forensic findings.
