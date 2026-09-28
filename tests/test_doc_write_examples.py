@@ -1,4 +1,4 @@
-"""Every `acidcat write` example in README.md and CHEATSHEET.md runs.
+"""Every `acidcat edit` example in README.md and CHEATSHEET.md runs.
 
 `write loop.wav --set bpm=128 --set key=Am` is in the cheatsheet, and it
 exited 1 ("the patch does not verify") once the edit went through the verified
@@ -7,7 +7,9 @@ string asked for, so the read-back could never match. Each example here runs
 as a dry run on a generated WAV that carries an acid chunk, and must exit 0.
 
 Syntax summaries (`FILE`, `field=value`, `[-o OUT]`) are not examples and are
-left out; everything else on a line that starts with `acidcat write` is run.
+left out; everything else on a line that starts with `acidcat edit` is run.
+(The docs said `acidcat write` until 2.0 renamed the verb; `write` is an alias
+of `edit`, so the examples are the same commands.)
 """
 
 import pathlib
@@ -29,9 +31,9 @@ def _examples():
         text = (ROOT / doc).read_text(encoding="utf-8")
         for line in text.splitlines():
             cmd = line.strip().strip("`")
-            if not cmd.startswith("acidcat write ") or _PLACEHOLDER.search(cmd):
+            if not cmd.startswith("acidcat edit ") or _PLACEHOLDER.search(cmd):
                 continue
-            out.append(pytest.param(cmd, id=f"{doc}:{cmd[14:50]}"))
+            out.append(pytest.param(cmd, id=f"{doc}:{cmd[13:50]}"))
     return out
 
 
@@ -49,13 +51,17 @@ def test_the_docs_have_write_examples():
 
 
 @pytest.mark.parametrize("cmd", _examples())
-def test_a_documented_write_example_runs(cmd, tmp_path, capsys):
+def test_a_documented_write_example_runs(cmd, tmp_path, capsys, monkeypatch):
+    # the cover examples name an image beside the file
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "art.jpg").write_bytes(
+        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xd9")
     wav = tmp_path / "loop.wav"
     wav.write_bytes(_wav_with_acid())
     argv = shlex.split(cmd)[1:]
     # the file operands are every token between the verb and the first flag
     first_flag = next(i for i, a in enumerate(argv) if a.startswith("-"))
-    argv = ["write", str(wav)] + argv[first_flag:]
+    argv = ["edit", str(wav)] + argv[first_flag:]
     if "--dry-run" not in argv:
         argv.append("--dry-run")
     rc = main(argv)

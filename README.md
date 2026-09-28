@@ -7,32 +7,27 @@
 
 # acidcat
 
-A pure-Python inspector, editor, and forensic tool for audio files and synth/DAW
-presets: read the metadata, decode the format structure byte by byte, flag
-anomalies, repair broken containers, and identify how a file was made.
+A pure-Python inspector, editor and forensic tool for audio files, sample banks
+and synth/DAW presets. It walks a file byte by byte into a tree of nodes and
+fields, each with a stable address and the exact bytes it came from. You can
+read any of it, change a field and have the fields that depend on it follow,
+check and repair container structure without touching the audio, and find and
+cut audio out of blobs and disk images.
 
-Reads BPM, key, duration, tags, and format info from WAV, AIFF, MP3, FLAC,
-OGG, Opus, M4A, MIDI, and Serum presets. Also structurally decodes Bitwig
-(.bwpreset/.bwclip), Native Instruments (Massive/Absynth/Kontakt/NKS/KORE),
-Vital, NCW, SoundFont (SF2/SF3), tracker modules (MOD/XM/IT), MP4, VST FXP,
-ReCycle RX2, and RMID containers via `inspect`. Beyond reading: `repair` and
-`validate` fix and check container structure (stale sizes, offset tables,
-counts, pad bytes) without touching a byte of audio, and `audit` gives a
-forensic verdict (structure, integrity, hidden data, and the writing tool).
-One pure-Python dependency (mutagen); the native `inspect` walkers need nothing.
-Optional librosa analysis for BPM/key detection and ML feature extraction.
+Closer to readelf, 010 Editor or radare2's format layer than to exiftool. The
+structural walkers need nothing beyond the standard library. The one required
+dependency, mutagen, reads tags. librosa-based tempo, key and feature
+analysis is an optional extra.
 
-Also ships per-library SQLite indexes (`acidcat index`) tracked in a
-small global registry, plus an MCP server (`acidcat-mcp`) so an LLM can
-query your whole collection across libraries by bpm, key, tags, or
-full-text.
+It also keeps per-library SQLite indexes of your samples and presets, and
+ships an MCP server (`acidcat-mcp`) so a model can search them.
 
 ## Install
 
 Python 3.11+.
 
     pip install acidcat              # core + mutagen, one dependency
-    pip install acidcat[analysis]    # + librosa BPM/key detection + features
+    pip install acidcat[analysis]    # + librosa tempo/key and feature extraction
     pip install acidcat[tui]         # + the interactive terminal inspector
     pip install acidcat[mcp]         # + MCP server (acidcat-mcp, stdio)
     pip install acidcat[mcp-http]    # + MCP streamable-HTTP transport
@@ -45,59 +40,87 @@ From a checkout, swap `acidcat` for `-e .`:
     cd acidcat
     pip install -e ".[all]"
 
-## Quick Start
+Coming from 1.8? Every 1.8 command and flag still runs, prints one line on
+stderr naming its 2.0 spelling, and then runs that. `CHANGELOG.md` has a
+"Migrating from 1.x" section, and
+[docs/contract/cli-2.0.md](docs/contract/cli-2.0.md) maps every old verb
+and flag.
 
-    # single file -- instant metadata
-    acidcat kick_808.wav
-    acidcat loop.mp3
-    acidcat pad.flac
+## Quick start
 
-    # pipe from stdin
-    cat file.wav | acidcat
-    curl https://example.com/loop.mp3 | acidcat -
+    acidcat loop.wav                          # summary: format, duration, tempo, key
+    acidcat inspect loop.wav                  # every node and field, with offsets
+    acidcat od loop.wav RIFF/fmt_             # the bytes of one node, annotated
+    acidcat carve loop.wav RIFF/fmt_#sample_rate      # one field's value: 44100
+    acidcat carve loop.wav RIFF/fmt_#sample_rate -o rate.bin   # its 4 bytes
+    acidcat edit loop.wav --set RIFF/fmt_#sample_rate=48000 --dry-run
+    acidcat check loop.wav                    # are the sizes and counts right?
+    acidcat audit suspect.wav                 # forensic verdict
+    acidcat ~/Samples/Loops                   # one row per file over a tree
 
-    # JSON output for piping
-    acidcat kick_808.wav --json | jq .BPM
+    cat loop.wav | acidcat -                  # stdin works wherever a file does
 
-    # deep analysis with librosa
-    acidcat kick_808.wav --deep
+## Addresses
 
-    # scan a mixed-format directory
-    acidcat scan ~/Samples/Breaks -n 200
+Everything acidcat shows has an address, and every verb that takes a location
+takes the same one (an ADDR, [docs/contract/node-v1.md](docs/contract/node-v1.md)
+section 13):
 
-## Supported Formats
+| ADDR | names |
+|---|---|
+| `RIFF/fmt_` | a node, by its id: the path of chunk names from the root, a space written `_` |
+| `RIFF/fmt_#sample_rate` | a field of that node, by its key |
+| `fmt_`, `fmt`, `data` | a node by its last step or its name, when only one node has it |
+| `RIFF/LIST[1]` | the second of two siblings with one name (repeats are indexed from 0) |
+| `RIFF/*`, `**/data` | every node a glob matches (`inspect --only`, `carve GLOB#KEY`) |
+| `@0x100+64`, `@0x100..0x200` | a byte range: offset and length, or start and end |
+| `1:lh5/header#frames` | a field inside a decoded layer (a packed YM's unpacked tune is layer 1) |
 
-| Format | Extension | What acidcat reads |
-|--------|-----------|-------------------|
-| WAV    | `.wav`    | BPM, key, loop points, beats, ACID/SMPL, LIST/INFO, bext, cart, iXML |
-| AIFF   | `.aif`    | Duration, format, name, author, copyright, markers |
-| MP3    | `.mp3`    | BPM, key, title, artist, album, genre, comment (ID3v2) |
-| FLAC   | `.flac`   | BPM, key, title, artist, album, genre (Vorbis Comment) |
-| OGG    | `.ogg`    | BPM, key, title, artist, album, genre (Vorbis Comment) |
-| Opus   | `.opus`   | BPM, key, title, artist (Vorbis Comment) |
-| M4A    | `.m4a`    | BPM, key, title, artist, album, genre (iTunes atoms) |
-| MIDI   | `.mid`    | BPM, key sig, time sig, tracks, note count/range |
-| RMID   | `.rmid`   | RIFF-wrapped MIDI: RIFF wrapper + the inner SMF (inspect) |
-| MIDI 2.0 | `.midi2` | MIDI Clip File: SMF2CLIP magic + UMP stream -- resolution, tempo, time sig, tick-stamped events (inspect) |
-| N64 bank | `.ctl` | libultra ALBankFile: bank/instrument/wavetable tree + VADPCM codebooks (inspect); `core/codecs/vadpcm.py` decodes N64 vector ADPCM |
-| Serum  | `.SerumPreset` | Preset name, author, tags, description |
-| VST FXP | `.fxp` | Preset kind, plugin id, version, preset name (inspect) |
-| ReCycle | `.rx2` | CAT/REX2 chunks, creator, slice count (inspect) |
-| Ableton | `.asd` | Live's analysis sidecar: warp markers and the **tempo derived from them**, onsets with energies, warp-engine parameters, the overview pyramid, and a frame grid that recovers the sample rate, frame count and duration of audio that has been **deleted** (inspect) |
-| Ableton | `.als`, `.alc`, `.adg`, `.adv`, `.agr` | Live Set / Clip / rack / device preset / groove: gzipped XML -- exact Live build, track and clip counts (inspect) |
-| Max for Live | `.amxd` | `ampf` chunk chain around the Max patcher (inspect) |
-| Bitwig WT | `.wt` | Wavetable header: frame count, samples/frame, 16-bit sample block (inspect) |
-| Bitwig | `.bwpreset`, `.bwclip` | Device tree, parameters, clip notes (inspect + index) |
-| Bitwig multisample | `.multisample` | Zone map: per-sample root note, key/velocity range, loop (inspect) |
-| Native Instruments | `.nmsv`, `.nabs`, `.ksd`, `.nksf`, `.nki` | Preset metadata, NKS tags, FastLZ subtree (inspect + index) |
-| Vital  | `.vital`  | Patch name, author, tags, modulation matrix (inspect + index) |
-| NCW    | `.ncw`    | NI Compressed Wave header, channel/block info (inspect + convert to WAV) |
-| SoundFont | `.sf2`, `.sf3` | sfbk metadata + every named sample with its byte offset; SF3 = Ogg-Vorbis samples (inspect + convert to WAV/Ogg) |
-| Tracker | `.mod`, `.xm`, `.it` | ProTracker / FastTracker II / Impulse Tracker: header, pattern order, every embedded sample at its byte offset; IT offset tables as pointers (inspect) |
-| Console streams | `.adx`, `.brstm`, `.hps`, `.vag` | CRI ADX, Nintendo BRSTM, HAL PCM Stream and Sony VAG: codec, channels, rate, frame count and derived duration in one shared vocabulary, plus each format's own block layout (inspect + extract) |
-| MDX    | `.mdx`    | Sharp X68000 MXDRV tune: Shift-JIS title, PDX sample-bank reference, per-channel MML offsets and OPM voice definitions (inspect) |
-| SID    | `.sid`    | PSID/RSID: big-endian header, C64 memory image, subtunes, chip model, clock, up to three SID addresses, HVSC songlength key (inspect); plays by running the tune's 6510 player |
-| MP4    | `.mp4`, `.m4a` | Box tree, codec info, iTunes tags, `stco`/`co64` offset tables (inspect + repair) |
+A node means its payload: `od f.wav RIFF/data` dumps the audio bytes, not the
+chunk header (`carve --raw` includes the header). In zsh, quote an ADDR that
+holds `[`, `*`, `?` or `#`, or the shell treats it as a pattern:
+`acidcat od f.wav 'RIFF/LIST[1]'`.
+
+`inspect` prints the ids, so the way to find an address is to look:
+
+    $ acidcat inspect loop.wav --only RIFF/fmt_ --hex
+    loop.wav: RIFF/WAVE, 172 bytes, showing 1 of 2 chunks
+
+      idx   id        offset      size        summary
+      [ 0]  RIFF/fmt_ 0x0000000c  16          PCM 16-bit 1ch 44100 Hz
+
+    RIFF/fmt_ @ 0x0000000c (16 bytes)
+      +0x0000  01 00                      format_tag             0x0001          PCM
+      +0x0002  01 00                      channels               1
+      +0x0004  44 ac 00 00                sample_rate            44100           Hz
+      ...
+
+## Commands
+
+Seventeen verbs. `acidcat VERB --help` has the rest.
+
+| Verb | Does |
+|---|---|
+| `inspect FILE...` | The structural dump, for the 88 formats `acidcat formats` lists: audio, sampler banks, trackers, synth presets, console streams, disc images. Nodes, fields, offsets and findings. `--summary` one record per file (format, duration, tempo, key); `--tags` the decoded tags without offsets; `--chunks` the node table alone; `--hex` bytes beside each field; `--only/--exclude ADDR-GLOB`; `-F/--frames` every MPEG frame or MIDI event; `--deep` the walkers' extra decoding (Bitwig device tree, Vital modulation matrix, NI compressed subtree); `--anomalies` the forensic scan; `--json` the contract v1 Document |
+| `od FILE [ADDR...]` | Annotated, coloured hex: the whole file by its structure, or the nodes, fields and ranges you name. `--at` for a search anchor (`find:STR`, `end-N`), `--region N` for a `locate` region, `--marks` to tint an unwalked dump |
+| `carve FILE [ADDR]` | Write out what an ADDR names: a node's payload (`--raw` with its header), a field (its value on the terminal, its bytes with `-o` or `--encoding raw`), a byte range, or a decoded layer (`--layer N`). `--type`/`--struct` decode typed values at any offset; `--trailing` is everything past the container; `--batch -` cuts every region `locate` found; `--as-wav` wraps raw PCM in a WAV header |
+| `probe read\|table\|scan\|find\|strings\|diff\|entropy\|map\|lsb` | Byte dissection: a typed read at an ADDR, an offset table walked into regions, value scan, pattern find, strings, binary diff, Shannon entropy, a Hilbert byte map, sample-LSB entropy |
+| `classify FILE\|DIR` | Triage: a single file acidcat walks, a container of files, a chunked but unknown format, damaged remains, or not audio. Each verdict names the command to run next |
+| `locate BLOB` | Find audio in a blob or disk image: embedded containers, headerless PCM, headerless MP3. `--analyze` infers PCM geometry, `--transforms` finds audio under XOR, rotate or nibble-swap. Never writes |
+| `audit FILE` | A forensic verdict in five parts: STRUCTURE, HIDDEN (appended or concealed data, with a carve command), FORENSICS, INTEGRITY (fake hi-res, duration mismatch), PROVENANCE (the writing tool). `--signal` adds decoded-audio checks (a WAV that is really a decoded MP3, stereo that is really dual mono) |
+| `check FILE\|DIR` | Recompute every derived field (sizes, offsets, counts, pad bytes, rates) and report the ones that disagree with the data. `--fix` rewrites the ones it can witness, never touching audio, with a `_original` backup; `--deep` also verifies the checksums a format carries (FLAC frame CRCs, MP3 frame validity) |
+| `edit FILE... --set NAME=VALUE` | Change a tag (`title`, `bpm`, `key`, `root`), a typed field by ADDR (`RIFF/fmt_#sample_rate=48000`, bytes as `hex:0100`), or the cover (`cover=@art.jpg`). The fields an edit ties to follow it (a WAV's `avg_bytes_per_sec` after its `sample_rate`; `--no-cascade` refuses instead). The result is verified by re-reading it before anything is written. `--unset`, `--get cover -o art.jpg`, `--strip`, `--dry-run`, `-o COPY` |
+| `stats DIR... --by meta\|shape\|chunks` | Over a tree: one row per file of format, tempo, key and duration (`meta`, the default); one structural fingerprint per file (`shape`, built for `sort \| uniq -c`); or a chunk-id histogram with the rare ones flagged (`chunks`). Stops at 10,000 files unless `--max-files` says otherwise |
+| `analyze FILE\|DIR --bpm-key\|--features` | Estimate tempo and key from the audio, or extract 50+ features for ML. Needs `[analysis]` |
+| `lib index\|list\|stats\|forget\|query\|similar` | The sample library index (below) |
+| `convert FILE` | Bitwig clip to MIDI; NCW, 8SVX and AU to WAV; SF2/SF3 to a folder of samples; `--to-pcm` decodes ADPCM or a mistagged WAV to plain 16-bit PCM |
+| `extract BANK` | Every embedded sample of a bank or module as its own WAV (MOD/XM/IT/S3M, Gravis `.pat`, 8SVX, NCW, SF2/SF3, Bitwig `.multisample`, Kurzweil, E-mu, MPC), and the soundtracks off console discs and ROMs (PlayStation/CD-XA, CD-DA `.cue`, GameCube, Wii with `[crypto]`, N64 VADPCM, SNES BRR) |
+| `formats [FMT]` | The capability matrix: which formats acidcat can inspect, extract, convert, repair and edit. The quickest answer to "can it read my files?" |
+| `explore FILE -o out.html` | A standalone HTML byte explorer: hex grid, each field tinted over its bytes, an LSB heat map |
+| `tui [FILE]` | The interactive inspector (needs `[tui]`, below) |
+
+`acidcat FILE` is `acidcat inspect --summary FILE`, and `acidcat DIR` is
+`acidcat stats DIR --by meta`.
 
 ## Format anatomy
 
@@ -107,312 +130,264 @@ for its table. The RIFF/WAVE family, MP3, FLAC, Ogg, MP4, MIDI, the trackers, th
 sampler and synth-preset formats, and more, with the history and edge-case notes
 behind each.
 
-**Browse them at [hed0rah.github.io/audio_files_anatomy](https://hed0rah.github.io/audio_files_anatomy/)**
--- a good start is the [WAV / RIFF page](https://hed0rah.github.io/audio_files_anatomy/wav-anatomy.html),
+**Browse them at [hed0rah.github.io/audio_files_anatomy](https://hed0rah.github.io/audio_files_anatomy/)**.
+A good start is the [WAV / RIFF page](https://hed0rah.github.io/audio_files_anatomy/wav-anatomy.html),
 which walks the container, the `fmt`/`data`/`smpl`/`acid` chunks byte by byte, and
-the whole RIFF-to-BWF-to-RF64-to-Wave64 family.
+the whole RIFF to BWF to RF64 to Wave64 family.
 
-## Commands
+## Standard flags
 
-| Command | Description |
-|---------|-------------|
-| `acidcat FILE` | Show metadata for a single file (auto-detected) |
-| `acidcat DIR` | Batch-scan a directory (auto-detected) |
-| `acidcat -` | Read from stdin |
-| `acidcat info FILE` | Explicit single-file metadata dump |
-| `acidcat scan DIR` | Batch-scan with CSV output |
-| `acidcat chunks FILE` | Walk RIFF chunks -- offsets, sizes, parsed fields |
-| `acidcat survey DIR` | Count chunk types across a directory tree |
-| `acidcat shape DIR` | One-line structural fingerprint per file for specimen-hunting -- pipe to `sort \| uniq -c` to surface rare shapes; `--fast` (header-only), `--anomalies`, `--format FMT`, `--coarse` |
-| `acidcat detect FILE\|DIR` | Estimate BPM/key using librosa |
-| `acidcat features DIR` | Extract 50+ audio features for ML |
-| `acidcat similar FILE` | Find samples that sound like FILE, over the index (`index --features` first); `-n N`, `--kind`, `--no-kind-filter`, `--paths-only`, `--registry PATH` to query a registry other than the global one |
-| `acidcat dump FILE CHUNK [...]` | Hex-dump specific RIFF chunks |
-| `acidcat od FILE` | Colored objdump-x-style hex view: header bytes plus per-field offset / hex / decoded value, opaque payloads dimmed; `--color`, `--width` |
-| `acidcat inspect FILE... [--hex] [--frames] [--only/--exclude IDS] [--full] [--anomalies] [--pretty] [--color]` | Byte-level structural dump with lint warnings, for the 88 formats `acidcat formats` lists -- audio files, instrument banks, synth presets, tracker modules, console streams and disc images. Takes multiple files (each under a `File:` banner; JSON becomes NDJSON). `--frames` per-frame/event dump, `--only`/`--exclude` select chunks, `--hex` raw bytes, `--full` a self-contained JSON dump feeding `acidcat explore`, `--anomalies` a forensic scan (trailing data, polyglots, cavities, size mismatches, LSB-stego notice), `--pretty` a human-friendly metadata view, `--verbose` a deep deconstruction (Bitwig device tree/parameters/notes, Vital modulation matrix, ...), `--color` to syntax-highlight. `--offset/--length/--end/--at EXPR` restrict the dump to a byte range. `--sandbox` parses untrusted input in an isolated worker with memory and time caps (`--sandbox-profile/--sandbox-mem/--sandbox-timeout`); experimental and Linux-only, so it is a hardening option rather than a guarantee |
-| `acidcat index DIR` | Upsert DIR into the global SQLite index |
-| `acidcat query [flags]` | Filter the global index by bpm/key/tag/text |
-| `acidcat query --compatible-with FILE` | Find samples that mix with FILE: harmonic key (Camelot) + compatible tempo (incl. half/double-time) |
-| `acidcat convert FILE [-o OUT]` | Export/transcode: `.bwclip` -> MIDI, NCW -> WAV (single file or a directory), SF2/SF3 -> a folder of samples, 8SVX -> WAV; `--to-pcm` decodes an ADPCM or mistagged WAV to plain playable 16-bit PCM (`--codec ima` to force it) |
-| `acidcat classify FILE\|DIR [--shallow]` | Triage before anything expensive: is this one format you understand, a container holding files, a chunked-but-unknown format, damaged remains, or not audio at all. Each verdict names the verb to run next |
-| `acidcat locate BLOB [--mode strict\|normal\|aggressive] [--analyze] [--transforms] [--min-confidence C] [-v]` | Find the audio regions in a raw blob or disk image (containers, signatureless raw PCM, headerless MP3 streams) and report them; never writes. `--analyze` infers PCM geometry, `--transforms` finds audio hidden under XOR/rotate/nibble-swap, `-v` shows the evidence. Pipe `--json` into `carve --batch` |
-| `acidcat wrap [RAW] [--rate N] [--bits N] [--channels N] [--endian le\|be]` | Give headerless PCM a WAV header so it plays. The end of the recovery chain: `carve … \| acidcat wrap --rate 44100 --bits 16 --endian be > out.wav` |
-| `acidcat census DIR [--json]` | Chunk-ID histogram across a whole corpus, plus flags for the open questions (rare chunks, odd format tags) -- the specimen-hunting view |
-| `acidcat formats` | The capability matrix: which formats acidcat can inspect / extract / convert / repair. The fastest answer to "can it read my files?" |
-| `acidcat extract BANK [-o DIR]` | Pull every embedded sample out of a known bank/module as its own WAV: MOD/XM/IT/S3M, Gravis `.pat`, 8SVX, NCW, SF2/SF3, Bitwig `.multisample`, Kurzweil `.krz`, E-mu `.e4b`/`.e5b`, MPC `.snd`. Also rips soundtracks off console disc images: PlayStation/CD-XA (`.bin`/`.img`), any `.cue` (CD-DA), GameCube `.iso` (HPS/ADX/DTK), Wii `.iso` (BRSTM, needs `[crypto]`), N64 `.z64/.n64/.v64` ROMs (container-agnostic VADPCM recovery), and SNES `.sfc/.smc` ROMs (container-agnostic BRR recovery). `--json` for a manifest |
-| `acidcat write FILE --set field=value` | Edit metadata in place, with a `_original` backup, `-o` copy, and `--dry-run`; custom frames via `txxx:NAME=value`; `--strip` removes identifying metadata (tags/bext/iXML/ID3) while keeping the audio and functional chunks, and ignores `--set`; Bitwig/NI preset editing (experimental) |
-| `acidcat probe read\|scan\|find\|strings\|hexdump\|diff\|entropy\|map\|lsb [OPTIONS] FILE...` | Low-level byte dissection (RE-tool surface): typed read at an offset (`read fmt.sample_rate -t u32`), value scan, byte-pattern find, strings, hexdump, diff, plus `entropy` (Shannon curve + histogram), `map` (binvis Hilbert byte-map), and `lsb` (sample-LSB entropy, to spot LSB steganography in PCM WAVs). Addresses can be raw offsets or structural names (`chunk` / `chunk.field`) resolved through the walker |
-| `acidcat carve FILE (--chunk ID \| --trailing \| --offset N [--length N] \| --at EXPR \| --batch SRC)` | Extract a structurally-identified byte region (a chunk payload, an appended blob, or an explicit/anchored range) to a file or stdout; `--batch` consumes `locate` records and cuts every region into a directory. Two flags turn it into a decoder rather than a cutter: `--struct '@OFF name:type name:type ...'` decodes a labeled record at any `--at` address, and `--field NAME` prints a single walker-decoded field by the name `inspect` shows |
-| `acidcat repair FILE [--dry-run] [-o OUT]` | Fix stale container sizes, offset tables, table counts, and pad bytes without touching a byte of audio (WAV, RF64, AIFF, MP4, FLAC); keeps a `_original` backup. `--keep-pad` leaves a non-zero pad byte as it is instead of normalizing it to `0x00`, for when that byte is evidence (`inspect --anomalies` reports it as a cavity) rather than a defect |
-| `acidcat validate FILE\|DIR [-q]` | Read-only structural check with an exit code (0 = all consistent, 1 = any violation, 2 = nothing structurally modeled to check); walks a directory tree. `--deep` additionally verifies the checksums a format carries about itself (FLAC frame CRC-8/CRC-16, MP3 frame validity), neither of which needs a decoder, so a failure there is proof rather than inference; it costs a full read |
-| `acidcat audit FILE [--json] [--signal]` | Forensic verdict in five parts: STRUCTURE (repairable inconsistencies), HIDDEN (concealed/appended data + a carve command), FORENSICS (anomalies), INTEGRITY (fake hi-res, duration mismatch), PROVENANCE (the writing tool). `--signal` adds decoded-audio checks: is this WAV really a decoded MP3, is this stereo really dual-mono |
-| `acidcat tui [FILE]` | Interactive terminal inspector: goto/search, follow pointers (`x`), byte map (`m`), edit fields, and validate (`v`, which offers repair). Graph views with `b`, scoped to the selected chunk with `r` and rescaled with `S`; a scoped graph follows the selection as you move. Focus a graph and the arrows drive it: up/down rescale, left/right walk the selection. `z` gives a pane the whole screen, `?` lists every key. Omit FILE to open the built-in file browser |
-| `acidcat cover FILE [-o art.jpg] [--set img] [--remove]` | Extract, embed, or remove embedded cover art (MP3/FLAC/MP4/Ogg) |
-| `acidcat explore FILE [-o out.html]` | Build a standalone interactive HTML byte-explorer (hex grid + tinted fields + LSB heat-map) |
+The same on every verb that has the behaviour:
 
-## Common flags
-
-Three words are reserved and mean the same thing everywhere:
-
-| word | meaning |
+| Flag | Meaning |
 |---|---|
-| `--format` | the **file's** format (e.g. `inspect --format wav` to force a walker) |
-| `--output-format` | how the result is **rendered** (`table` / `json` / `csv`) |
-| `--encoding` | how carved **bytes** are serialized (`carve --encoding hex`) |
+| `--output-format table\|json\|csv\|tsv` | how the result is rendered; `table` by default everywhere |
+| `--json`, `--csv` | shorthands for the above |
+| `-o/--output PATH` | write the report here; on `carve`, `convert`, `extract` and `edit`, what they write |
+| `-q/--quiet` | nothing on stderr but errors; never changes stdout |
+| `-v/--verbose` | diagnostic lines on stderr; never changes stdout |
+| `--color auto\|always\|never` | `auto` colours only on a terminal and honours `NO_COLOR` |
+| `--deep` | the extra decoding work: frames, checksums, compressed subtrees |
+| `--force-format FMT` | parse as FMT whatever the magic says (`acidcat formats` lists the ids) |
+| `--only-format FMT` | keep only targets of that format |
+| `--max-files N`, `--top N` | stop after N files; keep the first N results |
+| `--byte-order be\|le\|both` | the byte order of a typed read or of raw PCM |
 
-    --output-format FMT   table / json / csv, whichever the command supports
-    --json                shorthand for --output-format json
-    --csv                 shorthand for --output-format csv
-    -o, --output FILE     write to a file instead of stdout
-    -q, --quiet           suppress progress
-    -v, --verbose         extra detail
+## JSON
 
-`-f` still works as a deprecated alias for `--output-format` and warns. It was
-the old spelling of `--format`, which now belongs to the file-format axis.
+`--json` writes records to stdout and everything else to stderr, so a bounded
+run stays parseable. One rule holds on every verb
+([cli-2.0.md](docs/contract/cli-2.0.md) section 4.1):
 
-Rendering support varies: most commands do `table`/`json`/`csv`, `inspect` does
-`table`/`json`, `dump` does `hex`/`json`. `scan` and `features` default to
-`csv`, and write it to a file rather than stdout unless you ask otherwise.
+- keys are snake_case and name what the value is;
+- a file is `path`, as you gave it (`<stdin>` for `-`);
+- a format is `format`, the registry id (`wav`), with `label` beside it
+  (`RIFF/WAVE`), both null when nothing recognises the file;
+- `inspect --json` writes one contract v1 Document per file, one per line;
+  a verb with rows writes one array; a verb with one report writes one object.
 
-Not global, though they look it: `--has` is on `scan` and `survey`; `--deep` is
-on `info` and `index`; `-n/--num` defaults to 500 on `scan`/`detect`/`features`
-but 5 on `similar`.
+A JSON object may gain keys in any release, so ignore the ones you do not
+know. Removing or renaming a key, or wrapping an array in an object, is a
+breaking change.
 
-## Environment
+**The Document** (`inspect --json`, `acidcat.open()`) is specified in
+[docs/contract/node-v1.md](docs/contract/node-v1.md), with a JSON Schema
+beside it. Each node has an `id` (its ADDR), a `name`, an `extent` and a
+`payload` (`{layer, off, len}`) and its `fields`. Each field has a `key`, the
+machine `value`, the `display` string, and `at`, the bytes it was read from.
+A `value` is never formatted text: `"44,100 Hz"` is 44100, `"0.008 s"` is
+0.008, `"1:00"` in a length is 60 (numbers in seconds, Hz and bits per
+second).
+Findings (`kind`, `code`, `severity`, `node`) are one list, the walker's
+and the forensic scan's together. `limits` records what the walk ran under
+and which caps it hit. `layers` lists the decoded images. `typing` says
+which fields were read from the file and which were inferred.
 
-| variable | effect |
-|---|---|
-| `ACIDCAT_HOME` | relocate **all** catalogue state (registry + per-library index DBs). Default `~/.acidcat/`. Set this for a scratch catalogue -- it is one variable, not a list. |
-| `ACIDCAT_REGISTRY` | relocate only `registry.db`. More specific, so it wins over `ACIDCAT_HOME` for that one file; the per-library DBs still follow `ACIDCAT_HOME`. |
-| `NO_COLOR` | honoured by every `--color auto` path. |
+    acidcat inspect --json loop.wav | jq -r '.nodes[] | .id'
+    acidcat inspect --json *.wav | jq -c '{path: .file.path, findings: [.findings[].code]}'
 
 ## Exit codes
 
-Every verb answers with the same three codes, following `grep` and `diff`, so a
-script can branch without knowing which verb it called:
+Every verb answers with the same three codes, following `grep` and `diff`:
 
-| code | meaning | examples |
+| Code | Meaning | Examples |
 |---|---|---|
-| `0` | it worked | the file is clean, the chunk is here, regions were found |
-| `1` | ran fine, the answer is no | `locate` found nothing, `audit` has findings, `validate` saw a violation, `carve --chunk` is not in this file |
-| `2` | could not run | bad flag or value, missing or unreadable input, or nothing in the input was checkable |
+| `0` | it worked | the file is clean, the node is there, regions were found |
+| `1` | it ran, and the answer is no | `check` found a violation, `audit` found a defect, `locate` found nothing, `stats` found nothing its mode reads, an ADDR names no node |
+| `2` | it could not run | a bad flag or value, unreadable input, a file no walker reads (or that `edit`, `extract` or `convert` has nothing for), a missing extra |
 
-The distinction that matters in practice is `1` vs `2`. `validate` returns `2`
-on a format it does not model, rather than `0`, so a gate cannot pass a file it
-never examined:
+`coverage`, `environment` and `info` findings never make an exit 1; only a
+`defect` does. `check` exits 2 on a format it does not model, so a gate cannot
+pass a file it never examined:
 
-    acidcat validate track.wav && ship track.wav      # only ships a checked, clean file
-    acidcat locate disk.img --json | acidcat carve disk.img --batch - -o out/ \
-      || echo "nothing recovered"                    # a real answer either way
+    acidcat check track.wav && ship track.wav     # ships only a checked, clean file
 
-A bounded run is not a failed one. When a read window, a list cap or a filter
-stops a verb short, it says so **on stderr** and exits by what it actually
-found. `scan DIR -n 5` that hits the cap still exits `0`; the sentence naming
-the cap is on stderr so it cannot corrupt the records on stdout. Silence is the
-claim of completeness: a caveat appears only when a bound was actually reached,
-never as a standing note that one exists.
+A bounded run is not a failed one. When a cap stops a verb short, it says so
+on stderr, naming the flag that lifts it, and exits on what it found.
 
-## Machine-readable output
+## Python
 
-`--output-format json|csv|tsv` (or `--json` / `--csv`) writes records to stdout
-and everything else to stderr, so a truncated run stays parseable and a summary
-sentence can never turn a document into `Extra data`.
+    import acidcat
 
-Two compatibility rules, so scripts written against 1.0 keep working:
+    doc = acidcat.open("loop.wav")                 # a path, bytes or a Source
+    doc.format                                     # Format('wav', 'RIFF/WAVE')
+    doc.field("RIFF/fmt_#sample_rate").value       # 44100
+    [n.id for n in doc.walk()]                     # ['RIFF', 'RIFF/fmt_', 'RIFF/data']
+    doc.read("RIFF/fmt_#sample_rate")              # b'D\xac\x00\x00'
+    [f.code for f in doc.findings]
 
-- **A JSON object may gain new keys in any release.** Consumers must ignore keys
-  they do not recognise. Removing or renaming a key is a breaking change.
-- **A top-level JSON array stays an array.** Verbs that emit a list of records
-  will not be wrapped in an envelope, because `jq '.[]'` and `[0]` are the
-  reason the list shape was chosen. Run-level facts that have no record to live
-  on go to stderr instead.
+    patch = doc.edit({"RIFF/fmt_#sample_rate": 48000}).repair()
+    patch.repairs      # [Repair(addr='RIFF/fmt_#avg_bytes_per_sec', old=88200, new=96000, ...)]
+    patch.verify()     # re-reads the result; PatchError if it does not hold
+    patch.commit("loop48.wav")                     # or commit() in place, with a backup
 
-## Dependency Groups
-
-| Group | What it adds | Commands enabled |
-|-------|-------------|-----------------|
-| (none) | mutagen (base) | info, scan, chunks, survey, dump, inspect, explore, index, query, write, convert, cover for WAV/AIFF/MIDI/Serum/MP3/FLAC/OGG/Opus/M4A + all inspect-only formats |
-| `[analysis]` | librosa, numpy, scipy, soundfile | detect, features, similar, `audit --signal`, info --deep |
-| `[tui]` | textual | `acidcat tui` |
-| `[mcp]` | mcp SDK | `acidcat-mcp` stdio server |
-| `[mcp-http]` | starlette + uvicorn | `acidcat-mcp --transport http` (streamable-HTTP transport) |
-| `[crypto]` | cryptography | extract audio from encrypted Wii disc images |
-| `[all]` | everything (`[analysis]`, `[mcp-http]`, `[tui]`, `[crypto]`) | all commands, all formats |
+`doc.to_json()` is the Document dict. `acidcat.open()` raises `Unsupported`
+for a file no walker claims. An ADDR that names nothing raises `AddrError`,
+and one that names several lists them in its `candidates`. `acidcat.walk()` and
+`acidcat.walk_file()`, the 1.x tuple API, still work with a
+`DeprecationWarning` and go in 3.0.
 
 ## Examples
 
-### Metadata Exploration
+### Look inside
 
-    # what chunks exist in your sample library?
-    acidcat survey ~/Samples/Loops -n 5000
+    # the chunk table, then the bytes of one chunk
+    acidcat inspect --chunks breakbeat.wav
+    acidcat od breakbeat.wav RIFF/smpl
 
-    # walk all chunks in a specific file
-    acidcat chunks ~/Samples/Loops/breakbeat.wav
+    # the tags of a preset, without offsets
+    acidcat inspect --tags MyPatch.bwpreset
 
-    # hex-dump the ACID and SMPL chunks
-    acidcat dump ~/Samples/Loops/breakbeat.wav acid smpl
+    # per-frame MP3 bitrate switching, per-event MIDI
+    acidcat inspect --frames song.mp3
 
-    # fingerprint a whole tree, then rank the rarest structural shapes
-    acidcat shape ~/Samples --no-path | sort | uniq -c | sort -n
+    # one field of every node a glob matches: each sample's C5 speed
+    acidcat carve song.it 'IMPM/smp*#c5_speed'
 
-    # colored objdump-x-style hex view of a file's headers and fields
-    acidcat od ~/Samples/Loops/breakbeat.wav
+    # fingerprint a tree, then rank the rarest structural shapes
+    acidcat stats ~/Samples --by shape --no-path --output-format tsv | sort | uniq -c | sort -n
 
-    # scan only files with ACID metadata
-    acidcat scan ~/Samples/Loops --has acid -n 200
+    # which chunks does a library use, and which are rare
+    acidcat stats ~/Samples/Loops --by chunks
 
-    # scan a directory with mixed formats (WAV, MP3, FLAC, etc.)
-    acidcat scan ~/Samples -n 500
+### Edit
 
-### BPM / Key Detection
+    acidcat edit loop.wav --set title="Deep Kick" --set genre=Techno
+    acidcat edit loop.wav --set bpm=128 --set key=Am
+    acidcat edit oneshot.wav --set root=C3
+    acidcat edit *.wav --set genre=Foley --dry-run
+    acidcat edit loop.wav --set RIFF/fmt_#sample_rate=48000 -o loop48.wav
+    acidcat edit track.mp3 --set cover=@art.jpg
+    acidcat edit track.mp3 --get cover -o art.jpg
+    acidcat edit field.wav --strip -o clean.wav
 
-    # estimate BPM/key with librosa (for files without metadata)
-    acidcat detect ~/Samples/OneShots
+In place by default, after a `<name>_original` backup; `-o` writes a copy.
+The write is atomic, and the result is re-read and verified first.
 
-    # scan with librosa fallback for missing metadata
-    acidcat scan ~/Samples/Loops --fallback -n 100
+### Check and repair
 
-### ML Feature Extraction
+A container is a set of derived fields (sizes, offsets, counts, pad bytes)
+whose correct value is a function of the data. `check` reports the ones that
+do not match; `--fix` rewrites the ones an independent witness backs, and
+leaves the audio alone.
 
-    # extract 50+ audio features to CSV
-    acidcat features ~/Samples/Loops -n 500
+    acidcat check ~/Samples                  # sweep a tree; exit 1 if any file is broken
+    acidcat check --fix broken.wav --dry-run
+    acidcat check --fix broken.wav           # keeps broken_original.wav
+    acidcat audit suspect.wav --json
 
-### Recovery / rescue
+### Recovery
 
-Find audio in a raw blob, cut it out, make it playable. The verbs chain like
-coreutils: `classify` (what is this) -> `locate` (find) -> `carve` (cut) ->
-`wrap` (add a header) or `convert` (transcode), with `extract` for known banks.
-Full workflow in [docs/recovery.md](docs/recovery.md).
+Find audio in a raw blob, cut it out, make it play. The verbs chain like
+coreutils: `classify` (what is this), `locate` (where is the audio), `carve`
+(cut it out, `--as-wav` to give raw PCM a header), `extract` for known banks.
+The whole workflow is in [docs/recovery.md](docs/recovery.md).
 
-    # what am I even holding, and what should I run next
     acidcat classify mystery.bin
-
-    # find the audio regions in a disk image or card dump
     acidcat locate disk.img --mode aggressive --analyze
 
-    # embedded FILES: locate the regions, carve every one into a directory
-    acidcat locate disk.img --json | acidcat carve disk.img --batch - -o recovered/
-
-    # headerless PCM: carve it, then give it a header so it plays
+    # every region into a directory, headerless PCM given a WAV header
     acidcat locate disk.img --analyze --json \
-      | acidcat carve disk.img --batch - --wrap --rate 44100 -o recovered/
+      | acidcat carve disk.img --batch - --wrap -o recovered/
 
-    # one region by hand
-    acidcat carve disk.img --offset 0x5d1000 --length 2048 \
-      | acidcat wrap --rate 44100 --bits 16 --endian be > region.wav
+    # one range by hand, as 16-bit big-endian PCM
+    acidcat carve disk.img @0x5d1000+2048 --as-wav --rate 44100 --byte-order be -o region.wav
 
-    # pull every sample out of a sampler bank / tracker module
+    # every sample out of a bank or module
     acidcat extract kit.sf2 -o kit_samples/
 
-    # decode an ADPCM or mistagged WAV to plain playable PCM
-    acidcat convert weird.wav --to-pcm -o plain.wav
-
-    # CTF: find audio hidden under a reversible transform (XOR / rotate / nibble-swap)
+    # audio hidden under a reversible transform (XOR, rotate, nibble-swap)
     acidcat locate challenge.bin --transforms
 
-### Similarity Search
+### Analysis
 
-Index a library with feature vectors, then find sounds like a reference:
+    acidcat analyze ~/Samples/OneShots --bpm-key     # needs [analysis]
+    acidcat analyze ~/Samples/Loops --features --csv -o features.csv
 
-    acidcat index ~/Samples/Loops --features       # store the vectors
-    acidcat similar ~/Samples/kick.wav -n 10        # nearest neighbours
+## Libraries
 
-`similar` scores z-standardized cosine over the feature vectors across every
-registered library, filtered to the target's kind (loop / one-shot) by default
-(`--no-kind-filter` to disable). The same ranking is available to an LLM through
-the MCP `find_similar` tool -- both call one core implementation, so the CLI and
-MCP never drift. If the reference is not indexed, its vector is extracted live
-(needs `[analysis]`).
+Each directory you index becomes a *library* with its own SQLite file, and a
+small registry at `~/.acidcat/registry.db` lets a query fan out across all of
+them. By default a library's DB lives at `~/.acidcat/libraries/<label>_<hash>.db`;
+`--in-tree` keeps it at `<library>/.acidcat/index.db` instead.
 
-## Libraries (per-directory indexes)
+    acidcat lib index ~/Samples/Loops --label loops
+    acidcat lib index ~/Samples/Loops --features      # vectors for lib similar
+    acidcat lib index --discover ~/Samples --dry-run   # one library per pack
+    acidcat lib list
+    acidcat lib stats loops
+    acidcat lib forget loops                           # --delete-db removes the file too
 
-`acidcat scan` writes a one-off CSV. `acidcat index` is the persistent
-path: each directory you index becomes a *library* with its own SQLite
-file, and a small global registry at `~/.acidcat/registry.db` lets reads
-fan out across every library you have registered.
+    acidcat lib query --bpm 120:130 --key Am
+    acidcat lib query --tag drums --duration :1
+    acidcat lib query --text "dusty lofi" --top 20
+    acidcat lib query --device Polysynth --category Reverb
+    acidcat lib query --compatible-with kick.wav       # Camelot key + tempo, half/double time
+    acidcat lib query --bpm 128 --paths-only | xargs -I {} cp {} out/
+    acidcat lib similar kick.wav --top 10              # nearest by audio features
 
-By default the per-library DB lives centrally at
-`~/.acidcat/libraries/<label>_<hash>.db`. Pass `--in-tree` if you'd
-rather have the DB travel with the data at
-`<library>/.acidcat/index.db`.
+Nested libraries are refused: with `~/Samples` registered, `~/Samples/Loops`
+cannot be until the parent is forgotten. `--discover` registers each
+subdirectory holding at least `--min-samples` audio files (default 20,
+within `--max-depth`, default 3), and refuses your home directory as a root.
+`lib similar` scores z-standardized cosine over the feature vectors, filtered
+to the reference's kind (loop or one-shot) unless `--no-kind-filter`; the MCP
+`find_similar` tool calls the same code.
 
-    # register and index a library (label defaults to basename of DIR)
-    acidcat index ~/Samples/Loops --label loops
-    acidcat index ~/Samples/OneShots --label oneshots
+## The TUI
 
-    # show every registered library
-    acidcat index --list
+`acidcat tui FILE` (or `acidcat tui` for a file browser) opens the Document
+in two panes: the node tree on the left, the bytes on the right, a data
+inspector reading the selected bytes as integers and floats of each width
+and byte order, and a status line naming the layer, the selected node's id
+and what that node can do. `?` lists every key; the ones to know:
 
-    # per-library stats
-    acidcat index --stats loops
+| Key | Does |
+|---|---|
+| `g`, `/` | go to an offset; search names, values or bytes |
+| `e` | edit the selected field (the fields it ties to follow) |
+| `x`, `enter` | follow a pointer field; open a decoded layer |
+| `u`, `U` | back and forward through what you followed or opened |
+| `f` | next finding |
+| `p`, `.` | play the selected audio node through ffplay, when its caps say it plays; stop |
+| `X` | write out the selected node, or the marked `locate` regions |
+| `b`, `m` | cycle the byte pane (hex, entropy, Hilbert map, histogram); the byte map |
+| `v` | check the file (and offer the fix) |
+| `ctrl+s`, `ctrl+z` | save with a backup; undo |
+| `z`, `tab` | zoom a pane; move between panes |
 
-    # extract librosa features during indexing (slower, enables similarity)
-    acidcat index ~/Samples/Loops --label loops --features
+## Environment
 
-    # rebuild a library's DB from scratch
-    acidcat index ~/Samples/Loops --label loops --rebuild
+| Variable | Effect |
+|---|---|
+| `ACIDCAT_HOME` | relocate all catalogue state (registry and per-library DBs); default `~/.acidcat/` |
+| `ACIDCAT_REGISTRY` | relocate only `registry.db`; wins over `ACIDCAT_HOME` for that file |
+| `NO_COLOR` | honoured by every `--color auto` |
 
-    # forget a library (registry only) vs remove it (deletes the DB file)
-    acidcat index --forget loops
-    acidcat index --remove loops
+## Dependency groups
 
-    # list registered libraries whose DB file is missing on disk
-    acidcat index --orphans
+| Group | Adds | Enables |
+|---|---|---|
+| (none) | mutagen | every verb but those below, for every format |
+| `[analysis]` | librosa, numpy, scipy, soundfile | `analyze`, `lib similar`, `lib index --features/--analyze`, `audit --signal` |
+| `[tui]` | textual | `acidcat tui` |
+| `[mcp]` | the MCP SDK | `acidcat-mcp` over stdio |
+| `[mcp-http]` | starlette, uvicorn | `acidcat-mcp --transport http` |
+| `[crypto]` | cryptography | audio from encrypted Wii disc images |
+| `[all]` | all of the above | |
 
-    # import a legacy <name>_tags.json into a library
-    acidcat index ~/Samples --label samples --import-tags old_tags.json
+acidcat-lab, the adversarial half (it builds polyglots, cavities and
+LSB-stego specimens rather than reading them), is a separate distribution in
+`lab/`.
 
-Nested libraries are rejected at registration time: if you've registered
-`~/Samples`, you can't also register `~/Samples/Loops` until you forget
-the parent.
+## MCP server
 
-### Discovery
+`acidcat-mcp` exposes the registered libraries as tools, so a model can ask
+what libraries you have, search them by metadata, find compatible keys, or
+(with `[analysis]`) find similar samples.
 
-For users with many scattered packs, `--discover` walks a tree and
-registers every qualifying subdirectory as its own library in one pass.
-
-    # preview what would get registered (no writes)
-    acidcat index --discover ~/Samples --dry-run
-
-    # actually register them
-    acidcat index --discover ~/Samples
-
-    # tighter threshold and namespacing for a subset of your collection
-    acidcat index --discover /mnt/external/old_drives \
-                  --min-samples 50 --label-prefix "ext_"
-
-A directory qualifies if its subtree (within `--max-depth`, default 3)
-contains at least `--min-samples` audio files (default 20). Non-
-qualifying parents are recursed into so packs nested inside catch-all
-folders still surface. Already-registered roots are skipped. The home
-directory is refused as a discover root to prevent runaway registration.
-
-### Querying
-
-By default `acidcat query` fans out across every registered library and
-merges the results.
-
-    acidcat query --bpm 120:130 --key Am
-    acidcat query --tag drums --tag punchy --duration :1
-    acidcat query --text "dusty lofi" --limit 20
-    acidcat query --format mp3 --root loops
-    acidcat query --root loops,oneshots --bpm 128
-    acidcat query --bpm 128 --paths-only | xargs -I {} cp {} out/
-
-`--root` accepts a label, an absolute path, or a comma-separated list.
-Override the registry on any command with `--registry PATH` or the
-`ACIDCAT_REGISTRY` environment variable.
-
-## MCP Server
-
-`acidcat-mcp` is a stdio MCP server that exposes the registered libraries
-as structured tools. An LLM can ask "what libraries do I have?",
-search across them by metadata, find compatible keys via Camelot, or
-(with `[analysis]` installed) find similar samples by librosa feature
-cosine.
-
-    pip install -e .[mcp]            # minimum for discovery + writes
-    pip install -e .[analysis,mcp]   # unlock find_similar / analyze_*
+    pip install acidcat[mcp]            # discovery, search, writes
+    pip install acidcat[analysis,mcp]   # + find_similar, analyze_sample, detect_bpm_key
 
 Claude Desktop / Claude Code config:
 
@@ -424,53 +399,51 @@ Claude Desktop / Claude Code config:
       }
     }
 
-Optional: pass `--registry PATH` on the server process or set
-`ACIDCAT_REGISTRY` if your registry lives outside the default location.
+Pass `--registry PATH` or set `ACIDCAT_REGISTRY` for a registry outside the
+default location. `acidcat-mcp --transport http --port 8765` serves
+streamable HTTP; it has no authentication, so keep it on localhost.
 
-Tool tiers (each tool description starts with `Fast.`, `SLOW.`, or
-`VERY SLOW.` so the model self-selects):
+Every tool description starts with its cost, `Fast.`, `SLOW.` or
+`VERY SLOW.`, so the model can choose:
 
 - **Fast (SQLite only)**: `search_samples`, `get_sample`, `locate_sample`,
   `list_libraries`, `list_tags`, `list_keys`, `list_formats`,
   `index_stats`, `find_compatible`
 - **Slow analysis** (needs `[analysis]`): `find_similar`, `analyze_sample`,
   `detect_bpm_key`
-- **Index management**: `reindex`, `reindex_features`,
-  `discover_libraries`
+- **Index management**: `reindex`, `reindex_features`, `discover_libraries`
 - **Write** (marked destructive): `register_library`, `forget_library`,
   `tag_sample`, `set_sample_description`
 
 The same tiers are on the wire as MCP annotations (`readOnlyHint`,
-`destructiveHint`, `idempotentHint`) for clients that branch on them
-programmatically. Most clients do not show annotations to the model, which is
-why the prefix is in the prose too.
+`destructiveHint`, `idempotentHint`). Most clients do not show annotations to
+the model, which is why the prefix is in the prose too.
 
-One thing worth knowing before you point an agent at it: **registering a library
+One thing to know before you point an agent at it: **registering a library
 does not populate it.** `register_library` and `discover_libraries` create the
-row and stop; `reindex` is what walks the files. A library between those two
-steps reports `sample_count: null` and answers nothing.
+row and stop; `reindex` walks the files. Between the two, a library reports
+`sample_count: null` and answers nothing.
 
 ### The skill
 
-`skills/acidcat/` is a Claude skill that teaches a model the above: which tool to
-reach for, what each cost tier means, the register-then-reindex sequence, and
-which results are lower bounds rather than totals. Install it alongside the
-server, from a checkout of this repository:
+`skills/acidcat/` is a Claude skill that teaches a model the above: which
+verb or tool to reach for, what each cost tier means, the register-then-reindex
+sequence, and which results are lower bounds rather than totals. Install it
+alongside the server, from a checkout:
 
     cp -r skills/acidcat ~/.claude/skills/
 
-It is not part of the pip package -- a skill is instructions for a model, not
-importable code, and shipping it inside site-packages would put it somewhere no
-skill loader looks. Installing from PyPI, take it from the repository:
+It is not in the pip package: a skill is instructions for a model, and
+site-packages is not where a skill loader looks. Installed from PyPI, take it
+from the repository:
 
     mkdir -p ~/.claude/skills/acidcat
     curl -o ~/.claude/skills/acidcat/SKILL.md \
       https://raw.githubusercontent.com/hed0rah/acidcat/main/skills/acidcat/SKILL.md
 
-Without it a model has only the tool descriptions, which cover each call in
-isolation but not the order they go in. The gap is not hypothetical: an agent
-given the server and no skill registered four libraries, reported success, and
-left four empty shells.
+Without it a model has only the tool descriptions, which cover each call on
+its own but not the order they go in. An agent given the server and no skill
+registered four libraries, reported success, and left four empty shells.
 
 ## License
 
