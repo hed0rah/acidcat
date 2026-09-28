@@ -68,4 +68,5 @@ def test_repair_rejects_non_iff(tmp_path, capsys):
     p.write_bytes(b"ID3\x04not a container")
     rc = repair.run(_args([str(p)]))
     assert rc == 2                     # nothing checkable, as validate says
-    assert "not a RIFF/AIFF/MP4 container" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "not a format check models" in err and "check covers: 8svx" in err

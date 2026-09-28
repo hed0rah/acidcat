@@ -114,12 +114,17 @@ def test_every_documented_riff_address_resolves():
     from acidcat.core.infra import addr
     root = pathlib.Path(__file__).resolve().parent.parent
     info = b"INFO" + _ck(b"INAM", b"title\0") + _ck(b"IART", b"me\0\0")
-    body = (b"WAVE" + _ck(b"fmt ", _FMT) + _ck(b"LIST", info)
-            + _ck(b"LIST", b"adtl")
-            + _ck(b"smpl", struct.pack("<9I", 0, 0, 22675, 60, 0, 0, 0, 0, 0))
-            + _ck(b"data", bytes(64)))
-    doc = acidcat.open(b"RIFF" + struct.pack("<I", len(body)) + body,
-                       forensics=False).to_json()
+
+    def wav(lists):
+        body = (b"WAVE" + _ck(b"fmt ", _FMT) + lists
+                + _ck(b"smpl", struct.pack("<9I", 0, 0, 22675, 60, 0, 0, 0, 0, 0))
+                + _ck(b"data", bytes(64)))
+        return acidcat.open(b"RIFF" + struct.pack("<I", len(body)) + body,
+                            forensics=False).to_json()
+    # one LIST (RIFF/LIST) and two (RIFF/LIST[0], RIFF/LIST[1]): an address
+    # has to resolve on the file it describes
+    docs = [wav(_ck(b"LIST", info)),
+            wav(_ck(b"LIST", info) + _ck(b"LIST", b"adtl"))]
     found = set()
     for rel in ("docs/contract/node-v1.md", "docs/contract/cli-2.0.md",
                 "docs/contract/architecture-2.0.md", "src/acidcat/core/edit.py",
@@ -129,6 +134,14 @@ def test_every_documented_riff_address_resolves():
             if a.startswith("RIFF/WAVE") or "*" in a:
                 continue                  # prose ("RIFF/WAVE") and globs
             found.add(a)
-    assert {"RIFF/fmt_#sample_rate", "RIFF/fmt_[4:4]", "RIFF/LIST~2"} <= found
+    assert {"RIFF/fmt_#sample_rate", "RIFF/fmt_[4:4]", "RIFF/LIST[1]"} <= found
     for a in sorted(found):
-        addr.resolve(doc, a)              # raises AddrError on a miss
+        errors = []
+        for doc in docs:
+            try:
+                addr.resolve(doc, a)
+                break
+            except addr.AddrError as e:
+                errors.append(str(e))
+        else:
+            raise AssertionError(f"{a}: {errors}")

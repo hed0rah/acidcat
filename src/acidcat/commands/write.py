@@ -53,6 +53,15 @@ def _parse_sets(set_args):
     return changes
 
 
+def _plain(v):
+    """A value as JSON holds it: bytes as `hex:...`, the spelling --set takes."""
+    return "hex:" + bytes(v).hex() if isinstance(v, (bytes, bytearray)) else v
+
+
+def _shown(v):
+    return _plain(v) if isinstance(v, (bytes, bytearray)) else repr(v)
+
+
 def _edit(path, changes, force=False, cascade=True, repairs=None, quiet=False):
     """Return (format_label, new_bytes, applied) for the file, or raise EditError.
 
@@ -243,8 +252,9 @@ def run(args):
         if rows is not None:
             row = {"path": path, **format_of(path), "written": None, "backup": None,
                    "dry_run": bool(args.dry_run), "error": None,
-                   "detail": "; ".join(f"{f}: {o!r} -> {n!r}" for f, o, n in applied),
-                   "changes": [{"field": f, "old": o, "new": n}
+                   "detail": "; ".join(f"{f}: {_shown(o)} -> {_shown(n)}"
+                                       for f, o, n in applied),
+                   "changes": [{"field": f, "old": _plain(o), "new": _plain(n)}
                                for f, o, n in applied],
                    "cascade": [{"field": r.addr, "old": r.old, "new": r.new,
                                 "follows": r.follows} for r in cascaded]}
@@ -252,7 +262,7 @@ def run(args):
         else:
             print(f"{os.path.basename(path)}  [{fmt}]")
             for field, old, new in applied:
-                print(f"  {field}: {old!r} -> {new!r}")
+                print(f"  {field}: {_shown(old)} -> {_shown(new)}")
             for r in cascaded:
                 # a field that follows the edit, one line each, saying why
                 print(f"  {r.addr}: {r.old!r} -> {r.new!r} (follows {r.follows})")

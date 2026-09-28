@@ -4,7 +4,7 @@
     LAYER  := integer                         0 is the file
     TARGET := NODE ['#' KEY]                  RIFF/fmt_   RIFF/fmt_#sample_rate
             | '@' OFFSET                      @0x5d1000   @1234
-    NODE   := id | glob | name                RIFF/LIST~2   RIFF/*   **/data   fmt
+    NODE   := id | glob | name                RIFF/LIST[1]  RIFF/*   **/data   fmt
     RANGE  := '+' LEN                         from TARGET's start
             | '..' END                        to an absolute end
             | '[' OFF ':' LEN ']'             relative to TARGET's payload
@@ -92,15 +92,23 @@ def _all_nodes(doc):
 def find_nodes(doc, pattern):
     """The nodes a NODE term names, in document order: the node with that id,
     else every node whose id matches the glob, else every node with that
-    name."""
+    name, else every node whose id ends in that step (`fmt_` finds
+    `RIFF/fmt_`, as a name would, spelled as the id spells it)."""
     nodes = _all_nodes(doc)
     exact = [n for n in nodes if n["id"] == pattern]
     if exact:
         return exact
     if is_glob(pattern):
         rx = glob_regex(pattern)
-        return [n for n in nodes if rx.match(n["id"])]
-    return [n for n in nodes if n.get("name") == pattern]
+        hits = [n for n in nodes if rx.match(n["id"])]
+        if hits:
+            return hits
+        # `[` is a glob character and an index (`LIST[1]`): a pattern that
+        # globs to nothing is tried as the literal step it may be
+    named = [n for n in nodes if n.get("name") == pattern]
+    if named or "/" in pattern:
+        return named
+    return [n for n in nodes if n["id"].rsplit("/", 1)[-1] == pattern]
 
 
 def _one_node(doc, term):

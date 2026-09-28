@@ -339,8 +339,9 @@ def _run(args):
         # `validate track.mod` both said "fine" while `audit` on the same byte
         # had findings. Nothing checked is "could not do the job", the same
         # class as an unreadable input, not a passing result.
+        from acidcat.commands._output import checked_formats
         print("acidcat check: no structurally-modeled files to check"
-              + skipped, file=sys.stderr)
+              + skipped + f"; check covers: {checked_formats()}", file=sys.stderr)
         return 2
     if failed:
         # only point at repair when something is actually repairable. An

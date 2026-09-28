@@ -244,11 +244,19 @@ def slug(name):
 
 
 def _dedupe(names):
-    """Repeated names get `~2`, `~3`, ... in order (spec 5.1)."""
+    """A name that repeats gets `[0]`, `[1]`, ... on every occurrence, in
+    order, the index scheme walkers use for their own repeats (`E4P1[0]`);
+    a name that does not repeat stays bare (spec 5.1)."""
+    total = {}
+    for n in names:
+        total[n] = total.get(n, 0) + 1
     seen, out = {}, []
     for n in names:
+        if total[n] == 1:
+            out.append(n)
+            continue
+        out.append(f"{n}[{seen.get(n, 0)}]")
         seen[n] = seen.get(n, 0) + 1
-        out.append(n if seen[n] == 1 else f"{n}~{seen[n]}")
     return out
 
 

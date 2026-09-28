@@ -194,6 +194,12 @@ def _plan_byte_edit(raw_doc, key, value, force, data):
         raise EditError("%s is in layer %d, a decoding; edit the bytes it comes "
                         "from in layer 0" % (key, t.layer))
     old = data[t.off:t.off + t.len]
+    if isinstance(value, str) and value.startswith("hex:"):
+        # raw bytes as text, for a command line: `@0x16+2=hex:0100`
+        try:
+            value = bytes.fromhex(value[4:])
+        except ValueError:
+            raise EditError("%s: %r is not hex bytes" % (key, value)) from None
     if isinstance(value, (bytes, bytearray)):
         if len(value) != t.len:
             raise EditError("%s is %d bytes; %d given" % (key, t.len, len(value)))
@@ -201,7 +207,8 @@ def _plan_byte_edit(raw_doc, key, value, force, data):
                       wanted=bytes(value)), bytes(value)
     f = t.field
     if f is None:
-        raise EditError("%s is a byte range; give it bytes" % key)
+        raise EditError("%s is a byte range; give it bytes (hex:0100 on the "
+                        "command line)" % key)
     if f.get("type_source") == "inferred" and not force:
         raise EditError("%s has an inferred type (%s), which is a guess; "
                         "force it to write anyway" % (key, f.get("type")))

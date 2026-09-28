@@ -143,3 +143,10 @@ def add_report_arg(parser):
                         help="Write the report here instead of stdout.")
     return parser
 
+
+def checked_formats():
+    """The format ids `check` models, as `acidcat formats` lists them in its
+    repair column, for the message that says a file is not one of them."""
+    from acidcat.commands.formats import _REPAIR
+    return ", ".join(sorted(_REPAIR))
+

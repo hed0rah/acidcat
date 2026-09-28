@@ -87,8 +87,9 @@ def _repair_one(path, args, rows=None):
                          "issues": 0, "repairable": False, "written": None,
                          "backup": None,
                          "detail": "not a structurally-modeled container"})
-        print(f"acidcat check: {path}: not a RIFF/AIFF/MP4 container "
-              f"(nothing to repair here)", file=sys.stderr)
+        from acidcat.commands._output import checked_formats
+        print(f"acidcat check: {path}: not a format check models (nothing to "
+              f"repair here); check covers: {checked_formats()}", file=sys.stderr)
         return 2
 
     if args.dry_run:

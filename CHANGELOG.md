@@ -34,6 +34,10 @@ The aliases go in 3.0. What does not alias:
 - Addresses print and take the node ids of the Document: `RIFF/fmt_`,
   `RIFF/fmt_#sample_rate`, `FORM/COMM`. A bare name (`fmt`) still resolves.
   `probe read data FILE` reads the chunk's payload (1.8 gave its header).
+- A name that repeats among its siblings is indexed on every occurrence,
+  from 0: a WAV with two LIST chunks has `RIFF/LIST[0]` and `RIFF/LIST[1]`
+  (earlier 2.0 builds gave `RIFF/LIST` and `RIFF/LIST~2`). Quote the
+  brackets in zsh: `acidcat od f.wav 'RIFF/LIST[1]'`.
 
 **`inspect --json` is the contract v1 Document** (`docs/contract/node-v1.md`,
 `node-v1.schema.json`), one object per file per line. The 1.8 keys map as:
@@ -114,6 +118,12 @@ gone.
 - **`docs/contract/cli-2.0.md`**: every 1.8 command and flag, what it becomes
   in 2.0, and which old spellings keep working through 2.x. A test fails when
   the parser grows a flag the page does not map.
+
+- **`edit` takes bytes as hex.** A byte field's new value can be written
+  `hex:0100`; the length must match the field's. `edit --json` shows byte
+  values the same way.
+- **`check` names what it covers.** On a format it does not model it exits
+  2 with the list of formats it checks, for `validate` and `repair` alike.
 
 ### Changed
 
@@ -348,6 +358,20 @@ gone.
   path before and after, deep and shallow; from bytes the output is the same
   except where a file beside it would be checked (a cue sheet's BIN, a PSF's
   library), which cannot happen without a directory.
+
+- **The last step of an id resolves on its own when it is unique.**
+  `od f.wav fmt_` and `inspect --only fmt_` find `RIFF/fmt_`, for every
+  verb that takes an ADDR; `LIST[1]` finds `RIFF/LIST[1]`. A step that
+  names several nodes is ambiguous and lists them.
+- **Inferred audio capabilities name an ffmpeg codec** (`pcm_s16le`,
+  `pcm_s16be`, `pcm_s8`, `pcm_f32le` ...) and are inferred only for
+  formats whose sample layout the walk states: WAV and its RF64/W64/BW64
+  kin, AIFF/AIFC, 8SVX, AU and CAF lpcm. Other formats (DSF, RMID, SID)
+  no longer get a guessed `play` capability.
+- `format.family` and `format.variant` are reserved in node-v1.md for a
+  later v1.x and not emitted.
+- `inspect --deep` and `--frames` help says what each one does and how
+  they differ.
 
 ### Removed
 

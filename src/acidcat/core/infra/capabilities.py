@@ -113,6 +113,94 @@ def decodable(head):
 _EDIT_PROFILE = {"WAV": "wav", "AIFF": "aiff", "tagged": "tagged", "Vital": "vital"}
 
 
+def ffmpeg_pcm(bits, floating=False, big_endian=False):
+    """The codec name ffmpeg gives this PCM layout (node-v1.md section 7:
+    `caps.audio.codec` is ffmpeg's vocabulary, so `ffmpeg -f <codec
+    minus pcm_>` or `-acodec <codec>` reads the bytes). 8-bit PCM is unsigned
+    in the little-endian (RIFF) formats and signed in the big-endian (IFF)
+    ones; None for a width ffmpeg has no PCM codec for."""
+    if not bits:
+        return None
+    if floating:
+        return "pcm_f%d%s" % (bits, "be" if big_endian else "le") if bits in (32, 64) else None
+    if bits == 8:
+        return "pcm_s8" if big_endian else "pcm_u8"
+    if bits in (16, 24, 32):
+        return "pcm_s%d%s" % (bits, "be" if big_endian else "le")
+    return None
+
+
+def _id_of_label(label):
+    """The walker id whose label this is, for a caller that has only the
+    walk's label (the TUI)."""
+    from acidcat.core.walk import _WALKERS
+    for fid, (lbl, _fn) in _WALKERS.items():
+        if lbl == label:
+            return fid
+    return None
+
+
+def _value(chunks, name):
+    for c in chunks:
+        for f in c.get("fields", []):
+            if f.get("name") == name:
+                v = f.get("raw", f.get("value"))
+                if not isinstance(v, str) or name in ("compression_type", "format_id",
+                                                      "format_flags"):
+                    return v
+    return None
+
+
+# AU encodings (Sun/NeXT header) -> (ffmpeg codec, bits)
+_AU_CODECS = {1: ("pcm_mulaw", 8), 2: ("pcm_s8", 8), 3: ("pcm_s16be", 16),
+              4: ("pcm_s24be", 24), 5: ("pcm_s32be", 32), 6: ("pcm_f32be", 32),
+              7: ("pcm_f64be", 64), 27: ("pcm_alaw", 8)}
+
+
+def _pcm_layout(fmt_id, chunks, bits, ch, floating):
+    """(codec, bits, channels, float) for a format whose sample data is PCM
+    (or G.711) with a layout its header states, else None: an audio cap is a
+    claim about how to read the bytes, so a format this cannot state (DSD,
+    a MIDI file in a RIFF, a compressed AIFC) gets none."""
+    if fmt_id in ("wav", "rf64", "w64", "bw64"):
+        codec = ffmpeg_pcm(bits, floating, False)
+    elif fmt_id in ("aiff", "aifc"):
+        comp = str(_value(chunks, "compression_type") or "NONE").strip()
+        if comp in ("NONE", "twos"):
+            codec = ffmpeg_pcm(bits, False, True)
+        elif comp == "sowt":
+            codec = "pcm_s8" if bits == 8 else ffmpeg_pcm(bits, False, False)
+        elif comp.lower() in ("fl32", "fl64"):
+            bits, floating = (32 if comp.lower() == "fl32" else 64), True
+            codec = ffmpeg_pcm(bits, True, True)
+        else:
+            return None
+    elif fmt_id == "8svx":
+        if _value(chunks, "sCompression") not in (0, None):
+            return None
+        codec, bits = "pcm_s8", 8
+    elif fmt_id == "au":
+        got = _AU_CODECS.get(_value(chunks, "encoding"))
+        if got is None:
+            return None
+        codec, bits = got
+        floating = codec.startswith("pcm_f")
+    elif fmt_id == "caf":
+        if str(_value(chunks, "format_id") or "").strip() != "lpcm":
+            return None
+        try:
+            flags = int(str(_value(chunks, "format_flags") or "0"), 0)
+        except ValueError:
+            return None
+        bits = _value(chunks, "bits_per_channel") or bits
+        ch = _value(chunks, "channels_per_frame") or ch
+        floating = bool(flags & 1)
+        codec = ffmpeg_pcm(bits, floating, not flags & 2)
+    else:
+        return None
+    return (codec, bits, ch, floating) if codec else None
+
+
 def caps(fmt_id, label, chunks, head=None, name=None):
     """{chunk index: caps} for a walk's chunk list. Audio caps name their
     source fields as (chunk index, field name); the normaliser turns those into
@@ -122,6 +210,8 @@ def caps(fmt_id, label, chunks, head=None, name=None):
     lab = (label or "").lower()
     if not chunks:
         return out
+    if fmt_id is None:
+        fmt_id = _id_of_label(label)
     if head is not None:
         from acidcat.core.write.profiles import profile_for
         prof = profile_for(bytes(head[:16]), name)
@@ -137,8 +227,11 @@ def caps(fmt_id, label, chunks, head=None, name=None):
              if str(c.get("id", "")).strip() in AUDIO_SAMPLE_IDS]
     if audio:
         rate, ch, bits, floating, src, used = _audio_params(chunks)
+        layout = _pcm_layout(fmt_id, chunks, bits, ch, floating)
+        audio = audio if layout is not None else []
+        codec, bits, ch, floating = layout or (None, bits, ch, floating)
         for i in audio:
-            cap = {"codec": ("pcm_f" if floating else "pcm_s") + str(bits),
+            cap = {"codec": codec,
                    "rate": rate, "channels": ch, "bits": bits,
                    "source": "inferred",
                    "fields": [(src, n) for n in used] if src is not None else []}

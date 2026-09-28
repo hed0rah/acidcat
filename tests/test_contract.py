@@ -387,7 +387,7 @@ def test_node_ids_follow_the_spec():
     assert contract.slug("fmt ") == "fmt_"
     assert contract.slug("smp[3]") == "smp[3]"
     assert contract._dedupe(["LIST", "LIST", "data", "LIST"]) == \
-        ["LIST", "LIST~2", "data", "LIST~3"]
+        ["LIST[0]", "LIST[1]", "data", "LIST[2]"]
 
 
 def test_the_wav_seed_reads_the_way_the_spec_example_does(tmp_path):

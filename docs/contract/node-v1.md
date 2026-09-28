@@ -63,7 +63,7 @@ an application of one of them:
 |---|---|---|---|
 | `contract` | int | yes | Always `1` for this version. Additive changes keep `1`. |
 | `producer` | object | yes | `name` and `version` of the tool that made the Document. |
-| `format` | object | yes | `id` is the format id from the registry (`wav`, `ym`, ...), never null: a walk no walker claimed, the structural triage of an unknown container, has the id `triage` (`inspect` shows it; `acidcat.open()` raises `Unsupported`); `label` its display label; `family` its family (`riff`, `iff`, `chiptune`, ...). `forced: true` when the caller chose the walker. |
+| `format` | object | yes | `id` is the format id from the registry (`wav`, `ym`, ...), never null: a walk no walker claimed, the structural triage of an unknown container, has the id `triage` (`inspect` shows it; `acidcat.open()` raises `Unsupported`); `label` its display label. `forced: true` when the caller chose the walker. `family` (`riff`, `iff`, `chiptune`, ...) and `variant` are reserved for a later v1.x: not emitted in 2.0, and a consumer must not expect them. |
 | `file` | object | yes | `size` in bytes. `path` only when the caller asks for it (paths leak). |
 | `layers` | array | yes | Every layer the Document references, layer 0 first. |
 | `nodes` | array | yes | The root nodes of the tree, in file order. |
@@ -192,8 +192,9 @@ and says what it came from with `derived_from` (section 6).
 ### 5.1 Node ids
 
 `id` is the parent's id, a `/`, and a slug of the node's name. A name that
-repeats among siblings gets `~n` (1-based, in order) on every occurrence after
-the first: `LIST`, `LIST~2`. Slugs keep ASCII letters, digits, `_`, `-`, `.`
+repeats among siblings gets `[n]` (0-based, in order) on every occurrence:
+`LIST[0]`, `LIST[1]`; a name that does not repeat stays bare (`LIST`). It is
+the scheme walkers use for their own repeats (`E4P1[0]`, `preset[3]`). Slugs keep ASCII letters, digits, `_`, `-`, `.`
 and replace anything else with `_`, so `fmt ` becomes `fmt_`. Ids are stable
 across runs of the same file and the same acidcat version, which is what
 bookmarks, `--layer` arguments and golden tests key on. They are not promised
@@ -244,7 +245,7 @@ that:
 | Key | Type | Req | Meaning |
 |---|---|---|---|
 | `name` | string | yes | As today. |
-| `key` | string | yes | `name`, with `~n` for a repeat within the node (section 5.1 rule). `node_id + "#" + key` addresses a field. |
+| `key` | string | yes | `name`, with `[n]` for a repeat within the node (section 5.1 rule). `node_id + "#" + key` addresses a field. |
 | `at` | locator | no | Where the field lives. Absent means unpositioned. |
 | `type` | type string | yes | How the bytes are stored (section 6.1). `display` when nothing better is known. |
 | `type_source` | enum | yes | `declared` (the walker said), `enc` (from a legacy `enc`), `inferred` (the normaliser guessed), `none` (type is `display`). |
@@ -364,7 +365,7 @@ always yields the same JSON.
 
 | Cap | Payload | Meaning | Replaces |
 |---|---|---|---|
-| `audio` | `{codec, rate, channels, bits, frames?, float?, fields}` | PCM or ADPCM sample data in this node's payload. `fields` names the field keys the parameters came from, and the conformance test checks they agree. | TUI `_audio_params` / `_params_from` guessing |
+| `audio` | `{codec, rate, channels, bits, frames?, float?, fields}` | PCM or ADPCM sample data in this node's payload. `codec` is ffmpeg's codec name for the layout (`pcm_s16le`, `pcm_u8`, `pcm_s24be`, `pcm_f32le`, `pcm_mulaw`, `pcm_alaw`, ...), so `ffmpeg -f s16le` or `-acodec` reads the bytes; 8-bit PCM is `pcm_u8` in the RIFF family and `pcm_s8` in IFF. An inferred cap is given only where the header states the layout (the RIFF family, AIFF/AIFC uncompressed, `sowt` and float, 8SVX, AU, CAF `lpcm`). `fields` names the field keys the parameters came from, and the conformance test checks they agree. | TUI `_audio_params` / `_params_from` guessing |
 | `decode` | `{format}` | These bytes, as a file, are format X for an external decoder (ogg, mp3, flac, m4a). | `_DECODABLE` substrings, `_decodable_at` |
 | `render` | `{engine, subtunes?, default?}` | Run with an in-house engine: `sid`, `spc`, later `ym`. | `"sid tune" in fmt`, `"spc700 sound snapshot" in fmt` |
 | `carve` | `{ext, what?}` | Saving the payload (or the layer, if the node has `descend`) gives a standalone file with this extension. | locate-side heuristics |
@@ -495,7 +496,7 @@ ADDR   := [LAYER ':'] TARGET [RANGE]
 LAYER  := integer                         0 is the file, and the default
 TARGET := NODE ['#' KEY]                  RIFF/fmt_   RIFF/fmt_#sample_rate
         | '@' OFFSET                      @0x5d1000   @1234
-NODE   := id | glob | name                RIFF/LIST~2   RIFF/*   **/data   fmt
+NODE   := id | glob | name                RIFF/LIST[1]  RIFF/*   **/data   fmt
 RANGE  := '+' LEN                         from TARGET's start
         | '..' END                        to an absolute end
         | '[' OFF ':' LEN ']'             relative to TARGET's payload
@@ -571,7 +572,7 @@ style of `KNOWN_COLLISIONS`.
 
 ```json
 {"contract": 1, "producer": {"name": "acidcat", "version": "2.0.0"},
- "format": {"id": "wav", "label": "RIFF/WAVE", "family": "riff"},
+ "format": {"id": "wav", "label": "RIFF/WAVE"},
  "file": {"size": 172},
  "layers": [{"id": 0, "name": "file", "kind": "file", "length": 172}],
  "nodes": [

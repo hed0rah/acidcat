@@ -44,6 +44,8 @@ when a 2.0 flag is not named here.
   section 13): `RIFF/fmt_`, `RIFF/fmt_#sample_rate`, `@0x100+64`,
   `@0x100..0x200`, `1:lh5/header#frames`. `--at` keeps its search anchors
   (`end[-N]`, `find:STR`, `find:0xHEX`), which are not addresses.
+  In zsh (and bash with `extglob`), quote an ADDR that holds `[`, `*`, `?`
+  or `#`, or the shell takes it as a pattern: `acidcat od f.wav 'RIFF/LIST[1]'`.
 - **Exit codes**: 0 ok, 1 the answer is no (a defect finding, a failed check,
   nothing matched), 2 could not run (bad arguments, unreadable input, a missing
   extra). `coverage`, `environment` and `info` findings never exit 1.

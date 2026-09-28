@@ -104,6 +104,40 @@ def test_layer_zero_is_the_file(ym):
 
 # ── the grammar ────────────────────────────────────────────────────────
 
+@pytest.mark.parametrize("fmt,step,want", [
+    ("wav", "fmt_", "RIFF/fmt_"), ("wav", "data", "RIFF/data"),
+    ("aiff", "COMM", "FORM/COMM"),
+])
+def test_a_unique_last_step_resolves(tmp_path, fmt, step, want):
+    """node-v1.md 13: a bare term names one node. `fmt_`, the id's own step,
+    failed where the name `fmt` worked (review R11)."""
+    doc = acidcat.open(_seed(tmp_path, fmt), forensics=False)
+    assert doc.node(step).id == want
+    assert doc.field(step + "#" + doc.node(step).fields[0].key)
+
+
+def test_a_last_step_that_repeats_is_ambiguous(tmp_path):
+    import struct
+    def ck(cid, p):
+        return cid + struct.pack("<I", len(p)) + p
+    body = (b"WAVE" + ck(b"fmt ", struct.pack("<HHIIHH", 1, 1, 8000, 16000, 2, 16))
+            + ck(b"LIST", b"INFO") + ck(b"LIST", b"adtl") + ck(b"data", bytes(4)))
+    doc = acidcat.open(b"RIFF" + struct.pack("<I", len(body)) + body, forensics=False)
+    assert [n.id for n in doc.find("LIST")] == ["RIFF/LIST[0]", "RIFF/LIST[1]"]
+    assert doc.node("LIST[1]").id == "RIFF/LIST[1]"
+    with pytest.raises(acidcat.AddrError, match="2 nodes"):
+        doc.node("LIST")
+
+
+def test_every_verb_takes_the_last_step(tmp_path, capsys):
+    from acidcat.cli import main
+    p = str(_seed(tmp_path, "wav"))
+    assert main(["od", p, "fmt_"]) == 0
+    assert main(["inspect", p, "--only", "fmt_", "--chunks"]) == 0
+    assert main(["carve", p, "fmt_#sample_rate"]) == 0
+    assert main(["probe", "read", "fmt_#sample_rate", p]) == 0
+    assert "RIFF/fmt_" in capsys.readouterr().out
+
 def test_a_node_address_means_its_payload(tmp_path):
     doc = acidcat.open(_seed(tmp_path, "wav"))
     fmt = doc.find("fmt")[0]

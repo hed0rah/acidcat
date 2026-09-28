@@ -66,9 +66,9 @@ def register(subparsers):
     p.add_argument("-o", "--output", metavar="PATH",
                    help="Write the report here instead of stdout.")
     p.add_argument("-F", "--frames", action="store_true",
-                   help="Per-element deep dump: every MPEG frame (MP3) or "
-                        "MIDI event. No effect on formats without per-element "
-                        "structure, e.g. WAV, AIFF or FLAC.")
+                   help="List the per-element rows (every MPEG frame of an "
+                        "MP3, every MIDI event): --deep, plus a note when the "
+                        "format has no rows to list (WAV, AIFF, FLAC).")
     p.add_argument("--only", metavar="NODES",
                    help="Show only these nodes: comma-separated ids, globs or "
                         "names as an ADDR names a node ('RIFF/fmt_', 'fmt,bext', "
@@ -82,9 +82,10 @@ def register(subparsers):
                         "mismatches, and control bytes smuggled into text fields.")
     add_color_arg(p)
     p.add_argument("--deep", action="store_true", dest="verbose",
-                   help="The walker's deep pass: every MPEG frame, every MIDI "
-                        "event, the Bitwig device tree, the Vital modulation "
-                        "matrix, the NI compressed subtree.")
+                   help="The walkers' extra decoding work (Limits(decode=True)): "
+                        "per-element rows where a format has them, the Bitwig "
+                        "device tree, the Vital modulation matrix, the NI "
+                        "compressed subtree.")
     # experimental: parse untrusted input in a resource-limited worker so a
     # memory/CPU-bomb file takes down only the worker. Linux only; --sandbox
     # errors (never silently runs unsandboxed) where it cannot run.
