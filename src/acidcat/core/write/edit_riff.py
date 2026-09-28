@@ -9,7 +9,7 @@ fmt before data. RF64/BW64 and malformed files are refused rather than guessed.
 import struct
 
 from acidcat.core.write.edits import EditError
-from acidcat.util.midi import NOTES
+from acidcat.util.midi import NOTES, midi_note_to_name
 
 # field -> INFO sub-chunk id
 _INFO_TAGS = {
@@ -42,6 +42,32 @@ def _fmt_sample_rate(chunks):
     if fmt and len(fmt) >= 8:
         return struct.unpack_from("<I", fmt, 4)[0]
     return 44100
+
+
+_MINOR = ("m", "min", "minor")
+_MAJOR = ("M", "maj", "major")
+
+
+def _mode_of(s):
+    """'minor' or 'major' when a key name says so ('Am', 'F# minor', 'Cmaj'),
+    else None. A pitch ('A3') or a bare note ('A') names no mode."""
+    s = str(s).strip()
+    i = 2 if len(s) > 1 and s[1] in "#b" else 1
+    rest = s[i:].strip()
+    if rest in _MINOR or rest.lower() in ("min", "minor"):
+        return "minor"
+    if rest in _MAJOR or rest.lower() in ("maj", "major"):
+        return "major"
+    return None
+
+
+def _note_name(v):
+    """A note value in one domain: the note name of its MIDI number (C3 =
+    60), so 'C3', '60' and 60 all read the same. None stays None."""
+    if v is None:
+        return None
+    m = _note_to_midi(str(v))
+    return midi_note_to_name(m) if m is not None else str(v)
 
 
 def _note_to_midi(s):
@@ -124,7 +150,10 @@ def _build_info(tags):
     return body
 
 
-def edit_wav(data, changes):
+def edit_wav(data, changes, notes=None):
+    """(new bytes, applied) for `changes`. What the edit could not store as
+    asked, and wrote anyway, is said in `notes` when a list is given: the
+    acid chunk holds a root note, so the mode of `key=Am` is dropped."""
     chunks, trailing = _iter_chunks(data)
     applied = []
 
@@ -170,18 +199,27 @@ def edit_wav(data, changes):
                 struct.pack_into("<f", buf, 20, float(value) if value else 0.0)
                 applied.append((field, old, value))
             elif fl == "key":
+                # the root note (offset 4) counts only when flag 0x02 says so
                 flags = struct.unpack_from("<I", buf, 0)[0]
+                root = struct.unpack_from("<H", buf, 4)[0]
+                old = midi_note_to_name(root) if flags & 0x02 else None
                 if value is None:
                     struct.pack_into("<H", buf, 4, 0)
                     struct.pack_into("<I", buf, 0, flags & ~0x02)
-                    applied.append((field, "set", None))
+                    applied.append((field, old, None))
                 else:
                     midi = _note_to_midi(str(value))
                     if midi is None:
                         raise EditError(f"unrecognized key {value!r}")
+                    mode = _mode_of(value)
+                    if mode and notes is not None:
+                        notes.append(f"the acid chunk holds the root note only; "
+                                     f"{mode!r} is not stored")
                     struct.pack_into("<H", buf, 4, midi)
                     struct.pack_into("<I", buf, 0, flags | 0x02)
-                    applied.append((field, None, value))
+                    # reported as what the chunk now holds, a pitch, so the
+                    # report never claims a mode was written
+                    applied.append((field, old, midi_note_to_name(midi)))
         if ac:
             ac[1] = bytes(buf)
         else:
@@ -221,7 +259,10 @@ def edit_wav(data, changes):
             if midi is None:
                 raise EditError(f"unrecognized root note {value!r}")
             struct.pack_into("<I", buf, 12, midi)
-            applied.append((field, old, value))
+            # old and new in one domain, note names: the chunk holds a MIDI
+            # number and a request may say 'C3' or '60'
+            applied.append((field, midi_note_to_name(old) if sm else None,
+                            _note_name(midi)))
         if sm:
             sm[1] = bytes(buf)
         else:

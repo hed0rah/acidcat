@@ -168,6 +168,15 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **`write FILE.wav --set key=Am` and `--set root=C3` exited 1** ("the patch
+  does not verify"), as did clearing the key with `--set key=`. The WAV
+  writer reported the old key as None (or "set") instead of reading the
+  root note the acid chunk held, and reported a note name where the chunk
+  reads back a MIDI number. Old and new are now both note names (C3 = 60),
+  which is also what `--dry-run` shows. The acid chunk holds a root note
+  only, so `key=Am` stores A and says on stderr that the minor is not
+  stored. Every `acidcat write` example in README.md and CHEATSHEET.md is
+  now run as a test.
 - **`constraints.repair` raised on a multi-track MP4.** It promises a report,
   and the MP4 repairer located the audio before its guarded run, which raised
   on a two-track video. The `repair` command already caught it; the library

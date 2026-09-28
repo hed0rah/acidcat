@@ -237,18 +237,19 @@ def plan(data, name, changes, raw_doc=None, force=False):
         else:
             meta[key] = value
     fmt = None
+    notes = []
     out = bytes(new)
     if meta:
         if spans:
             raise EditError("a patch either edits bytes in place or rewrites "
                             "metadata, not both: give them as two edits")
-        fmt, out, applied = edits.edit_metadata_data(out, name, meta)
+        fmt, out, applied = edits.edit_metadata_data(out, name, meta, notes)
         for field, old, newv in applied:
             records.append(Record("meta", field, old, newv, wanted=meta.get(field)))
     if cover is not None:
         out, rec = _cover_edit(out, name, cover[1])
         records.append(rec)
-    return Patch(data, out, records, name, fmt, raw_doc, force)
+    return Patch(data, out, records, name, fmt, raw_doc, force, notes)
 
 
 def _cover_edit(data, name, image):
@@ -295,10 +296,11 @@ def _walk_bytes(data, name):
 class Patch:
     """A planned edit: the file image it makes (`data`), one Record per edit
     (`records`), the edits reported as (field, old, new) (`applied`), and the
-    profile's format label for a metadata edit (`format`)."""
+    profile's format label for a metadata edit (`format`). `notes` says what
+    was stored other than as asked (a mode the acid chunk cannot hold)."""
 
     def __init__(self, before, data, records, name, fmt=None, raw_doc=None,
-                 force=False):
+                 force=False, notes=()):
         self.before = before
         self.data = data
         self.records = list(records)
@@ -306,6 +308,7 @@ class Patch:
         self.format = fmt
         self._raw_doc = raw_doc
         self.force = force
+        self.notes = list(notes)
         self.verified = False
         self.path = None        # the file it was made from, when there is one
 

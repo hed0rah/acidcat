@@ -53,10 +53,12 @@ def edit_metadata(path, changes):
     return edit_metadata_data(data, path, changes)
 
 
-def edit_metadata_data(data, name, changes):
+def edit_metadata_data(data, name, changes, notes=None):
     """`edit_metadata` on bytes already in memory. `name` is the file's name
     (a path is fine): only its extension is read, for the formats whose
-    magic does not say which they are."""
+    magic does not say which they are. `notes`, when a list, collects what a
+    writer stored differently from what was asked (the acid chunk drops the
+    mode of `key=Am`)."""
     # Fold every known spelling to its canonical name before dispatch, so a
     # caller may say `preset_name` to a WAV or `tempo` to a FLAC and reach the
     # same field. The ledger in core/metadata.py is the one place that knows
@@ -88,7 +90,8 @@ def edit_metadata_data(data, name, changes):
             from acidcat.core.write import edit_riff
         except ImportError:
             raise EditError("WAV editing is not available in this build")
-        return EditResult("WAV", *_spoken(edit_riff.edit_wav(data, changes), _spelling))
+        return EditResult("WAV", *_spoken(edit_riff.edit_wav(data, changes, notes),
+                                          _spelling))
     if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
         from acidcat.core.write import edit_aiff
         return EditResult("AIFF", *_spoken(edit_aiff.edit_aiff(data, changes), _spelling))

@@ -61,6 +61,9 @@ def _edit(path, changes):
     profile, no new defect on a re-walk -- before its bytes are returned."""
     from acidcat.core import edit as editmod
     patch = editmod.edit_path(path, changes).verify()
+    for note in patch.notes:
+        # stored, but not all of what was asked: say so, once, on stderr
+        print(f"acidcat write: {path}: {note}", file=sys.stderr)
     return patch.format, patch.data, patch.applied
 
 
