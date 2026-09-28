@@ -63,7 +63,7 @@ an application of one of them:
 |---|---|---|---|
 | `contract` | int | yes | Always `1` for this version. Additive changes keep `1`. |
 | `producer` | object | yes | `name` and `version` of the tool that made the Document. |
-| `format` | object | yes | `id` is the format id from the registry (`wav`, `ym`, ...); `label` its display label; `family` its family (`riff`, `iff`, `chiptune`, ...). `forced: true` when the caller chose the walker. |
+| `format` | object | yes | `id` is the format id from the registry (`wav`, `ym`, ...), never null: a walk no walker claimed, the structural triage of an unknown container, has the id `triage` (`inspect` shows it; `acidcat.open()` raises `Unsupported`); `label` its display label; `family` its family (`riff`, `iff`, `chiptune`, ...). `forced: true` when the caller chose the walker. |
 | `file` | object | yes | `size` in bytes. `path` only when the caller asks for it (paths leak). |
 | `layers` | array | yes | Every layer the Document references, layer 0 first. |
 | `nodes` | array | yes | The root nodes of the tree, in file order. |
@@ -413,7 +413,8 @@ reported as defects today, and the two consumers that match message text
 ```json
 {"read_bytes": 67108864, "chunk_payload": 65536, "inflate_bytes": 67108864,
  "work_steps": 4000000, "list_rows": null, "frame_rows": 100000, "depth": 32,
- "decode": false, "hit": ["list_rows"]}
+ "decode": false, "applied": ["decode", "depth", "inflate_bytes"],
+ "hit": ["list_rows"]}
 ```
 
 The limits the walk ran under, from the `Limits` object the caller passed (the
@@ -421,7 +422,9 @@ defaults unless changed), and `hit`: the names of the limits that stopped
 something, each with its `coverage` finding. Two walks of the same file with
 the same limits give the same Document. `decode: true` is what `deep` meant
 when it meant "do the extra decoding work"; `list_rows: null` means each
-walker's own display default.
+walker's own display default. `applied` names the limits a caller's value
+changes; the others record the walkers' built-in caps at their fixed values,
+so a Document never claims a setting it ignored.
 
 A coverage finding's `cap` says which limit (`name`), the bound the walker
 applied (`limit`, the format's own value when it has one) and how much the
@@ -606,7 +609,8 @@ style of `KNOWN_COLLISIONS`.
  "limits": {"read_bytes": 67108864, "chunk_payload": 65536,
             "inflate_bytes": 67108864, "work_steps": 4000000,
             "list_rows": null, "frame_rows": 100000, "depth": 32,
-            "decode": false, "hit": []},
+            "decode": false, "applied": ["decode", "depth", "inflate_bytes"],
+            "hit": []},
  "typing": {"fields": 2, "positioned": 2, "typed_declared": 0,
               "typed_enc": 2, "typed_inferred": 0, "caps_declared": 0,
               "caps_inferred": 2, "nodes": 3, "nodes_unwalked": 0,

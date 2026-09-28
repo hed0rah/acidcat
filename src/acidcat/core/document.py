@@ -179,8 +179,14 @@ class Finding(_View):
     code = property(lambda s: s.raw["code"])
     severity = property(lambda s: s.raw["severity"])
     message = property(lambda s: s.raw["message"])
-    node = property(lambda s: s.raw.get("node"))
+    node_id = property(lambda s: s.raw.get("node"))
     at = property(lambda s: Loc.of(s.raw.get("at")))
+
+    @property
+    def node(self):
+        """The Node this finding is about, or None (a file-level finding)."""
+        nid = self.raw.get("node")
+        return self._doc.node(nid) if nid else None
     cap = property(lambda s: s.raw.get("cap"))
 
     def __repr__(self):
@@ -365,8 +371,8 @@ def _walk(target, limits, fmt, forensics, path):
     the scan reuses the walk rather than walking again."""
     from acidcat.core.forensics import anomalies
     seen = {}
-    raw = contract.walk(target, fmt_override=fmt, limits=limits,
-                        on_walk=lambda l, c, w: seen.update(l=l, c=c, w=w))
+    raw = _recognised(contract.walk(target, fmt_override=fmt, limits=limits,
+                                    on_walk=lambda l, c, w: seen.update(l=l, c=c, w=w)))
     if forensics:
         scan = anomalies.scan(path, raw["format"]["label"],
                               seen.get("c", []), seen.get("w", []))
@@ -376,13 +382,17 @@ def _walk(target, limits, fmt, forensics, path):
 
 # ── open ───────────────────────────────────────────────────────────────
 
-def open_document(target, limits=None, fmt=None, forensics=True):
+def open_document(target, limits=None, format=None, forensics=True):
     """Walk `target` (a path, bytes, or a Source) into a Document.
 
-    `limits` is the Limits to walk under (the defaults otherwise); `fmt`
-    forces a walker by its id. With `forensics` the forensic scan runs too
-    and its findings join the Document's; bytes with no path are scanned from
-    a temporary file, which is removed afterwards."""
+    `limits` is the Limits to walk under (the defaults otherwise); `format`
+    forces a walker by its id (what `acidcat formats` lists). With
+    `forensics` the forensic scan runs too and its findings join the
+    Document's; bytes with no path are scanned from a temporary file, which
+    is removed afterwards. Raises Unsupported when no walker recognises the
+    file (a structural triage of an unknown container is inspect's, not a
+    Document of a format)."""
+    fmt = format
     limits = limits or Limits()
     if isinstance(target, (bytes, bytearray, memoryview)):
         data = bytes(target)
@@ -409,3 +419,11 @@ def open_document(target, limits=None, fmt=None, forensics=True):
 def _open_path(path, limits, fmt, forensics, data=None):
     raw = _walk(path, limits, fmt, forensics, path)
     return Document(raw, data=data, path=None if data is not None else path)
+
+
+def _recognised(raw):
+    if raw["format"]["id"] == contract.TRIAGE_ID:
+        from acidcat.core.walk.base import Unsupported
+        raise Unsupported("not a recognized audio or preset file (a structural "
+                          "triage found chunks; `acidcat inspect` shows it)")
+    return raw

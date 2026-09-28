@@ -43,11 +43,18 @@ class Limits:
         return cls(decode=bool(deep))
 
     def record(self, hit=()):
-        """The Document's `limits` object: these values, and which were hit."""
-        return dict(asdict(self), hit=sorted(set(hit)))
+        """The Document's `limits` object: these values, `applied` (the ones
+        a caller's value changes: decode, depth, inflate_bytes; the others
+        are the walkers' built-in caps, recorded at their fixed values), and
+        which were hit."""
+        return dict(asdict(self), applied=list(APPLIED), hit=sorted(set(hit)))
 
 
 NAMES = tuple(f.name for f in fields(Limits) if f.name != "decode")
+
+# the limits a caller's value is honoured for; the rest describe the fixed
+# caps the walkers apply, so a Document never claims a setting it ignored
+APPLIED = ("decode", "depth", "inflate_bytes")
 
 # the finding code each limit's coverage note carries (node-v1.md section 9)
 CODES = {"read_bytes": "cap.read", "chunk_payload": "cap.payload",

@@ -68,7 +68,8 @@ id with `label` beside it. Row verbs always give an array, `audit` and
 `doc.field("RIFF/fmt_#sample_rate")` a field, `doc.edit({...})` a `Patch`
 (`repair()`, `verify()`, `commit(out, backup=True)`). `acidcat.walk()` and `acidcat.walk_file()`
 still return `(label, chunks, warnings)` with a `DeprecationWarning`, and go
-in 3.0. `acidcat.probe.resolve()` takes an ADDR. `acidcat.core.grammar` is
+in 3.0. `acidcat.probe.resolve()` takes an ADDR. `acidcat.open()` takes
+`format=` and raises `Unsupported` for a file no walker claims. `acidcat.core.grammar` is
 gone.
 
 **acidcat-lab** requires acidcat 2.
@@ -190,6 +191,15 @@ gone.
   files (one array of rows) and exits 2 once without librosa (it printed
   the error per file and emitted empty rows). `--no-recurse` and
   `--limit NAME=VALUE` are not in 2.0.0a1.
+- **The API's names.** `acidcat.Patch` and `acidcat.PatchError` are
+  exported; `open` stays out of `__all__` (a star import would shadow
+  the builtin); `acidcat.open(format="wav")` replaces `fmt=`;
+  `acidcat.open()` raises `Unsupported` for a file no walker claims,
+  including the structural triage of an unknown container, whose
+  Document (from `inspect --json`) has the format id `triage`, so
+  `format.id` is never null. `Finding.node` is the `Node`, and
+  `Finding.node_id` its id. The Document's `limits.applied` names the
+  limits a caller's value changes (`decode`, `depth`, `inflate_bytes`).
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

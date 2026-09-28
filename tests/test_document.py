@@ -47,6 +47,12 @@ def test_every_seed_opens_and_every_address_resolves_back(tmp_path, fmt):
     """The milestone's rule: every node and every positioned field of every
     seed is named by an ADDR that resolves to that same node or field, and a
     byte-positioned field's address resolves to its own bytes."""
+    if fmt == "unknown-container":
+        # no walker claims it: a structural triage is inspect's, and
+        # acidcat.open() says so (review R10)
+        with pytest.raises(acidcat.Unsupported, match="triage"):
+            acidcat.open(_seed(tmp_path, fmt))
+        return
     doc = acidcat.open(_seed(tmp_path, fmt))
     assert doc.format.label
     nodes = list(doc.walk())
@@ -65,7 +71,7 @@ def test_every_seed_opens_and_every_address_resolves_back(tmp_path, fmt):
 def test_the_seeds_have_fields_to_resolve(tmp_path):
     """Guards the guard above: it has to be resolving something."""
     n = 0
-    for fmt in sorted(seeds.SEEDS):
+    for fmt in sorted(set(seeds.SEEDS) - {"unknown-container"}):
         doc = acidcat.open(_seed(tmp_path, fmt), forensics=False)
         n += sum(1 for x in doc.walk() for f in x.fields if f.at is not None)
     assert n > 500

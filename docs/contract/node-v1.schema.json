@@ -42,10 +42,7 @@
       ],
       "properties": {
         "id": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "label": {
           "type": "string"
@@ -954,6 +951,7 @@
         "frame_rows",
         "depth",
         "decode",
+        "applied",
         "hit"
       ],
       "properties": {
@@ -994,6 +992,12 @@
             "type": "string"
           },
           "uniqueItems": true
+        },
+        "applied": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }

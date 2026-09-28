@@ -894,9 +894,14 @@ def from_walk(path, label, chunks, warns, *, fmt_override=None, limits=None,
         src.close()
 
 
+# the format id of a walk no walker claimed: the structural triage of an
+# unknown container (inspect shows it; acidcat.open() raises Unsupported)
+TRIAGE_ID = "triage"
+
+
 def _from_source(src, label, chunks, warns, fmt_override, limits, chunk_ids=None):
     from acidcat.core.infra import capabilities, sniff as sniffmod
-    fmt_id = fmt_override or sniffmod.sniff(src)
+    fmt_id = fmt_override or sniffmod.sniff(src) or TRIAGE_ID
     return document(fmt_id, label, chunks, warns, src.buffer(),
                     forced=bool(fmt_override),
                     caps_fn=lambda f, l, c: capabilities.caps(

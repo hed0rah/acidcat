@@ -454,7 +454,8 @@ def test_the_limits_object_is_what_the_document_records(tmp_path):
 def test_every_limit_has_a_registered_code():
     from acidcat.core.infra.limits import CODES, NAMES
     assert set(CODES) == set(NAMES)
-    assert set(NAMES) | {"decode", "hit"} == set(SCHEMA["$defs"]["limits"]["properties"])
+    assert set(NAMES) | {"decode", "applied", "hit"} == set(
+        SCHEMA["$defs"]["limits"]["properties"])
 
 
 # ── rule 9: findings ───────────────────────────────────────────────────

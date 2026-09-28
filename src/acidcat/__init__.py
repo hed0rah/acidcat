@@ -129,11 +129,14 @@ from acidcat.core.document import (  # noqa: E402,F401
     open_document as open,
 )
 from acidcat.core.infra.limits import Limits  # noqa: E402,F401
+from acidcat.core.edit import Patch, PatchError  # noqa: E402,F401
 
+# `open` is left out of __all__ on purpose: `from acidcat import *` would
+# shadow the builtin. Call it as acidcat.open().
 __all__ = [
     "__version__",
-    "open", "Document", "Node", "Field", "Layer", "Finding", "Loc", "Limits",
-    "AddrError",
+    "Document", "Node", "Field", "Layer", "Finding", "Loc", "Limits",
+    "AddrError", "Patch", "PatchError",
     "walk", "walk_file", "Unsupported",
     "probe", "viz", "tui_theme", "play",
     "sniff", "sniff_bytes", "locate", "iter_pages", "decode_8svx",
