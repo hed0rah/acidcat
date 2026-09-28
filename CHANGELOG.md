@@ -393,6 +393,16 @@ gone.
 
 ### Fixed
 
+- **A chunk that runs past a short header size is the container's.** The
+  commonest WAV defect is a `riff_size` a few bytes short of the data chunk;
+  the Document made that chunk a sibling of the `RIFF` root, so `RIFF/data`
+  named nothing and `od f.wav RIFF/data` exited 1. The root now grows to hold
+  a chunk that starts inside it (WAV, AIFF, Wave64, every IFF root). The WAV
+  and AIFF walkers call it `count.mismatch`, a defect ("chunk 'data' at
+  0x00000024 runs past it"), where they said `container.trailing`, info, and
+  `audit` no longer reports the chunk's tail as bytes hidden past the
+  container, so `audit` and `check` agree (both exit 1).
+
 - **`edit`'s cover honours `--dry-run` and `-o`.** `edit --set cover=@IMG`
   ran through the 1.8 `cover` verb, which has no dry run and reads `-o` as
   "extract to": a dry run embedded the cover and made a backup, and `-o

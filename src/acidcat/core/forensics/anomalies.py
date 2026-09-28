@@ -399,6 +399,17 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 ends.append(c["offset"] + c["size"])
         end = max(ends, default=0)
     if isinstance(end, int) and 0 < end < size:
+        # a chunk that starts inside the declared end and runs past it holds
+        # those bytes: the size undercounts it (the walker's count.mismatch),
+        # and its tail is not data hidden past the container
+        from acidcat.core.infra import geometry as _geom
+        for c in sorted((c for c in chunks if isinstance(c.get("offset"), int)),
+                        key=lambda c: c["offset"]):
+            eoff, elen = _geom.extent_of(c)
+            if (isinstance(eoff, int) and isinstance(elen, int)
+                    and eoff < end < eoff + elen):
+                end = min(eoff + elen, size)
+    if isinstance(end, int) and 0 < end < size:
         findings.append({"severity": "notice", "offset": end, "rule": "trailing_data",
                          "message": f"{size - end:,} bytes past the declared "
                                     f"container end"})

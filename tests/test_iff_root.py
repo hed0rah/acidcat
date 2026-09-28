@@ -145,3 +145,61 @@ def test_every_documented_riff_address_resolves():
                 errors.append(str(e))
         else:
             raise AssertionError(f"{a}: {errors}")
+
+
+# ── a chunk that straddles the declared end (review V1) ────────────────
+
+def _short_by(fmt, n, tmp_path):
+    """A seed whose header size stops `n` bytes short of its last chunk."""
+    data = bytearray(seeds.build(fmt))
+    if fmt == "w64":
+        struct.pack_into("<Q", data, 16, struct.unpack_from("<Q", data, 16)[0] - n)
+    else:
+        order = ">I" if data[:4] == b"FORM" else "<I"
+        struct.pack_into(order, data, 4, struct.unpack_from(order, data, 4)[0] - n)
+    p = tmp_path / ("short" + seeds.suffix(fmt))
+    p.write_bytes(bytes(data))
+    return p
+
+
+@pytest.mark.parametrize("fmt,sound", [("wav", "RIFF/data"), ("aiff", "FORM/SSND"),
+                                       ("w64", "wave64/data")])
+def test_a_chunk_that_straddles_the_declared_end_is_the_roots(tmp_path, fmt, sound):
+    """The commonest WAV defect: riff_size a few bytes short of the data chunk.
+    The data chunk starts inside the RIFF, so it is the RIFF's child, and the
+    root grows to hold it. It was a sibling, `RIFF/data` named nothing, and
+    `od f.wav RIFF/data` exited 1."""
+    doc = acidcat.open(_short_by(fmt, 8, tmp_path), forensics=False)
+    roots = [n.id for n in doc.nodes]
+    assert len(roots) == 1, roots
+    node = doc.node(sound)
+    root = doc.nodes[0]
+    assert root.extent.end >= node.extent.end
+
+
+def test_a_straddle_is_damage_and_audit_and_check_agree(tmp_path, capsys):
+    """The size undercounts a chunk it holds: count.mismatch, a defect, not
+    container.trailing. audit said "info, not RIFF chunks" while check failed
+    the same file as repairable; now both answer 1, and audit shows no hidden
+    region, since the bytes past the declared end are the data chunk's."""
+    from acidcat.cli import main
+    p = _short_by("wav", 8, tmp_path)
+    _label, _chunks, warns = walk_file(str(p))
+    codes = {(getattr(w, "code", None), getattr(w, "kind", None)) for w in warns}
+    assert ("count.mismatch", "defect") in codes
+    assert not any(getattr(w, "code", None) == "container.trailing" for w in warns)
+    assert main(["od", str(p), "RIFF/data"]) == 0
+    capsys.readouterr()
+    assert main(["check", str(p)]) == 1
+    capsys.readouterr()
+    assert main(["audit", str(p)]) == 1
+    out = capsys.readouterr().out
+    assert "runs past it" in out
+    assert "no concealed or appended data" in out
+
+
+def test_appended_bytes_after_a_straddle_are_still_found(tmp_path):
+    data = _short_by("wav", 8, tmp_path).read_bytes() + b"PK\x03\x04" + bytes(12)
+    doc = acidcat.open(data)
+    trailing = [f for f in doc.findings if f.code == "anomaly.trailing_data"]
+    assert trailing and trailing[0].at.off == len(data) - 16

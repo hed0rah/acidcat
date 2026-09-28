@@ -1353,6 +1353,10 @@ def inspect_wav(filepath, ctx=None):
         # chunk, just bytes, means something was appended (a suspicion, which
         # the forensic scan names: trailing data, a polyglot)
         chunk_past_end = None
+        # a chunk that starts inside the declared end and runs past it:
+        # the size undercounts the chunk it holds, which is damage, not
+        # appended bytes (the commonest stale size)
+        straddle = None
 
         for cid, offset, size in iter_chunks(filepath):
             seen.append(cid)
@@ -1361,6 +1365,9 @@ def inspect_wav(filepath, ctx=None):
             past = declared_end < file_size and offset >= declared_end
             if past and not overruns and not str(cid).startswith("hex:"):
                 chunk_past_end = chunk_past_end or (cid, offset)
+            if (offset < declared_end < offset + 8 + size and declared_end < file_size
+                    and not str(cid).startswith("hex:")):
+                straddle = straddle or (cid, offset)
             if overruns and past:
                 # appended bytes read as a chunk header: not a chunk of this
                 # RIFF, so not its overrun
@@ -1414,9 +1421,11 @@ def inspect_wav(filepath, ctx=None):
             file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
             chunks.append(entry)
 
-    if declared_end > file_size or chunk_past_end is not None:
+    if declared_end > file_size or chunk_past_end is not None or straddle is not None:
         where = (f"; chunk {chunk_past_end[0]!r} at 0x{chunk_past_end[1]:08x} lies "
-                 f"past it" if chunk_past_end else "")
+                 f"past it" if chunk_past_end else
+                 f"; chunk {straddle[0]!r} at 0x{straddle[1]:08x} runs past it"
+                 if straddle else "")
         file_warns.insert(0, defect("count.mismatch", size_note + where))
     elif declared_end < file_size:
         file_warns.insert(0, info("container.trailing", size_note

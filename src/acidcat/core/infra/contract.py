@@ -515,12 +515,19 @@ def _iff_root(data, chunks):
 
     The root ends where its size says, clamped to the layer: chunks a walker
     read past the declared end (an appended archive, a size that undercounts)
-    are its siblings, which is where the file puts them."""
+    are its siblings, which is where the file puts them. A chunk that starts
+    inside the declared end and runs past it (the commonest stale size: a
+    riff_size a few bytes short of its data chunk) is the root's, so the root
+    grows to hold it; the undercount is the walker's finding."""
     head = _iff_header(data)
     if head is None:
         return chunks
     hdr, end = head
     chunks = list(chunks or [])
+    for c in sorted((c for c in chunks if _positioned(c)
+                     and c.get("geometry") != "invalid"), key=lambda c: c["offset"]):
+        if hdr <= c["offset"] < end < c["offset"] + c["extent_len"]:
+            end = min(c["offset"] + c["extent_len"], len(data))
     at0 = [i for i, c in enumerate(chunks) if _positioned(c) and c["offset"] == 0]
     if at0:
         i = at0[0]

@@ -343,6 +343,10 @@ def inspect_aiff(filepath, form_type, ctx=None):
         # as wav.py: a real chunk past a short FORM size is damage, bytes
         # that are no chunk are appended data (a suspicion the scan names)
         chunk_past_end = None
+        # a chunk that starts inside the declared end and runs past it:
+        # the size undercounts the chunk it holds, which is damage, not
+        # appended bytes (the commonest stale size)
+        straddle = None
 
         for cid, offset, size in iter_aiff_chunks(filepath):
             seen.append(cid)
@@ -351,6 +355,9 @@ def inspect_aiff(filepath, form_type, ctx=None):
             if past and size <= avail and str(cid).isprintable() \
                     and str(cid).isascii() and not str(cid).startswith("hex:"):
                 chunk_past_end = chunk_past_end or (cid, offset)
+            if (offset < declared_end < offset + 8 + size and declared_end < file_size
+                    and not str(cid).startswith("hex:")):
+                straddle = straddle or (cid, offset)
             if size > avail and past:
                 file_warns.append(info(
                     "container.trailing",
@@ -486,9 +493,11 @@ def inspect_aiff(filepath, form_type, ctx=None):
     for entry in chunks:
         file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
 
-    if declared_end > file_size or chunk_past_end is not None:
+    if declared_end > file_size or chunk_past_end is not None or straddle is not None:
         where = (f"; chunk {chunk_past_end[0]!r} at 0x{chunk_past_end[1]:08x} lies "
-                 f"past it" if chunk_past_end else "")
+                 f"past it" if chunk_past_end else
+                 f"; chunk {straddle[0]!r} at 0x{straddle[1]:08x} runs past it"
+                 if straddle else "")
         file_warns.insert(0, defect("count.mismatch", size_note + where))
     elif declared_end < file_size:
         file_warns.insert(0, info("container.trailing", size_note
