@@ -428,10 +428,23 @@ def _probe(rest):
                           "--le": ("--byte-order", "le")})
     if "hexdump" not in rest:
         return ["probe"] + rest
-    # probe hexdump AT [--len N] FILE... -> od FILE @AT+N, per file
+    # probe hexdump AT [--len N] FILE... -> od FILE @AT+N, per file. Only an
+    # offset takes the @: a chunk name (`fmt`) is an ADDR as it stands, and
+    # 1.8's `chunk.field` is `chunk#field`; `@fmt+256` was an od error.
     i = rest.index("hexdump")
     ns = _hexdump_parser().parse_args(rest[i + 1:])
-    return [["od", f, "@%s+%d" % (ns.at, ns.length)] for f in ns.files]
+    return [["od", f, _hexdump_addr(ns.at, ns.length)] for f in ns.files]
+
+
+def _hexdump_addr(at, length):
+    try:
+        int(at, 0)
+    except ValueError:
+        if "#" not in at and "." in at:
+            node, _, key = at.rpartition(".")
+            return f"{node}#{key}"
+        return at
+    return "@%s+%d" % (at, length)
 
 
 def _hexdump_parser():

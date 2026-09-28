@@ -393,6 +393,11 @@ gone.
 
 ### Fixed
 
+- **`probe hexdump` on a chunk name runs.** The 1.8 alias made `od FILE
+  @fmt+256` of `probe hexdump fmt FILE`, which `od` refused. Only an offset
+  takes the `@`; a chunk name is passed as the ADDR it is, and `chunk.field`
+  becomes `chunk#field`.
+
 - **A chunk that runs past a short header size is the container's.** The
   commonest WAV defect is a `riff_size` a few bytes short of the data chunk;
   the Document made that chunk a sibling of the `RIFF` root, so `RIFF/data`

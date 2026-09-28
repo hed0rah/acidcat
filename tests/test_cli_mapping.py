@@ -137,6 +137,8 @@ OLD_SPELLINGS = [
     ["dump", "{wav}", "fmt", "data", "--json"],
     ["dump", "{wav}", "fmt", "-b", "8"],
     ["probe", "hexdump", "0x10", "-l", "8", "{wav}"],
+    ["probe", "hexdump", "fmt", "{wav}"],
+    ["probe", "hexdump", "fmt.sample_rate", "{wav}"],
     ["validate", "{wav}"],
     ["validate", "{dir}", "-q"],
     ["repair", "{wav}", "--dry-run"],
@@ -379,3 +381,16 @@ def test_no_walker_and_bad_values_are_could_not_run(files):
         assert _run(argv)[0] == 2, argv
     assert _run(["classify", str(junk)])[0] == 1
     assert _run(["inspect", "--try-all", str(junk)])[0] == 1
+
+
+@pytest.mark.parametrize("at,want", [("0x10", "@0x10+8"), ("fmt", "fmt"),
+                                     ("fmt.sample_rate", "fmt#sample_rate")])
+def test_probe_hexdump_names_an_address_od_takes(files, at, want):
+    """Review V2: the alias made `@fmt+256` of a chunk name, which od
+    refused. Only an offset takes the @; `chunk.field` is `chunk#field`."""
+    old = ["probe", "hexdump", at, "-l", "8", files["wav"]]
+    news, _line = cli_aliases.translate(old)
+    assert news == [["od", files["wav"], want]]
+    code, out, err = _run(old)
+    assert code == 0, err
+    assert out
