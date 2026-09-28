@@ -161,6 +161,9 @@ def each(args, attr, single, *, verb, accept=None, header=True, stream=None):
                 print(f"acidcat {verb}: no data on stdin", file=sys.stderr)
                 return 1
             setattr(args, attr, real)
+            # the operand as the caller gave it, for a record's `path`
+            # (never a stdin temp copy's name)
+            args._given = "<stdin>" if real != path else path
             if many and header:
                 if i:
                     print(file=out)

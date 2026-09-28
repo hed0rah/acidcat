@@ -67,7 +67,7 @@ def _scan_wav(filepath):
     key = midi_note_to_name(smpl_root) or midi_note_to_name(acid_root)
 
     return {
-        "filename": filepath,
+        "path": filepath,
         "format": "wav",
         "bpm": bpm,
         "key": key,
@@ -92,7 +92,7 @@ def _scan_aiff(filepath):
     seen = [c["id"] for c in chunks]
 
     return {
-        "filename": filepath,
+        "path": filepath,
         "format": "aiff",
         "bpm": None,
         "key": None,
@@ -115,7 +115,7 @@ def _scan_tagged(filepath):
         return None, []
 
     return {
-        "filename": filepath,
+        "path": filepath,
         "format": meta.get("format_type", "unknown"),
         "bpm": meta.get("bpm"),
         "key": meta.get("key"),
@@ -231,6 +231,12 @@ def run(args):
                       f"key={row.get('key') or '-'} "
                       f"dur={row.get('duration_sec') or '-'}")
 
+            # `format` the registry id and `label` its display label, as every
+            # verb's JSON names a format (cli-2.0.md section 4.1)
+            from acidcat.commands._output import format_of
+            fo = format_of(filepath)
+            row["format"] = fo["format"] or row.get("format")
+            row["label"] = fo["label"]
             rows.append(row)
             count += 1
             if count >= num:
@@ -245,7 +251,7 @@ def run(args):
 
     # fieldnames: core set, then any extras from features
     base_fieldnames = [
-        "filename", "format", "bpm", "key", "duration_sec",
+        "path", "format", "label", "bpm", "key", "duration_sec",
         "title", "artist",
         "acid_beats", "expected_duration", "duration_diff", "chunks",
     ]
@@ -274,7 +280,7 @@ def run(args):
             if fmt == "table":
                 # one line per file: a record per file was thousands of lines
                 # over a real library (every field is in --json and --csv)
-                format_columns(shaped, [("filename", "file"), ("format", "format"),
+                format_columns(shaped, [("path", "file"), ("format", "format"),
                                         ("bpm", "bpm"), ("key", "key"),
                                         ("duration_sec", "seconds"),
                                         ("chunks", "chunks")], stream)

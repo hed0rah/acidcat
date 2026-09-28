@@ -57,8 +57,8 @@ def test_audit_json(tmp_path, capsys):
     p = tmp_path / "j.wav"
     p.write_bytes(bytes(broken))
     audit.run(_args(str(p), as_json=True))
-    doc = json.loads(capsys.readouterr().out)
-    assert doc["format"] and doc["structure"]
+    (doc,) = json.loads(capsys.readouterr().out)     # rows, one per file
+    assert doc["format"] == "wav" and doc["label"] and doc["structure"]
     assert doc["structure"][0]["kind"] == "size"
     assert doc["structure"][0]["repairable"] is True
 

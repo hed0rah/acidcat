@@ -38,7 +38,7 @@ def run(args):
         if feats is None:
             print(f"acidcat analyze: Could not extract features from {target}", file=sys.stderr)
             return 1
-        feats["filename"] = os.path.basename(target)
+        feats["path"] = target
         stream = sys.stdout
         if getattr(args, 'output', None):
             stream = open(args.output, 'w', encoding='utf-8')
@@ -63,7 +63,7 @@ def run(args):
             print(f"  [features] {os.path.basename(filepath)}...", file=sys.stderr)
         feats = extract_audio_features(filepath)
         if feats:
-            feats["filename"] = filepath
+            feats["path"] = filepath
             rows.append(feats)
     if not quiet:
         note = targets.skip_note(skipped)

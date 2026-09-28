@@ -11,7 +11,7 @@ import os
 import struct
 import sys
 
-from acidcat.commands._output import add_output_format_arg, chosen_format
+from acidcat.commands._output import add_output_format_arg, chosen_format, format_of
 from acidcat.core.infra.render import output as _render
 from acidcat.core.write import writer, edits
 
@@ -132,7 +132,7 @@ def _run_strip(args):
             continue
         row = None
         if rows is not None:
-            row = {"path": path, "format": fmt, "written": None, "backup": None,
+            row = {"path": path, **format_of(path), "written": None, "backup": None,
                    "dry_run": bool(args.dry_run), "error": None,
                    "detail": ", ".join(removed) or "(nothing to remove)",
                    "stripped": list(removed)}
@@ -240,7 +240,7 @@ def run(args):
             continue
         row = None
         if rows is not None:
-            row = {"path": path, "format": fmt, "written": None, "backup": None,
+            row = {"path": path, **format_of(path), "written": None, "backup": None,
                    "dry_run": bool(args.dry_run), "error": None,
                    "detail": "; ".join(f"{f}: {o!r} -> {n!r}" for f, o, n in applied),
                    "changes": [{"field": f, "old": o, "new": n}

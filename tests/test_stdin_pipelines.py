@@ -89,7 +89,7 @@ def test_json_names_stdin_not_the_temp_copy(wav, verb):
     doc = json.loads(text.splitlines()[0] if verb == "inspect" else text)
     rec = doc[0] if isinstance(doc, list) else doc
     # inspect's is a Document, whose file carries the path the caller gave
-    got = rec["file"]["path"] if isinstance(rec["file"], dict) else rec["file"]
+    got = rec["file"]["path"] if "file" in rec else rec["path"]
     assert got == "<stdin>"
 
 

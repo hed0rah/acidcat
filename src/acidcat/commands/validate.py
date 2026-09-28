@@ -17,7 +17,7 @@ violation, 2 on a usage error.
 import os
 import sys
 
-from acidcat.commands._output import add_output_format_arg
+from acidcat.commands._output import add_output_format_arg, format_of
 from acidcat.core.infra.render import output as _render
 from acidcat.core.infra.mapped import map_file
 from acidcat.core.write import constraints
@@ -166,7 +166,7 @@ def _check(path, quiet, rows=None, deep=False):
     except OSError as e:
         print(f"acidcat check: {path}: {e}", file=sys.stderr)
         if rows is not None:
-            rows.append({"path": path, "format": None, "status": "unreadable",
+            rows.append({"path": path, **format_of(path), "status": "unreadable",
                          "issues": 0, "repairable": False, "detail": str(e)})
         return False, True, True, False
     deep_res = {"ran": False, "failure": None, "caveat": None}
@@ -186,7 +186,7 @@ def _check(path, quiet, rows=None, deep=False):
         if deep_note:
             detail = deep_note + (f"; {caveat}" if caveat else "")
             if rows is not None:
-                rows.append({"path": path, "format": None, "status": "fail",
+                rows.append({"path": path, **format_of(path), "status": "fail",
                              "issues": 1, "repairable": False,
                              "detail": detail})
             else:
@@ -199,7 +199,7 @@ def _check(path, quiet, rows=None, deep=False):
             # pass an MP3 -- the check ran, proved the payload matches its own
             # checksums, and the result was thrown away.
             if rows is not None:
-                rows.append({"path": path, "format": None, "status": "ok",
+                rows.append({"path": path, **format_of(path), "status": "ok",
                              "issues": 0, "repairable": False,
                              "detail": caveat or "deep check passed"})
             elif not quiet:
@@ -210,14 +210,14 @@ def _check(path, quiet, rows=None, deep=False):
         if rows is not None:
             # a skip is a real answer and belongs in the record set, so a
             # consumer can tell "checked, clean" from "never modelled"
-            rows.append({"path": path, "format": None, "status": "skipped",
+            rows.append({"path": path, **format_of(path), "status": "skipped",
                          "issues": 0, "repairable": False,
                          "detail": "not a structurally-modeled container"})
         return False, True, False, False        # not a structurally-modeled container
     base = os.path.basename(path)
     if not report.violations and not deep_note:
         if rows is not None:
-            rows.append({"path": path, "format": report.label, "status": "ok",
+            rows.append({"path": path, **format_of(path), "status": "ok",
                          "issues": 0, "repairable": False,
                          "detail": caveat or ""})
         elif not quiet:
@@ -234,14 +234,14 @@ def _check(path, quiet, rows=None, deep=False):
         # path of four that did not say so.
         detail = deep_note + (f"; {caveat}" if caveat else "")
         if rows is not None:
-            rows.append({"path": path, "format": report.label, "status": "fail",
+            rows.append({"path": path, **format_of(path), "status": "fail",
                          "issues": 1, "repairable": False, "detail": detail})
         else:
             print(f"FAIL  {base}  [{report.label}]  1 issue(s)")
             print(f"        {detail}")
         return True, False, False, False
     if rows is not None:
-        rows.append({"path": path, "format": report.label, "status": "fail",
+        rows.append({"path": path, **format_of(path), "status": "fail",
                      "issues": len(report.violations),
                      "repairable": any(v.repairable for v in report.violations),
                      "detail": "; ".join(v.describe() for v in report.violations),

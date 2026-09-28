@@ -73,7 +73,7 @@ def test_shape_json_is_parseable_records(files):
     ok, _ = files
     doc = json.loads(_run("shape", "--no-path", "--json", str(ok)).stdout)
     assert len(doc) == 1
-    assert doc[0]["format"] == "RIFF/WAVE"
+    assert (doc[0]["format"], doc[0]["label"]) == ("wav", "RIFF/WAVE")
     assert doc[0]["chunks"] == "data,fmt"
 
 
@@ -83,7 +83,7 @@ def test_shape_csv_has_a_header(files):
     ok, _ = files
     rows = list(csv.DictReader(io.StringIO(
         _run("shape", "--no-path", "--csv", str(ok)).stdout)))
-    assert rows and rows[0]["format"] == "RIFF/WAVE"
+    assert rows and (rows[0]["format"], rows[0]["label"]) == ("wav", "RIFF/WAVE")
 
 
 # ── validate ───────────────────────────────────────────────────────

@@ -462,9 +462,38 @@ def _add_deep_analysis(filepath, rec, args):
 
 
 def run(args):
-    """Per-file report, so it takes as many as you hand it."""
+    """Per-file report, so it takes as many as you hand it. The table is one
+    card per file; json, csv and tsv are rows, one per file, in one array
+    (cli-2.0.md section 4.1)."""
     from acidcat.util import targets
-    return targets.each(args, "target", _run_one, verb="info")
+    fmt_name = getattr(args, "output_format", "table") or "table"
+    if fmt_name == "table":
+        return targets.each(args, "target", _run_one, verb="info")
+    args._rows = []
+    rc = targets.each(args, "target", _run_one, verb="info", header=False)
+    if args._rows or fmt_name == "json":
+        stream = sys.stdout
+        if getattr(args, "output", None):
+            stream = open(args.output, "w", encoding="utf-8")
+        try:
+            output(args._rows, fmt=fmt_name, stream=stream)
+        finally:
+            if stream is not sys.stdout:
+                stream.close()
+    return rc
+
+
+def _machine(rec, given, filepath):
+    """The card as a row: `path` as given, `format` the registry id and
+    `label` its display label, the card's own words under snake_case keys
+    (its `Format` line is `description`)."""
+    from acidcat.commands._output import format_of, snake
+    row = {"path": given, **format_of(filepath)}
+    for k, v in rec.items():
+        if k == "File":
+            continue
+        row["description" if k == "Format" else snake(k)] = v
+    return row
 
 
 def _run_one(args):
@@ -518,6 +547,11 @@ def _run_one(args):
         # when reading from stdin, show <stdin> instead of tempfile name
         if tmp_path:
             rec["File"] = "<stdin>"
+
+        if getattr(args, "_rows", None) is not None:
+            given = "<stdin>" if tmp_path else getattr(args, "_given", filepath)
+            args._rows.append(_machine(rec, given, filepath))
+            return 0
 
         # output
         stream = sys.stdout

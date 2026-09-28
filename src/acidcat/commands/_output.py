@@ -107,3 +107,29 @@ def out_stream(path):
     finally:
         if stream is not sys.stdout:
             stream.close()
+
+
+# ── the one JSON rule (cli-2.0.md section 4.1) ─────────────────────────
+
+def format_of(path):
+    """{"format": registry id, "label": its display label} for the file at
+    `path`, both None when nothing recognises it. Every verb's JSON names a
+    format this way: `format` is what `acidcat formats` lists and
+    `--force-format` takes, `label` what a person reads."""
+    from acidcat.core.infra import sniff as sniffmod
+    from acidcat.core.walk import _WALKERS
+    try:
+        fid = sniffmod.sniff(path)
+    except (OSError, ValueError):
+        fid = None
+    if not fid:
+        return {"format": None, "label": None}
+    entry = _WALKERS.get(fid)
+    return {"format": fid, "label": entry[0] if entry else fid}
+
+
+def snake(key):
+    """A display label as a JSON key: `ACID Root` -> `acid_root`."""
+    import re
+    return re.sub(r"[^a-z0-9]+", "_", str(key).lower()).strip("_") or "_"
+

@@ -53,6 +53,13 @@ The aliases go in 3.0. What does not alias:
 | `anomalies` (with `--anomalies`) | more `findings[]`, codes `anomaly.*` |
 | `lsb` | the `anomaly.lsb_entropy` finding when it fires |
 
+Every other verb's JSON follows one rule (cli-2.0.md section 4.1): keys are
+snake_case (`inspect --summary`'s `File`, `Format`, `Duration` are `path`,
+`description`, `duration`), a file is `path` (`scan`'s and `features`'
+`filename`, `audit`'s and `classify`'s `file`), and `format` is the registry
+id with `label` beside it. Row verbs always give an array, `audit` and
+`inspect --summary` included.
+
 `--full` was the positioned dump; the Document is positioned throughout, so
 `--full` is `--json`.
 
@@ -158,6 +165,14 @@ gone.
   1.x): the one `acidcat.open()` builds, with `file.path` and, with
   `--anomalies`, the forensic findings. `--only/--exclude` cut its tree
   to the chosen nodes and their ancestors.
+- **One JSON rule across verbs** (cli-2.0.md section 4.1): snake_case
+  keys, a file named by `path` as given, a format by `format` (registry
+  id) and `label` (display label). `inspect --summary` rows are
+  snake_case (`Format` becomes `description`) and many files give one
+  array; `audit` gives one array of rows, like `check`; `check`, `edit`,
+  `stats --by shape` and `classify` report `format` as the id (it was a
+  label or a writer's name); `stats --by meta` and `analyze` say `path`
+  (was `filename`); `classify` drops its basename `file`.
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

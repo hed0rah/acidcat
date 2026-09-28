@@ -20,7 +20,7 @@ repair here" rather than guessing.
 import os
 import sys
 
-from acidcat.commands._output import add_output_format_arg, chosen_format
+from acidcat.commands._output import add_output_format_arg, chosen_format, format_of
 from acidcat.core.infra.render import output as _render
 from acidcat.core.write import constraints, writer
 from acidcat.core.write.repairers import AudioGuardError
@@ -46,7 +46,7 @@ def register(subparsers):
 
 def _record(path, report):
     """The machine shape of a report: what this file is and what is wrong."""
-    return {"path": path, "format": report.label,
+    return {"path": path, **format_of(path),
             "issues": len(report.violations),
             "repairable": any(v.repairable for v in report.violations),
             "detail": "; ".join(v.describe() for v in report.violations),
@@ -83,7 +83,7 @@ def _repair_one(path, args, rows=None):
         # nothing checkable, the same answer `validate` gives on a format it
         # does not model -- not a passing result for a file never examined
         if rows is not None:
-            rows.append({"path": path, "format": None, "action": "skipped",
+            rows.append({"path": path, **format_of(path), "action": "skipped",
                          "issues": 0, "repairable": False, "written": None,
                          "backup": None,
                          "detail": "not a structurally-modeled container"})

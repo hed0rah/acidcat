@@ -134,16 +134,26 @@ def run(args):
     if not exit_code and not identified:
         exit_code = 1
 
-    if fmt == "json":
-        json.dump(rows, sys.stdout, indent=2, default=str)
-        sys.stdout.write("\n")
-        return exit_code
-    if fmt in ("csv", "tsv"):
+    if fmt in ("json", "csv", "tsv"):
+        # the machine rows name a file by `path` and a format by registry id
+        # and label (cli-2.0.md section 4.1); `file`, the display name, is
+        # the table's
+        from acidcat.core.walk import _WALKERS
+        mrows = []
+        for r in rows:
+            m = {k: v for k, v in r.items() if k != "file"}
+            m["format"] = r["format"] or None
+            m["label"] = _WALKERS[r["format"]][0] if r["format"] in _WALKERS else m["format"]
+            mrows.append(m)
+        if fmt == "json":
+            json.dump(mrows, sys.stdout, indent=2, default=str)
+            sys.stdout.write("\n")
+            return exit_code
         # both delimited renderings, not just csv: listing tsv in the choices
         # while falling through to the table would be a flag that is accepted
         # and ignored, which is the bug this pass exists to remove.
-        output([{k: r[k] for k in ("file", "shape", "format", "next", "detail")}
-                for r in rows], fmt=fmt)
+        output([{k: r[k] for k in ("path", "shape", "format", "label", "next", "detail")}
+                for r in mrows], fmt=fmt)
         return exit_code
 
     if not rows:

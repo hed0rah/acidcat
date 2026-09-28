@@ -50,12 +50,12 @@ def test_json_marks_whether_the_scan_ran(tmp_path, capsys):
     import json
     p = _unwalkable_with_hidden_wav(tmp_path)
     main(["audit", str(p), "--json"])
-    assert json.loads(capsys.readouterr().out)["scanned"] is False
+    assert json.loads(capsys.readouterr().out)[0]["scanned"] is False
 
     good = tmp_path / "a.wav"
     good.write_bytes(_wav())
     main(["audit", str(good), "--json"])
-    assert json.loads(capsys.readouterr().out)["scanned"] is True
+    assert json.loads(capsys.readouterr().out)[0]["scanned"] is True
 
 
 def test_a_walkable_file_still_reports_clean(tmp_path, capsys):

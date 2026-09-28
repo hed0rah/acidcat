@@ -72,13 +72,13 @@ def test_scan_default_pipes_csv(tmp_path):
 
     r = _run(["scan", str(src), "-q"], tmp_path)
     assert r.returncode == 0, r.stderr
-    assert r.stdout.startswith("filename,format,bpm,key"), r.stdout[:80]
+    assert r.stdout.startswith("path,format,label,bpm,key"), r.stdout[:80]
     assert not list(tmp_path.glob("*.csv")), "it wrote a file nobody asked for"
 
     # and -o still does what it always did
     r = _run(["scan", str(src), "-q", "-o", "asked.csv"], tmp_path)
     assert r.returncode == 0, r.stderr
-    assert (tmp_path / "asked.csv").read_text().startswith("filename,format")
+    assert (tmp_path / "asked.csv").read_text().startswith("path,format")
 
 
 def test_scan_json_to_output_file(tmp_path):

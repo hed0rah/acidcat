@@ -32,7 +32,7 @@ def _detect_single(filepath, quiet=False):
 
     result = estimate_librosa_metadata(filepath)
     return {
-        "filename": display_name(filepath),
+        "path": display_name(filepath),
         "bpm": result.get("estimated_bpm"),
         "key": result.get("estimated_key"),
         "duration_sec": result.get("duration_sec"),

@@ -487,6 +487,26 @@ The five questions this page left open, as the user answered them:
 5. **`--problems-only` on `check` and on `classify`.** It is what `validate
    -q` and `classify -q` did; `-q` keeps the standard meaning (stderr only).
 
+### 4.1 One JSON rule
+
+Every verb's `--json` (and csv/tsv, where the verb offers them) follows it:
+
+- **Keys are snake_case and name what the value is**, never a display label
+  (`duration`, `acid_root`; not `Duration`, `ACID Root`).
+- **A file is named by `path`**: the path as given (`<stdin>` for `-`, never
+  a temporary copy's name). No basename beside it; that is the table's.
+- **A format is named twice**: `format` is its registry id (what `acidcat
+  formats` lists and `--force-format` takes, `wav`) and `label` its display
+  label (`RIFF/WAVE`). Both are null when nothing recognises the file.
+- **Three shapes, by what the verb reports:**
+  - *Document verbs* (`inspect --json`): one object per file, one per line,
+    so many files are NDJSON.
+  - *Row verbs*: one JSON array of rows, always an array, even for one row:
+    `inspect --summary`, `classify`, `check` (and `--fix`), `audit`, `edit`,
+    `locate`, `od`, `formats`, `stats --by meta|shape`, `analyze`, `lib
+    query|similar`. `audit` gives one row per file, as `check` does.
+  - *Report verbs*: one object for the run, `stats --by chunks`.
+
 ## 5. As built (2.0.0a1)
 
 Where the build refines this page, and what it does not do yet:

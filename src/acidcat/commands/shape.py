@@ -183,11 +183,23 @@ def _run(args):
         row = {"format": label, "summary": summary, "chunks": ids, "flag": flag}
         if not args.no_path:
             row["path"] = path
+        row["_path"] = path
         rows.append(row)
     if capped:
         from acidcat.commands.stats import cap_note
         cap_note(cap)
     fmt = getattr(args, "output_format", "tsv")
+    if fmt in ("json", "csv"):
+        # machine rows: `format` the registry id, `label` the walker's
+        # (cli-2.0.md section 4.1); tsv and the table keep the label column
+        from acidcat.commands._output import format_of
+        rows = [dict({"path": r["path"]} if "path" in r else {},
+                     format=format_of(r["_path"])["format"], label=r["format"],
+                     summary=r["summary"], chunks=r["chunks"], flag=r["flag"])
+                for r in rows]
+    else:
+        for r in rows:
+            r.pop("_path", None)
     if rows:
         if fmt == "tsv":
             # Hand-rolled rather than through the renderer, deliberately: the

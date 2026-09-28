@@ -269,7 +269,14 @@ def run(args):
     """One or many, files or directories -- audit is a per-file report,
     and it took a single file while `inspect` next to it took a list."""
     from acidcat.util import targets
-    return targets.each(args, "input", _run_one, verb="audit")
+    if chosen_format(args) != "json":
+        return targets.each(args, "input", _run_one, verb="audit")
+    # one row per file in one array, the shape `check` gives (cli-2.0.md
+    # section 4.1); it was one pretty object per file, back to back
+    args._rows = []
+    rc = targets.each(args, "input", _run_one, verb="audit", header=False)
+    print(json.dumps(args._rows, indent=2, default=str))
+    return rc
 
 
 def _run_one(args):
@@ -294,8 +301,11 @@ def _run_one(args):
     todo = "extract" if extract_only else "locate"
 
     if chosen_format(args) == "json":
+        from acidcat.commands._output import format_of
+        fmt = format_of(path)
         out = {
-            "file": os.path.basename(path), "format": label, "size": size,
+            "path": getattr(args, "_given", path), "format": fmt["format"],
+            "label": label or fmt["label"], "size": size,
             "structure": [{"kind": v.kind, "path": v.path, "field": v.field,
                            "stored": v.stored, "computed": v.computed,
                            "witness": v.witness, "repairable": v.repairable}
@@ -307,7 +317,10 @@ def _run_one(args):
             # so a consumer can tell "scanned, nothing found" from "never ran"
             "scanned": scanned,
         }
-        print(json.dumps(out, indent=2, default=str))
+        if getattr(args, "_rows", None) is not None:
+            args._rows.append(out)
+        else:
+            print(json.dumps([out], indent=2, default=str))
         return _code(scanned, out["structure"], findings, integ)
 
     print(f"{os.path.basename(path)}  [{label or 'unknown'}]  {size:,} bytes\n")

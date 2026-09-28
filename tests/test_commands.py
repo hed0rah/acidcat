@@ -64,8 +64,9 @@ class TestInfoWav:
     def test_json_output(self, minimal_wav):
         code, out, err = run_cli(minimal_wav, "--json")
         assert code == 0 or code is None
-        data = json.loads(out)
-        assert "Format" in data or "format" in data or "File" in data
+        (data,) = json.loads(out)
+        assert data["format"] == "wav" and data["label"] == "RIFF/WAVE"
+        assert data["path"] == minimal_wav
 
     def test_not_riff_wav_says_so(self, not_riff):
         """Was `code in (0, 1, None)` -- an assertion that accepted the old
@@ -199,7 +200,7 @@ class TestScanCommand:
 
         assert not list(workdir.glob("*.csv")), (
             "scan invented a CSV in the working directory")
-        assert "filename" in out.splitlines()[0], "CSV has no header row"
+        assert "path" in out.splitlines()[0], "CSV has no header row"
         assert "test.wav" in out, "the scanned file is missing from the CSV"
 
     def test_scan_empty_directory(self, tmp_path):
@@ -223,7 +224,7 @@ class TestScanCommand:
             reader = csv.DictReader(f)
             rows = list(reader)
         assert len(rows) == 1
-        assert "filename" in rows[0]
+        assert "path" in rows[0]
         assert "format" in rows[0]
 
     def test_scan_limit(self, tmp_path, minimal_wav):
@@ -294,8 +295,8 @@ class TestInfoSmplKeyDisplay:
         assert "C-1" not in out
         # JSON form is unambiguous for the assertion
         code_j, out_j, _ = run_cli(path, "--json")
-        data = json.loads(out_j)
-        assert data["Key"] == "-"
+        (data,) = json.loads(out_j)            # rows, one per file
+        assert data["key"] == "-"
 
     def test_smpl_root_60_renders_as_pitch_class(self, tmp_path):
         path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
@@ -309,9 +310,9 @@ class TestInfoSmplKeyDisplay:
         path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
         code, out, err = run_cli(path, "--json")
         assert code == 0 or code is None
-        data = json.loads(out)
-        assert data["Key"].startswith("C ")
-        assert "C4" not in data["Key"]
+        (data,) = json.loads(out)
+        assert data["key"].startswith("C ")
+        assert "C4" not in data["key"]
 
     def test_no_smpl_no_acid_renders_as_unset(self, tmp_path):
         path = _riff_wav_with_smpl(tmp_path / "nokey.wav", smpl_root_key=None)
