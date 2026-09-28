@@ -37,12 +37,12 @@ def test_a_declared_bit_field_with_a_transform_writes_and_reads_back(tmp_path):
 
 
 def test_an_inferred_type_is_refused_without_force(tmp_path):
-    p, doc = _open(tmp_path, "wav")
-    f = doc.field("RIFF/fmt_#block_align")
+    p, doc = _open(tmp_path, "8svx")
+    f = doc.field("FORM/VHDR#samplesPerSec")
     assert f.type_source == "inferred"
     with pytest.raises(EditError, match="inferred type"):
-        doc.edit({f.addr: 4})
-    assert doc.edit({f.addr: 2}, force=True).applied
+        doc.edit({f.addr: 16000})
+    assert doc.edit({f.addr: 16000}, force=True).applied
 
 
 def test_a_field_with_no_encoding_takes_bytes_not_a_value():
@@ -251,7 +251,7 @@ def test_the_cover_is_a_pseudo_field(tmp_path):
     p.write_bytes(_MP3)
     patch = editmod.edit_path(str(p), {"cover": _PNG}).verify()
     assert patch.records[0].kind == "cover"
-    patch.commit(overwrite=True)
+    patch.commit(backup=False)
     gone = editmod.edit_path(str(p), {"cover": None}).verify()
     assert gone.records[0].field["removed"] is True
 
@@ -315,3 +315,113 @@ def test_the_tui_field_edit_goes_through_the_patch(tmp_path, monkeypatch):
     work = asyncio.run(scenario())
     assert calls and list(calls[0].values()) == [b"\x80\xbb\x00\x00"]
     assert list(calls[0])[0].startswith("@") and b"\x80\xbb\x00\x00" in work
+
+
+# ── repair() and the documented example (review R2) ────────────────────
+
+def _doc_example():
+    """The edit lines of architecture-2.0.md section 6, as written."""
+    import pathlib
+    text = (pathlib.Path(__file__).resolve().parent.parent
+            / "docs" / "contract" / "architecture-2.0.md").read_text(encoding="utf-8")
+    lines = text.split("## 6. The Python API", 1)[1].split("```", 2)[1].splitlines()
+    start = next(i for i, l in enumerate(lines) if 'acidcat.open("kick.wav")' in l)
+    end = next(i for i, l in enumerate(lines) if ".commit(" in l)
+    return [l.split("#", 1)[0].rstrip() if not l.lstrip().startswith("patch = doc.edit")
+            else l for l in lines[start:end + 1]]
+
+
+def test_the_documented_edit_runs_end_to_end(tmp_path):
+    """open, edit the sample rate, repair, verify, commit: the example the
+    architecture page and core/edit.py lead with."""
+    src = tmp_path / "kick.wav"
+    src.write_bytes(seeds.build("wav"))
+    out = tmp_path / "out.wav"
+    code = "\n".join(_doc_example())
+    assert "patch.repair()" in code and "backup=True" in code
+    code = code.replace('"kick.wav"', repr(str(src))).replace('"out.wav"', repr(str(out)))
+    exec(code, {"acidcat": acidcat})
+    doc = acidcat.open(out, forensics=False)
+    assert doc.field("RIFF/fmt_#sample_rate").value == 48000
+    align = doc.field("RIFF/fmt_#block_align").value
+    assert doc.field("RIFF/fmt_#avg_bytes_per_sec").value == 48000 * align
+    assert not [f for f in doc.findings if f.kind == "defect"]
+    assert src.read_bytes() == seeds.build("wav"), "the input was touched"
+
+
+def test_fmt_fields_are_typed_by_the_walker(tmp_path):
+    _p, doc = _open(tmp_path, "wav")
+    fmt = doc.node("RIFF/fmt_")
+    assert {f.key: f.type_source for f in fmt.fields} == {
+        k: "enc" for k in ("format_tag", "channels", "sample_rate",
+                           "avg_bytes_per_sec", "block_align", "bits_per_sample")}
+    # so a sample-rate edit needs no force=True
+    doc.edit({"RIFF/fmt_#sample_rate": 48000}).repair().verify()
+
+
+def test_repair_reports_what_it_changed_and_nothing_else(tmp_path):
+    _p, doc = _open(tmp_path, "wav")
+    patch = doc.edit({"RIFF/fmt_#sample_rate": 22050}).repair()
+    align = doc.field("RIFF/fmt_#block_align").value
+    old = doc.field("RIFF/fmt_#avg_bytes_per_sec").value
+    assert patch.repairs == [("RIFF/fmt_#avg_bytes_per_sec", old, 22050 * align)]
+    assert not patch.verified
+    patch.verify()
+
+
+def test_repair_with_nothing_out_of_step_is_a_no_op(tmp_path):
+    _p, doc = _open(tmp_path, "wav")
+    patch = doc.edit({"title": "Kick"})
+    data = patch.data
+    assert patch.repair().data == data and patch.repairs == []
+
+
+def test_repair_leaves_the_originals_own_violations_to_check_fix(tmp_path):
+    """A file that already disagrees with itself is not this edit's to fix."""
+    import struct
+    raw = bytearray(seeds.build("wav"))
+    struct.pack_into("<I", raw, 4, len(raw) - 12)   # a stale RIFF size
+    p = tmp_path / "bad.wav"
+    p.write_bytes(bytes(raw))
+    doc = acidcat.open(p, forensics=False)
+    with pytest.raises(PatchError, match="check --fix"):
+        doc.edit({"RIFF/fmt_#sample_rate": 48000}).repair()
+
+
+def test_a_rate_that_was_already_wrong_follows_the_new_one(tmp_path):
+    """The edit moved what avg_bytes_per_sec should be, so it is the
+    patch's to set, even though it was wrong before."""
+    import struct
+    raw = bytearray(seeds.build("wav"))
+    struct.pack_into("<I", raw, 28, 1)
+    p = tmp_path / "bad.wav"
+    p.write_bytes(bytes(raw))
+    doc = acidcat.open(p, forensics=False)
+    patch = doc.edit({"RIFF/fmt_#sample_rate": 48000}).repair()
+    assert [k for k, _o, _n in patch.repairs] == ["RIFF/fmt_#avg_bytes_per_sec"]
+
+
+def test_the_smpl_period_follows_the_rate(tmp_path):
+    import struct
+    from acidcat.core.write import raterepair
+    body = b"WAVE"
+    fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+    body += b"fmt " + struct.pack("<I", 16) + fmt
+    body += b"smpl" + struct.pack("<I", 36) + struct.pack("<9I", 0, 0, 22676, 60, 0, 0, 0, 0, 0)
+    body += b"data" + struct.pack("<I", 8) + bytes(8)
+    wav = b"RIFF" + struct.pack("<I", len(body)) + body
+    assert raterepair.analyze(wav) == []
+    doc = acidcat.open(wav, forensics=False)
+    patch = doc.edit({"RIFF/fmt_#sample_rate": 48000}).repair()
+    fields = {k for k, _o, _n in patch.repairs}
+    assert fields == {"RIFF/fmt_#avg_bytes_per_sec", "RIFF/smpl#sample_period"}
+    assert struct.unpack_from("<I", patch.data, 12 + 24 + 8 + 8)[0] == round(1e9 / 48000)
+
+
+def test_commit_backup_false_writes_in_place_without_one(tmp_path):
+    import os
+    p, doc = _open(tmp_path, "wav")
+    written, backup = doc.edit({"title": "Kick"}).verify().commit(backup=False)
+    assert written == str(p) and backup is None
+    assert not os.path.exists(str(p) + "_original") and not [
+        n for n in os.listdir(tmp_path) if "_original" in n]

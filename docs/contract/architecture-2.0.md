@@ -341,7 +341,9 @@ doc.layer_bytes(1)[:4]                          # b"YM6!"
 [x for x in doc.findings if x.kind == "defect"]
 doc.to_json()                                   # the contract v1 dict
 
+doc = acidcat.open("kick.wav")
 patch = doc.edit({"RIFF/fmt_#sample_rate": 48000})
+patch.repair()                                  # avg_bytes_per_sec follows
 patch.verify()                                  # re-reads, checks round trips
 patch.commit("out.wav", backup=True)
 ```
@@ -386,7 +388,8 @@ doc.edit({ADDR: value, ...})
    v
  Patch (list of byte ranges and replacements, or a whole new file from a profile)
    |  verify()   re-walk the patched bytes; the edited fields read back; no new defects
-   |  repair()   optional: run constraints.repair for sizes the edit changed
+   |  repair()   optional: run constraints.repair for the sizes and rates
+   |             the edit put out of step (and only those)
    |  commit()   writer.commit: atomic write plus backup, as today
 ```
 

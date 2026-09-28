@@ -29,6 +29,7 @@ SIZE = "size"
 OFFSET = "offset"
 COUNT = "count"
 ZERO = "zero"
+RATE = "rate"       # a field that follows from the sample format (raterepair)
 
 
 @dataclass
@@ -102,8 +103,9 @@ class Repairer:
 
 def _repairers():
     from acidcat.core.write.repairers import (CountRepairer, FlacRepairer, IffRepairer,
-                                        Mp4OffsetRepairer)
-    return (IffRepairer(), Mp4OffsetRepairer(), FlacRepairer(), CountRepairer())
+                                        Mp4OffsetRepairer, RateRepairer)
+    return (IffRepairer(), Mp4OffsetRepairer(), FlacRepairer(), CountRepairer(),
+            RateRepairer())
 
 
 def repairer_for(data):

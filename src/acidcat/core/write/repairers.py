@@ -10,10 +10,10 @@ format-agnostic.
 
 from dataclasses import replace
 
-from acidcat.core.write import countrepair, flacrepair
+from acidcat.core.write import countrepair, flacrepair, raterepair
 from acidcat.core.formats import mp4 as mp4mod
 from acidcat.core.write import mp4repair, structure
-from acidcat.core.write.constraints import (COUNT, OFFSET, SIZE, ZERO, Report, Repairer,
+from acidcat.core.write.constraints import (COUNT, OFFSET, RATE, SIZE, ZERO, Report, Repairer,
                                       Violation)
 
 
@@ -230,4 +230,26 @@ class CountRepairer(Repairer):
 
     def apply(self, data, opts=None):
         new_data, changes = countrepair.repair(data)
+        return new_data, Report(self.label, self._violations(changes))
+
+
+class RateRepairer(Repairer):
+    """RATE-kind: a WAV's block_align, avg_bytes_per_sec and smpl
+    sample_period made to follow the sample format they are functions of
+    (raterepair). Size-stable; never touches audio."""
+
+    label = "WAVE"
+
+    def applies(self, data):
+        return raterepair.is_target(data)
+
+    def _violations(self, changes):
+        return [Violation(RATE, c["path"], c["field"], c["old"], c["new"],
+                          witness=c["witness"]) for c in changes]
+
+    def analyze(self, data, opts=None):
+        return Report(self.label, self._violations(raterepair.analyze(data)))
+
+    def apply(self, data, opts=None):
+        new_data, changes = raterepair.repair(data)
         return new_data, Report(self.label, self._violations(changes))

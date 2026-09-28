@@ -41,7 +41,7 @@ def _mutate(path, image, overwrite):
         patch.verify()
     except editmod.PatchError as e:
         raise covermod.CoverError(str(e))
-    written, backup = patch.commit(overwrite=overwrite)
+    written, backup = patch.commit(backup=not overwrite)
     return written, backup, patch.records[0]
 
 

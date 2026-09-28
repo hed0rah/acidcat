@@ -98,7 +98,7 @@ layer's chunks never join the flat list.
 
 ```
 src/acidcat/
-  core/            202 modules
+  core/            203 modules
     formats/       per-format byte decoders (35)
     walk/          57 walker modules -> 88 format labels (58)
     primitives/    shared byte readers (6)
@@ -107,7 +107,7 @@ src/acidcat/
     infra/         sniff, fieldcodec, mmap, Source, Limits, finding codes, layers, rendering, the v1 contract, ADDR (16)
     forensics/     anomalies, entropy/viz, audioscan, provenance (19)
     analysis/      PCM decode, BPM/key, features, bandwidth (8)
-    write/         strict IFF engine, constraints, repairers, tag-edit profiles (13)
+    write/         strict IFF engine, constraints, repairers, tag-edit profiles (14)
     extract/       embedded-sample recovery (4)
     catalogue/     SQLite index, registry, query builder, search (8)
     data/          shipped JSON tables (provenance signatures)
@@ -116,7 +116,7 @@ src/acidcat/
   tui_app/         Textual inspector/editor; model.py is its state, no Textual;
                    state.py what it remembers between runs (tui.json)
   util/            small shared helpers
-  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (269 modules in total)
+  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (270 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

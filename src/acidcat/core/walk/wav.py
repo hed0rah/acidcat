@@ -52,11 +52,11 @@ def _parse_fmt(b, ctx):
     tag_name = _FORMAT_TAGS.get(tag, f"unknown 0x{tag:04x}")
     fields.append(_f(0x00, 2, "format_tag", f"0x{tag:04x}", tag_name,
                      enc="<H", raw=tag))
-    fields.append(_f(0x02, 2, "channels", ch))
-    fields.append(_f(0x04, 4, "sample_rate", rate, "Hz"))
-    fields.append(_f(0x08, 4, "avg_bytes_per_sec", avg))
-    fields.append(_f(0x0C, 2, "block_align", align))
-    fields.append(_f(0x0E, 2, "bits_per_sample", bits))
+    fields.append(_f(0x02, 2, "channels", ch, enc="<H"))
+    fields.append(_f(0x04, 4, "sample_rate", rate, "Hz", enc="<I"))
+    fields.append(_f(0x08, 4, "avg_bytes_per_sec", avg, enc="<I"))
+    fields.append(_f(0x0C, 2, "block_align", align, enc="<H"))
+    fields.append(_f(0x0E, 2, "bits_per_sample", bits, enc="<H"))
     ctx.update({"format_tag": tag, "channels": ch, "sample_rate": rate,
                 "block_align": align, "bits": bits})
 

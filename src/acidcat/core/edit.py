@@ -1,8 +1,15 @@
 """Editing: one front door (architecture-2.0 section 7).
 
-    patch = doc.edit({"RIFF/fmt_#sample_rate": 48000, "title": "Kick"})
+    doc = acidcat.open("in.wav")
+    patch = doc.edit({"RIFF/fmt_#sample_rate": 48000})
+    patch.repair()                      # avg_bytes_per_sec follows the rate
     patch.verify()                      # re-reads; raises PatchError on a miss
-    patch.commit("out.wav")             # atomic, with a _original backup
+    patch.commit("out.wav", backup=True)
+
+    doc.edit({"title": "Kick"}).verify().commit()   # in place, _original kept
+
+A patch either edits bytes in place or rewrites metadata through a profile,
+not both: give those as two patches.
 
 A key in `changes` is one of three things:
 
@@ -309,6 +316,7 @@ class Patch:
         self._raw_doc = raw_doc
         self.force = force
         self.notes = list(notes)
+        self.repairs = []       # (path#field, old, new) repair() changed
         self.verified = False
         self.path = None        # the file it was made from, when there is one
 
@@ -401,18 +409,61 @@ class Patch:
         grown = count(after) - count(before)
         return ["a new %s defect (%d)" % (c, n) for c, n in sorted(grown.items())]
 
-    def commit(self, out=None, overwrite=False, path=None):
-        """Write the patch: in place over the file it was made from, with a
-        `_original` backup unless `overwrite`, or to `out`. Returns (written,
-        backup). `path` names the file to write over when the patch was made
-        from bytes."""
+    def repair(self):
+        """Bring back into line what this patch put out of step: a size, an
+        offset, or a field that follows from another (a WAV's
+        avg_bytes_per_sec after its sample_rate), through the constraint
+        engine `check --fix` uses (core/write/constraints.py). Only the
+        violations the patched bytes have and the original did not (or whose
+        right value the edit moved) are this patch's to fix; if the original
+        already had one the engine would also rewrite, that is refused, since repairing it is a decision
+        about the file, not about this edit (`acidcat check --fix` makes it).
+        A violation with no witness cannot be repaired and is refused too.
+        Returns the Patch, with `repairs` listing what changed; call
+        verify() after it."""
+        from acidcat.core.write import constraints
+
+        def violations(data):
+            rep = constraints.analyze(data)
+            return {} if rep is None else {(v.path, v.field): v
+                                           for v in rep.violations}
+        before, after = violations(self.before), violations(self.data)
+        # the patch's: new ones, and ones whose right value the edit moved
+        # (a byte rate that was already wrong, under a new sample rate)
+        new = [v for k, v in after.items()
+               if k not in before or before[k].computed != v.computed]
+        if not new:
+            return self
+        blind = [v for v in new if not v.repairable]
+        if blind:
+            raise PatchError("repair() cannot fix what this patch broke: "
+                             + "; ".join(v.describe() for v in blind))
+        standing = [v for k, v in after.items() if v.repairable and v not in new]
+        if standing:
+            raise PatchError(
+                "the original already has %d violation(s) repair would also "
+                "rewrite (%s); run `acidcat check --fix` on it first"
+                % (len(standing), "; ".join(v.describe() for v in standing)))
+        fixed, _report = constraints.repair(self.data)
+        self.data = fixed
+        self.repairs = [("%s#%s" % (v.path, v.field), v.stored, v.computed)
+                        for v in new]
+        self.verified = False
+        return self
+
+    def commit(self, out=None, backup=True, path=None):
+        """Write the patch, atomically: to `out`, leaving the file it was made
+        from untouched, or in place over that file (or `path`, when the patch
+        was made from bytes). An in-place commit first copies the file to
+        `<name>_original` unless `backup=False` (an existing `_original` is
+        never overwritten). Returns (written, backup or None)."""
         path = path or self.path
         if path is None and out is None:
             raise EditError("the patch was not made from a file; give out=")
         if path is None:
             writer.atomic_write(out, self.data)
             return out, None
-        return writer.commit(path, self.data, out=out, overwrite=overwrite)
+        return writer.commit(path, self.data, out=out, overwrite=not backup)
 
     def __repr__(self):
         return "Patch(%d edit(s), %s)" % (

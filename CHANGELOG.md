@@ -49,6 +49,23 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- **An IFF file's header is its root node.** A WAV's Document ids are
+  `RIFF`, `RIFF/fmt_`, `RIFF/data` (they were `unwalked`, `fmt_`, `data`,
+  with the 12-byte header an unwalked gap), an AIFF's `FORM/COMM`, an RF64's
+  `RF64/ds64`, a Wave64's `wave64/fmt_`: the addresses the docs always used.
+  The root ends where its size says, so bytes past the declared end are its
+  siblings. The tuple API and the tables built on it are unchanged.
+- **The documented edit runs end to end.** `acidcat.open(wav).edit(
+  {"RIFF/fmt_#sample_rate": 48000})`, then `.repair()`, `.verify()` and
+  `.commit("out.wav", backup=True)`. The WAV fmt fields are typed by the
+  walker, so they edit without `force=True`. `Patch.repair()` runs the
+  constraint engine for what the patch put out of step, and refuses when the
+  original already had violations it would also rewrite. `Patch.commit()`
+  takes `backup=` (default True) in place of `overwrite=`.
+- **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
+  `smpl` chunk's `sample_period`, to the sample format** (violation kind
+  `rate`), the same arithmetic the walker already reported as a
+  `field.inconsistent` defect, and `check --fix` sets them.
 - **`acidcat.walk()` and `acidcat.walk_file()` are deprecated.** The 1.x
   tuple API still returns `(label, chunks, warnings)` and now warns with a
   `DeprecationWarning` naming `acidcat.open()`; it is removed in 3.0.
