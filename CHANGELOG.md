@@ -418,6 +418,10 @@ gone.
 
 ### Fixed
 
+- **`probe`'s standard flags go after the sub-verb too.** `probe read AT F
+  --json` was an argparse error; `--output-format`, `--json` and `-o` are
+  accepted before or after the sub-verb, with the same output.
+
 - **Paths stay as given.** `classify` normalised every path (backslashes on
   Windows, `./` dropped) and `stats`, `convert` and the shared tree walker
   joined `os.walk`'s roots with `os.sep`, so a target typed `C:/samples` gave

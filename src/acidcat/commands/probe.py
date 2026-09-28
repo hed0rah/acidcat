@@ -158,6 +158,20 @@ def register(subparsers):
     lb.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
+    # the standard flags after the subverb too (`probe read AT F --json`), as
+    # on every other verb (review V9). SUPPRESS, so a flag written before the
+    # subverb is not reset by the subparser's default.
+    for sp in sub.choices.values():
+        sp.add_argument("--output-format", dest="output_format", metavar="FMT",
+                        choices=("table", "json"), default=argparse.SUPPRESS,
+                        help="Output rendering: table, json (default: table).")
+        sp.add_argument("--json", dest="output_format", action="store_const",
+                        const="json", default=argparse.SUPPRESS,
+                        help="Render as JSON (shorthand for --output-format json).")
+        sp.add_argument("-o", "--output", dest="report_to", metavar="PATH",
+                        default=argparse.SUPPRESS,
+                        help="Write the report here instead of stdout.")
+
     p.set_defaults(func=run)
 
 
