@@ -465,10 +465,14 @@ def _xml_layer(xml, attrs):
 
 # ── Max for Live ──────────────────────────────────────────────────────────
 
-# 'ampf' magic, a u32 version, then a 4-byte marker -- 'aaaa' in every specimen
-# seen -- and only then the chunk chain. Reading the marker as a chunk id makes
-# its next 4 bytes look like a 1.6 GB length, which is how this was caught.
+# 'ampf' magic, a u32 version, then a 4-byte device type, and only then the
+# chunk chain. Reading the type as a chunk id makes its next 4 bytes look like
+# a 1.6 GB length, which is how this was caught. The type was taken for a
+# constant 'aaaa' until a Max instrument said 'iiii': every audio effect
+# measured carries 'aaaa' and every instrument 'iiii', each from the preset
+# folder Live files that kind under.
 _AMXD_HEADER = 12
+_AMXD_KINDS = {b"aaaa": "audio effect", b"iiii": "instrument"}
 _AMXD_MAX_CHUNKS = 64
 
 
@@ -481,9 +485,11 @@ def inspect_amxd(filepath):
     if raw[:4] != b"ampf":
         warns.append(defect("magic.mismatch", "missing 'ampf' magic"))
     marker = raw[8:12]
-    if marker != b"aaaa":
-        warns.append(defect("magic.mismatch",
-                            f"marker at offset 8 is {marker!r}, expected b'aaaa'"))
+    kind = _AMXD_KINDS.get(marker)
+    if kind is None:
+        warns.append(info("layout.unmeasured",
+                          f"device type at offset 8 is {marker!r}; the measured "
+                          f"ones are b'aaaa' (audio effect) and b'iiii' (instrument)"))
 
     chunks = [{
         "id": "ampf", "offset": 0, "size": min(size, _AMXD_HEADER),
@@ -496,8 +502,8 @@ def inspect_amxd(filepath):
             _f(0x00, 4, "magic", raw[:4].decode("ascii", "replace")),
             _f(0x04, 4, "version",
                struct.unpack_from("<I", raw, 4)[0] if len(raw) >= 8 else "?"),
-            _f(0x08, 4, "marker", marker.decode("ascii", "replace"),
-               "constant separator before the chunk chain"),
+            _f(0x08, 4, "device_type", marker.decode("ascii", "replace"),
+               kind or "not a type measured"),
         ],
         "warnings": [], "payload_base": 0,
     }]

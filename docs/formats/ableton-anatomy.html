@@ -338,12 +338,12 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <!-- ===================== MAX FOR LIVE ===================== -->
     <div class="panel" data-panel="m4l">
       <div class="pfacts"><span>magic<b>"ampf"</b></span><span>header<b>12 bytes</b></span><span>chain<b>id + u32 length</b></span><span>payload<b>Max patcher JSON</b></span></div>
-      <p class="plede">A Max for Live device is an <b>Ableton Max Patch Format</b> container: the ASCII magic <code>ampf</code>, a version word, and then -- before the chunk chain begins -- a <b>four-byte marker</b>, <code>aaaa</code>. Only at offset 12 does the chain start: four-byte id, little-endian length, payload. The <code>ptch</code> chunk carries the Max patcher, a short binary preamble followed by JSON.</p>
+      <p class="plede">A Max for Live device is an <b>Ableton Max Patch Format</b> container: the ASCII magic <code>ampf</code>, a version word, and then -- before the chunk chain begins -- a <b>four-byte device type</b>: <code>aaaa</code> for an audio effect, <code>iiii</code> for an instrument. Only at offset 12 does the chain start: four-byte id, little-endian length, payload. The <code>ptch</code> chunk carries the Max patcher, a short binary preamble followed by JSON.</p>
       <div class="sec">layout</div>
-      <pre class="code">0x00  "ampf"  u32:version  "aaaa"      &lt;- 12-byte header
+      <pre class="code">0x00  "ampf"  u32:version  "aaaa"      &lt;- device type; 12-byte header
 0x0C  "meta"  u32:len      ...
 0x18  "ptch"  u32:len      mx@c ... { patcher JSON }</pre>
-      <div class="callout"><b>The marker is not a chunk, and mistaking it for one is loud.</b> Reading <code>aaaa</code> as an id makes the following four bytes -- the ASCII <code>meta</code> -- decode as a length of 1,635,018,093 bytes, and the whole chain collapses to one impossible chunk. The chain starts at <b>12</b>, not 8.</div>
+      <div class="callout"><b>The device type is not a chunk, and mistaking it for one is loud.</b> Reading <code>aaaa</code> as an id makes the following four bytes -- the ASCII <code>meta</code> -- decode as a length of 1,635,018,093 bytes, and the whole chain collapses to one impossible chunk. The chain starts at <b>12</b>, not 8.</div>
       <div class="callout"><b>The length field cannot be trusted.</b> A chunk claiming more bytes than remain must stop the walk rather than read past the end. The <code>ptch</code> chunk ends exactly on the last byte of the file, so a chain that stops short means something is missing.</div>
     </div>
 

@@ -372,7 +372,7 @@ def test_xml_walker_reads_the_creator(tmp_path):
 # ── Max for Live ──────────────────────────────────────────────────────────
 
 def test_amxd_chunk_chain(tmp_path):
-    """The chain starts at 12, after a constant 'aaaa' marker. Treating that
+    """The chain starts at 12, after the 4-byte device type. Treating that
     marker as a chunk id makes its next 4 bytes read as a 1.6 GB length -- which
     is exactly how the first version of this walker failed on a real device."""
     p = tmp_path / "d.amxd"
@@ -383,6 +383,23 @@ def test_amxd_chunk_chain(tmp_path):
     assert [c["id"] for c in chunks] == ["ampf", "meta", "ptch"]
     assert not warns, warns
     assert "JSON at +4" in chunks[2]["summary"]
+
+
+def test_amxd_device_type_is_named_not_flagged(tmp_path):
+    """The 'aaaa' was never a constant: it is the device type. A real Max
+    instrument says 'iiii' and was reported as a magic mismatch."""
+    chain = (b"meta" + struct.pack("<I", 4) + struct.pack("<I", 7)
+             + b"ptch" + struct.pack("<I", 6) + b"mx@c{}")
+    for marker, kind in ((b"aaaa", "audio effect"), (b"iiii", "instrument")):
+        p = tmp_path / "d.amxd"
+        p.write_bytes(b"ampf" + struct.pack("<I", 4) + marker + chain)
+        chunks, warns = walker.inspect_amxd(str(p))
+        assert not warns, warns
+        f = next(x for x in chunks[0]["fields"] if x["name"] == "device_type")
+        assert f["note"] == kind
+    p.write_bytes(b"ampf" + struct.pack("<I", 4) + b"zzzz" + chain)
+    _chunks, warns = walker.inspect_amxd(str(p))
+    assert [w.code for w in warns] == ["layout.unmeasured"]
 
 
 def test_amxd_lying_chunk_length_is_flagged(tmp_path):
