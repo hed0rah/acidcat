@@ -432,6 +432,12 @@ gone.
 
 ### Fixed
 
+- **`inspect --only RIFF` is the whole file.** The table's ids start with
+  the root, and naming it said "names no chunk" (the root is made by the
+  Document, not a walker chunk). A node now picks its subtree for `--only`
+  and `--exclude`: `--only RIFF` shows every chunk and `--json` keeps the
+  root whole, `--exclude RIFF` hides them all.
+
 - **`carve FILE FIELD -o PATH` writes the field's bytes**, the ones the
   file holds (`44 ac 00 00` for a 44100 Hz rate). It wrote the display text
   and a platform newline (`44100\r\n` on Windows), and `--encoding raw` on

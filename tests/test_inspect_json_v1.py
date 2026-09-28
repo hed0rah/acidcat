@@ -72,3 +72,24 @@ def test_several_files_are_ndjson(tmp_path):
         paths.append(str(p))
     rc, docs = _inspect_json(*paths)
     assert rc == 0 and [d["format"]["id"] for d in docs] == ["wav", "aiff"]
+
+
+def test_only_the_root_id_is_the_whole_tree(tmp_path, capsys):
+    """Review V13: the table's ids start with `RIFF/`, and `--only RIFF`
+    said "names no chunk" (the root is the normaliser's, not a walker
+    chunk). A node picks its subtree: the whole file, in the table and in
+    the Document, and --exclude RIFF hides every chunk."""
+    import json as _json
+    import seeds as _seeds
+    from acidcat.cli import main as _main
+    p = tmp_path / "a.wav"
+    p.write_bytes(_seeds.build("wav"))
+    assert _main(["inspect", str(p), "--json"]) == 0
+    full = _json.loads(capsys.readouterr().out)
+    assert _main(["inspect", str(p), "--only", "RIFF", "--json"]) == 0
+    assert _json.loads(capsys.readouterr().out)["nodes"] == full["nodes"]
+    assert _main(["inspect", str(p), "--only", "RIFF", "--chunks"]) == 0
+    out = capsys.readouterr().out
+    assert "RIFF/fmt_" in out and "RIFF/data" in out
+    assert _main(["inspect", str(p), "--exclude", "RIFF", "--chunks"]) == 0
+    assert "showing 0 of 2 chunks" in capsys.readouterr().out

@@ -366,13 +366,22 @@ def _select_chunks(chunks, only, exclude, doc=None, ids=None):
     by_id = {nid: i for i, nid in ids.items()}
     missing = []
 
+    def subtree(n):
+        yield n
+        for k in n.get("children") or []:
+            yield from subtree(k)
+
     def picked(patterns):
         if patterns is None:
             return None
         got = set()
         for pat in patterns:
-            hits = ({by_id[n["id"]] for n in addr.find_nodes(doc, pat)
-                     if n["id"] in by_id} if doc is not None else
+            # a node picks its subtree: `--only RIFF`, the root the table's
+            # ids start with, is every chunk (it was "names no chunk", the
+            # root being the normaliser's, not a walker chunk; review V13)
+            hits = ({by_id[k["id"]] for n in addr.find_nodes(doc, pat)
+                     for k in subtree(n) if k["id"] in by_id}
+                    if doc is not None else
                     {i for i, c in enumerate(chunks)
                      if str(c["id"]).strip() == pat})
             if not hits:
@@ -809,8 +818,13 @@ def _run_inspect(args):
                     from acidcat.core.document import forensic_findings
                     out["findings"] = doc["findings"] + forensic_findings(doc, findings)
                 if only is not None or exclude is not None:
-                    out["nodes"] = _prune(doc["nodes"], {c["_id"] for c in shown
-                                                         if c.get("_id")})
+                    keep = {c["_id"] for c in shown if c.get("_id")}
+                    if only is not None and exclude is None:
+                        # a node --only names is kept whole, gaps included
+                        from acidcat.core.infra import addr as addrmod
+                        keep |= {n["id"] for pat in only
+                                 for n in addrmod.find_nodes(doc, pat)}
+                    out["nodes"] = _prune(doc["nodes"], keep)
                 sys.stdout.write(json.dumps(out) + "\n")
             else:
                 pretty = getattr(args, "pretty", False)
