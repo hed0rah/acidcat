@@ -52,9 +52,11 @@ def register(subparsers):
     p.add_argument("--hex", action="store_true", dest="show_hex",
                    help="Show raw bytes next to each decoded field.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"))
+    p.add_argument("--chunks", action="store_true",
+                   help="The chunk table only, no per-chunk field detail (as "
+                        "csv/tsv too: one row per chunk).")
     p.add_argument("-q", "--quiet", action="store_true",
-                   help="Chunk table only, no per-chunk field detail (as csv/tsv "
-                        "too: one row per chunk).")
+                   help="Nothing on stderr but errors (no hints, no notes).")
     p.add_argument("--summary", action="store_true",
                    help="The format-centred summary: format, duration, rate, "
                         "tempo and key, one record per file (what `info` was).")
@@ -67,13 +69,13 @@ def register(subparsers):
                    help="Per-element deep dump: every MPEG frame (MP3) or "
                         "MIDI event. No effect on formats without per-element "
                         "structure, e.g. WAV, AIFF or FLAC.")
-    p.add_argument("--only", metavar="IDS",
-                   help="Show only these chunk ids (comma-separated, e.g. "
-                        "'fmt,bext'). Case-insensitive, matched against the "
-                        "displayed id. Compose with --hex to hexdump one chunk.")
-    p.add_argument("--exclude", metavar="IDS",
-                   help="Hide these chunk ids (comma-separated). Applied after "
-                        "--only.")
+    p.add_argument("--only", metavar="NODES",
+                   help="Show only these nodes: comma-separated ids, globs or "
+                        "names as an ADDR names a node ('RIFF/fmt_', 'fmt,bext', "
+                        "'RIFF/LIST*'). A pattern that names no chunk is an "
+                        "error. Compose with --hex to hexdump one chunk.")
+    p.add_argument("--exclude", metavar="NODES",
+                   help="Hide these nodes (as --only). Applied after --only.")
     p.add_argument("--anomalies", action="store_true",
                    help="Forensic scan: flag trailing data past the container, "
                         "appended-format magic (polyglots), structural size "
@@ -246,20 +248,22 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
     print(f"{name}: {p('id', fmt_label)}, {file_size:,} bytes, "
           f"{count}")
     print()
-    print(p("dim", f"  {'idx':<5} {'id':<5} {'offset':<11} {'size':<11} summary"))
+    # the id column is the node id an address takes (`od FILE RIFF/fmt_`)
+    w = max([5] + [len(_node_id(c)) for c in chunks])
+    print(p("dim", f"  {'idx':<5} {'id':<{w}} {'offset':<11} {'size':<11} summary"))
     for i, c in enumerate(chunks):
         idx = p("dim", f"[{c.get('_idx', i):>2}]")
-        cid = p("id", f"{c['id']:<5}")
+        cid = p("id", f"{_node_id(c):<{w}}")
         off = p("dim", _at(c["offset"]))
         size = "-" if c["size"] is None else f"{c['size']:,}"
         print(f"  {idx}  {cid} {off}  {size:<11} {c['summary']}")
 
-    if not args.quiet:
+    if not getattr(args, "chunks", False):
         for c in chunks:
             if not c["fields"] and not c.get("rows"):
                 continue
             print()
-            hdr_id = p("id", c["id"].strip())
+            hdr_id = p("id", _node_id(c))
             hdr_meta = p("dim", f"@ {_at(c['offset'])} ({c['size'] if c['size'] is not None else '-'} bytes)")
             print(f"{hdr_id} {hdr_meta}")
             for fl in c["fields"]:
@@ -294,7 +298,7 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
         print(p("dim", f"  (--frames: {fmt_label} has no per-element structure to dump)"))
 
     all_warns = list(file_warns)
-    all_warns += [f"{c['id'].strip()}: {w}" for c in chunks for w in c["warnings"]]
+    all_warns += [f"{_node_id(c)}: {w}" for c in chunks for w in c["warnings"]]
     if all_warns:
         print()
         print(p("warn", "warnings:"))
@@ -304,26 +308,74 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
 
 
 def _parse_id_list(val):
-    """A comma-separated chunk-id list into a normalized set (or None)."""
+    """A comma-separated --only/--exclude list into its patterns (or None)."""
     if not val:
         return None
-    return {x.strip().casefold() for x in val.split(",") if x.strip()}
+    return [x.strip() for x in val.split(",") if x.strip()]
 
 
-def _select_chunks(chunks, only, exclude):
+def _node_id(c):
+    """The id an address takes for this walker chunk, else its display id."""
+    return c.get("_id") or str(c["id"]).strip()
+
+
+def _node_ids(filepath, fmt_label, chunks, file_warns):
+    """(the v1 dict, {chunk index: node id}) for one walk: the normaliser's
+    ids, so the table prints what `od`, `carve` and `--only` accept."""
+    from acidcat.core.infra import contract
+    from acidcat.core.infra.mapped import map_file
+    ids = {}
+    try:
+        data, close = map_file(filepath)
+    except OSError:
+        return None, ids
+    try:
+        doc = contract.document(None, fmt_label, chunks, file_warns, data,
+                                chunk_ids=ids)
+    except Exception:                 # the table never fails over its ids
+        return None, {}
+    finally:
+        close()
+    return doc, ids
+
+
+def _select_chunks(chunks, only, exclude, doc=None, ids=None):
     """Filter chunks by --only/--exclude, tagging each survivor with its
-    original index so the table keeps truthful [n] and file positions."""
+    original index (so the table keeps truthful [n] and file positions) and
+    its node id. A pattern is a NODE term of the ADDR grammar (an id, a glob
+    or a name, addr.find_nodes). Returns (chunks, patterns that name no
+    chunk here)."""
+    from acidcat.core.infra import addr
+    ids = ids or {}
+    by_id = {nid: i for i, nid in ids.items()}
+    missing = []
+
+    def picked(patterns):
+        if patterns is None:
+            return None
+        got = set()
+        for pat in patterns:
+            hits = ({by_id[n["id"]] for n in addr.find_nodes(doc, pat)
+                     if n["id"] in by_id} if doc is not None else
+                    {i for i, c in enumerate(chunks)
+                     if str(c["id"]).strip() == pat})
+            if not hits:
+                missing.append(pat)
+            got |= hits
+        return got
+    keep, drop = picked(only), picked(exclude)
     out = []
     for i, c in enumerate(chunks):
-        cid = c["id"].strip().casefold()
-        if only is not None and cid not in only:
+        if keep is not None and i not in keep:
             continue
-        if exclude is not None and cid in exclude:
+        if drop is not None and i in drop:
             continue
         c = dict(c)
         c["_idx"] = i
+        if i in ids:
+            c["_id"] = ids[i]
         out.append(c)
-    return out
+    return out, missing
 
 
 # keys that exist on a field only to drive the interactive editor (encoding hint
@@ -339,7 +391,9 @@ def _full_chunk(chunk, filepath):
     """Enrich a chunk for --full into a self-contained record: its absolute
     payload base, the raw region bytes as hex (capped), and every field's
     absolute byte offset. `acidcat explore` needs nothing but this JSON."""
-    c = {k: v for k, v in chunk.items() if k != "_idx"}
+    c = {k: v for k, v in chunk.items() if k not in ("_idx", "_id")}
+    if chunk.get("_id"):
+        c["addr"] = chunk["_id"]
     pb = chunk.get("payload_base")
     if pb is None and chunk["offset"] is not None:
         pb = chunk["offset"] + 8
@@ -534,12 +588,12 @@ def _run_inspect(args):
     deep = getattr(args, "frames", False) or getattr(args, "verbose", False)
     full = getattr(args, "full", False)
     as_json = args.output_format == "json" or full  # --full is a JSON dump
-    # csv/tsv are the chunk table as rows, one per chunk: only the --quiet view
-    # is a table of rows
+    # csv/tsv are the chunk table as rows, one per chunk: only the --chunks
+    # view is a table of rows
     delimited = args.output_format in ("csv", "tsv") and not full
-    if delimited and not args.quiet:
+    if delimited and not getattr(args, "chunks", False):
         print("acidcat inspect: --output-format %s gives the chunk table; add "
-              "--quiet (or use --summary)" % args.output_format, file=sys.stderr)
+              "--chunks (or use --summary)" % args.output_format, file=sys.stderr)
         return 2
     table_rows = []
     multi = len(targets) > 1
@@ -645,12 +699,13 @@ def _run_inspect(args):
                     scoped = f" (region {region_scope})" if region_scope else ""
                     print(f"acidcat inspect: {source_path}{scoped}: {e}",
                           file=sys.stderr)
-                    print(f"  no structural walker, but the bytes are still yours:\n"
-                          f"    acidcat od {arg}                hex dump, no format needed\n"
-                          f"    acidcat locate {arg}            find embedded audio regions\n"
-                          f"    acidcat inspect {arg} --force   try every walker anyway\n"
-                          f"    acidcat inspect {arg} --format wav   parse as a known type",
-                          file=sys.stderr)
+                    if not getattr(args, "quiet", False):
+                        print(f"  no structural walker, but the bytes are still yours:\n"
+                              f"    acidcat od {arg}                hex dump, no format needed\n"
+                              f"    acidcat locate {arg}            find embedded audio regions\n"
+                              f"    acidcat inspect {arg} --try-all   try every walker anyway\n"
+                              f"    acidcat inspect {arg} --force-format wav   parse as a known type",
+                              file=sys.stderr)
                     exit_code = 1
                     continue
             except Exception as e:  # a walker bug must not sink the whole run
@@ -660,7 +715,16 @@ def _run_inspect(args):
                 continue
 
             total = len(chunks)
-            shown = _select_chunks(chunks, only, exclude)
+            doc, ids = _node_ids(filepath, fmt_label, chunks, file_warns)
+            shown, missing = _select_chunks(chunks, only, exclude, doc, ids)
+            if missing:
+                # a filter that names nothing is a mistake, not an empty table
+                known = ", ".join(ids[i] for i in sorted(ids)) or "none"
+                print(f"acidcat inspect: {source_path}: "
+                      f"{', '.join(repr(m) for m in missing)} names no chunk "
+                      f"here; its ids: {known}", file=sys.stderr)
+                exit_code = max(exit_code, 1)
+                continue
             findings = (anomaliesmod.scan(filepath, fmt_label, chunks, file_warns)
                         if getattr(args, "anomalies", False) else None)
             lsb_info = None
@@ -683,7 +747,8 @@ def _run_inspect(args):
 
             if delimited:
                 table_rows.extend(
-                    {"file": source_path, "idx": c.get("_idx", i), "id": c["id"],
+                    {"file": source_path, "idx": c.get("_idx", i),
+                     "id": _node_id(c), "name": str(c["id"]).strip(),
                      "offset": c["offset"], "size": c["size"],
                      "summary": c["summary"]}
                     for i, c in enumerate(shown))
@@ -695,7 +760,9 @@ def _run_inspect(args):
                 else:
                     out_chunks = []
                     for c in shown:
-                        oc = {k: v for k, v in c.items() if k != "_idx"}
+                        oc = {k: v for k, v in c.items() if k not in ("_idx", "_id")}
+                        if c.get("_id"):
+                            oc["addr"] = c["_id"]
                         # `offset` is the chunk header, `field.off` is relative
                         # to the payload, so `chunk.offset + field.off` read
                         # eight bytes early -- format-dependent, because a

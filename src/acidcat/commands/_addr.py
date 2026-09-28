@@ -46,7 +46,16 @@ def byte_range(addr):
 
 
 def resolve(path, addr, raw=False):
-    """(start, length) in layer 0 for an ADDR in the file at `path`. A node
+    """(start, length) in layer 0 for an ADDR in the file at `path`; see
+    resolve_named."""
+    return resolve_named(path, addr, raw)[:2]
+
+
+def resolve_named(path, addr, raw=False):
+    """(start, length, name) in layer 0 for an ADDR in the file at `path`,
+    `name` being the node id (with `#key` for a field) the address resolved
+    to, so a header can print what pastes back, or the ADDR itself for a
+    plain byte range. A node
     means its payload, or its whole extent with `raw`; a field its bytes; a
     plain byte range is read without walking the file, and `@OFF` alone runs
     to the end of it. Raises acidcat.AddrError for an address that names
@@ -60,7 +69,7 @@ def resolve(path, addr, raw=False):
         size = os.path.getsize(path)
         if off > size:
             raise ValueError("0x%x is past the end of the %d-byte file" % (off, size))
-        return off, (size - off if n is None else n)
+        return off, (size - off if n is None else n), str(addr)
     from acidcat.core.walk.base import Unsupported
     try:
         doc = open_doc(path)
@@ -68,13 +77,20 @@ def resolve(path, addr, raw=False):
         raise ValueError("no walker reads this file, so only a byte range "
                          "(@OFF+LEN, @OFF..END) names anything in it") from None
     t = addrmod.resolve(doc.to_json(), addr)
+    name = str(addr)
+    if t.node is not None:
+        # the id, when the address named the node's or the field's own bytes;
+        # a sub-range (`RIFF/fmt_[4:4]`, `fmt+2`) keeps the spelling given
+        own = (t.field or {}).get("at") if t.field is not None else t.node.get("payload")
+        if own and (own.get("off"), own.get("len")) == (t.off, t.len):
+            name = t.node["id"] + ("#" + t.field["key"] if t.field is not None else "")
     if raw and t.node is not None and t.field is None:
         e = t.node.get("extent")
         if e:
-            return _layer0(addr, e["layer"], e["off"], e["len"])
+            return _layer0(addr, e["layer"], e["off"], e["len"]) + (name,)
     if t.off is None:
         raise ValueError("%s has no byte range (it is unpositioned)" % addr)
-    return _layer0(addr, t.layer, t.off, t.len)
+    return _layer0(addr, t.layer, t.off, t.len) + (name,)
 
 
 def _layer0(addr, layer, off, n):

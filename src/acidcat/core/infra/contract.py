@@ -641,14 +641,17 @@ def _descend(node, data, parent, prefer_be, ctx):
 
 
 def document(fmt_id, label, chunks, warns, data, *, forced=False,
-             producer_version=None, caps_fn=None, prefer_be=False, limits=None):
+             producer_version=None, caps_fn=None, prefer_be=False, limits=None,
+             chunk_ids=None):
     """The v1 Document for one walk.
 
     `data` is the file's bytes (or a read-only view of them): the normaliser
     reads fields' bytes to infer and to decode typed values, never to parse,
     and decodes the layers walkers declare (core/infra/layers.py).
     `caps_fn(fmt_id, label, chunks)` returns {chunk index: caps}; see
-    core/infra/capabilities.py."""
+    core/infra/capabilities.py. A dict given as `chunk_ids` is filled with
+    {index in `chunks`: node id}, so a view of the walker's flat list (the
+    inspect table) can print the id an address takes."""
     size = len(data) if data is not None else 0
     limits = limits or Limits()
     try:
@@ -700,6 +703,9 @@ def document(fmt_id, label, chunks, warns, data, *, forced=False,
                 n.pop(k, None)
             finish(n["children"], nid)
     finish(roots, "")
+    if chunk_ids is not None:
+        chunk_ids.update({i: n["id"] for i, n in by_idx.items()
+                          if i < len(chunks or [])})
 
     # a pointer that lands outside its layer is a finding on its node, never
     # dropped and never silently clamped (node-v1.md section 9)

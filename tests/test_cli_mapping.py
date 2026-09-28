@@ -325,15 +325,15 @@ def test_od_prints_every_addr_that_resolves(files):
     which gave up at the first miss and printed nothing."""
     code, out, err = _run(["od", files["wav"], "fmt", "no_such_node"])
     assert code == 0
-    assert "  fmt  0x" in out
+    assert "  RIFF/fmt_  0x" in out
     assert "no node 'no_such_node'" in err
     code, out, err = _run(["dump", files["wav"], "fmt", "no_such_node"])
-    assert code == 0 and "  fmt  0x" in out
+    assert code == 0 and "  RIFF/fmt_  0x" in out
     code, out, err = _run(["od", files["wav"], "no_such_node", "nor_this"])
     assert (code, out) == (1, "")
     assert "'no_such_node'" in err and "'nor_this'" in err
     code, out, _ = _run(["od", files["wav"], "fmt", "no_such_node", "--json"])
-    assert code == 0 and [r["addr"] for r in json.loads(out)] == ["fmt"]
+    assert code == 0 and [r["addr"] for r in json.loads(out)] == ["RIFF/fmt_"]
 
 
 def test_yes_is_0(files):

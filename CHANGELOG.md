@@ -66,6 +66,14 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   also sets `avg_bytes_per_sec` (and a `smpl` chunk's `sample_period`),
   one line each saying what it follows; `--no-cascade` refuses instead.
   A field edit through the CLI no longer stops with an internal error.
+- **inspect prints ids an address takes.** The table, the field-detail
+  headers and the csv `id` column show `RIFF/fmt_` (csv adds the walker's
+  `name`), and `od` headers show the id an address resolved to.
+  `--only`/`--exclude` take ADDR node terms (ids, globs, names), and a
+  pattern that names no chunk exits 1 instead of printing an empty
+  table. The chunk-table view is `inspect --chunks` (`chunks` aliases
+  to it); `-q` now only quiets stderr, so 1.8's `inspect -q` prints the
+  field detail too.
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

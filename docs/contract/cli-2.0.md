@@ -57,7 +57,7 @@ when a 2.0 flag is not named here.
 |---|---|---|
 | `inspect` | `inspect` | |
 | `info` | `inspect --summary` | alias |
-| `chunks` | `inspect --quiet` | alias |
+| `chunks` | `inspect --chunks` | alias |
 | `od` | `od FILE [ADDR]` | |
 | `dump` | `od FILE ADDR` (view), `carve FILE ADDR -o` (write) | alias |
 | `probe hexdump` | `od FILE ADDR` | alias |
@@ -97,7 +97,7 @@ Every flag of every 1.8 verb. "same" means the flag is unchanged.
 | `--hex` | same | |
 | `--output-format`, `--json` | same | |
 | `-f` | `--output-format` | removed |
-| `-q`, `--quiet` | same: the chunk table only | |
+| `-q`, `--quiet` | `--chunks`: the chunk table only. `-q` keeps the standard meaning, nothing on stderr but errors, so a 1.8 `inspect -q` prints the field detail too | changed |
 | `--pretty` | `--summary` (the `info` view and the decoded-tag view become one) | alias |
 | `-F`, `--frames` | same; rows capped by `frame_rows` | |
 | `-v`, `--verbose` | `--deep` for the deep pass; `-v` becomes stderr diagnostics | alias for `--deep` through 2.x |
@@ -129,7 +129,7 @@ Every flag of every 1.8 verb. "same" means the flag is unchanged.
 
 ### `chunks`
 
-`inspect --quiet FILE...`.
+`inspect --chunks FILE...`.
 
 | 1.8 | 2.0 | |
 |---|---|---|
@@ -493,8 +493,15 @@ Where the build refines this page, and what it does not do yet:
 - A plain byte range (`@OFF+LEN`, `@OFF..END`, `@OFF`) needs no walk, so it
   works on a file no walker reads; `@OFF` alone runs to the end of the file.
   A 1.8 `--offset N` with no length becomes the anchor `N`.
-- `inspect --quiet` is inspect's own chunk table; `chunks` output changes to
-  it. csv and tsv give it as rows (one per chunk) and need `--quiet`.
+- `inspect --chunks` is inspect's own chunk table; `chunks` output changes to
+  it. csv and tsv give it as rows (one per chunk) and need `--chunks`.
+  Every id inspect prints, in the table, the field-detail headers and the
+  csv `id` column, is the node id an address takes (`RIFF/fmt_`); csv adds
+  the walker's `name`. `od` headers print the id an address resolved to.
+- `inspect --only/--exclude` take NODE terms of the ADDR grammar (ids,
+  globs, names; `fmt,bext` still works). A pattern that names no chunk
+  is an error, exit 1, naming the ids there; matching is exact, where
+  1.8 folded case.
 - `edit --set ADDR=VALUE` on a field a constraint ties to others sets
   those too and prints each on its own line (`RIFF/fmt_#avg_bytes_per_sec:
   44100 -> 88200 (follows sample_rate * block_align)`; `cascade` in

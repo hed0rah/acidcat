@@ -123,11 +123,11 @@ class TestChunksCommand:
         assert "data" in out
 
     def test_not_riff_file(self, not_riff):
-        """2.0: `chunks` is `inspect --quiet`, which reads every format there
+        """2.0: `chunks` is `inspect --chunks`, which reads every format there
         is a walker for rather than refusing everything that is not RIFF."""
         code, out, err = run_cli("chunks", not_riff)
-        assert "is `acidcat inspect --quiet" in err
-        new_code, new_out, _ = run_cli("inspect", "--quiet", not_riff)
+        assert "is `acidcat inspect --chunks" in err
+        new_code, new_out, _ = run_cli("inspect", "--chunks", not_riff)
         assert (code, out) == (new_code, new_out)
 
     def test_nonexistent_file(self, tmp_path):
@@ -135,16 +135,17 @@ class TestChunksCommand:
         assert code == 2
 
     def test_json_output(self, minimal_wav):
-        code, out, err = run_cli("inspect", "--quiet", minimal_wav, "--json")
+        code, out, err = run_cli("inspect", "--chunks", minimal_wav, "--json")
         assert code == 0 or code is None
         data = json.loads(out)
         assert {c["id"].strip() for c in data["chunks"]} >= {"fmt", "data"}
 
     def test_chunk_rows_as_csv(self, minimal_wav):
-        code, out, err = run_cli("inspect", "--quiet", minimal_wav, "--csv")
+        code, out, err = run_cli("inspect", "--chunks", minimal_wav, "--csv")
         assert code == 0 or code is None
         head, *rows = out.strip().splitlines()
-        assert head.split(",")[:4] == ["file", "idx", "id", "offset"]
+        assert head.split(",")[:5] == ["file", "idx", "id", "name", "offset"]
+        assert rows[0].split(",")[2:4] == ["RIFF/fmt_", "fmt"]
         assert len(rows) >= 2
 
     def test_chunk_offsets_present(self, minimal_wav):
@@ -346,7 +347,7 @@ class TestDumpJson:
         assert isinstance(data, list) and len(data) == 1
         entry = data[0]
         assert set(entry) == {"addr", "offset", "length", "hex"}
-        assert entry["addr"] == "fmt"
+        assert entry["addr"] == "RIFF/fmt_"     # the id `fmt` resolved to
         assert isinstance(entry["offset"], int)
         # the whole payload, not a preview
         assert len(entry["hex"]) == entry["length"] * 2
@@ -354,7 +355,7 @@ class TestDumpJson:
     def test_json_multiple_chunks(self, minimal_wav):
         code, out, err = run_cli("od", minimal_wav, "fmt", "data", "--json")
         assert code == 0 or code is None
-        assert [e["addr"] for e in json.loads(out)] == ["fmt", "data"]
+        assert [e["addr"] for e in json.loads(out)] == ["RIFF/fmt_", "RIFF/data"]
 
     def test_json_missing_chunk_returns_error(self, minimal_wav):
         code, out, err = run_cli("od", minimal_wav, "acid", "--json")

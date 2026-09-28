@@ -1315,10 +1315,33 @@ class TestRunCli:
         assert "showing 1 of 3 chunks" in out
         assert "PCM" in out and "acid @" not in out
 
-    def test_only_is_case_and_space_insensitive(self, tmp_path, capsys):
+    def test_only_takes_an_id_a_glob_or_a_name(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data(), _acid())
+        for pat in ("RIFF/fmt_", "fmt", "RIFF/f*", " fmt "):
+            assert run(self._args(p, only=pat)) == 0, pat
+            assert "showing 1 of 3 chunks" in capsys.readouterr().out
+
+    def test_only_that_names_nothing_is_an_error(self, tmp_path, capsys):
+        """An empty table read as "the file has no such chunk" when the
+        pattern was simply wrong (review R3)."""
         p = _wav(tmp_path, _fmt(), _data())
-        assert run(self._args(p, only="FMT")) == 0  # matches the "fmt " id
-        assert "showing 1 of 2 chunks" in capsys.readouterr().out
+        assert run(self._args(p, only="FMT")) == 1   # ADDR names are exact
+        got = capsys.readouterr()
+        assert got.out == ""
+        assert "'FMT' names no chunk here; its ids: RIFF/fmt_, RIFF/data" in got.err
+
+    def test_exclude_that_names_nothing_is_an_error(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data())
+        assert run(self._args(p, exclude="bext")) == 1
+        assert "'bext' names no chunk" in capsys.readouterr().err
+
+    def test_the_table_prints_the_ids_an_address_takes(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data())
+        assert run(self._args(p)) == 0
+        out = capsys.readouterr().out
+        assert "RIFF/fmt_ @ 0x" in out                  # the field-detail header
+        row = next(l for l in out.splitlines() if l.strip().startswith("[ 1]"))
+        assert row.split("]", 1)[1].split()[0] == "RIFF/data"
 
     def test_exclude_drops_chunks(self, tmp_path, capsys):
         p = _wav(tmp_path, _fmt(), _data(), _acid())

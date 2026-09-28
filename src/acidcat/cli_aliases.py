@@ -87,7 +87,7 @@ def _info(rest):
 
 def _chunks(rest):
     ns = _parse("chunks", "chunks", rest)
-    new = ["inspect", "--quiet"] + list(ns.target) + _fmt(ns)
+    new = ["inspect", "--chunks"] + list(ns.target) + _fmt(ns)
     _opt(new, "-o", ns.output)
     return [new]
 

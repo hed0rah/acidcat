@@ -283,7 +283,7 @@ def _run_addrs(args, path, addrs, on):
     ranges, failed = [], 0
     for a in addrs:
         try:
-            start, length = _addr.resolve(path, a)
+            start, length, name = _addr.resolve_named(path, a)
         except AddrError as e:
             print(f"acidcat od: {path}: {e}", file=sys.stderr)
             failed = max(failed, 1)
@@ -296,7 +296,7 @@ def _run_addrs(args, path, addrs, on):
             print(f"acidcat od: {path}: {e}", file=sys.stderr)
             failed = 2
             continue
-        ranges.append((a, start, length))
+        ranges.append((name, start, length))
     if not ranges:
         return failed
     data, close = map_file(path)
