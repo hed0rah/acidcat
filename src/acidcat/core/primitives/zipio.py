@@ -33,3 +33,32 @@ def zip_data_offset(z, zi):
     n = int.from_bytes(hdr[26:28], "little")     # file name length
     m = int.from_bytes(hdr[28:30], "little")     # extra field length
     return zi.header_offset + 30 + n + m
+
+
+_EOCD = b"PK\x05\x06"
+
+
+def zip_directory_extent(z, size):
+    """(offset, length) of the central directory plus the end record, or None.
+
+    A zip-backed format ends with its own directory; a walker that places only
+    the entries leaves those bytes "past the container end", and the forensic
+    scan then reports the file's own index as an appended archive. Located from
+    the end record, which states the directory's size, rather than trusting its
+    stated offset: data prepended to the archive shifts the one and not the other.
+    """
+    tail_len = min(size, 22 + 0xFFFF)
+    try:
+        z.fp.seek(size - tail_len)
+        tail = z.fp.read(tail_len)
+    except OSError:
+        return None
+    at = tail.rfind(_EOCD)
+    if at < 0 or len(tail) - at < 22:
+        return None
+    cd_size = int.from_bytes(tail[at + 12:at + 16], "little")
+    eocd = size - tail_len + at
+    start = eocd - cd_size
+    if start < 0:
+        return None
+    return start, size - start
