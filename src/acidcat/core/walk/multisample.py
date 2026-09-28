@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 import zlib
 
-from acidcat.core.primitives.zipio import zip_data_offset
+from acidcat.core.primitives.zipio import zip_data_offset, zip_directory_extent
 from acidcat.core.walk.base import _f
 
 _ZONE_CAP = 48                                   # don't flood the view on big kits
@@ -156,4 +156,9 @@ def inspect_multisample(filepath):
             chunks.append({"id": "zone", "offset": 0, "size": 0,
                            "summary": f"... {len(samples) - _ZONE_CAP} more zone(s)",
                            "fields": [], "warnings": [], "payload_base": 0})
+        cd = zip_directory_extent(z, size)
+        if cd:
+            chunks.append({"id": "zip_directory", "offset": cd[0], "size": cd[1],
+                           "summary": f"zip central directory, {len(names)} entries",
+                           "fields": [], "warnings": [], "payload_base": cd[0]})
     return chunks, warns
