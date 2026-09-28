@@ -258,6 +258,19 @@ warning written as text to be coded and every seed to walk to no `legacy`
 finding. The `legacy`
 code stays registered, and `typing.findings_legacy` still counts it.
 
+**Forensic rule kinds (review R8):** each `anomaly.*` code has the kind of
+what it says about the file. Suspicions are `info` (the file may be exactly
+what its writer meant, and `audit` does not exit 1 for them): `trailing_data`,
+`polyglot`, `embedded_standalone_media`, `json_trailing_data`,
+`json_unknown_key`, `unaccounted_bytes`, `mp4_mdat_coverage`,
+`dual_endianness`, `cavity_content`, `application_block`, `ogg_multistream`,
+`lsb_entropy`, `nonprintable_text`. The format broken is a `defect`:
+`wrong_format_tag`, `duplicate_chunk`, `duplicate_frame`, `nonzero_pad`,
+`id3_padding_nonzero`. The WAV and AIFF walkers agree: a RIFF or FORM size
+short of the file, with no chunk past it, is `container.trailing` (info,
+appended data); a real chunk past it, or a size past the file, stays
+`count.mismatch` (a defect). `audit` exits 1 on defect findings only.
+
 **Consumers:** `anomalies.scan` reports a walker note by its kind
 (`environment` and `info` are their own rules, not `structure`) and gives
 every finding a `code` (`anomaly.<rule>` for its own rules); `audit` no longer

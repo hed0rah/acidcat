@@ -182,10 +182,10 @@ def test_hex_and_decimal_are_the_same_number(tmp_path):
 def test_forensic_findings_join_the_walkers_once_each(tailed_wav):
     doc = acidcat.open(tailed_wav)
     codes = [f.code for f in doc.findings]
-    assert codes.count("count.mismatch") == 1           # the walker's, not echoed
+    assert codes.count("container.trailing") == 1       # the walker's, not echoed
     assert "anomaly.polyglot" in codes and "anomaly.trailing_data" in codes
     poly = next(f for f in doc.findings if f.code == "anomaly.polyglot")
-    assert poly.kind == "defect" and poly.at == Loc(0, 172, 0)
+    assert poly.kind == "info" and poly.at == Loc(0, 172, 0)   # a suspicion (review R8)
 
 
 def test_forensics_can_be_left_out(tailed_wav):

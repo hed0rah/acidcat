@@ -1345,17 +1345,30 @@ def inspect_wav(filepath, ctx=None):
             return chunks, [defect("header.truncated",
                                    f"file is {len(hdr)} bytes; a RIFF header needs 12")]
         riff_size = struct.unpack("<I", hdr[4:8])[0]
-        if riff_size + 8 != file_size:
-            file_warns.append(
-                defect("count.mismatch",
-                       f"riff_size says {riff_size + 8:,} bytes, file is {file_size:,} "
-                       f"({file_size - riff_size - 8:+,})")
-            )
+        declared_end = riff_size + 8
+        size_note = (f"riff_size says {declared_end:,} bytes, file is {file_size:,} "
+                     f"({file_size - declared_end:+,})")
+        # what lies past the declared end decides what a short riff_size is:
+        # a real chunk there means the size undercounts the RIFF (damage); no
+        # chunk, just bytes, means something was appended (a suspicion, which
+        # the forensic scan names: trailing data, a polyglot)
+        chunk_past_end = None
 
         for cid, offset, size in iter_chunks(filepath):
             seen.append(cid)
             avail = max(0, file_size - offset - 8)
-            if size > avail and not (cid == "data" and size in _STREAM_SENTINELS):
+            overruns = size > avail and not (cid == "data" and size in _STREAM_SENTINELS)
+            past = declared_end < file_size and offset >= declared_end
+            if past and not overruns and not str(cid).startswith("hex:"):
+                chunk_past_end = chunk_past_end or (cid, offset)
+            if overruns and past:
+                # appended bytes read as a chunk header: not a chunk of this
+                # RIFF, so not its overrun
+                file_warns.append(info(
+                    "container.trailing",
+                    f"bytes at 0x{offset:08x}, past the declared end, read as "
+                    f"chunk {cid!r} claiming {size:,} bytes; not a chunk of the RIFF"))
+            elif overruns:
                 file_warns.append(defect(
                     "size.overrun",
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
@@ -1401,6 +1414,13 @@ def inspect_wav(filepath, ctx=None):
             file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
             chunks.append(entry)
 
+    if declared_end > file_size or chunk_past_end is not None:
+        where = (f"; chunk {chunk_past_end[0]!r} at 0x{chunk_past_end[1]:08x} lies "
+                 f"past it" if chunk_past_end else "")
+        file_warns.insert(0, defect("count.mismatch", size_note + where))
+    elif declared_end < file_size:
+        file_warns.insert(0, info("container.trailing", size_note
+                                  + "; the bytes past it are not RIFF chunks"))
     if "fmt " not in seen:
         file_warns.append(defect("required.missing", "no fmt chunk: not decodable as audio"))
     if "data" not in seen:

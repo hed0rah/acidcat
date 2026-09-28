@@ -98,6 +98,9 @@ REGISTRY = {
     "convention.noted": (INFO, "info",
                          "the file follows a known convention that reads like "
                          "damage and is not"),
+    "container.trailing": (INFO, "notice",
+                           "bytes follow the container's declared end and hold "
+                           "no chunk of it: appended data, not damage"),
     "decode.partial": (INFO, "info",
                        "a part of the file is walked past without being decoded"),
     "encoding.unknown": (INFO, "notice",
@@ -121,7 +124,25 @@ ANOMALY_RULES = (
     "wrong_format_tag", "embedded_standalone_media", "json_trailing_data",
     "json_unknown_key", "unaccounted_bytes", "lsb_entropy",
 )
-REGISTRY.update({f"anomaly.{r}": (DEFECT, "notice", f"forensic rule {r}")
+# Each rule's kind is what it says about the file. A suspicion (bytes a
+# reader never sees, a second payload, an odd but legal layout) is info: the
+# file may be exactly what its writer meant, and audit does not exit 1 for it.
+# A rule that catches the file breaking its own format is a defect.
+_ANOMALY_KIND = {
+    # suspicions
+    "trailing_data": INFO, "polyglot": INFO, "embedded_standalone_media": INFO,
+    "json_trailing_data": INFO, "json_unknown_key": INFO,
+    "unaccounted_bytes": INFO, "mp4_mdat_coverage": INFO,
+    "dual_endianness": INFO, "cavity_content": INFO,
+    "application_block": INFO, "ogg_multistream": INFO, "lsb_entropy": INFO,
+    "nonprintable_text": INFO,
+    # the format broken
+    "wrong_format_tag": DEFECT, "duplicate_chunk": DEFECT,
+    "duplicate_frame": DEFECT, "nonzero_pad": DEFECT,
+    "id3_padding_nonzero": DEFECT,
+}
+assert set(_ANOMALY_KIND) == set(ANOMALY_RULES)
+REGISTRY.update({f"anomaly.{r}": (_ANOMALY_KIND[r], "notice", f"forensic rule {r}")
                  for r in ANOMALY_RULES})
 REGISTRY["anomaly.check_failed"] = (ERROR, "notice",
                                     "a forensic rule raised and was not applied")

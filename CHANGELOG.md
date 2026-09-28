@@ -173,6 +173,14 @@ gone.
   `stats --by shape` and `classify` report `format` as the id (it was a
   label or a writer's name); `stats --by meta` and `analyze` say `path`
   (was `filename`); `classify` drops its basename `file`.
+- **Forensic findings have their real kind.** Suspicions (a polyglot,
+  trailing or unaccounted bytes, an LSB-entropy hint, a second Ogg
+  stream, ...) are `info`; a rule that catches the format broken (a
+  wrong format tag, a duplicate chunk or ID3 frame, non-zero padding) is
+  a `defect`. `audit` exits 1 on defects only, so a WAV with an archive
+  appended reports it and exits 0 (it exited 1). A RIFF or FORM size
+  short of the file is `container.trailing` (info) when nothing past it
+  is a chunk, and still `count.mismatch` when something is.
 - **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
   `smpl` chunk's `sample_period`, to the sample format** (violation kind
   `rate`), the same arithmetic the walker already reported as a

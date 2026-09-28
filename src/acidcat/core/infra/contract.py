@@ -28,7 +28,7 @@ import struct
 from typing import Any, List, Optional, TypedDict
 
 from acidcat.core.infra import fieldcodec, layers
-from acidcat.core.infra.findings import defect, error, kind_of_code, severity_of
+from acidcat.core.infra.findings import defect, error, info, kind_of_code, severity_of
 from acidcat.core.infra.limits import Limits, hit
 from acidcat.core.primitives.notes import code_of
 
@@ -548,6 +548,8 @@ def _tree(chunks, data, layer, prefer_be, ctx, top):
     filled, then any layer a node declares walked into as its children."""
     size = len(data) if data is not None else 0
     nodes, descend = [], []
+    head = _iff_header(data)
+    iff_end = head[1] if head else None       # where an IFF root's chunks end
     chunks = _iff_root(data, chunks)
     for idx, c in enumerate(chunks or []):
         name = str(c.get("id", "?"))
@@ -566,7 +568,13 @@ def _tree(chunks, data, layer, prefer_be, ctx, top):
             # geometry.py marked the claimed range as not fitting; a locator
             # must be inside its layer, so the claim becomes a finding instead
             node["geometry"] = "invalid"
-            node["_warnings"].append(defect(
+            past_end = (iff_end is not None and isinstance(c.get("offset"), int)
+                        and c["offset"] >= iff_end)
+            node["_warnings"].append(info(
+                "container.trailing",
+                "bytes past the declared end, read as a chunk claiming 0x%X+%d; "
+                "not a chunk of the container" % (c["offset"], c["extent_len"]))
+                if past_end else defect(
                 "geometry.invalid",
                 "the chunk claims 0x%X+%d (payload 0x%X+%d), which does not fit "
                 "in the %s" % (c["offset"], c["extent_len"], c["payload_base"],
