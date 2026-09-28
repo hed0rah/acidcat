@@ -205,6 +205,27 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   only, so `key=Am` stores A and says on stderr that the minor is not
   stored. Every `acidcat write` example in README.md and CHEATSHEET.md is
   now run as a test.
+- **`acidcat inspect` crashed on every SoundFont** (also in 1.8.6), and so
+  did `inspect --full` and `od`: the SF2 preset and instrument tree has no
+  byte position, and the renderers formatted its offset as a number. A test
+  now runs every render mode over every seed.
+- **A WAV's RF64 reservation was reported as overwritten damage.** The
+  28-byte JUNK a writer puts first is filled on purpose: with the ds64 sizes
+  (sometimes stale, the file having grown), with a quote Ableton Live writes
+  there, or with the RIFF size over such a quote. It is now read as the
+  reservation, and the quote is a provenance tell for Ableton Live. Measured
+  on 6,000 WAVs: every non-zero one was one of these.
+- **Zip-based formats were reported as polyglots** (.xpn, .labx,
+  .multisample): the archive's own end record was taken for an appended zip,
+  and its members for smuggled files. An SF3's Ogg samples were flagged the
+  same way. A multisample now places its central directory.
+- **A Max for Live instrument was a "magic mismatch".** The four bytes at 8
+  are the device type, `aaaa` for an audio effect and `iiii` for an
+  instrument, not a constant.
+- **A `.vitalskin` was read as a Vital preset**, every theme key flagged as
+  an unknown one. A skin has no `settings` and is no longer a preset.
+- **`audit` called a console ROM `[unknown]`** and suggested `locate`; it
+  now names the ROM and suggests `extract`.
 - **`constraints.repair` raised on a multi-track MP4.** It promises a report,
   and the MP4 repairer located the audio before its guarded run, which raised
   on a two-track video. The `repair` command already caught it; the library
