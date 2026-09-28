@@ -418,6 +418,13 @@ gone.
 
 ### Fixed
 
+- **Paths stay as given.** `classify` normalised every path (backslashes on
+  Windows, `./` dropped) and `stats`, `convert` and the shared tree walker
+  joined `os.walk`'s roots with `os.sep`, so a target typed `C:/samples` gave
+  rows mixing `/` and `\`. A path found under a target is spelled the way
+  the target was; a file named directly is exactly as given. `locate --json`
+  and `--csv` rows gain `path` and `label`.
+
 - **`probe hexdump` on a chunk name runs.** The 1.8 alias made `od FILE
   @fmt+256` of `probe hexdump fmt FILE`, which `od` refused. Only an offset
   takes the `@`; a chunk name is passed as the ADDR it is, and `chunk.field`

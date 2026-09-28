@@ -24,6 +24,8 @@ caller can say how many.
 
 import os
 
+from acidcat.util.paths import under
+
 # Every extension acidcat has a walker, converter or extractor for. One list:
 # a second one is how the drift above happened. test_targets.py pins the
 # commands to it.
@@ -106,7 +108,7 @@ def expand(inputs, *, accept=None, recurse=True, follow_links=False):
                 if not recurse:
                     dirs[:] = []
                 for name in sorted(names):
-                    p = os.path.join(root, name)
+                    p = under(item, root, name)
                     if keep(p):
                         add(p)
                     else:

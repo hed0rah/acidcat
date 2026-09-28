@@ -14,6 +14,7 @@ from acidcat.core.formats.aiff import is_aiff
 from acidcat.core.tagged import is_tagged_format
 from acidcat.util.midi import midi_note_to_name
 from acidcat.util.csv_helpers import safe_basename_for_csv
+from acidcat.util.paths import under
 
 
 # extensions to pick up during directory walk
@@ -130,13 +131,16 @@ def _scan_tagged(filepath):
 
 
 def _groups(targets):
-    """(dir, [names]) groups as os.walk gives them, for directories and for
-    files named directly (`stats FILE`), in the order given."""
+    """(path, name) for each file: those os.walk finds under a directory,
+    spelled as the directory was given, and a file named directly (`stats
+    FILE`) exactly as given, in the order given (review V8)."""
     for t in targets:
         if os.path.isfile(t):
-            yield os.path.dirname(t) or ".", [], [os.path.basename(t)]
+            yield t, os.path.basename(t)
         else:
-            yield from os.walk(t)
+            for root, _dirs, files in os.walk(t):
+                for name in files:
+                    yield under(t, root, name), name
 
 
 def run(args):
@@ -180,81 +184,76 @@ def run(args):
     rows = []
     count = 0
 
-    for root, _, files in _groups(targets):
-        for file in files:
-            ext = os.path.splitext(file)[1].lower()
-            if ext not in AUDIO_EXTENSIONS:
-                continue
+    for filepath, file in _groups(targets):
+        ext = os.path.splitext(file)[1].lower()
+        if ext not in AUDIO_EXTENSIONS:
+            continue
 
-            filepath = os.path.join(root, file)
-
-            # dispatch by format
-            try:
-                if ext in (".wav",):
-                    row, seen = _scan_wav(filepath)
-                elif ext in (".aif", ".aiff") or is_aiff(filepath):
-                    row, seen = _scan_aiff(filepath)
-                elif is_tagged_format(filepath):
-                    row, seen = _scan_tagged(filepath)
-                    if row is None:
-                        continue
-                else:
+        # dispatch by format
+        try:
+            if ext in (".wav",):
+                row, seen = _scan_wav(filepath)
+            elif ext in (".aif", ".aiff") or is_aiff(filepath):
+                row, seen = _scan_aiff(filepath)
+            elif is_tagged_format(filepath):
+                row, seen = _scan_tagged(filepath)
+                if row is None:
                     continue
-            except Exception as e:
-                if not quiet:
-                    print(f"  [skip] {file}: {e}", file=sys.stderr)
+            else:
                 continue
-
-            # Chunk filter. `and seen` made this a no-op for any format with no
-            # chunks -- a tagged MP3 or an AppleDouble stub returns seen == [],
-            # so the filter was skipped and the row kept. `--has acid` returned
-            # 95 rows where two independent counts (survey, and the index's own
-            # `chunks` column) both say 80: 13 MP3s, an MP4 and a resource-fork
-            # stub passed a RIFF-chunk filter. A file with no chunks cannot
-            # contain the one you asked for.
-            if wanted:
-                upper_seen = {s.upper() for s in seen}
-                if not (upper_seen & wanted):
-                    continue
-
-            # optional ML features
-            if do_features:
-                from acidcat.core.analysis.features import extract_audio_features
-                if not quiet:
-                    print(f"  [features] {os.path.basename(filepath)}...", file=sys.stderr)
-                feats = extract_audio_features(filepath)
-                if feats:
-                    row.update(feats)
-
-            # fallback BPM/key via librosa
-            if do_fallback and not row.get("bpm"):
-                from acidcat.core.analysis.detect import estimate_librosa_metadata
-                estimates = estimate_librosa_metadata(filepath)
-                if estimates.get("estimated_bpm") is not None:
-                    row["bpm"] = estimates["estimated_bpm"]
-                if estimates.get("estimated_key") is not None:
-                    row["key"] = estimates["estimated_key"]
-                if estimates.get("duration_sec") is not None and not row.get("duration_sec"):
-                    row["duration_sec"] = estimates["duration_sec"]
-
+        except Exception as e:
             if not quiet:
-                bpm_str = row.get("bpm") or "-"
-                print(f"  {os.path.basename(filepath):40s} BPM={bpm_str}", file=sys.stderr)
-            if verbose:
-                _vlog(f"    format={row.get('format')} "
-                      f"key={row.get('key') or '-'} "
-                      f"dur={row.get('duration_sec') or '-'}")
+                print(f"  [skip] {file}: {e}", file=sys.stderr)
+            continue
 
-            # `format` the registry id and `label` its display label, as every
-            # verb's JSON names a format (cli-2.0.md section 4.1)
-            from acidcat.commands._output import format_of
-            fo = format_of(filepath)
-            row["format"] = fo["format"] or row.get("format")
-            row["label"] = fo["label"]
-            rows.append(row)
-            count += 1
-            if count >= num:
-                break
+        # Chunk filter. `and seen` made this a no-op for any format with no
+        # chunks -- a tagged MP3 or an AppleDouble stub returns seen == [],
+        # so the filter was skipped and the row kept. `--has acid` returned
+        # 95 rows where two independent counts (survey, and the index's own
+        # `chunks` column) both say 80: 13 MP3s, an MP4 and a resource-fork
+        # stub passed a RIFF-chunk filter. A file with no chunks cannot
+        # contain the one you asked for.
+        if wanted:
+            upper_seen = {s.upper() for s in seen}
+            if not (upper_seen & wanted):
+                continue
+
+        # optional ML features
+        if do_features:
+            from acidcat.core.analysis.features import extract_audio_features
+            if not quiet:
+                print(f"  [features] {os.path.basename(filepath)}...", file=sys.stderr)
+            feats = extract_audio_features(filepath)
+            if feats:
+                row.update(feats)
+
+        # fallback BPM/key via librosa
+        if do_fallback and not row.get("bpm"):
+            from acidcat.core.analysis.detect import estimate_librosa_metadata
+            estimates = estimate_librosa_metadata(filepath)
+            if estimates.get("estimated_bpm") is not None:
+                row["bpm"] = estimates["estimated_bpm"]
+            if estimates.get("estimated_key") is not None:
+                row["key"] = estimates["estimated_key"]
+            if estimates.get("duration_sec") is not None and not row.get("duration_sec"):
+                row["duration_sec"] = estimates["duration_sec"]
+
+        if not quiet:
+            bpm_str = row.get("bpm") or "-"
+            print(f"  {os.path.basename(filepath):40s} BPM={bpm_str}", file=sys.stderr)
+        if verbose:
+            _vlog(f"    format={row.get('format')} "
+                  f"key={row.get('key') or '-'} "
+                  f"dur={row.get('duration_sec') or '-'}")
+
+        # `format` the registry id and `label` its display label, as every
+        # verb's JSON names a format (cli-2.0.md section 4.1)
+        from acidcat.commands._output import format_of
+        fo = format_of(filepath)
+        row["format"] = fo["format"] or row.get("format")
+        row["label"] = fo["label"]
+        rows.append(row)
+        count += 1
         if count >= num:
             break
 

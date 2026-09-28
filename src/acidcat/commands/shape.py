@@ -25,6 +25,7 @@ from acidcat.core.infra.render import output as _render
 from acidcat.core.infra import sniff as sniffmod
 from acidcat.core.walk import walk_file, _WALKERS
 from acidcat.core.walk.base import Unsupported
+from acidcat.util.paths import under
 
 # chunk/block ids whose summary is the file's headline (first match wins)
 _HEADER_IDS = ("fmt", "STREAMINFO", "COMM", "MThd", "ftyp")
@@ -64,7 +65,7 @@ def _iter_files(targets):
         elif os.path.isdir(t):
             for root, _dirs, names in os.walk(t):
                 for name in names:
-                    yield os.path.join(root, name), False
+                    yield under(t, root, name), False
 
 
 def _ids(seq):

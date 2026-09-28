@@ -116,7 +116,7 @@ src/acidcat/
   tui_app/         Textual inspector/editor; model.py is its state, no Textual;
                    state.py what it remembers between runs (tui.json)
   util/            small shared helpers
-  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (270 modules in total)
+  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (271 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

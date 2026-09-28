@@ -19,6 +19,7 @@ import struct
 import sys
 
 from acidcat.util import outpath
+from acidcat.util.paths import under
 
 from acidcat.core.codecs import adpcm
 from acidcat.core.codecs import g711
@@ -78,7 +79,7 @@ def _batch_ncw(directory, args):
         for name in files:
             if not name.lower().endswith(".ncw"):
                 continue
-            src = os.path.join(root, name)
+            src = under(directory, root, name)
             out = os.path.splitext(src)[0] + ".wav"
             if args.skip_existing and os.path.exists(out):
                 skipped += 1

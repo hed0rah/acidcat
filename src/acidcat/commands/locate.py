@@ -79,9 +79,20 @@ def _analyze(data, recs):
                 data[r["offset"]:min(r["end"], r["offset"] + 16384)])
 
 
-def _public(rec, verbose=False):
+def _public(rec, verbose=False, path=None):
+    """A region as the machine rows name it (cli-2.0.md section 4.1): the
+    blob's `path` as given, `format` the registry id with `label` beside it
+    (review V8: locate's rows had neither)."""
+    from acidcat.core.walk import _WALKERS
     keys = _PUBLIC_KEYS + ("evidence",) if verbose else _PUBLIC_KEYS
-    return {k: rec[k] for k in keys if k in rec}
+    out = {"path": path} if path is not None else {}
+    for k in keys:
+        if k in rec:
+            out[k] = rec[k]
+            if k == "format":
+                fmt = rec[k]
+                out["label"] = _WALKERS[fmt][0] if fmt in _WALKERS else fmt
+    return out
 
 
 def _geo_str(g):
@@ -185,13 +196,14 @@ def run(args):
             print(f"acidcat locate: {dropped} region(s) below confidence "
                   f"{floor:g} not reported", file=sys.stderr)
 
+    given = "<stdin>" if is_stdin_target(args.input) else args.input
     if args.output_format == "json":
-        format_json([_public(r, args.verbose) for r in recs], sys.stdout)
+        format_json([_public(r, args.verbose, given) for r in recs], sys.stdout)
     elif args.output_format == "tsv":
         _print_tsv(recs)                     # historical layout, no header
     elif args.output_format == "csv":
         from acidcat.core.infra.render import output as _render
-        _render([_public(r, args.verbose) for r in recs], fmt="csv")
+        _render([_public(r, args.verbose, given) for r in recs], fmt="csv")
     else:
         _print_table(recs, args.verbose)
 

@@ -24,6 +24,7 @@ from acidcat.util import stdin as stdinmod
 from acidcat.core.forensics.classify import classify as classify_file
 from acidcat.core.infra.render import output
 from acidcat.util.color import add_color_arg, color_enabled
+from acidcat.util.paths import under
 from acidcat.util.stdin import display_name
 
 _SHAPE_COLOR = {
@@ -66,7 +67,7 @@ def _iter_targets(targets):
         if os.path.isdir(t):
             for root, _dirs, files in os.walk(t):
                 for fn in sorted(files):
-                    yield os.path.join(root, fn)
+                    yield under(t, root, fn)
         else:
             yield t
 
@@ -117,7 +118,9 @@ def run(args):
             # `next` alone was a bare verb ("locate") with no target, so the one
             # field whose whole purpose is "what to run now" could not be run --
             # next_command is the same line the table prints.
-            target = display if display == "<stdin>" else os.path.normpath(path)
+            # as given (cli-2.0.md 4.1): normpath turned every / into \ on
+            # Windows (review V8)
+            target = display if display == "<stdin>" else path
             nxt = v["next"] or ""
             rows.append({"file": name, "shape": v["shape"],
                          "format": v["format"] or "", "next": nxt,
