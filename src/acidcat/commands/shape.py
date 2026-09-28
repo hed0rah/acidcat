@@ -121,7 +121,11 @@ def _full_fingerprint(path, want_anomalies):
         from acidcat.core.forensics import anomalies
         try:
             findings = anomalies.scan(path, label, chunks, warns) or []
-            flag = ",".join(sorted({f["rule"] for f in findings}))
+            # a walker note flags by its kind, as it did when the kinds
+            # were rules: a coverage-only file is `coverage`, not `structure`
+            flag = ",".join(sorted({f["rule"] if f["rule"] != "structure"
+                                    or f.get("kind") in (None, "defect", "error")
+                                    else f["kind"] for f in findings}))
         except Exception:
             # a scan that crashed is not a file with no anomalies, and
             # --warn-only filters on this flag -- so the empty string dropped

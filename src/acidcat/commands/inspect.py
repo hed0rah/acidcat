@@ -228,7 +228,11 @@ def _render_anomalies(findings, args):
         sev = f["severity"]
         tag = p(role.get(sev, "dim"), f"[{sev:6}]")
         off = p("dim", f"0x{f['offset']:08x}")
-        print(f"    {tag} {off}  {f['rule']:16} {f['message']}")
+        # a walker note shows its kind where it is not a defect, as when the
+        # kinds were rules (review V4 gave every row a kind, one rule)
+        rule = (f["kind"] if f["rule"] == "structure"
+                and f.get("kind") not in (None, "defect", "error") else f["rule"])
+        print(f"    {tag} {off}  {rule:16} {f['message']}")
 
 
 def _at(offset):

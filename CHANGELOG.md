@@ -127,6 +127,12 @@ gone.
 
 ### Changed
 
+- **Every forensic finding row has a `kind`** (`audit --json`'s `hidden`
+  and `forensics`, `acidcat.anomalies_scan()`): `defect`, `coverage`,
+  `environment`, `info` or `error`, the walker note's own or its code's. A
+  walker note's `rule` is always `structure`; `coverage`, `environment` and
+  `info` were pseudo-rules standing in for the kind. The tables and `stats
+  --by shape --anomalies` flags read as before.
 - **An IFF file's header is its root node.** A WAV's Document ids are
   `RIFF`, `RIFF/fmt_`, `RIFF/data` (they were `unwalked`, `fmt_`, `data`,
   with the 12-byte header an unwalked gap), an AIFF's `FORM/COMM`, an RF64's

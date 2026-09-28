@@ -108,10 +108,12 @@ class TestScanClassifies:
     def test_a_coverage_warning_does_not_become_a_structure_finding(self, tmp_path):
         p = _wav(tmp_path / "a.wav")
         out = anomalies.scan(p, "WAV", [], [coverage("stopped at the 4-chunk cap")])
-        cov = [f for f in out if f["rule"] == "coverage"]
-        assert len(cov) == 1
+        # a walker note's rule is "structure" and its kind says what it is
+        # (review V4); a coverage note is never a defect
+        cov = [f for f in out if f["kind"] == "coverage"]
+        assert len(cov) == 1 and cov[0]["rule"] == "structure"
         assert cov[0]["severity"] == "info"
-        assert not [f for f in out if f["rule"] == "structure"]
+        assert not [f for f in out if f["kind"] == "defect"]
 
     def test_a_defect_warning_still_becomes_one(self, tmp_path):
         p = _wav(tmp_path / "b.wav")
@@ -133,8 +135,8 @@ class TestScanClassifies:
         chunks = [{"id": "data", "offset": 12, "size": 8,
                    "warnings": [coverage("listing the first 10 rows")]}]
         out = anomalies.scan(p, "WAV", chunks, [])
-        cov = [f for f in out if f["rule"] == "coverage"]
-        assert len(cov) == 1, [f["rule"] for f in out]
+        cov = [f for f in out if f["kind"] == "coverage"]
+        assert len(cov) == 1, [f["kind"] for f in out]
         assert "data:" in cov[0]["message"]
 
 
@@ -146,7 +148,8 @@ class TestAuditExitCode:
         return _code(scanned=True, vios=[], findings=findings, integ=[])
 
     def test_a_capped_walk_of_a_clean_file_exits_zero(self):
-        assert self._code([{"rule": "coverage", "severity": "info",
+        assert self._code([{"rule": "structure", "kind": "coverage",
+                            "severity": "info",
                             "message": "stopped at the cap", "offset": 0}]) == 0
 
     def test_a_real_finding_still_exits_one(self):
@@ -156,7 +159,8 @@ class TestAuditExitCode:
     def test_coverage_alongside_a_real_finding_still_exits_one(self):
         """The coverage note must not mask a genuine defect."""
         assert self._code([
-            {"rule": "coverage", "severity": "info", "message": "cap", "offset": 0},
+            {"rule": "structure", "kind": "coverage", "severity": "info",
+             "message": "cap", "offset": 0},
             {"rule": "structure", "severity": "warn", "message": "bad", "offset": 0},
         ]) == 1
 

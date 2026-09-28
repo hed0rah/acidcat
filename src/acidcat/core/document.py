@@ -327,9 +327,9 @@ class Document:
 
 # ── forensic findings ──────────────────────────────────────────────────
 
-# the rules under which the scan echoes the walker's own notes, which the
+# the rule under which the scan echoes the walker's own notes, which the
 # Document already carries
-_ECHOED = {"structure", "coverage", "environment", "info"}
+_ECHOED = {"structure"}
 
 
 def _deepest_at(doc, off):

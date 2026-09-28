@@ -222,15 +222,23 @@ def test_every_forensic_finding_carries_a_registered_code(tmp_path):
     by_msg = {f["message"]: f for f in out}
     assert by_msg["x"]["rule"] == "structure" and by_msg["x"]["code"] == "size.overrun"
     assert by_msg["plain"]["code"] == "legacy"
-    assert by_msg["y"]["rule"] == "environment"
-    assert by_msg["z"]["rule"] == "coverage"
+    # one rule for walker notes, the kind beside it (review V4)
+    assert by_msg["x"]["kind"] == "defect" and by_msg["plain"]["kind"] == "defect"
+    assert by_msg["y"]["rule"] == "structure" and by_msg["y"]["kind"] == "environment"
+    assert by_msg["z"]["rule"] == "structure" and by_msg["z"]["kind"] == "coverage"
+    # and every forensic rule has its kind, from its code
+    assert all(f["kind"] == REGISTRY[f["code"]][0] for f in out
+               if f["code"].startswith("anomaly."))
 
 
 def test_an_environment_finding_does_not_fail_an_audit():
     """A library not beside the file says nothing about the file's bytes."""
     from acidcat.commands.audit import _code
-    env = {"rule": "environment", "severity": "notice", "message": "m",
-           "offset": 0, "code": "sibling.missing"}
+    env = {"rule": "structure", "kind": "environment", "severity": "notice",
+           "message": "m", "offset": 0, "code": "sibling.missing"}
+    assert _code(scanned=True, vios=[], findings=[env], integ=[]) == 0
+    # a row without a kind takes its code's
+    del env["kind"]
     assert _code(scanned=True, vios=[], findings=[env], integ=[]) == 0
 
 

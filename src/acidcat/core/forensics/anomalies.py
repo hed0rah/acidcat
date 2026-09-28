@@ -15,17 +15,17 @@ import os
 import struct
 
 from acidcat.core.infra.fieldcodec import _field_abs
-from acidcat.core.infra.findings import anomaly_code
+from acidcat.core.infra.findings import REGISTRY, anomaly_code
 from acidcat.core.primitives.notes import (
-    COVERAGE, ENVIRONMENT, INFO, code_of, kind_of,
+    COVERAGE, DEFECT, ENVIRONMENT, INFO, code_of, kind_of,
 )
 from acidcat.core.primitives.signal import byte_entropy
 
-# how a walker note of each kind is reported; anything else (a defect, a
-# walker error, a plain string) is "structure" at warn
-_NOTE_RULE = {COVERAGE: ("coverage", "info"),
-              ENVIRONMENT: ("environment", "notice"),
-              INFO: ("info", "info")}
+# the severity a walker note of each kind is reported at; anything else (a
+# defect, a walker error, a plain string) is warn. Every walker note's rule is
+# "structure" and its kind says what it is: the kinds were pseudo-rules
+# ("coverage", "info") beside real ones, and a row had no kind (review V4).
+_NOTE_SEVERITY = {COVERAGE: "info", ENVIRONMENT: "notice", INFO: "info"}
 
 # second-format magics worth flagging when appended after an audio container
 _MAGICS = [
@@ -353,15 +353,15 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
     # Note the classification happens BEFORE the chunk id is prefixed below:
     # string formatting returns a plain str and drops the kind.
     for w in warns or []:
-        rule, sev = _NOTE_RULE.get(kind_of(w), ("structure", "warn"))
-        findings.append({"severity": sev, "offset": 0, "rule": rule,
+        findings.append({"severity": _NOTE_SEVERITY.get(kind_of(w), "warn"),
+                         "offset": 0, "rule": "structure", "kind": kind_of(w),
                          "code": code_of(w) or "legacy", "message": w})
     for c in chunks:
         for w in c.get("warnings") or []:
-            rule, sev = _NOTE_RULE.get(kind_of(w), ("structure", "warn"))
-            findings.append({"severity": sev,
+            findings.append({"severity": _NOTE_SEVERITY.get(kind_of(w), "warn"),
                              "offset": c.get("offset", 0) or 0,
-                             "rule": rule, "code": code_of(w) or "legacy",
+                             "rule": "structure", "kind": kind_of(w),
+                             "code": code_of(w) or "legacy",
                              "message": f"{str(c.get('id', '?')).strip()}: {w}"})
 
     # 2. trailing data past the DECLARED container end, and a tail magic scan.
@@ -869,4 +869,6 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                                  x["offset"] if x["offset"] is not None else -1))
     for f in findings:
         f.setdefault("code", anomaly_code(f["rule"]))
+        f.setdefault("kind", REGISTRY[f["code"]][0] if f["code"] in REGISTRY
+                     else DEFECT)
     return findings

@@ -250,18 +250,18 @@ def _blaming_the_file(findings):
     an `info` one are about the surroundings or merely worth knowing, and do
     not blame the file either.
     """
-    from acidcat.core.infra.findings import REGISTRY, DEFECT
-    out = []
-    for f in findings:
-        if f.get("rule") in ("coverage", "environment", "info"):
-            continue
-        # a forensic rule blames the file only when its kind is defect: a
-        # suspicion (a polyglot, trailing bytes) is reported and exits 0
-        code = f.get("code") or "anomaly.%s" % f.get("rule")
-        if code in REGISTRY and REGISTRY[code][0] != DEFECT:
-            continue
-        out.append(f)
-    return out
+    # every row carries its kind (review V4): a finding blames the file only
+    # when it is a defect (or acidcat's own error), so a suspicion (a
+    # polyglot, trailing bytes) is reported and exits 0. A row without one
+    # takes its code's.
+    from acidcat.core.infra.findings import REGISTRY
+
+    def kind(f):
+        if f.get("kind"):
+            return f["kind"]
+        code = f.get("code")
+        return REGISTRY[code][0] if code in REGISTRY else "defect"
+    return [f for f in findings if kind(f) in ("defect", "error")]
 
 
 def _code(scanned, vios, findings, integ):
