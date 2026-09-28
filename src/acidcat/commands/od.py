@@ -387,7 +387,11 @@ def _run(args):
         print(header)
 
         for c in chunks:
-            base = c.get("payload_base", c["offset"] + 8)
+            if c.get("offset") is None:
+                continue                # a tree node (an SF2 preset) has no bytes to dump
+            base = c.get("payload_base")
+            if base is None:
+                base = c["offset"] + 8
             summary = c.get("summary", "")
             title = _c("1;37", f"{str(c['id'])!r} @ 0x{c['offset']:08x}  {c['size']:,} bytes", on)
             print("\n" + title + (dim("  " + summary) if summary else ""))
