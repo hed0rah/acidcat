@@ -65,3 +65,20 @@ def test_the_docs_quote_a_version_that_existed(doc):
     known = set(re.findall(r"## \[([^\]]+)\]", changelog)) | {acidcat.__version__}
     unknown = quoted - known
     assert not unknown, f"{doc} quotes {sorted(unknown)}, which no release used"
+
+
+def test_the_lab_accepts_this_acidcat():
+    """lab/pyproject.toml pins the acidcat it runs against. CI installs both
+    from the tree (`pip install -e ".[dev]" -e ./lab`), so a pin this version
+    does not satisfy is a red CI install and nothing else says why: `next`
+    at 1.8.6 against the lab's `acidcat>=2.0.0a1` was exactly that
+    (review V3). Pre-releases count, as pip counts them for an explicit
+    pre-release pin."""
+    packaging = pytest.importorskip("packaging.requirements")
+    lab = tomllib.loads((ROOT / "lab" / "pyproject.toml").read_text(encoding="utf-8"))
+    reqs = [packaging.Requirement(r) for r in lab["project"]["dependencies"]]
+    pins = [r for r in reqs if r.name == "acidcat"]
+    assert pins, "the lab no longer names acidcat among its dependencies"
+    for r in pins:
+        assert r.specifier.contains(acidcat.__version__, prereleases=True), (
+            f"lab/pyproject.toml requires {r}, the tree is {acidcat.__version__}")
