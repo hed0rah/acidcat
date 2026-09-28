@@ -118,35 +118,29 @@ def test_validate_names_each_bucket_it_used(tmp_path):
 # what they passed over. Each is a place the same defect can recur. This may
 # shrink and must not grow.
 NOT_ACCOUNTING = {
-    "audit", "census", "classify", "convert", "detect", "features",
-    "index", "inspect", "scan", "shape", "similar", "survey",
+    # 2.0 names: analyze was detect and features, lib was index and similar,
+    # stats was scan and shape
+    "analyze", "audit", "classify", "convert", "inspect", "lib", "stats",
 }
 
-# Directory verbs that DO account. `validate` was filed under
+# Directory verbs that DO account. `check` (1.8's `validate`) was filed under
 # NOT_A_DIRECTORY_VERB, which is where the union logic wanted it but which
 # misdescribes a verb whose whole job includes walking a tree.
-ACCOUNTING = {"validate"}
+ACCOUNTING = {"check"}
 
 # Verbs that never take a directory, so conservation does not apply. A reason
 # each, because "not applicable" without one is indistinguishable from "not
 # looked at".
 NOT_A_DIRECTORY_VERB = {
     "carve": "cuts a byte range out of one named file",
-    "chunks": "reports the chunk table of one file",
-    "cover": "reads or writes the art of one file",
-    "dump": "hex-dumps named chunks of one file",
+    "edit": "edits the tags, fields or cover of named files",
     "explore": "builds one HTML page from one file",
     "extract": "pulls samples out of one bank",
     "formats": "prints a static capability table, reads no path",
-    "info": "one file's summary",
     "locate": "scans one blob",
     "od": "hex view of one file",
     "probe": "byte-level dissection of named files",
-    "query": "reads the index, not the filesystem",
-    "repair": "rewrites one file",
     "tui": "interactive, one file or a browser",
-    "wrap": "gives one raw stream a header",
-    "write": "edits metadata of named files",
 }
 
 

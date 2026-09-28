@@ -162,11 +162,16 @@ def _declared_formats(verb):
     return []
 
 
-# every verb whose output is flat records. The nested ones (inspect's chunk
-# tree, census's histograms, dump's hex) deliberately offer table+json only.
+# every verb whose output is flat records. The nested ones (audit's report,
+# probe's dissection) deliberately offer table+json only. census's histogram
+# is flat rows in csv/tsv (chunk id, files, occurrences, example): it is
+# `stats --by chunks` in 2.0, and survey, which it absorbed, had csv.
 _FLAT_RECORD_VERBS = ["chunks", "classify", "detect", "extract", "features",
                       "formats", "info", "locate", "query", "repair", "scan",
-                      "similar", "survey", "shape", "validate", "write"]
+                      "similar", "shape", "validate", "write",
+                      # 2.0: the new verbs, and inspect, whose --quiet chunk
+                      # table is flat rows (one per chunk) in csv/tsv
+                      "check", "edit", "stats", "analyze", "inspect"]
 
 
 @pytest.mark.parametrize("verb", _FLAT_RECORD_VERBS)
@@ -177,7 +182,7 @@ def test_flat_record_verbs_offer_all_four_renderings(verb):
     assert set(_declared_formats(verb)) == {"table", "json", "csv", "tsv"}, verb
 
 
-@pytest.mark.parametrize("verb", ["census", "inspect", "audit", "probe"])
+@pytest.mark.parametrize("verb", ["audit", "probe"])
 def test_nested_verbs_deliberately_offer_fewer(verb):
     """Pinned so the rule above is a decision, not an oversight: csv/tsv have
     no honest representation for a chunk tree or a histogram-of-histograms."""

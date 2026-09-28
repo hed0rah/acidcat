@@ -29,6 +29,7 @@ typed) / hex / c / py / b64.
 
 import base64
 import os
+import re
 import argparse
 import sys
 
@@ -51,38 +52,35 @@ def register(subparsers):
     p = subparsers.add_parser(
         "carve", help="Extract a byte range or a typed field (chunk / offset / "
                       "anchored / struct) to a file or stdout.")
-    p.add_argument("target", help="File to carve from (never modified).")
-    p.add_argument("--offset", help="Start offset (0x.. hex or decimal).")
+    p.add_argument("target", help="File to carve from (never modified); '-' "
+                                  "is stdin with --as-wav.")
+    p.add_argument("addr", nargs="?", metavar="ADDR",
+                   help="What to carve: a node (its payload: RIFF/data), a field "
+                        "(its value: RIFF/fmt_#sample_rate; GLOB#KEY lists that "
+                        "field in every node), or bytes (@0x100+64, @0x100..0x200).")
     p.add_argument("--at", metavar="EXPR",
-                   help="Anchored start: 0xNN | end[-N] | find:STR|0xHEX[+N] | "
-                        "chunk:ID[+N].")
-    p.add_argument("--length", help="Number of bytes from the start (0x.. or decimal).")
-    p.add_argument("--end", help="End offset (exclusive), instead of --length.")
+                   help="A search anchor: end[-N] | find:STR|0xHEX[+N] | "
+                        "chunk:ID[+N] | 0xNN.")
     p.add_argument("--trailing", action="store_true",
                    help="Everything past the declared container end (RIFF/AIFF/RF64).")
-    p.add_argument("--chunk", metavar="ID",
-                   help="Payload of a named RIFF/AIFF chunk (e.g. data, COMM).")
     p.add_argument("--raw", action="store_true",
-                   help="With --chunk, include the 8-byte chunk header.")
+                   help="With a node ADDR, carve its whole extent, header included.")
     p.add_argument("--type", metavar="T",
                    help="Decode the range as a typed value: u8..i64, f32/f64, "
                         "Ns (fixed string), cstr; optional be/le suffix.")
     p.add_argument("--count", type=int, default=1,
                    help="With --type, decode an array of this many values.")
-    p.add_argument("--endian", choices=("be", "le", "both"), default="be",
-                   help="Byte order for bare numeric types (default be; both "
-                        "prints each interpretation -- the endian guess).")
+    p.add_argument("--byte-order", dest="endian", choices=("be", "le", "both"),
+                   default=None,
+                   help="Byte order: of bare numeric --type values (default be; "
+                        "both prints each reading), or of the input PCM with "
+                        "--as-wav (default le).")
     p.add_argument("--struct", metavar="SPEC",
                    help="Decode a labeled record: '@OFF name:type name:type ...' "
                         "(@OFF accepts any --at expression).")
-    p.add_argument("--field", metavar="NAME",
-                   help="Print a walker-decoded field by name (as shown by inspect).")
     p.add_argument("--encoding", choices=("raw", "value", "hex", "c", "py", "b64"),
                    help="How to serialize carved bytes: raw|value|hex|c|py|b64 "
                         "(default: raw for ranges, value when typed).")
-    p.add_argument("--format", dest="encoding",
-                   choices=("raw", "value", "hex", "c", "py", "b64"),
-                   help=argparse.SUPPRESS)          # deprecated alias for --encoding
     p.add_argument("--batch", metavar="SRC",
                    help="Extract many regions: read `locate` records (JSON or TSV) "
                         "from SRC ('-' = stdin) and carve each from TARGET into -o DIR.")
@@ -92,17 +90,31 @@ def register(subparsers):
                         "come out playable instead of as .raw. Containers "
                         "already have their own header and are left alone.")
     p.add_argument("--rate", type=int, metavar="HZ",
-                   help="With --wrap: sample rate for wrapped regions. Rate is "
-                        "playback metadata and is not recoverable from the "
-                        "bytes, so this overrides the guess.")
+                   help="With --wrap or --as-wav: the sample rate (--as-wav "
+                        "default 44100). Rate is playback metadata and is not "
+                        "recoverable from the bytes, so this overrides the guess.")
+    p.add_argument("--as-wav", action="store_true",
+                   help="Wrap the carved bytes (the whole file without an ADDR) "
+                        "in a WAV header as raw PCM, so they play.")
+    p.add_argument("--channels", type=int, default=1,
+                   help="With --as-wav: channel count (default 1).")
+    p.add_argument("--bits", type=int, default=16, choices=(8, 16, 24, 32, 64),
+                   help="With --as-wav: bits per sample (default 16).")
+    p.add_argument("--float", dest="floating", action="store_true",
+                   help="With --as-wav: the samples are IEEE float (32 or 64 bits).")
     p.add_argument("--layer", type=int, metavar="N",
                    help="Write layer N: a decoded image the walk found (a packed "
                         "YM's unpacked tune is layer 1), checked as the walk "
                         "checked it. 0 is the file itself.")
-    p.add_argument("-o", "--output", help="Write here (default: stdout; a DIR for --batch).")
+    p.add_argument("-o", "--output", help="Write here (default: stdout; a DIR for "
+                                          "--batch, or DIR/ to name the file after "
+                                          "the ADDR).")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Suppress the summary line on stderr.")
-    p.set_defaults(func=run)
+    # the 1.8 range flags are aliases now (cli_aliases); the code below still
+    # reads these attributes, filled from the ADDR
+    p.set_defaults(func=run, offset=None, length=None, end=None, chunk=None,
+                   field=None)
 
 
 def _as_int(v, what):
@@ -318,7 +330,7 @@ def _resolve_range(args, filepath, size, typed_len=None):
     chosen = [args.at is not None or args.offset is not None,
               bool(args.trailing), bool(args.chunk)]
     if sum(chosen) != 1:
-        raise ValueError("pick exactly one of --offset/--at, --trailing, --chunk")
+        raise ValueError("pick exactly one of an ADDR, --at or --trailing")
 
     if args.at is not None or args.offset is not None:
         start = _resolve_start(args, filepath, size)
@@ -543,11 +555,97 @@ def _run_field(args, filepath):
     return 0
 
 
+def _from_addr(args, filepath):
+    """Fill the range attributes from the positional ADDR, or return the exit
+    code of a field ADDR, which prints values instead of carving bytes."""
+    from acidcat import AddrError
+    from acidcat.commands import _addr
+    if _addr.names_fields(args.addr) and args.type is None and args.struct is None:
+        try:
+            rows = _addr.fields(filepath, args.addr)
+        except AddrError as e:
+            print(f"acidcat carve: {e}", file=sys.stderr)
+            return 1
+        _emit("\n".join(str(v) for _a, v in rows), args.output)
+        return 0
+    try:
+        start, length = _addr.resolve(filepath, args.addr, raw=args.raw)
+    except AddrError as e:
+        print(f"acidcat carve: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"acidcat carve: {e}", file=sys.stderr)
+        return 2
+    args.offset, args.length = str(start), str(length)
+    return None
+
+
+def _dir_output(args):
+    """`-o DIR/` names the file after the ADDR: `RIFF/smpl` -> DIR/RIFF_smpl.bin."""
+    out = args.output
+    if out and (out.endswith(("/", os.sep)) or os.path.isdir(out)) and args.addr:
+        os.makedirs(out, exist_ok=True)
+        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", args.addr).strip("_") or "carved"
+        args.output = os.path.join(out, stem + (".wav" if args.as_wav else ".bin"))
+
+
+def _run_as_wav(args, filepath):
+    from acidcat.commands.wrap import pcm_to_wav
+    if filepath == "-":
+        data = sys.stdin.buffer.read()
+    else:
+        size = os.path.getsize(filepath)
+        if args.offset is not None or args.at is not None or args.trailing:
+            try:
+                start, length = _resolve_range(args, filepath, size)
+            except NotFound as e:
+                print(f"acidcat carve: {e}", file=sys.stderr)
+                return 1
+            except (ValueError, bf.FieldError) as e:
+                print(f"acidcat carve: {e}", file=sys.stderr)
+                return 2
+        else:
+            start, length = 0, size
+        with open(filepath, "rb") as f:
+            f.seek(start)
+            data = f.read(max(0, length))
+    rc, wav = pcm_to_wav(data, args.rate or 44100, args.channels, args.bits,
+                         args.endian or "le", args.floating, prog="carve")
+    if wav is None:
+        return rc
+    if args.output:
+        err = _write_out(wav, args.output)
+        if err:
+            print(err, file=sys.stderr)
+            return 2
+        return 0
+    if sys.stdout.isatty():
+        print("acidcat carve: refusing to write binary to the terminal; "
+              "redirect or pass -o FILE", file=sys.stderr)
+        return 2
+    sys.stdout.buffer.write(wav)
+    return 0
+
+
 def run(args):
     filepath = args.target
-    if not os.path.isfile(filepath):
+    # attributes 2.0 added; an args object built by hand may not carry them
+    for name, default in (("addr", None), ("as_wav", False), ("raw", False),
+                          ("channels", 1), ("bits", 16), ("floating", False)):
+        if not hasattr(args, name):
+            setattr(args, name, default)
+    if not (filepath == "-" and args.as_wav) and not os.path.isfile(filepath):
         print(f"acidcat carve: {filepath}: No such file", file=sys.stderr)
         return 2
+    if args.addr is not None:
+        if args.at is not None or args.trailing:
+            print("acidcat carve: give an ADDR or --at/--trailing, not both",
+                  file=sys.stderr)
+            return 2
+        rc = _from_addr(args, filepath)
+        if rc is not None:
+            return rc
+        _dir_output(args)
 
     # carve's own --help promises "File to carve from (never modified)". With
     # -o pointing back at the target that promise was broken silently and
@@ -560,6 +658,9 @@ def run(args):
         print(f"acidcat carve: {out}: output is the input; refusing to "
               f"overwrite the file being carved from", file=sys.stderr)
         return 2
+
+    if args.as_wav:
+        return _run_as_wav(args, filepath)
 
     size = os.path.getsize(filepath)
 

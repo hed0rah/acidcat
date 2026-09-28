@@ -49,7 +49,7 @@ def run(args):
     from acidcat.util.stdin import resolved_input
     with resolved_input(args.target) as _p:
         if _p is None:
-            print("acidcat detect: no data on stdin", file=sys.stderr)
+            print("acidcat analyze: no data on stdin", file=sys.stderr)
             return 1
         args.target = _p
         return _run(args)
@@ -102,5 +102,5 @@ def _run(args):
                   file=sys.stderr)
         return 0
 
-    print(f"acidcat detect: {target}: No such file or directory", file=sys.stderr)
+    print(f"acidcat analyze: {target}: No such file or directory", file=sys.stderr)
     return 2

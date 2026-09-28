@@ -21,6 +21,7 @@ f32/f64); it is searched in both byte orders. HEX for find is a hex string
 (64617461) or, with a leading s:, literal text (s:data).
 """
 
+import argparse
 import json
 import os
 import sys
@@ -88,8 +89,8 @@ def register(subparsers):
                          "entries are absolute file offsets.")
     tb.add_argument("--end", metavar="EXPR",
                     help="Where the last region ends (default: EOF).")
-    tb.add_argument("--be", action="store_true", help="Force big-endian.")
-    tb.add_argument("--le", action="store_true", help="Force little-endian.")
+    tb.add_argument("--byte-order", choices=("be", "le"),
+                    help="Force big- or little-endian.")
     tb.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
@@ -98,8 +99,8 @@ def register(subparsers):
     r.add_argument("--type", "-t", default="u32", choices=sorted(pr.FMT_STRUCT),
                    help="Value type (default u32).")
     r.add_argument("--count", "-n", type=int, default=1, help="How many values.")
-    r.add_argument("--be", action="store_true", help="Force big-endian.")
-    r.add_argument("--le", action="store_true", help="Force little-endian.")
+    r.add_argument("--byte-order", choices=("be", "le"),
+                   help="Force big- or little-endian.")
     r.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
@@ -120,7 +121,9 @@ def register(subparsers):
     st.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
-    h = sub.add_parser("hexdump", help="Annotated hexdump at AT.")
+    # `probe hexdump AT` is `od FILE @AT+LEN` in 2.0 (an alias, cli_aliases);
+    # the parser is kept off the verb list but its code path stays for it
+    h = argparse.ArgumentParser(add_help=False)
     h.add_argument("at", help="Offset or structural name.")
     h.add_argument("--len", "-l", dest="length", type=int, default=256,
                    help="Bytes to dump (default 256, or the chunk size for a name).")
@@ -144,7 +147,7 @@ def register(subparsers):
     # no -o short form: -o is "output file" everywhere else in acidcat
     mp.add_argument("--order", type=int, default=5,
                     help="Grid is 2^order per side (default 5 = 32x32).")
-    add_color_arg(mp, deprecated_no_color=True)
+    add_color_arg(mp)
     mp.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
@@ -204,10 +207,14 @@ def run(args):
     """
     from acidcat.util.stdin import resolved_input
 
+    order = getattr(args, "byte_order", None)
+    if order is not None:
+        args.be, args.le = order == "be", order == "le"
+
     files = list(getattr(args, "files", []) or [])
     if not getattr(args, "verb", None):
         print("acidcat probe: pick a verb "
-              "(table/read/scan/find/strings/hexdump/diff/entropy/map)",
+              "(table/read/scan/find/strings/diff/entropy/map/lsb)",
               file=sys.stderr)
         return 2
 

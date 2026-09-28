@@ -413,7 +413,7 @@ as soon as the edit lands.
 
 ## 8. The CLI
 
-Fifteen verbs replace twenty-nine. Every one takes `-` for stdin, `--json` /
+Seventeen verbs replace twenty-nine (cli-2.0.md counts the table). Every one takes `-` for stdin, `--json` /
 `--output-format`, `--color`, and addresses in the ADDR grammar
 ([node-v1.md section 13](node-v1.md#13-addresses)).
 
@@ -442,7 +442,10 @@ auto|always|never`, `-o/--output`, `--no-recurse`, `--max-files N`,
 `--byte-order be|le|both`, `--only-format FMT` (filter) and `--force-format
 FMT` (override; plain `--format` is retired), `--limit NAME=VALUE`, `--deep`.
 Exit codes: 0 ok, 1 the answer is no, 2 could not run (including a missing
-extra). The retired verb names are removed, not aliased (decision S1).
+extra). The retired verb and flag names are aliases through 2.x: each prints
+one line on stderr naming its new form, then runs exactly that; they are
+removed in 3.0 (decision S1, as revised). Flags already deprecated in 1.x are
+removed in 2.0.
 
 ## 9. MCP
 

@@ -308,7 +308,7 @@ def _run_one(args):
         print("  STRUCTURE   consistent")
     else:
         n_fix = len(report.repairable)
-        tail = f" (repairable with: acidcat repair)" if n_fix else ""
+        tail = f" (repairable with: acidcat check --fix)" if n_fix else ""
         print(f"  STRUCTURE   {len(vios)} issue(s){tail}")
         for v in vios:
             mark = f"  [{v.witness}]" if v.repairable else "  (no witness)"

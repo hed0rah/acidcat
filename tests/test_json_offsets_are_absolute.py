@@ -44,25 +44,22 @@ def wav(tmp_path):
     return str(p)
 
 
-def test_dump_record_locates_its_own_payload(wav):
-    rec = json.loads(_run("dump", "--json", wav, "fmt"))
-    rec = rec[0] if isinstance(rec, list) else rec
-
-    carved = _run("carve", wav, "--offset", str(rec["payload_offset"]),
-                  "--length", str(rec["size"]), "--encoding", "hex")
+def test_od_record_locates_its_own_payload(wav):
+    """2.0: `dump --json` is `od --json`; its offset is the payload's, and
+    carving that range gives the same bytes."""
+    rec = json.loads(_run("od", wav, "fmt", "--json"))[0]
+    carved = _run("carve", wav, "@%d+%d" % (rec["offset"], rec["length"]),
+                  "--encoding", "hex")
     assert carved.split() == [rec["hex"][i:i + 2]
                               for i in range(0, len(rec["hex"]), 2)]
 
 
-def test_dump_offset_still_points_at_the_header(wav):
-    """`offset` keeps its meaning -- the fix is additive, not a renumbering."""
-    rec = json.loads(_run("dump", "--json", wav, "fmt"))
-    rec = rec[0] if isinstance(rec, list) else rec
-    assert rec["payload_offset"] == rec["offset"] + 8
-
-    header = _run("carve", wav, "--offset", str(rec["offset"]),
-                  "--length", "4", "--encoding", "hex")
-    assert bytes.fromhex(header.replace(" ", "")) == b"fmt "
+def test_a_node_carved_raw_starts_at_its_header(wav):
+    """A node ADDR means its payload; --raw is its whole extent, header first."""
+    payload = json.loads(_run("od", wav, "fmt", "--json"))[0]
+    header = _run("carve", wav, "fmt", "--raw", "--encoding", "hex")
+    raw = bytes.fromhex(header.replace(" ", ""))
+    assert raw[:4] == b"fmt " and raw[8:].hex() == payload["hex"]
 
 
 def test_inspect_field_abs_is_the_real_byte(wav):

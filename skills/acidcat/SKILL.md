@@ -24,17 +24,18 @@ Install: `pip install acidcat` (core). Extras: `[mcp]` (stdio MCP server),
 
 - **Structure / deep decode**: `acidcat inspect FILE`. This is the one to reach
   for on presets and any "what's actually in this file" question.
-- **Quick metadata (audio/tags)**: `acidcat info FILE`. WAV/AIFF/MP3/FLAC/OGG/
-  M4A/MIDI/Serum. Note: `info` does NOT parse Bitwig/NI/Vital presets, it will
-  tell you to use `inspect`.
-- **Edit metadata**: `acidcat write FILE --set field=value`.
+- **Quick metadata (audio/tags)**: `acidcat inspect --summary FILE` (or just
+  `acidcat FILE`). WAV/AIFF/MP3/FLAC/OGG/M4A/MIDI/Serum. The summary does NOT
+  parse Bitwig/NI/Vital presets; plain `inspect` does.
+- **Edit metadata**: `acidcat edit FILE --set field=value` (verified, with a
+  `_original` backup).
 - **Clip to MIDI**: `acidcat convert clip.bwclip -o out.mid`.
-- **Search a library**: `acidcat index` then `acidcat query`.
+- **Search a library**: `acidcat lib index` then `acidcat lib query`.
 - **HTML byte-explorer**: `acidcat explore FILE -o out.html`.
 - **Drive it by hand**: `acidcat tui FILE` (needs `[tui]`).
 - **Is this file sound?**: `acidcat audit FILE` (exit 1 on findings, so it works
-  as a CI gate), `acidcat validate` for structural checks, `acidcat repair` to
-  fix what is witnessed.
+  as a CI gate), `acidcat check` for structural checks, `acidcat check --fix`
+  to fix what is witnessed.
 - **Where is the audio in this blob?**: `acidcat locate`, then `acidcat carve`
   or `acidcat extract` to pull it out.
 
@@ -66,9 +67,9 @@ replace). Refuses RF64/malformed. Verifies audio bytes are unchanged after a WAV
 rewrite.
 
 ```
-acidcat write song.wav --set title="My Loop" --set bpm=140 --set key=Am
-acidcat write take.aiff --set artist="..." -o take_tagged.aiff
-acidcat write patch.vital --set author="..." --set comments="..."
+acidcat edit song.wav --set title="My Loop" --set bpm=140 --set key=Am
+acidcat edit take.aiff --set artist="..." -o take_tagged.aiff
+acidcat edit patch.vital --set author="..." --set comments="..."
 ```
 
 Editable fields by format:
@@ -89,13 +90,13 @@ acidcat convert clip.bwclip -o out.mid        # Bitwig note clip -> Standard MID
 Reads pitch/position/duration/velocity from the clip's note lanes. Note names use
 the DAW octave convention (middle C = C3 = MIDI 60).
 
-## index + query (sample library search)
+## lib index + lib query (sample library search)
 
 ```
-acidcat index /path/to/library          # build/update a per-library SQLite index
-acidcat query --bpm 120-130 --key Am    # filter across registered libraries
-acidcat query --device Massive --category bass    # search indexed preset metadata
-acidcat query "reese"                    # full-text
+acidcat lib index /path/to/library      # build/update a per-library SQLite index
+acidcat lib query --bpm 120-130 --key Am    # filter across registered libraries
+acidcat lib query --device Massive --category bass    # search indexed preset metadata
+acidcat lib query --text reese          # full-text
 ```
 Indexed dimensions include bpm, key, tags, and (for presets) device, product,
 creator, category, preset name.

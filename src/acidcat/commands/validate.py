@@ -164,7 +164,7 @@ def _check(path, quiet, rows=None, deep=False):
     try:
         data, close = map_file(path)
     except OSError as e:
-        print(f"acidcat validate: {path}: {e}", file=sys.stderr)
+        print(f"acidcat check: {path}: {e}", file=sys.stderr)
         if rows is not None:
             rows.append({"path": path, "format": None, "status": "unreadable",
                          "issues": 0, "repairable": False, "detail": str(e)})
@@ -268,7 +268,7 @@ def run(args):
             for t in args.inputs
         ]
         if any(t is None for t in args.inputs):
-            print("acidcat validate: no data on stdin", file=sys.stderr)
+            print("acidcat check: no data on stdin", file=sys.stderr)
             return 1
         return _run(args)
 
@@ -285,7 +285,7 @@ def _run(args):
     rows = None if fmt == "table" else []
     for inp in args.inputs:
         if not os.path.exists(inp):
-            print(f"acidcat validate: {inp}: No such file or directory",
+            print(f"acidcat check: {inp}: No such file or directory",
                   file=sys.stderr)
             errors += 1
             continue
@@ -339,20 +339,22 @@ def _run(args):
         # `validate track.mod` both said "fine" while `audit` on the same byte
         # had findings. Nothing checked is "could not do the job", the same
         # class as an unreadable input, not a passing result.
-        print("acidcat validate: no structurally-modeled files to check"
+        print("acidcat check: no structurally-modeled files to check"
               + skipped, file=sys.stderr)
         return 2
     if failed:
         # only point at repair when something is actually repairable. An
         # orphaned audio payload has no safe rewrite and repair refuses it, so
         # the advice would send the user round a loop.
-        hint = " (fix with: acidcat repair)" if any_repairable else ""
+        hint = " (fix with: acidcat check --fix)" if any_repairable else ""
         # stdout belongs to the records in a machine format -- a trailing human
-        # sentence made the JSON unparseable ("Extra data")
-        print(f"\n{failed} of {checked} file(s) have structural issues"
-              f"{hint}{skipped}", file=sys.stderr if rows is not None else sys.stdout)
+        # sentence made the JSON unparseable ("Extra data"). `hush` (check -q)
+        # drops it there, and only there: -q never changes stdout.
+        if not (getattr(args, "hush", False) and rows is not None):
+            print(f"\n{failed} of {checked} file(s) have structural issues"
+                  f"{hint}{skipped}", file=sys.stderr if rows is not None else sys.stdout)
         return 1
-    if not args.quiet:
+    if not args.quiet and not (getattr(args, "hush", False) and rows is not None):
         print(f"\nall {checked} file(s) consistent{skipped}",
               file=sys.stderr if rows is not None else sys.stdout)
     return 1 if unreadable else 0

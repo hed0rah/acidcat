@@ -143,7 +143,7 @@ def run(args):
             for t in args.targets
         ]
         if any(t is None for t in args.targets):
-            print("acidcat shape: no data on stdin", file=sys.stderr)
+            print("acidcat stats: no data on stdin", file=sys.stderr)
             return 1
         return _run(args)
 
@@ -153,12 +153,19 @@ def _run(args):
     # 0 -- indistinguishable from "scanned it, matched nothing"
     missing = [t for t in args.targets if not os.path.exists(t)]
     for t in missing:
-        print(f"acidcat shape: {t}: No such file or directory", file=sys.stderr)
+        print(f"acidcat stats: {t}: No such file or directory", file=sys.stderr)
     if missing and len(missing) == len(args.targets):
         return 2
     emitted = 0
     rows = []
+    cap = getattr(args, "max_files", None)       # stats --max-files; 0 or None: none
+    seen = 0
+    capped = False
     for path, named in _iter_files(args.targets):
+        if cap and seen >= cap:
+            capped = True
+            break
+        seen += 1
         fp = (_fast_fingerprint(path) if args.fast
               else _full_fingerprint(path, args.anomalies))
         if fp is None:
@@ -177,6 +184,9 @@ def _run(args):
         if not args.no_path:
             row["path"] = path
         rows.append(row)
+    if capped:
+        from acidcat.commands.stats import cap_note
+        cap_note(cap)
     fmt = getattr(args, "output_format", "tsv")
     if rows:
         if fmt == "tsv":
@@ -185,6 +195,13 @@ def _run(args):
             # is `sort | uniq -c`, which would count a header as a data line.
             for r in rows:
                 print("\t".join(str(v) for v in r.values()))
+        elif fmt == "table":
+            from acidcat.core.infra.render import format_columns
+            # the chunk list last: it is the one column with no useful width
+            cols = [("format", "format"), ("flag", "flag"), ("summary", "summary")]
+            if not args.no_path:
+                cols.append(("path", "path"))
+            format_columns(rows, cols + [("chunks", "chunks")])
         else:
             _render(rows, fmt=fmt)
     # a filter that matched nothing is a negative result, not a success --

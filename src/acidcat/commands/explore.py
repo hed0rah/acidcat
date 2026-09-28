@@ -8,7 +8,6 @@ it keeps working across inspect refactors.
 
 import json
 import os
-import subprocess
 import sys
 
 from acidcat import explorer
@@ -29,14 +28,20 @@ def run(args):
     if not os.path.isfile(path):
         print(f"acidcat explore: {path}: No such file", file=sys.stderr)
         return 2
-    r = subprocess.run(
-        [sys.executable, "-m", "acidcat", "inspect", "--full", path],
-        capture_output=True)
-    out_bytes, err = r.stdout, r.stderr
-    if r.returncode != 0:
-        sys.stderr.write(err.decode("utf-8", "replace"))
-        return r.returncode or 1
-    line = out_bytes.decode("utf-8", "replace").splitlines()
+    # in process: the positioned dump is inspect's `full` record, which the
+    # command line no longer spells (1.8's `inspect --full` is an alias for
+    # --json). A subprocess running that spelling would get the wrong record.
+    import contextlib
+    import io
+    from acidcat.commands import _legacy, inspect as inspectcmd
+    ns = _legacy.parser_for(inspectcmd, "inspect").parse_args(["--json", path])
+    ns.full = True
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = inspectcmd.run(ns)
+    if rc:
+        return rc
+    line = buf.getvalue().splitlines()
     if not line:
         print(f"acidcat explore: {path}: inspect produced no output",
               file=sys.stderr)
@@ -44,7 +49,7 @@ def run(args):
     try:
         record = json.loads(line[0])
     except ValueError:
-        print(f"acidcat explore: {path}: could not parse inspect --full output",
+        print(f"acidcat explore: {path}: could not parse inspect's record",
               file=sys.stderr)
         return 1
     html = explorer.build(record)

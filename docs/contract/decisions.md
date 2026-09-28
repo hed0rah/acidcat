@@ -123,7 +123,7 @@ the catalogue.
 
 | # | Question | Answer | Reason | Commits us to |
 |---|---|---|---|---|
-| S1 | Consolidate the CLI? | Fifteen verbs (table in architecture-2.0.md section 8); retired names removed, not aliased | No users to break; aliases would keep five syntaxes alive | rewriting the cross-verb test suites, README, CHEATSHEET and the skill |
+| S1 | Consolidate the CLI? | Seventeen verbs (table in architecture-2.0.md section 8). Revised: retired names are aliases through 2.x (one stderr line, then exactly the new form) and removed in 3.0; flags deprecated in 1.x are removed in 2.0 | A project outside this repository calls the 1.8 CLI, and an alias costs one translation table (`cli_aliases.py`) while giving every script a release to move | rewriting the cross-verb test suites, README, CHEATSHEET and the skill; `test_cli_mapping.py` holds each alias to its new form's exact output |
 | S2 | One address syntax? | The ADDR grammar (node-v1.md section 13) everywhere a location is taken | Output pastes back as input; one parser, one set of errors | retiring `--chunk`, `--field`, `--offset`, `--at`, `--region` |
 | S3 | Public Python API? | `acidcat.open()` returning a read-only `Document` view over the v1 dict; tuple API removed; `read_metadata` exported; generated API reference | Discoverable, typed access without giving up the dict as the source of truth | `acidcat-lab` migrates in the same release |
 | S4 | Editing and MCP? | One `doc.edit()` front door (typed byte patch or `edit` cap profile, then verify, optional repair, commit); MCP read-only structure tools, plus `edit_field` only with `--allow-writes` | One verified write path for CLI, TUI and MCP; writes over MCP are opt-in | inferred types are not editable without `--force` |

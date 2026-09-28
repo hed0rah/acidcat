@@ -393,10 +393,11 @@ def test_scan_json_says_when_it_stopped_early(tmp_path):
     if planted < 3:
         pytest.skip("corpus formats not present")
 
+    # 2.0: `scan -n` is `stats --max-files`, and the cap names that flag
     r = _run("scan", str(tmp_path), "-n", "2", "--json")
-    assert "stopped at the -n 2 cap" in r.stderr, r.stderr
+    assert "stopped at --max-files 2" in r.stderr, r.stderr
     json.loads(r.stdout)                     # stdout must stay parseable
 
     r = _run("scan", str(tmp_path), "-n", "99", "--json")
-    assert "stopped at the" not in r.stderr, (
+    assert "stopped at" not in r.stderr, (
         f"a complete run claimed it stopped early:\n{r.stderr}")

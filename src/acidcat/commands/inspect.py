@@ -21,6 +21,7 @@ rendering.
 
 import contextlib
 import json
+import argparse
 import os
 import sys
 from acidcat.util.color import add_color_arg, color_enabled
@@ -50,12 +51,18 @@ def register(subparsers):
                         "(one record per line).")
     p.add_argument("--hex", action="store_true", dest="show_hex",
                    help="Show raw bytes next to each decoded field.")
-    add_output_format_arg(p, only=("table", "json"))
+    add_output_format_arg(p, only=("table", "json", "csv", "tsv"))
     p.add_argument("-q", "--quiet", action="store_true",
-                   help="Chunk table only, no per-chunk field detail.")
-    p.add_argument("--pretty", action="store_true",
-                   help="Human-friendly view of the decoded tags and metadata "
-                        "(no byte offsets), ideal for presets and tagged files.")
+                   help="Chunk table only, no per-chunk field detail (as csv/tsv "
+                        "too: one row per chunk).")
+    p.add_argument("--summary", action="store_true",
+                   help="The format-centred summary: format, duration, rate, "
+                        "tempo and key, one record per file (what `info` was).")
+    p.add_argument("--tags", action="store_true", dest="pretty",
+                   help="The tag-centred view: decoded tags and metadata with no "
+                        "byte offsets, for presets and tagged files.")
+    p.add_argument("-o", "--output", metavar="PATH",
+                   help="Write the report here instead of stdout.")
     p.add_argument("-F", "--frames", action="store_true",
                    help="Per-element deep dump: every MPEG frame (MP3) or "
                         "MIDI event. No effect on formats without per-element "
@@ -67,21 +74,15 @@ def register(subparsers):
     p.add_argument("--exclude", metavar="IDS",
                    help="Hide these chunk ids (comma-separated). Applied after "
                         "--only.")
-    p.add_argument("--full", action="store_true",
-                   help="Emit a self-contained structural dump (implies --json): "
-                        "each chunk with its raw region bytes and every field's "
-                        "absolute byte offset, so `acidcat explore` can render a "
-                        "standalone HTML explorer for the file.")
     p.add_argument("--anomalies", action="store_true",
                    help="Forensic scan: flag trailing data past the container, "
                         "appended-format magic (polyglots), structural size "
                         "mismatches, and control bytes smuggled into text fields.")
     add_color_arg(p)
-    p.add_argument("-v", "--verbose", action="store_true",
-                   help="Synonym for --frames: request the walker's deep pass. "
-                        "What that adds is per-format -- every MPEG frame, "
-                        "every MIDI event, the Bitwig device tree, the Vital "
-                        "modulation matrix, the NI compressed subtree.")
+    p.add_argument("--deep", action="store_true", dest="verbose",
+                   help="The walker's deep pass: every MPEG frame, every MIDI "
+                        "event, the Bitwig device tree, the Vital modulation "
+                        "matrix, the NI compressed subtree.")
     # experimental: parse untrusted input in a resource-limited worker so a
     # memory/CPU-bomb file takes down only the worker. Linux only; --sandbox
     # errors (never silently runs unsandboxed) where it cannot run.
@@ -99,12 +100,12 @@ def register(subparsers):
                    help="--sandbox CPU/wall-clock cap in seconds (default 60).")
     # reverse-engineering escapes: name the format yourself, scope to a region
     # inside a bigger image, or just tell it to try.
-    p.add_argument("--format", metavar="FMT", dest="fmt_override",
+    p.add_argument("--force-format", metavar="FMT", dest="fmt_override",
                    help="Parse as FMT regardless of the magic bytes (an odd or "
                         "old variant of a format we do model often walks fine "
                         "once dispatch stops depending on the header). "
                         "`acidcat formats` lists the ids.")
-    p.add_argument("--force", action="store_true",
+    p.add_argument("--try-all", action="store_true", dest="force",
                    help="On a file no walker claims, try every walker and report "
                         "what each made of it -- chunk/field counts, whether the "
                         "chunk ids are really at those offsets, and the walker's "
@@ -114,8 +115,10 @@ def register(subparsers):
                         "scanning for plausible [id][size] records and keeping "
                         "the ones that chain end-to-start. Finds what a corrupt "
                         "size field or a smashed magic costs the normal walk.")
-    add_region_args(p)
-    p.set_defaults(func=run)
+    add_region_args(p, addr=True)
+    # --full is how `explore` asks for the positioned dump; 1.8's spelling of
+    # it on the command line is an alias for --json now (cli_aliases)
+    p.set_defaults(func=run, full=False)
 
 
 # ── rendering ──────────────────────────────────────────────────────
@@ -474,6 +477,33 @@ def _print_forced_candidates(filepath, rows, paint):
 
 
 def run(args):
+    """inspect, with --summary handed to the summary view and -o as a plain
+    redirect of what would have gone to stdout."""
+    out = getattr(args, "output", None)
+    if out:
+        import contextlib
+        try:
+            fh = open(out, "w", encoding="utf-8", newline="")
+        except OSError as e:
+            print(f"acidcat inspect: {out}: {e}", file=sys.stderr)
+            return 2
+        with fh, contextlib.redirect_stdout(fh):
+            return _run_view(args)
+    return _run_view(args)
+
+
+def _run_view(args):
+    if getattr(args, "summary", False):
+        from acidcat.commands import info as _info
+        ns = argparse.Namespace(**vars(args))
+        ns.target = list(getattr(args, "targets", None) or [])
+        ns.output = None
+        ns.deep = False
+        return _info.run(ns)
+    return _run_inspect(args)
+
+
+def _run_inspect(args):
     # accept either the multi-file `targets` or the legacy single `target`
     targets = getattr(args, "targets", None)
     if not targets:
@@ -494,6 +524,14 @@ def run(args):
     deep = getattr(args, "frames", False) or getattr(args, "verbose", False)
     full = getattr(args, "full", False)
     as_json = args.output_format == "json" or full  # --full is a JSON dump
+    # csv/tsv are the chunk table as rows, one per chunk: only the --quiet view
+    # is a table of rows
+    delimited = args.output_format in ("csv", "tsv") and not full
+    if delimited and not args.quiet:
+        print("acidcat inspect: --output-format %s gives the chunk table; add "
+              "--quiet (or use --summary)" % args.output_format, file=sys.stderr)
+        return 2
+    table_rows = []
     multi = len(targets) > 1
     only = _parse_id_list(getattr(args, "only", None))
     exclude = _parse_id_list(getattr(args, "exclude", None))
@@ -633,7 +671,13 @@ def run(args):
                     -{"alert": 3, "warn": 2, "notice": 1}.get(x["severity"], 0),
                     x["offset"]))
 
-            if as_json:
+            if delimited:
+                table_rows.extend(
+                    {"file": source_path, "idx": c.get("_idx", i), "id": c["id"],
+                     "offset": c["offset"], "size": c["size"],
+                     "summary": c["summary"]}
+                    for i, c in enumerate(shown))
+            elif as_json:
                 # NDJSON: one compact record per file per line, so the stream
                 # pipes cleanly into jq -c and other line-oriented tools.
                 if full:
@@ -697,4 +741,7 @@ def run(args):
     finally:
         regions.close()
 
+    if table_rows:
+        from acidcat.core.infra.render import output as _render_rows
+        _render_rows(table_rows, fmt=args.output_format)
     return exit_code

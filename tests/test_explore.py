@@ -179,3 +179,19 @@ class TestItLeavesNothingBehind:
         for _ in range(3):
             explore.explore(path, 0, len(outer), scratch_dir=str(scratch))
         assert os.listdir(scratch) == [], os.listdir(scratch)
+
+
+def test_the_verb_builds_from_the_positioned_record(tmp_path, monkeypatch):
+    """2.0: `explore` reads inspect's positioned (`full`) record in process.
+    It used to run `acidcat inspect --full`, which is an alias for --json in
+    2.0 and would hand the page the wrong record."""
+    import seeds
+    from acidcat import explorer
+    from acidcat.cli import main
+    p = tmp_path / "a.wav"
+    p.write_bytes(seeds.build("wav"))
+    seen = []
+    real = explorer.build
+    monkeypatch.setattr(explorer, "build", lambda r: seen.append(r) or real(r))
+    assert main(["explore", str(p), "-o", str(tmp_path / "a.html")]) == 0
+    assert seen and seen[0]["full"] is True

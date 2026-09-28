@@ -132,7 +132,7 @@ def _scan_tagged(filepath):
 def run(args):
     directory = args.target
     if not os.path.isdir(directory):
-        print(f"acidcat scan: {directory}: Not a directory", file=sys.stderr)
+        print(f"acidcat stats: {directory}: Not a directory", file=sys.stderr)
         return 2
 
     # stdout unless -o names a file. This used to invent
@@ -240,7 +240,7 @@ def run(args):
 
     if not rows:
         if not quiet:
-            print("acidcat scan: No audio files found.", file=sys.stderr)
+            print("acidcat stats: No audio files found.", file=sys.stderr)
         return 0
 
     # fieldnames: core set, then any extras from features
@@ -265,13 +265,21 @@ def run(args):
     # The default is unchanged (a CSV file) because scripts depend on it.
     fmt = getattr(args, "output_format", None)
     if fmt in ("json", "table"):
-        from acidcat.core.infra.render import output as _render
+        from acidcat.core.infra.render import format_columns, output as _render
         shaped = [{k: r.get(k) for k in fieldnames} for r in rows]
         stream = sys.stdout
         if getattr(args, "output", None):
             stream = open(args.output, "w", encoding="utf-8", newline="")
         try:
-            _render(shaped, fmt=fmt, stream=stream)
+            if fmt == "table":
+                # one line per file: a record per file was thousands of lines
+                # over a real library (every field is in --json and --csv)
+                format_columns(shaped, [("filename", "file"), ("format", "format"),
+                                        ("bpm", "bpm"), ("key", "key"),
+                                        ("duration_sec", "seconds"),
+                                        ("chunks", "chunks")], stream)
+            else:
+                _render(shaped, fmt=fmt, stream=stream)
         finally:
             if stream is not sys.stdout:
                 stream.close()
@@ -279,7 +287,10 @@ def run(args):
         # that stopped at -n said nothing about stopping: the machine-readable
         # face was the one that could not tell a complete run from a truncated
         # one. stderr, so the records on stdout stay parseable.
-        if not quiet and count >= num:
+        if getattr(args, "cap_flag", None) and count >= num:
+            from acidcat.commands.stats import cap_note
+            cap_note(num)
+        elif not quiet and count >= num:
             # "may remain": the loop breaks AT the cap without peeking, so a
             # directory holding exactly -n files is indistinguishable from one
             # holding more. Claiming more remain would be a confident guess in
@@ -305,7 +316,7 @@ def run(args):
         # a truncated run and a complete one must not print the same sentence:
         # "500 files" reads as the library's size, not as where we stopped
         cap_note = (f" (stopped at the -n {num} cap; more files may remain)"
-                    if count >= num else "")
+                    if count >= num and not getattr(args, "cap_flag", None) else "")
         # The ABSOLUTE path when there is one. An earlier fix here printed the
         # absolute path because a bare filename left people hunting with
         # `find` -- which made the surprise easier to locate rather than
@@ -313,5 +324,8 @@ def run(args):
         where = f" to {os.path.abspath(output_csv)}" if output_csv else ""
         print(f"\n[INFO] Wrote metadata for {len(rows)} files{where}"
               f"{cap_note}", file=sys.stderr)
+    if getattr(args, "cap_flag", None) and count >= num:
+        from acidcat.commands.stats import cap_note as _cap
+        _cap(num)
 
     return 0

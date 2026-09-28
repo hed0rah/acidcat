@@ -53,17 +53,17 @@ def _parse_sets(set_args):
     return changes
 
 
-def _edit(path, changes):
+def _edit(path, changes, force=False):
     """Return (format_label, new_bytes, applied) for the file, or raise EditError.
 
     Goes through the one edit front door (acidcat.core.edit): the changes
     become a Patch, which is verified -- every field read back through its
     profile, no new defect on a re-walk -- before its bytes are returned."""
     from acidcat.core import edit as editmod
-    patch = editmod.edit_path(path, changes).verify()
+    patch = editmod.edit_path(path, changes, force=force).verify()
     for note in patch.notes:
         # stored, but not all of what was asked: say so, once, on stderr
-        print(f"acidcat write: {path}: {note}", file=sys.stderr)
+        print(f"acidcat edit: {path}: {note}", file=sys.stderr)
     return patch.format, patch.data, patch.applied
 
 
@@ -102,17 +102,23 @@ def _strip_data(path, data):
 
 def _run_strip(args):
     if args.output and len(args.inputs) > 1:
-        print("acidcat write: -o works with a single input file", file=sys.stderr)
+        print("acidcat edit: -o works with a single input file", file=sys.stderr)
         return 2
     fmt_out = chosen_format(args)
     rows = None if fmt_out == "table" else []
     rc = 0
     for path in args.inputs:
+        if not os.path.isfile(path):
+            # an input that is not there is could-not-run (2), not a refused
+            # edit (1)
+            print(f"acidcat edit: {path}: No such file", file=sys.stderr)
+            rc = 2
+            continue
         try:
             fmt, new_data, removed = _strip(path)
         except (edits.EditError,) + _mutagen_errors() as e:
-            print(f"acidcat write: {path}: {e}", file=sys.stderr)
-            rc = 1
+            print(f"acidcat edit: {path}: {e}", file=sys.stderr)
+            rc = max(rc, 1)
             continue
         row = None
         if rows is not None:
@@ -149,7 +155,7 @@ def _commit_and_report(path, new_data, args, row=None):
         written, backup = writer.commit(
             path, new_data, out=args.output, overwrite=args.overwrite)
     except OSError as e:
-        print(f"acidcat write: {path}: {e}", file=sys.stderr)
+        print(f"acidcat edit: {path}: {e}", file=sys.stderr)
         if row is not None:
             row.update(written=None, backup=None, error=str(e))
         return 2
@@ -192,25 +198,32 @@ def run(args):
     try:
         changes = _parse_sets(args.sets)
     except edits.EditError as e:
-        print(f"acidcat write: {e}", file=sys.stderr)
+        print(f"acidcat edit: {e}", file=sys.stderr)
         return 2
     if not changes:
-        print("acidcat write: nothing to change (use --set FIELD=VALUE)",
+        print("acidcat edit: nothing to change (use --set FIELD=VALUE)",
               file=sys.stderr)
         return 2
     if args.output and len(args.inputs) > 1:
-        print("acidcat write: -o works with a single input file", file=sys.stderr)
+        print("acidcat edit: -o works with a single input file", file=sys.stderr)
         return 2
 
     fmt_out = chosen_format(args)
     rows = None if fmt_out == "table" else []
     rc = 0
     for path in args.inputs:
+        if not os.path.isfile(path):
+            # an input that is not there is could-not-run (2), not a refused
+            # edit (1)
+            print(f"acidcat edit: {path}: No such file", file=sys.stderr)
+            rc = 2
+            continue
         try:
-            fmt, new_data, applied = _edit(path, changes)
+            fmt, new_data, applied = _edit(path, changes,
+                                           force=getattr(args, "force", False))
         except (edits.EditError,) + _mutagen_errors() as e:
-            print(f"acidcat write: {path}: {e}", file=sys.stderr)
-            rc = 1
+            print(f"acidcat edit: {path}: {e}", file=sys.stderr)
+            rc = max(rc, 1)
             continue
         row = None
         if rows is not None:

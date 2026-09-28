@@ -33,7 +33,7 @@ class _DeprecatedOutputFormat(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
-def add_output_format_arg(parser, default="table", only=None, deprecated_f=True):
+def add_output_format_arg(parser, default="table", only=None, deprecated_f=False):
     """Add the standard output-rendering flags to ``parser``.
 
     Adds ``--output-format`` (choices from the render registry, or the ``only``

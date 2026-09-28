@@ -65,9 +65,6 @@ def register(subparsers):
                    help="Show which metadata fields the format can hold and "
                         "where each one lands. Needs a format.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"), deprecated_f=False)
-    p.add_argument("--format-out", dest="output_format",
-                   choices=("table", "json", "tsv"),
-                   help=argparse.SUPPRESS)          # deprecated: use --output-format
     p.set_defaults(func=run)
 
 

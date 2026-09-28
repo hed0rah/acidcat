@@ -203,7 +203,7 @@ class TestCensusReadsBothHalvesOfIFF:
         res = cx.result()
         assert res["riff_family_files"] == 1
         assert dict(res["containers"])["FORM:AIFF"] == 1
-        names = dict(res["chunk_histogram"])
+        names = {c: h["occurrences"] for c, h in res["chunk_histogram"].items()}
         assert names["COMM"] == 1 and names["SSND"] == 1
 
     def test_the_aiff_extension_is_in_the_dirent_filter(self):

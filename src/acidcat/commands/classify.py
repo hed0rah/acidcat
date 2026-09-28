@@ -51,9 +51,12 @@ def register(subparsers):
                         "per-file sweep would dominate.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"))
     add_color_arg(p)
+    p.add_argument("--problems-only", action="store_true",
+                   help="Report only files that are not a plain single file of "
+                        "their format (the ones worth a closer look).")
     p.add_argument("-q", "--quiet", action="store_true",
-                   help="Only report files that are not a plainly-understood "
-                        "single format.")
+                   help="Drop progress and summary lines on stderr (never "
+                        "changes stdout).")
     p.set_defaults(func=run)
 
 
@@ -105,7 +108,7 @@ def run(args):
                 continue
             if v["shape"] not in _NOTHING_FOUND:
                 identified += 1
-            if args.quiet and v["shape"] == "single":
+            if getattr(args, "problems_only", False) and v["shape"] == "single":
                 continue
             name = display if display == "<stdin>" else display_name(path)
             # `file` is for reading, `path` is for running: the latter must stay

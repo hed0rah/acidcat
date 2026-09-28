@@ -46,7 +46,7 @@ def register(subparsers):
 def run(args):
     target = args.target
     if not os.path.exists(target):
-        print(f"acidcat similar: file not found: {target}", file=sys.stderr)
+        print(f"acidcat lib: file not found: {target}", file=sys.stderr)
         return 2          # could not read the input, as everywhere else
 
     rconn = reg.open_registry(getattr(args, "registry", None))
@@ -55,8 +55,8 @@ def run(args):
     finally:
         rconn.close()
     if not libs:
-        print("acidcat similar: no libraries registered. Run "
-              "`acidcat index DIR --features` first.", file=sys.stderr)
+        print("acidcat lib: no libraries registered. Run "
+              "`acidcat lib index DIR --features` first.", file=sys.stderr)
         return 2          # nothing to search: the query could not run
 
     # reference features: from the index, else a live librosa extract
@@ -68,7 +68,7 @@ def run(args):
         from acidcat.core.analysis.features import extract_audio_features
         target_feats = extract_audio_features(target)
         if target_feats is None:
-            print(f"acidcat similar: could not extract features from {target}",
+            print(f"acidcat lib: could not extract features from {target}",
                   file=sys.stderr)
             return 1
         target_meta = {"duration": target_feats.get("duration_sec"),
@@ -80,14 +80,14 @@ def run(args):
             kind_filter=args.kind_filter,
             exclude_path=acidpaths.normalize(target))
     except ValueError as e:
-        print(f"acidcat similar: {e}", file=sys.stderr)
+        print(f"acidcat lib: {e}", file=sys.stderr)
         return 1
 
     rows = result["results"]
     if not rows:
         if result["population"] == 0:
-            print("acidcat similar: no indexed features to compare against. "
-                  "Run `acidcat index DIR --features`.", file=sys.stderr)
+            print("acidcat lib: no indexed features to compare against. "
+                  "Run `acidcat lib index DIR --features`.", file=sys.stderr)
         else:
             print("(no similar samples found)", file=sys.stderr)
         return 0

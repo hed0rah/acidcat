@@ -49,6 +49,34 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- **The 2.0 command line: seventeen verbs** (`docs/contract/cli-2.0.md`):
+  inspect, od, carve, probe, classify, locate, audit, check, edit, stats,
+  analyze, lib, convert, extract, formats, explore, tui. `od` and `carve`
+  take an address (`od FILE fmt`, `carve FILE 'LIST[0]#title'`,
+  `carve FILE @0x2c+16`); `inspect --summary` and `--tags` are the two
+  views; `check` validates and `check --fix` repairs; `edit` sets tags,
+  typed fields, byte ranges and the cover; `stats --by meta|shape|chunks`
+  gives one line per file or a count over a tree, stopping at
+  `--max-files` (10,000 by default, `0` for all; stopping is a coverage
+  line on stderr and exit 0); `analyze` holds the librosa passes; `lib`
+  the library (`index`, `query`, `similar`, `list`, `forget`, `stats`).
+  A bare file is `inspect --summary`, a bare directory `stats`.
+- **Every 1.8 verb and flag is an alias through 2.x.** It prints one line
+  on stderr naming its 2.0 spelling, then runs exactly that, so its stdout
+  is the 2.0 form's. `-f`, `--no-color`, `formats --format-out` and
+  `carve --format`, deprecated in 1.x, are removed: each exits 2 naming
+  what to write instead.
+- **Output that changes under the aliases:** `chunks` prints inspect's
+  `--quiet` table; `dump` and `probe hexdump` print the `od` layout, and
+  `dump` skips a missing chunk as it did; `carve --field` prints the
+  field's Document value; `scan` and `shape` tables are one line per file;
+  `survey` and `census` give the census report, whose histogram labels
+  `files` and `occurrences` (JSON: `{files, occurrences}` per id), counts
+  `unparseable` files, offers csv/tsv, and exits 1 on a tree with nothing
+  readable; `classify -q` no longer filters stdout (`--problems-only`
+  does); hints and messages name the 2.0 verbs. `analyze --features`
+  defaults to a table (the `features` alias still asks for csv), and
+  `acidcat` with no verb exits 2.
 - **TUI: the bytes pane shows the file around the selection.** Selecting a
   field lights its bytes inside their neighbours, with the selected node's
   fields tinted, instead of showing the selection alone on an empty pane.

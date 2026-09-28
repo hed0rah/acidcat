@@ -71,7 +71,9 @@ layer's chunks never join the flat list.
    registry, the shared filter builder) and `mcp_server/` (19 tools over stdio or
    streamable HTTP). A **consumer** of the core; the core never imports it, so it
    is cleanly severable.
-6. **Interfaces** -- `cli.py` (29 subcommands) + `commands/*.py` (one per verb);
+6. **Interfaces** -- `cli.py` (17 verbs, plus the 1.8 spellings as aliases in
+   `cli_aliases.py`) + `commands/*.py` (a module per verb; the 1.8 verbs' modules
+   are the implementations behind the 2.0 ones);
    `tui_app/` (Textual inspector/editor); the public API in `acidcat/__init__`;
    console scripts `acidcat` and `acidcat-mcp`.
 
@@ -113,12 +115,12 @@ src/acidcat/
     catalogue/     SQLite index, registry, query builder, search (8)
     grammar/       declarative descriptor engine (opt-in) (9)
     data/          shipped JSON tables (provenance signatures)
-  commands/        29 CLI verbs (31 modules)
+  commands/        17 CLI verbs and the 1.8 implementations behind them (38 modules)
   mcp_server/      schema, handlers, transport (19 tools)
   tui_app/         Textual inspector/editor; model.py is its state, no Textual;
                    state.py what it remembers between runs (tui.json)
   util/            small shared helpers
-  cli.py  explorer.py  tui_theme.py  __init__.py     (270 modules in total)
+  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (278 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

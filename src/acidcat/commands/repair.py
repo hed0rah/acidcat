@@ -87,7 +87,7 @@ def _repair_one(path, args, rows=None):
                          "issues": 0, "repairable": False, "written": None,
                          "backup": None,
                          "detail": "not a structurally-modeled container"})
-        print(f"acidcat repair: {path}: not a RIFF/AIFF/MP4 container "
+        print(f"acidcat check: {path}: not a RIFF/AIFF/MP4 container "
               f"(nothing to repair here)", file=sys.stderr)
         return 2
 
@@ -107,7 +107,7 @@ def _repair_one(path, args, rows=None):
     try:
         new_data, report = constraints.repair(data, opts)
     except AudioGuardError as e:
-        print(f"acidcat repair: {path}: aborted, {e} (refusing to write)",
+        print(f"acidcat check: {path}: aborted, {e} (refusing to write)",
               file=sys.stderr)
         return 1
 
@@ -119,7 +119,7 @@ def _repair_one(path, args, rows=None):
         written, backup = writer.commit(
             path, new_data, out=args.output, overwrite=args.overwrite)
     except OSError as e:
-        print(f"acidcat repair: {path}: {e}", file=sys.stderr)
+        print(f"acidcat check: {path}: {e}", file=sys.stderr)
         return 2
     if rows is not None:
         rows[-1].update(action="repaired", written=written, backup=backup)
@@ -142,7 +142,7 @@ def _repair_one(path, args, rows=None):
 
 def run(args):
     if args.output and len(args.inputs) > 1:
-        print("acidcat repair: -o works with a single input file", file=sys.stderr)
+        print("acidcat check: -o works with a single input file", file=sys.stderr)
         return 2
     fmt = chosen_format(args)
     rows = None if fmt == "table" else []
@@ -151,7 +151,7 @@ def run(args):
         try:
             rc = _repair_one(path, args, rows) or rc
         except (OSError, ValueError) as e:
-            print(f"acidcat repair: {path}: {e}", file=sys.stderr)
+            print(f"acidcat check: {path}: {e}", file=sys.stderr)
             rc = 2
     if rows is not None:
         if fmt in ("csv", "tsv"):

@@ -1,10 +1,10 @@
 # acidcat 2.0: the CLI, old to new
 
 Every command and flag acidcat 1.8 accepts, what it becomes in 2.0, and
-whether the old spelling keeps working. This is the plan for the breaking
-pass; no CLI code has changed yet. `tests/test_cli_mapping.py` fails when a
-verb or flag exists in the parser and not here, so the table cannot fall
-behind the code.
+whether the old spelling keeps working. Built in 2.0.0a1 (section 5 says where
+the build refines it). `tests/test_cli_mapping.py` runs the old spellings
+through their aliases and holds each to its new form's exact output, and fails
+when a 2.0 flag is not named here.
 
 ## 1. Rules
 
@@ -452,21 +452,69 @@ Reads the Document in process instead of running `inspect --full`.
 
 No flags; unchanged.
 
-## 4. Open
+## 4. Decided
 
-Decisions this mapping needs before the CLI code is written:
+The five questions this page left open, as the user answered them:
 
-1. `cover -o` as `carve FILE cover`: `cover` has to resolve as an address.
-   Either the metadata profiles name a `cover` node, or `carve` grows a
-   profile lookup. The simplest honest alternative is `edit --get cover -o`.
-2. `inspect --pretty` and `info` folded into one `--summary`: the two views
-   overlap but are not identical today (`--pretty` is tag-centred, `info` is
-   format-centred). One view, or `--summary` and `--tags`?
-3. `--at` search anchors (`end-N`, `find:`) stay outside ADDR. Folding them in
-   (`@end-16`, `@find:LIST`) would make every address a potential search.
-4. `stats --by meta` defaults to reading the whole tree where `scan` stopped
-   at 500 files. A default `--max-files` keeps a mistyped `/` from walking a
-   disk.
-5. `validate -q` becoming `--problems-only` follows the `-q` rule; `classify
-   -q` has the same shape ("only report files that are not plain") and would
-   follow it.
+1. **Cover art out is `edit FILE --get cover -o PATH`.** `carve FILE cover`
+   is not built: an address never names a profile's pseudo-field. `cover -o`
+   is an alias for `edit --get cover -o`; `cover --set IMG` for `edit --set
+   cover=@IMG`; `cover --remove` for `edit --unset cover`.
+2. **Two views: `inspect --summary` and `inspect --tags`.** `--summary` is
+   `info`'s format-centred record, `--tags` is `inspect --pretty`'s
+   tag-centred view. `info` aliases to `--summary`, `--pretty` to `--tags`.
+3. **`--at` search anchors stay outside ADDR** with their 1.8 syntax
+   (`end[-N]`, `find:STR`, `find:0xHEX`, `chunk:ID[+N]`, a bare offset). An
+   ADDR never searches, so a value that reads as an anchor is an anchor.
+4. **`--max-files` has a default on `stats` only: 10,000, for every `--by`.**
+   Stopping there is a coverage finding, one line on stderr naming the flag,
+   and the run exits 0. `--max-files 0` means no limit. No other verb has a
+   default, and `lib index` has no `--max-files`: it never stops part-way
+   through a library.
+5. **`--problems-only` on `check` and on `classify`.** It is what `validate
+   -q` and `classify -q` did; `-q` keeps the standard meaning (stderr only).
+
+## 5. As built (2.0.0a1)
+
+Where the build refines this page, and what it does not do yet:
+
+- `od FILE ADDR...` takes several addresses and dumps each, so `dump FILE a b`
+  is one `od` (and `dump --json` one JSON array). `od --json` gives
+  `{addr, offset, length, hex}` per address. An address that names nothing
+  is named on stderr and skipped, as `dump` skipped a missing chunk: exit 0
+  when at least one resolved, 1 when none did.
+- A 1.8 implementation's messages carry the 2.0 verb that runs it
+  (`acidcat edit:` from what was `write`, `acidcat lib:` from `index`).
+- `carve FILE GLOB#KEY` prints that field from every node the glob matches:
+  `carve --field NAME` is `carve FILE **#NAME`. A single field ADDR prints its
+  value, as `--field` did. `carve --chunk ID` is `carve FILE ID`, and `--raw`
+  carves a node's whole extent. `-o DIR/` names the file after the ADDR
+  (`dump --write`).
+- A plain byte range (`@OFF+LEN`, `@OFF..END`, `@OFF`) needs no walk, so it
+  works on a file no walker reads; `@OFF` alone runs to the end of the file.
+  A 1.8 `--offset N` with no length becomes the anchor `N`.
+- `inspect --quiet` is inspect's own chunk table; `chunks` output changes to
+  it. csv and tsv give it as rows (one per chunk) and need `--quiet`.
+- `edit --unset NAME` clears a tag (`--set NAME=` did); `edit --force` writes
+  a typed field whose type was only inferred.
+- `stats --by meta|shape` print one line per file in table mode.
+- `stats --by chunks` runs census's engine and report over census's scope,
+  the IFF family (RIFF, RF64, W64, FORM); files of other extensions are
+  counted in one stderr line. The histogram labels both counts: `files`
+  holding an id and every `occurrences` of it (the JSON histogram maps each
+  id to `{files, occurrences}`; the table shows one column when no file
+  repeats an id). IFF-family files with no readable chunk are counted as
+  `unparseable`, and a tree of nothing else exits 1, as survey did. csv and
+  tsv give the histogram as rows (chunk id, files, occurrences, example).
+- `--has IDS` keeps each mode's 1.8 meaning: `--by meta` lists WAV files
+  holding **any** of the ids (scan's), `--by chunks` counts only files
+  holding **all** of them (survey's and census's), and says how many it
+  passed over. `--examples N` keeps N paths per id.
+- `survey -n N` and `census --limit N` are `--max-files N`; without either,
+  the 10,000 default applies, which neither 1.8 verb had.
+- `--jobs`, `--io-hint`, `--follow-symlinks`, `--one-file-system`,
+  `--noatime` and `--no-fadvise` are census's reader, which serves
+  `--by chunks` only so far: `--by meta` and `--by shape` accept them and say
+  on stderr that they have no effect there. `--no-recurse` and
+  `--limit NAME=VALUE` are on no verb yet (`--limit` arrives with the Document
+  JSON, milestone 4).

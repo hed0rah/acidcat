@@ -1,4 +1,4 @@
-"""acidcat cover: extract, embed, or remove embedded cover art.
+"""acidcat edit: extract, embed, or remove embedded cover art.
 
   acidcat cover song.mp3                 # show cover info
   acidcat cover song.mp3 -o art.jpg      # extract the cover to a file
@@ -48,12 +48,12 @@ def _mutate(path, image, overwrite):
 def run(args):
     path = args.file
     if not os.path.isfile(path):
-        print(f"acidcat cover: {path}: No such file", file=sys.stderr)
+        print(f"acidcat edit: {path}: No such file", file=sys.stderr)
         return 2
     try:
         if args.set_image:
             if not os.path.isfile(args.set_image):
-                print(f"acidcat cover: {args.set_image}: No such file", file=sys.stderr)
+                print(f"acidcat edit: {args.set_image}: No such file", file=sys.stderr)
                 return 2
             img = open(args.set_image, "rb").read()
             written, backup, _rec = _mutate(path, img, args.overwrite)
@@ -64,7 +64,7 @@ def run(args):
         if args.remove:
             written, backup, rec = _mutate(path, None, args.overwrite)
             if not rec.field["removed"]:
-                print(f"acidcat cover: {os.path.basename(path)}: no embedded cover art")
+                print(f"acidcat edit: {os.path.basename(path)}: no embedded cover art")
                 return 0
             note = f"  (backup: {os.path.basename(backup)})" if backup else ""
             print(f"removed cover art from {os.path.basename(written)}{note}")
@@ -85,5 +85,5 @@ def run(args):
         print(f"extracted cover ({mime}, {len(blob):,} bytes) to {out}")
         return 0
     except covermod.CoverError as e:
-        print(f"acidcat cover: {path}: {e}", file=sys.stderr)
+        print(f"acidcat edit: {path}: {e}", file=sys.stderr)
         return 1

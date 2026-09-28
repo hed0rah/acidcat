@@ -42,9 +42,10 @@ def _run(cwd, *args):
                           cwd=str(cwd), capture_output=True, text=True)
 
 
-def test_bare_dir_matches_the_scan_verb(tmp_path, lib):
+def test_bare_dir_matches_the_stats_verb(tmp_path, lib):
+    """2.0: `acidcat DIR` is `acidcat stats DIR`."""
     a = _run(tmp_path, str(lib))
-    b = _run(tmp_path, "scan", str(lib))
+    b = _run(tmp_path, "stats", str(lib))
     assert a.returncode == b.returncode
     assert a.stdout == b.stdout
 
@@ -66,19 +67,16 @@ def test_an_explicit_rendering_still_wins(tmp_path, lib):
         json.loads(out)                     # must be JSON, not a CSV file write
 
 
-def test_the_default_is_read_from_scans_parser_not_copied(tmp_path):
-    """Hard-coding the default in the fallback is what caused the drift. It must
-    be derived, so adding a flag to `scan` cannot desynchronise them again."""
-    import argparse
-    from acidcat.cli import _scan_default_format
-    from acidcat.commands import scan
-
-    p = argparse.ArgumentParser()
-    sub = p.add_subparsers()
-    scan.register(sub)
-    declared = next(a.default for a in sub.choices["scan"]._actions
-                    if a.dest == "output_format" and a.default)
-    assert _scan_default_format() == declared
+def test_the_bare_form_is_the_verb_not_a_copy_of_it():
+    """The drift came from a second parser declaring the verbs' flags. The bare
+    form now puts the verb in and parses as that verb, so there is nothing to
+    drift."""
+    import os
+    from acidcat.cli import _bare_path
+    here = os.path.dirname(__file__)
+    assert _bare_path([here, "--json"]) == ["stats", here, "--json"]
+    assert _bare_path([__file__]) == ["inspect", "--summary", __file__]
+    assert _bare_path(["stats", here]) is None
 
 
 def test_bare_file_still_routes_to_info(tmp_path):
@@ -86,6 +84,6 @@ def test_bare_file_still_routes_to_info(tmp_path):
     p = tmp_path / "a.wav"
     _wav(p)
     a = _run(tmp_path, str(p))
-    b = _run(tmp_path, "info", str(p))
+    b = _run(tmp_path, "inspect", "--summary", str(p))
     assert a.returncode == b.returncode
     assert a.stdout == b.stdout
