@@ -432,6 +432,11 @@ gone.
 
 ### Fixed
 
+- **Hints print the 2.0 command.** `audit`'s HIDDEN section suggested
+  `acidcat carve F --offset 0xNN`, and `inspect --resync` `--offset N
+  --length L`: 1.8 spellings that run through an alias and print a note.
+  They say `carve F --at 0xNN` and `carve F @0xNN+L`.
+
 - **`inspect --only RIFF` is the whole file.** The table's ids start with
   the root, and naming it said "names no chunk" (the root is made by the
   Document, not a walker chunk). A node now picks its subtree for `--only`

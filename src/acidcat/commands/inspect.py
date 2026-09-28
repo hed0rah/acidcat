@@ -508,8 +508,8 @@ def _run_resync(filepath, paint, source_path=None, as_json=False):
                 "\n  found by scanning for [id][size] records and keeping the ones\n"
                 "  that link end-to-start. Corroborated hypotheses, not a validated\n"
                 "  parse -- carve one out to work on it:\n"
-                f"    acidcat carve {name} --offset 0x{chain[0]['offset']:x} "
-                f"--length {chain[0]['size'] + 8}"))
+                f"    acidcat carve {name} "
+                f"@0x{chain[0]['offset']:x}+{chain[0]['size'] + 8}"))
     return 0
 
 

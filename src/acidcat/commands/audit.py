@@ -54,7 +54,10 @@ def _carve_hint(path, finding):
         return f"acidcat carve {base} --trailing -o out.bin"
     off = finding.get("offset")
     if off:
-        return f"acidcat carve {base} --offset 0x{off:x} -o out.bin"
+        # the 2.0 spelling: `--offset` is a 1.8 alias that prints a note,
+        # and a hint should be the command to run. An anchor runs to the
+        # end, as the bare --offset did.
+        return f"acidcat carve {base} --at 0x{off:x} -o out.bin"
     return ""
 
 
