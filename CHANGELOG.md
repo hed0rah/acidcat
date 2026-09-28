@@ -432,6 +432,10 @@ gone.
 
 ### Fixed
 
+- **`cat f.wav | acidcat -` names `<stdin>`.** The summary card printed the
+  temporary copy's name (`File  tmpXXXX.acidcat_stdin`); the shared target
+  walker resolved `-` before the card's own check could see it.
+
 - **Hints print the 2.0 command.** `audit`'s HIDDEN section suggested
   `acidcat carve F --offset 0xNN`, and `inspect --resync` `--offset N
   --length L`: 1.8 spellings that run through an alias and print a note.

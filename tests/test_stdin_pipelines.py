@@ -105,3 +105,15 @@ def test_named_files_are_unaffected(wav):
                        capture_output=True, text=True)
     assert r.returncode == 0
     assert r.stdout.startswith("a.wav:")
+
+
+@pytest.mark.parametrize("argv", [["-"], ["inspect", "--summary", "-"]])
+def test_the_summary_card_names_stdin(wav, argv):
+    """`cat f.wav | acidcat -` printed `File  tmpXXXX.acidcat_stdin`: the
+    shared target walker resolved `-` before the card was built, so the
+    card's own stdin check never fired."""
+    r = _pipe(wav.read_bytes(), *argv)
+    out = r.stdout.decode()
+    assert r.returncode == 0, r.stderr.decode()
+    assert out.splitlines()[0].split() == ["File", "<stdin>"]
+    assert "acidcat_stdin" not in out

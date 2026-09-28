@@ -544,8 +544,10 @@ def _run_one(args):
                   f"(try: acidcat classify {name})", file=sys.stderr)
             return 2
 
-        # when reading from stdin, show <stdin> instead of tempfile name
-        if tmp_path:
+        # when reading from stdin, show <stdin> instead of tempfile name --
+        # also when targets.each resolved `-` before this ran, which left the
+        # card naming the temp copy (`cat f.wav | acidcat -`)
+        if tmp_path or getattr(args, "_given", None) == "<stdin>":
             rec["File"] = "<stdin>"
 
         if getattr(args, "_rows", None) is not None:
