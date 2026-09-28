@@ -432,6 +432,11 @@ gone.
 
 ### Fixed
 
+- **Bytes appended past a WAV's RIFF end were read as chunks.** 2 MB of
+  appended zeros became 262,144 empty chunks, and opening the file took
+  seconds (a TUI test ran past its budget on CI). A chunk id is four ASCII
+  characters, so the walk now stops at the first that is not; the bytes stay
+  past the container end, where the scan reports them as trailing data.
 - **`cat f.wav | acidcat -` names `<stdin>`.** The summary card printed the
   temporary copy's name (`File  tmpXXXX.acidcat_stdin`); the shared target
   walker resolved `-` before the card's own check could see it.

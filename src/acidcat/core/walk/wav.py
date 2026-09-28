@@ -1363,6 +1363,12 @@ def inspect_wav(filepath, ctx=None):
             avail = max(0, file_size - offset - 8)
             overruns = size > avail and not (cid == "data" and size in _STREAM_SENTINELS)
             past = declared_end < file_size and offset >= declared_end
+            if past and str(cid).startswith("hex:"):
+                # appended bytes, not chunks: a chunk id is four ASCII
+                # characters. Reading on turned 2 MB of appended zeros into
+                # 262,144 empty "chunks"; they stay past the container end,
+                # where the forensic scan reports them as trailing data.
+                break
             if past and not overruns and not str(cid).startswith("hex:"):
                 chunk_past_end = chunk_past_end or (cid, offset)
             if (offset < declared_end < offset + 8 + size and declared_end < file_size
