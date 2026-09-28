@@ -32,6 +32,14 @@ The aliases go in 3.0. What does not alias:
   1); a refused edit of a file they do edit is still 1. `stats` exits 1
   when no target is a file its mode reads, in every mode (`--by meta` said
   0). `classify` and `inspect --try-all` still answer 1.
+- `audit` exits 1 only for a defect. A suspicion (a polyglot, bytes past
+  the container, LSB entropy, a cavity) is reported, as an `info` finding,
+  and exits 0; 1.8 exited 1 on any of them, so `audit f || quarantine f`
+  quarantines less. Read `audit --json` (`kind`, `code`) to act on them.
+- `check` (and `validate`) now FAIL a PCM WAV whose `block_align`,
+  `avg_bytes_per_sec` or `smpl` sample period disagrees with its format
+  (`RIFF/fmt_ block_align: 4 -> 2`), which 1.8 passed; `check --fix`
+  rewrites them. A gate that passed such files exits 1 now.
 - `stats` (and the `survey` and `census` aliases) stop at 10,000 files
   unless `--max-files` says otherwise (`0` for no limit); the `scan` alias
   keeps its 1.8 default of 500.
