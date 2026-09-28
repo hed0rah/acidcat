@@ -495,10 +495,13 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
     # size-based check above cannot see it). Scans the last 64K+ from the end.
     if not any(f["rule"] == "polyglot" for f in findings):
         with open(filepath, "rb") as f:
+            is_zip = f.read(4) == b"PK\x03\x04"
             f.seek(max(0, size - 66000))
             tail = f.read()
         idx = tail.rfind(b"PK\x05\x06")
-        if idx >= 0 and len(tail) - idx >= 22:
+        # a file that IS a zip (.xpn, .labx, .multisample) ends with its own
+        # end record; that is the archive's index, not one appended to it
+        if idx >= 0 and len(tail) - idx >= 22 and not is_zip:
             findings.append({"severity": "alert", "offset": (size - len(tail)) + idx,
                              "rule": "polyglot",
                              "message": "possible polyglot: appended ZIP archive "
@@ -757,8 +760,13 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
         # branched on the label, and it made the guard depend on the label being
         # non-empty: a walker that returned "" got a spurious embedded-Ogg
         # finding on every ordinary Ogg file.
+        # an archive's members are whole files by design (a .multisample zone
+        # is a WAV in a zip), and an SF3 stores every sample as an Ogg stream
         wanted = [c for c in _EMBEDDED_MEDIA
-                  if not (c[0] == b"OggS" and fmt_id in _OGG_IDS)]
+                  if not (c[0] == b"OggS" and fmt_id in _OGG_IDS)
+                  and not (c[0] == b"OggS" and fmt_id == "sf2")]
+        if own == b"PK\x03\x04":
+            wanted = []
         hits = _find_embedded(filepath, wanted, own) if wanted else {}
         for magic, _form_at, _form, name in wanted:
             at = hits.get(magic)

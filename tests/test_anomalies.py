@@ -609,3 +609,30 @@ def test_the_four_argument_form_is_unchanged(tmp_path):
     path = _write(tmp_path, "c.wav", _wav(_FMT, _chunk(b"data", b"\x00" * 32)))
     fmt, chunks, warns = walk_file(path, deep=False)
     assert anomalies.scan(path, fmt, chunks, warns) == anomalies.scan(path)
+
+
+def _zip_with_wav(tmp_path, name):
+    wav = _wav(_FMT, _chunk(b"data", b"\x00\x01" * 64))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        z.writestr("multisample.xml", '<multisample name="x"><sample file="a.wav"/></multisample>')
+        z.writestr("a.wav", wav)
+    p = tmp_path / name
+    p.write_bytes(buf.getvalue())
+    return p
+
+
+def test_a_file_that_is_a_zip_is_not_an_appended_zip(tmp_path):
+    """.xpn, .labx and .multisample are zips from byte 0. Their end record is
+    their own index, and a stored WAV member is a whole file by design; every
+    real one was reported as a polyglot carrying embedded media."""
+    rules = {f["rule"] for f in anomalies.scan(str(_zip_with_wav(tmp_path, "kit.multisample")))}
+    assert not rules & {"polyglot", "embedded_standalone_media", "trailing_data"}
+
+
+def test_a_zip_appended_to_a_wav_is_still_a_polyglot(tmp_path):
+    """The control: the exemption is for a file that starts as a zip."""
+    host = _wav(_FMT, _chunk(b"data", b"\x00\x01" * 64))
+    p = tmp_path / "carrier.wav"
+    p.write_bytes(host + _zip_with_wav(tmp_path, "inner.zip").read_bytes())
+    assert "polyglot" in {f["rule"] for f in anomalies.scan(str(p))}
