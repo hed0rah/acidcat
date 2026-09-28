@@ -133,3 +133,19 @@ def test_audit_survives_a_data_chunk_that_overruns_the_file(tmp_path, capsys):
     assert out.strip(), "audit produced no report at all"
     assert "VERDICT" in out
     assert rc in (0, 1)
+
+
+def test_a_rom_is_named_and_pointed_at_extract(tmp_path, capsys):
+    """A SNES ROM sniffs as one and `extract` recovers its samples, yet audit
+    printed it as [unknown] and suggested `locate`. It names what it recognised
+    and the verb that gets at the audio; exit 2 still says nothing was checked."""
+    rom = bytearray(0x8000)
+    rom[0x7FC0 + 0x15] = 0x20                              # LoROM map mode
+    rom[0x7FC0 + 0x1C:0x7FC0 + 0x20] = bytes((0x34, 0x12, 0xCB, 0xED))  # complement, checksum
+    p = tmp_path / "cart.sfc"
+    p.write_bytes(bytes(rom))
+    rc = audit.run(SimpleNamespace(input=str(p), signal=False, output_format="table",
+                                   json=False))
+    out = capsys.readouterr().out
+    assert "[SNES ROM]" in out and "acidcat extract" in out and "[unknown]" not in out
+    assert rc == 2
