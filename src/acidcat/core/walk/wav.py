@@ -769,6 +769,69 @@ def _parse_padding(b, ctx):
     """JUNK / FLLR / PAD, through the reader every container shares."""
     return parse_padding(b)
 
+
+def _printable(b):
+    return all(0x20 <= x < 0x7F for x in b)
+
+
+def _parse_ds64_reservation(b, riff_size):
+    """A 28-byte JUNK straight after the RIFF header, or None.
+
+    28 bytes is exactly a ds64 payload (riffSize, dataSize and sampleCount as
+    u64, then a u32 table length), and EBU Tech 3306 has a writer put a JUNK of
+    that size first so the file can become RF64 past 4 GB by renaming it. Read
+    as padding, every one that is not zero was reported as something
+    overwritten in place, but writers fill it three ways on purpose:
+
+    - the ds64 values themselves, already true for this file;
+    - 28 characters of text: Ableton Live writes a quote here ("The sleeper
+      must awaken", "Why r u using a hex editor?"), on the renders it makes;
+    - the RIFF size written over the first 8 bytes of such a text, which is a
+      later tool preparing the ds64 in a file Live wrote.
+    Anything else is left to the shared padding reader."""
+    if len(b) < 28 or not b.strip(b"\x00"):
+        return None
+    r64, d64, n64 = struct.unpack_from("<QQQ", b, 0)
+    table = struct.unpack_from("<I", b, 24)[0]
+    # some writers reserve more than 28 bytes and leave the rest zero; the
+    # RIFF size may also be stale, the file having grown (tags appended)
+    # after the sizes were written
+    if (0 < d64 < r64 <= riff_size and table == 0 and not b[28:].strip(b"\x00")):
+        fields = [
+            _f(0x00, 8, "riff_size", r64, enc="<Q"),
+            _f(0x08, 8, "data_size", d64, enc="<Q"),
+            _f(0x10, 8, "sample_count", n64, enc="<Q"),
+            _f(0x18, 4, "table_length", table, enc="<I"),
+        ]
+        if r64 == riff_size:
+            return "RF64 reservation (ds64), filled in with this file's sizes", fields, []
+        return (f"RF64 reservation (ds64), filled in when the file was "
+                f"{r64 + 8:,} bytes", fields,
+                [info("convention.noted",
+                      f"the ds64 riff_size is {r64:,} and the RIFF header says "
+                      f"{riff_size:,}: chunks were added after the sizes were "
+                      f"written, so an RF64 conversion must rewrite them")])
+    if len(b) != 28:
+        return None
+    if _printable(b):
+        text = b.decode("ascii")
+        return (f"RF64 reservation (ds64) holding text: {text.rstrip()!r}", [
+            _f(0x00, 28, "text", text, "Ableton Live writes a quote here"),
+        ], [info("convention.noted",
+                 "the RF64 reservation holds a text, not sizes; Ableton Live "
+                 "fills it this way")])
+    if r64 == riff_size and _printable(b[8:]):
+        text = b[8:].decode("ascii")
+        return (f"RF64 reservation (ds64): the RIFF size written over a text "
+                f"...{text.rstrip()!r}", [
+            _f(0x00, 8, "riff_size", r64, enc="<Q"),
+            _f(0x08, 20, "text", text, "the tail of the text an earlier "
+                                                "writer left"),
+        ], [info("convention.noted",
+                 "the RF64 reservation holds the RIFF size over the tail of a "
+                 "text; a second tool prepared the ds64 in a file another wrote")])
+    return None
+
 def _parse_cset(b, ctx):
     """RIFF CSET: the code page the text chunks in this file are written in.
 
@@ -1268,6 +1331,10 @@ def inspect_wav(filepath, ctx=None):
                 ctx["data_bytes"] = min(size, avail)
                 entry["summary"], entry["fields"], entry["warnings"] = \
                     _parse_data(payload, ctx, size, avail)
+            elif (cid == "JUNK" and offset == 12
+                    and _parse_ds64_reservation(payload, riff_size)):
+                entry["summary"], entry["fields"], entry["warnings"] = \
+                    _parse_ds64_reservation(payload, riff_size)
             elif parser:
                 try:
                     entry["summary"], entry["fields"], entry["warnings"] = \
