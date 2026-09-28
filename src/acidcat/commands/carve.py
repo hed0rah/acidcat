@@ -653,7 +653,7 @@ def _run_as_wav(args, filepath):
         if args.offset is not None or args.at is not None or args.trailing:
             try:
                 start, length = _resolve_range(args, filepath, size)
-            except NotFound as e:
+            except (NotFound, bf.AnchorNotFound) as e:
                 print(f"acidcat carve: {e}", file=sys.stderr)
                 return 1
             except (ValueError, bf.FieldError) as e:
@@ -750,7 +750,7 @@ def _run_carve(args):
         if args.type is not None:
             return _run_typed(args, filepath, size)
         start, length = _resolve_range(args, filepath, size)
-    except NotFound as e:
+    except (NotFound, bf.AnchorNotFound) as e:
         # ran fine, the thing you asked for is not in this file. Distinct from
         # the usage errors below, which share ValueError: `carve --chunk ZZZZ`
         # returned 2 and `dump FILE ZZZZ` returned 1 for the identical

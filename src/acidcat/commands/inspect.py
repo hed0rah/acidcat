@@ -681,7 +681,10 @@ def _run_inspect(args):
                 # returned 1, so a script could not branch on it without
                 # knowing which verb it had called.
                 print(f"acidcat inspect: {source_path}: {e}", file=sys.stderr)
-                exit_code = 2
+                # except a search that finds nothing: the answer no
+                from acidcat.core.infra.bytefields import AnchorNotFound
+                exit_code = max(exit_code,
+                                1 if isinstance(e, AnchorNotFound) else 2)
                 continue
             if getattr(args, "resync", False):
                 # a damaged container is exactly the case where the walk fails,

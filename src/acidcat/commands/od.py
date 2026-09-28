@@ -345,7 +345,8 @@ def _run(args):
         rng = _requested_range(args, path, _size(path))
     except (ValueError, KeyError, OSError) as e:
         print(f"acidcat od: {path}: {e}", file=sys.stderr)
-        return 2
+        # a search that finds nothing is the answer no (cli-2.0.md section 1)
+        return 1 if isinstance(e, bf.AnchorNotFound) else 2
 
     # an explicit byte range has no structure of its own -- dump it plainly
     if rng is not None:

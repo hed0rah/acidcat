@@ -25,6 +25,11 @@ class FieldError(ValueError):
     """A bad type spec or unresolvable offset; message is user-facing."""
 
 
+class AnchorNotFound(FieldError):
+    """A search anchor (`find:`, `chunk:`) that names nothing in this file:
+    the answer no (exit 1), not a malformed argument (2)."""
+
+
 def parse_type(spec, default_endian=">"):
     """Parse a type spec into (kind, code, size, endian).
 
@@ -117,7 +122,7 @@ def resolve_offset(expr, filepath, size):
             data = f.read()
         pos = data.find(needle)
         if pos < 0:
-            raise FieldError(f"pattern {pat!r} not found")
+            raise AnchorNotFound(f"pattern {pat!r} not found")
         base = pos
     elif anchor.startswith("chunk:"):
         base = _chunk_offset(filepath, anchor[6:])
@@ -145,7 +150,7 @@ def _chunk_offset(filepath, chunk_id):
     for c in chunks:
         if c.get("id", "").strip() == want:
             return c["offset"]
-    raise FieldError(f"chunk {chunk_id!r} not found in {filepath}")
+    raise AnchorNotFound(f"chunk {chunk_id!r} not found in {filepath}")
 
 
 def flatten_fields(chunks):

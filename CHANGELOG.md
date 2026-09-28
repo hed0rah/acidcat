@@ -432,6 +432,11 @@ gone.
 
 ### Fixed
 
+- **A search anchor that finds nothing exits 1.** `od`, `carve` and
+  `inspect --at find:NOPE` (or `chunk:ZZZZ`) exited 2, the code for a
+  malformed argument; nothing matched is the answer no. A malformed anchor
+  still exits 2.
+
 - **Bytes appended past a WAV's RIFF end were read as chunks.** 2 MB of
   appended zeros became 262,144 empty chunks, and opening the file took
   seconds (a TUI test ran past its budget on CI). A chunk id is four ASCII
