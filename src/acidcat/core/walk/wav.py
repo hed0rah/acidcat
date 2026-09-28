@@ -807,19 +807,14 @@ def _parse_ds64_reservation(b, riff_size):
             return "RF64 reservation (ds64), filled in with this file's sizes", fields, []
         return (f"RF64 reservation (ds64), filled in when the file was "
                 f"{r64 + 8:,} bytes", fields,
-                [info("convention.noted",
-                      f"the ds64 riff_size is {r64:,} and the RIFF header says "
-                      f"{riff_size:,}: chunks were added after the sizes were "
-                      f"written, so an RF64 conversion must rewrite them")])
+                [])
     if len(b) != 28:
         return None
     if _printable(b):
         text = b.decode("ascii")
         return (f"RF64 reservation (ds64) holding text: {text.rstrip()!r}", [
             _f(0x00, 28, "text", text, "Ableton Live writes a quote here"),
-        ], [info("convention.noted",
-                 "the RF64 reservation holds a text, not sizes; Ableton Live "
-                 "fills it this way")])
+        ], [])
     if r64 == riff_size and _printable(b[8:]):
         text = b[8:].decode("ascii")
         return (f"RF64 reservation (ds64): the RIFF size written over a text "
@@ -827,9 +822,7 @@ def _parse_ds64_reservation(b, riff_size):
             _f(0x00, 8, "riff_size", r64, enc="<Q"),
             _f(0x08, 20, "text", text, "the tail of the text an earlier "
                                                 "writer left"),
-        ], [info("convention.noted",
-                 "the RF64 reservation holds the RIFF size over the tail of a "
-                 "text; a second tool prepared the ds64 in a file another wrote")])
+        ], [])
     return None
 
 def _parse_cset(b, ctx):
@@ -1308,6 +1301,13 @@ def inspect_wav(filepath, ctx=None):
         for cid, offset, size in iter_chunks(filepath):
             seen.append(cid)
             avail = max(0, file_size - offset - 8)
+            if (riff_size + 8 < file_size and offset >= riff_size + 8
+                    and str(cid).startswith("hex:")):
+                # appended bytes, not chunks: a chunk id is four ASCII
+                # characters. Reading on turned 2 MB of appended zeros into
+                # 262,144 empty "chunks"; they stay past the container end,
+                # where the forensic scan reports them as trailing data.
+                break
             if size > avail and not (cid == "data" and size in _STREAM_SENTINELS):
                 file_warns.append(
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "

@@ -636,3 +636,17 @@ def test_a_zip_appended_to_a_wav_is_still_a_polyglot(tmp_path):
     p = tmp_path / "carrier.wav"
     p.write_bytes(host + _zip_with_wav(tmp_path, "inner.zip").read_bytes())
     assert "polyglot" in {f["rule"] for f in anomalies.scan(str(p))}
+
+
+def test_appended_zeros_are_trailing_data_not_chunks(tmp_path):
+    """The walker read every 8 bytes past the RIFF end as a chunk: 2 MB of
+    appended zeros became 262,144 empty chunks, and building the Document took
+    seconds. A chunk id is four ASCII characters, so the walk stops at the
+    first one that is not; the bytes stay past the container end, where the
+    scan still names them."""
+    host = _wav(_FMT, _chunk(b"data", b"\x00\x01" * 64))
+    p = tmp_path / "padded.wav"
+    p.write_bytes(host + bytes(2 * 1024 * 1024))
+    _label, chunks, _w = walk_file(str(p))
+    assert [c["id"].strip() for c in chunks] == ["fmt", "data"]
+    assert "trailing_data" in {f["rule"] for f in anomalies.scan(str(p))}
