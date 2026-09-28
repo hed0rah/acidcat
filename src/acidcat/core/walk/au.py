@@ -212,10 +212,9 @@ def inspect_au(filepath):
             w.append(f"{name} is not linear PCM; these bytes are a codec and "
                      f"play as noise if fed to a PCM player")
         if data_offset + eff_size > file_size:
-            w.append(defect("size.overrun",
-                            f"audio runs past the end of the file "
-                            f"(@0x{data_offset:x} + {eff_size:,}); "
-                            f"{avail:,} bytes are there"))
+            w.append(f"audio runs past the end of the file "
+                     f"(@0x{data_offset:x} + {eff_size:,}); "
+                     f"{avail:,} bytes are there")
         dfields = [
             _f(None, 0, "encoding", name),
             _f(None, 0, "sample_rate", rate if rate else "unknown"),
