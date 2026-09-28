@@ -302,7 +302,7 @@ def _is_vital(filepath):
     # A .vitalskin (Vital's UI theme) also carries synth_version, but it is a
     # table of colours and sizes with no `settings`: read as a preset, every key
     # came back as an unknown one, "carrier" alerts included.
-    if input_name(filepath).lower().endswith(".vitalskin"):
+    if str(filepath).lower().endswith(".vitalskin"):
         return False
     try:
         with open(filepath, "rb") as fh:
