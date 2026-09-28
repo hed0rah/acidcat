@@ -210,6 +210,25 @@ def _ffmpeg_rf64_junk(chunks):
     return None
 
 
+def _ableton_junk_quote(chunks):
+    """Ableton Live writes a 28-character quote ("The sleeper must awaken",
+    "Why r u using a hex editor?") into the RF64 reservation of the WAVs it
+    renders; measured in two unrelated Live projects. A later tool may write
+    the RIFF size over its first 8 bytes, and the tail still names Live. The
+    walker has decoded the text; this reads its summary."""
+    first = chunks[0] if chunks else {}
+    if str(first.get("id", "")).strip() != "JUNK":
+        return None
+    s = first.get("summary", "")
+    if s.startswith("RF64 reservation (ds64) holding text"):
+        basis = "a quote in the 28-byte RF64 reservation"
+    elif "written over a text" in s:
+        basis = "the tail of a quote under a later tool's RF64 sizes"
+    else:
+        return None
+    return {"tool": "Ableton Live", "confidence": "likely", "basis": basis}
+
+
 def _structural(label, chunks, data):
     out = []
     if "MP3" in label or "MPEG" in label:
@@ -232,6 +251,9 @@ def _structural(label, chunks, data):
         ff = _ffmpeg_rf64_junk(chunks)
         if ff:
             out.append(ff)
+        live = _ableton_junk_quote(chunks)
+        if live:
+            out.append(live)
     return out
 
 
