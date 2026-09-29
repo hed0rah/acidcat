@@ -592,6 +592,15 @@ def _exs_many_chunks(tmp_path, n):
     return str(p)
 
 
+def _sfz_many(tmp_path, n):
+    """An SFZ with more than n bytes, sections and sample files."""
+    import test_sfz
+
+    p = tmp_path / "many.sfz"
+    p.write_bytes(test_sfz.sfz_text(n=n + 2))
+    return str(p)
+
+
 def _kontakt_big_body(tmp_path, n):
     """A Kontakt 2 patch whose zlib body is longer than n bytes."""
     import os as _os
@@ -1378,6 +1387,10 @@ SWEPT = [
      "were read"),
     ("acidcat.core.walk.exs", "_EXS_CHUNK_CAP", 4, _exs_many_chunks,
      "stopped there"),
+    ("acidcat.core.walk.sfz", "_SFZ_READ_CAP", 256, _sfz_many, "were read"),
+    ("acidcat.core.walk.sfz", "_SFZ_SECTION_CAP", 4, _sfz_many, "node each"),
+    ("acidcat.core.walk.sfz", "_SFZ_SAMPLE_CHECK_CAP", 4, _sfz_many,
+     "were looked for"),
     ("acidcat.core.walk.ni", "_KONTAKT_READ_CAP", 256, _kontakt_big_body,
      "were read"),
     ("acidcat.core.walk.ni", "_KONTAKT_XML_CAP", 256, _kontakt_big_xml,

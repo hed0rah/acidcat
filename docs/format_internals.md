@@ -64,6 +64,7 @@ files through mutagen.
 | [Bitwig multisample](formats/bitwig-multisample.md) | `.multisample` | inspect only | ZIP zone map: per-sample root note, key/velocity range, loop |
 | Vital | `.vital` | inspect + index | Patch name, author, tags, modulation matrix |
 | Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index + write | Preset metadata, NKS tags, FastLZ subtree (hsin); write is experimental |
+| SFZ | `.sfz` | inspect only | Every header section with each opcode placed on its bytes; regions, groups and the sample files they name (through `default_path`, `#define` and group inheritance), each looked for beside the file; `#include` targets looked for too |
 | Logic EXS24 | `.exs` | inspect only | Instrument counts; every zone (root key, key and velocity range, tune, pan, volume, sample start/end, loop) with its group and sample resolved; every sample (frames, rate, bits, channels, file type, original path); little- and big-endian |
 | Kontakt 2-4.2 | `.nki`, `.nkm`, `.nkb` | inspect only | Header (version, timestamp, zone/group/program counts, sample bytes, author); 2-4.1 XML body: program name and every zone's sample path; 4.2 FastLZ body; soundinfo trailer |
 | Kontakt sample container | `.nkx`, `.nkr`, monolith `.nki` | inspect only | Directory tree, every stored sample/resource/patch with its payload kind, names paired by order |

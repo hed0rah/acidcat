@@ -617,6 +617,17 @@ sf2	head256	.sf2	sf2
 sf2	sniff_bytes	-	sf2
 sf2	zero-pad-front	.sf2	-
 sf2	zero-pad-tail	.sf2	sf2
+sfz	as-built	.bin	-
+sfz	as-built	.cu8	iq
+sfz	as-built	.cue	cue
+sfz	as-built	.sfz	sfz
+sfz	as-built	.sigmf-meta	sigmf
+sfz	first-byte-flipped	.sfz	sfz
+sfz	head16	.sfz	-
+sfz	head256	.sfz	sfz
+sfz	sniff_bytes	-	-
+sfz	zero-pad-front	.sfz	sfz
+sfz	zero-pad-tail	.sfz	sfz
 sid	as-built	.bin	sid
 sid	as-built	.sid	sid
 sid	first-byte-flipped	.sid	-

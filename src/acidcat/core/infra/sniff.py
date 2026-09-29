@@ -50,7 +50,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sigmf", "smus", "sndh", "spc", "stc", "vgm", "ym",
+    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sfz", "sigmf", "smus", "sndh", "spc", "stc", "vgm", "ym",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -612,6 +612,10 @@ def sniff(filepath):
             return "sigmf"
         if low.endswith(_IQ_EXTS) or (low.endswith(".raw") and _gqrx_sniff(filepath)):
             return "iq"
+        # SFZ is text with no magic: the extension, and a header token
+        # outside a comment before any opcode
+        if low.endswith(".sfz") and _is_sfz(filepath):
+            return "sfz"
         # an MPC .xpm program is XML; content-confirm to avoid the X11 pixmap
         # that shares the extension.
         if low.endswith(".xpm") and _is_mpc_program(filepath):
@@ -724,6 +728,15 @@ _IQ_EXTS = (".cu8", ".c16", ".c8", ".cs8", ".cs16", ".cf32", ".cfile")
 def _gqrx_sniff(filepath):
     from acidcat.core.walk import sigmf
     return sigmf._gqrx_name(input_name(filepath)) is not None
+
+
+def _is_sfz(filepath):
+    from acidcat.core.formats import sfz as sfzmod
+    try:
+        with open_input(filepath) as f:
+            return sfzmod.looks_like_sfz(f.read(64 * 1024))
+    except OSError:
+        return False
 
 
 def _is_mpc_program(filepath):

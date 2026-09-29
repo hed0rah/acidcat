@@ -1264,6 +1264,14 @@ def exs():
     return _call("test_exs", "exs_file")
 
 
+@seed("sfz", ".sfz")
+def sfz():
+    """SFZ instrument: comments, a control, a group and two regions, as text.
+    The samples it names do not exist beside the seed; that is a finding
+    about the environment, not the file."""
+    return _call("test_sfz", "sfz_text")
+
+
 @seed("kontakt", ".nki", sniffs_as="ni")
 def kontakt():
     """Kontakt 4.2 patch: the fixed header, a FastLZ body, the soundinfo

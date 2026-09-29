@@ -31,6 +31,7 @@ export ACIDCAT_NSF_CORPUS="$root/NSFe"
 export ACIDCAT_KRZ_CORPUS="$root/Kurzweil"
 export ACIDCAT_ABLETON_CORPUS="$root/Ancient Ableton"
 export ACIDCAT_EXS_CORPUS="$root/publicsamples"
+export ACIDCAT_SFZ_CORPUS="$root/publicsamples"
 # Kontakt libraries are too large to copy under the hunting root; they sit
 # beside it
 export ACIDCAT_KONTAKT_CORPUS="${ACIDCAT_KONTAKT_CORPUS:-$(dirname "$root")/Kontakt_Instruments}"

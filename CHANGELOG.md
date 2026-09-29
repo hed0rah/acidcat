@@ -137,6 +137,14 @@ gone.
 - **`check` names what it covers.** On a format it does not model it exits
   2 with the list of formats it checks, for `validate` and `repair` alike.
 
+- **SFZ instruments** (`.sfz`), a new format. Every header section and
+  opcode, each value placed on its bytes; the region, group and sample
+  counts; and every sample file a region names (through `default_path`,
+  `#define` variables and group inheritance) looked for beside the file.
+  A missing sample is an environment finding naming the files. A file
+  with no `<control>` whose samples are all absent says it may be a
+  fragment another SFZ includes, since an included file's paths resolve
+  from the includer.
 - **Logic EXS24 instruments** (`.exs`), a new format. The instrument's
   counts, every zone (root key, key and velocity range, fine tune, pan,
   volume, sample start and end, loop) with its group and sample named,
