@@ -137,6 +137,14 @@ EXEMPT = {
                               "there, which is the announcement; real tags are "
                               "a few dozen bytes. Covered by the corpus walk in "
                               "tests/test_sndh.py"),
+    ("acidcat.core.walk.ni", "_KONTAKT_FASTLZ_CAP"):
+        (Reason.RESOURCE_LIMIT, "a decompression bound on a Kontakt 4.2 patch "
+                                "body, so a crafted stream cannot expand "
+                                "without limit. Crossing it DOES announce -- "
+                                "the walker emits a coverage note naming the "
+                                "cap -- but only under --verbose, where the "
+                                "body is decompressed at all, and a real body "
+                                "stays under 4 MB against this 64 MB"),
     ("acidcat.core.walk.apple", "_RESU_INFLATE_CAP"):
         (Reason.RESOURCE_LIMIT, "an inflate bound on a zlib payload, so a "
                                 "crafted ResU cannot expand without limit. "
@@ -563,6 +571,37 @@ def _dff_many_markers(tmp_path, n):
     diin = b"".join(test_dsd._bchunk(b"MARK", mark) for _ in range(n))
     p = tmp_path / "mark.dff"
     p.write_bytes(test_dsd.make_dff(extra=test_dsd._bchunk(b"DIIN", diin)))
+    return str(p)
+
+
+def _kontakt_big_body(tmp_path, n):
+    """A Kontakt 2 patch whose zlib body is longer than n bytes."""
+    import os as _os
+    import zlib as _zlib
+    import test_kontakt
+
+    body = _zlib.compress(_os.urandom(n * 4), 0)
+    p = tmp_path / "big.nki"
+    p.write_bytes(test_kontakt.header() + body)
+    return str(p)
+
+
+def _kontakt_big_xml(tmp_path, n):
+    """A Kontakt 2 patch whose XML inflates past n bytes."""
+    import test_kontakt
+
+    p = tmp_path / "xml.nki"
+    p.write_bytes(test_kontakt.k2_patch(xml=test_kontakt.k2_xml() + b" " * (n * 4)))
+    return str(p)
+
+
+def _nkx_many_files(tmp_path, n):
+    """A Kontakt sample container holding n files."""
+    import test_kontakt
+
+    files = tuple((f"s{i}.wav", b"RIFF" + b"\0" * 8) for i in range(n))
+    p = tmp_path / "many.nkx"
+    p.write_bytes(test_kontakt.container(files=files, resources=()))
     return str(p)
 
 
@@ -1317,6 +1356,16 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.dsd", "_COMMENT_CAP", 4, _dff_many_comments,
      "listing the first"),
+    ("acidcat.core.walk.ni", "_KONTAKT_READ_CAP", 256, _kontakt_big_body,
+     "were read"),
+    ("acidcat.core.walk.ni", "_KONTAKT_XML_CAP", 256, _kontakt_big_xml,
+     "the part inflated"),
+    ("acidcat.core.walk.ni", "_NI_ENTRY_CAP", 4, _nkx_many_files,
+     "were not read"),
+    ("acidcat.core.walk.ni", "_NI_OBJECT_CAP", 4, _nkx_many_files,
+     "stopped there"),
+    ("acidcat.core.walk.ni", "_NI_OBJECT_CHUNK_CAP", 4, _nkx_many_files,
+     "summarised"),
     ("acidcat.core.walk.dsd", "_MARKER_CAP", 4, _dff_many_markers,
      "listing the first"),
 ]

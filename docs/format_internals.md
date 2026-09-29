@@ -64,6 +64,8 @@ files through mutagen.
 | [Bitwig multisample](formats/bitwig-multisample.md) | `.multisample` | inspect only | ZIP zone map: per-sample root note, key/velocity range, loop |
 | Vital | `.vital` | inspect + index | Patch name, author, tags, modulation matrix |
 | Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index + write | Preset metadata, NKS tags, FastLZ subtree (hsin); write is experimental |
+| Kontakt 2-4.2 | `.nki`, `.nkm`, `.nkb` | inspect only | Header (version, timestamp, zone/group/program counts, sample bytes, author); 2-4.1 XML body: program name and every zone's sample path; 4.2 FastLZ body; soundinfo trailer |
+| Kontakt sample container | `.nkx`, `.nkr`, monolith `.nki` | inspect only | Directory tree, every stored sample/resource/patch with its payload kind, names paired by order |
 | NCW ([anatomy](formats/ncw-anatomy.html)) | `.ncw` | inspect + convert | NI Compressed Wave header, channel/block info; convert decodes to WAV |
 | SoundFont ([anatomy](formats/sf2-anatomy.html)) | `.sf2`, `.sf3` | inspect + convert | sfbk RIFF: INFO metadata, every named sample with its byte offset (rate/loop). SF2 = 16-bit PCM, SF3 = Ogg-Vorbis; convert extracts samples |
 | Tracker ([anatomy](formats/tracker-anatomy.html)) | `.mod`, `.xm`, `.s3m`, `.it` | inspect + extract | ProTracker/FastTracker II/ScreamTracker 3/Impulse Tracker: header, pattern order, every embedded sample at its byte offset; IT absolute offset tables and S3M parapointers as followable pointers |
@@ -100,7 +102,7 @@ under `formats/`.
 | Format | File | Notes |
 |--------|------|-------|
 | Ableton Live Pack | `.alp` | gzip + custom `pl-a` container, embedded FLAC |
-| Kontakt (deep) | `.nki`, `.nkc`, `.nkr` | partial RE beyond the hsin walker: instrument name, version, @tempo, KSP scripts |
+| Kontakt (deep) | `.nki`, `.nkc` | the Kontakt 5+ and 4.2 binary object trees (instrument parameters, KSP scripts), the `.nkc` cache, Kontakt 1 headers, the `9f 17 40 00` monolith object |
 | DLS | `.dls` | RIFF-based MIDI instrument definition; could reuse the chunk parser |
 
 ---
@@ -165,7 +167,7 @@ for every format it supports and prints the structure with byte offsets:
 - **ADPCM (IMA 0x0011, MS 0x0002)** -- decoded to plain PCM by `convert --to-pcm`.
 
 ### Tier 3: Research in progress
-- **Kontakt NKI (deep)** -- marker scanning + string extraction beyond the hsin walker
+- **Kontakt (deep)** -- the binary object tree inside Kontakt 4.2 and 5+ patches; `.nkc`
 - **Ableton ALP** -- undocumented `pl-a` container
 
 ### Tier 4: Future exploration

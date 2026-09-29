@@ -262,6 +262,11 @@ def sniff_bytes(head):
     if head[12:16] == b"hsin" or head[:4] == b"-in-" \
             or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"):
         return "ni"
+    # Kontakt 2-4 patches, and the Kontakt sample container (.nkx/.nkr); the
+    # container's version word is checked too, since four bytes alone are weak
+    if head[:4] == b"\x12\x90\xa8\x7f" or (
+            head[:4] == b"\x54\xac\x70\x5e" and head[4:6] in (b"\x10\x01", b"\x11\x01")):
+        return "ni"
     if head[:4] == b"fLaC":
         return "flac"
     if head[:4] == b"OggS":

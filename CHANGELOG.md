@@ -137,6 +137,23 @@ gone.
 - **`check` names what it covers.** On a format it does not model it exits
   2 with the list of formats it checks, for `validate` and `repair` alike.
 
+- **Kontakt 2 through 4.2 patches.** `.nki`, `.nkm` and `.nkb` files that
+  open `12 90 a8 7f` were unrecognised. The header now reads out: the
+  Kontakt version that saved it, the timestamp, zone, group and program
+  counts, total sample bytes, author and URL. A Kontakt 2 to 4.1 body is
+  zlib over XML, so the program name and every zone's sample path are read
+  too (the encoded `@d007samplesF...` form decoded to `samples/...`), with
+  `--frames` listing them. A 4.2 body is FastLZ, now decoded at level 2 as
+  well as level 1, and its soundinfo trailer (name, author, attributes) is
+  read. Header versions before 0x100 are recognised and say they are not
+  laid out.
+- **The Kontakt sample container.** `.nkx` and `.nkr` files, and the body
+  of a monolith `.nki`, are a directory tree and then the stored objects.
+  `inspect` walks both: every directory, sample, resource and embedded
+  patch, the sample's payload named NCW, RIFF WAV, AIFF or opaque, and the
+  names paired with the objects when the counts agree. A monolith's own
+  patch is walked inside it.
+
 ### Changed
 
 - **A SoundFont's presets and instruments are `sfbk`'s children.** They

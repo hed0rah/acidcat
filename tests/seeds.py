@@ -1257,6 +1257,21 @@ def ni():
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
+@seed("kontakt", ".nki", sniffs_as="ni")
+def kontakt():
+    """Kontakt 4.2 patch: the fixed header, a FastLZ body, the soundinfo
+    trailer. The Kontakt 2 zlib body is the same walker's other branch and is
+    covered by tests/test_kontakt.py."""
+    return _call("test_kontakt", "k42_patch")
+
+
+@seed("nkx", ".nkx", sniffs_as="ni")
+def nkx():
+    """Kontakt sample container: a directory tree, then resource and sample
+    objects whose names pair with the file entries by order."""
+    return _call("test_kontakt", "container")
+
+
 @seed("xpm", ".xpm")
 def xpm():
     """Akai MPC keygroup program: XML, and content-confirmed rather than sniffed

@@ -30,6 +30,9 @@ export ACIDCAT_SAP_CORPUS="$root/Atari_SAP"
 export ACIDCAT_NSF_CORPUS="$root/NSFe"
 export ACIDCAT_KRZ_CORPUS="$root/Kurzweil"
 export ACIDCAT_ABLETON_CORPUS="$root/Ancient Ableton"
+# Kontakt libraries are too large to copy under the hunting root; they sit
+# beside it
+export ACIDCAT_KONTAKT_CORPUS="${ACIDCAT_KONTAKT_CORPUS:-$(dirname "$root")/Kontakt_Instruments}"
 # the OKI decoder's oracle; found on PATH if not set
 if [ -z "${ACIDCAT_FFMPEG:-}" ] && ! command -v ffmpeg >/dev/null 2>&1; then
     f=$(ls "$LOCALAPPDATA"/Microsoft/WinGet/Packages/Gyan.FFmpeg_*/ffmpeg-*/bin/ffmpeg.exe 2>/dev/null | head -1)

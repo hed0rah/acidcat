@@ -76,6 +76,35 @@ def test_fastlz_bomb_cap():
     assert ni.fastlz_decompress(bytes([4]) + b"hello", max_out=2) is None
 
 
+# Level 2 (Kontakt 4.2 patch bodies): the top three bits of the first byte are
+# 001. The streams below decode differently, or not at all, as level 1.
+
+def test_fastlz_level2_short_match():
+    # literal "ABCDE", then a 3-byte match 4 back
+    assert ni.fastlz_decompress(b"\x24ABCDE\x20\x04") == b"ABCDEABC"
+
+
+def test_fastlz_level2_long_length_continues_past_255():
+    # a length-7 code extends with 255 and then 5: 7 + 255 + 5 + 2 = 269,
+    # copied from one byte back, so the copy overlaps what it writes
+    assert ni.fastlz_decompress(b"\x20A\xe0\xff\x05\x00") == b"A" * 270
+
+
+def test_fastlz_level2_far_distance():
+    # distance code 31/255 means a 16-bit distance follows, counted past 8191
+    data = bytes(range(256)) * 32 + b"12345678"             # 8,200 bytes
+    runs = b"".join(bytes([len(data[i:i + 32]) - 1]) + data[i:i + 32]
+                    for i in range(0, len(data), 32))
+    stream = bytes([runs[0] | 0x20]) + runs[1:] + b"\x3f\xff\x00\x00"
+    assert ni.fastlz_decompress(stream) == data + data[8:11]
+
+
+def test_fastlz_level1_is_unchanged_by_level2_support():
+    # the same bytes as the long-length case, read as level 1, stop early
+    out = ni.fastlz_decompress(b"\x00A\xe0\xff\x05\x00")
+    assert out != b"A" * 270
+
+
 # ── hsin walker ────────────────────────────────────────────────────
 
 def test_hsin_walk_depth_guard():

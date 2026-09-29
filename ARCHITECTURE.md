@@ -159,8 +159,8 @@ the new bytes; `commit()` writes atomically with a `_original` backup.
 
 ```
 src/acidcat/
-  core/            203 modules
-    formats/       per-format byte decoders (35)
+  core/            205 modules
+    formats/       per-format byte decoders (37)
     walk/          57 walker modules -> 88 format labels (58)
     primitives/    shared byte readers (6)
     codecs/        sample-data decoders, unpackers, the 6510/SID and SPC700/S-DSP players and their registry (22)
@@ -180,7 +180,7 @@ src/acidcat/
                    Document, no Textual; state.py what it remembers between
                    runs (tui.json)
   util/            small shared helpers
-  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (271 modules in total)
+  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (273 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

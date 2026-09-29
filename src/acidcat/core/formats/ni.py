@@ -55,14 +55,18 @@ def _u16le_pascals(data, limit=1 << 20):
 
 
 def fastlz_decompress(src, max_out=32 * 1024 * 1024):
-    """FastLZ level-1 decompression (pure Python). NI compresses the hsin
-    subtree payload (item 115) with this. Returns the decompressed bytes, or
-    None if the output would exceed max_out (a decompression-bomb guard)."""
+    """FastLZ decompression, levels 1 and 2 (pure Python). NI compresses the
+    hsin subtree payload (item 115) with level 1; Kontakt 4.2 patch bodies use
+    both. The level is the top three bits of the first byte. Returns the
+    decompressed bytes, or None if the output would exceed max_out (a
+    decompression-bomb guard). A malformed stream stops early, so callers
+    compare the length with the one they expected."""
     dst = bytearray()
     ip, n = 0, len(src)
     if n == 0:
         return b""
-    ctrl = src[ip]
+    level2 = (src[0] >> 5) == 1
+    ctrl = src[ip] & 0x1F if level2 else src[ip]
     ip += 1
     while True:
         if ctrl >= 32:  # back-reference
@@ -71,21 +75,36 @@ def fastlz_decompress(src, max_out=32 * 1024 * 1024):
             if length == 7:
                 if ip >= n:
                     break
+                if level2:
+                    # level 2 extends the length with bytes until one is not 255
+                    while ip < n and src[ip] == 255:
+                        length += 255
+                        ip += 1
+                    if ip >= n:
+                        break
                 length += src[ip]
                 ip += 1
             if ip >= n:
                 break
-            ofs += src[ip]
+            code = src[ip]
+            ofs += code
             ip += 1
             length += 2
+            if level2 and code == 255 and ofs == (31 << 8) + 255:
+                # a 16-bit far distance follows, counted beyond the near window
+                if ip + 2 > n:
+                    break
+                ofs = ((src[ip] << 8) | src[ip + 1]) + 8191
+                ip += 2
             ref = len(dst) - ofs - 1
             if ref < 0:
                 break
-            for _ in range(length):
-                if ref >= len(dst):
-                    break
-                dst.append(dst[ref])
-                ref += 1
+            if ref + length <= len(dst):
+                dst += dst[ref:ref + length]
+            else:  # overlapping: the copy reads bytes it is writing
+                for _ in range(length):
+                    dst.append(dst[ref])
+                    ref += 1
         else:  # literal run of ctrl+1 bytes
             length = ctrl + 1
             dst.extend(src[ip:ip + length])
