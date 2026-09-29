@@ -1257,6 +1257,13 @@ def ni():
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
+@seed("exs", ".exs")
+def exs():
+    """Logic EXS24 instrument: an instrument chunk, two zones, a group, two
+    samples and a parameter chunk, each an 84-byte header and its data."""
+    return _call("test_exs", "exs_file")
+
+
 @seed("kontakt", ".nki", sniffs_as="ni")
 def kontakt():
     """Kontakt 4.2 patch: the fixed header, a FastLZ body, the soundinfo

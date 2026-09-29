@@ -217,6 +217,14 @@ e5b	head256	.exb	e5b
 e5b	sniff_bytes	-	e5b
 e5b	zero-pad-front	.exb	-
 e5b	zero-pad-tail	.exb	e5b
+exs	as-built	.bin	exs
+exs	as-built	.exs	exs
+exs	first-byte-flipped	.exs	exs
+exs	head16	.exs	-
+exs	head256	.exs	exs
+exs	sniff_bytes	-	-
+exs	zero-pad-front	.exs	-
+exs	zero-pad-tail	.exs	exs
 fc	as-built	.bin	fc
 fc	as-built	.fc	fc
 fc	first-byte-flipped	.fc	-

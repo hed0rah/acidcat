@@ -137,6 +137,13 @@ gone.
 - **`check` names what it covers.** On a format it does not model it exits
   2 with the list of formats it checks, for `validate` and `repair` alike.
 
+- **Logic EXS24 instruments** (`.exs`), a new format. The instrument's
+  counts, every zone (root key, key and velocity range, fine tune, pan,
+  volume, sample start and end, loop) with its group and sample named,
+  and every sample (frames, rate, bits, channels, file type and the path
+  it was recorded at). Big-endian PowerPC-era files read the same. The
+  zone layout was checked against SFZ files shipped beside the same
+  instruments.
 - **Kontakt 2 through 4.2 patches.** `.nki`, `.nkm` and `.nkb` files that
   open `12 90 a8 7f` were unrecognised. The header now reads out: the
   Kontakt version that saved it, the timestamp, zone, group and program

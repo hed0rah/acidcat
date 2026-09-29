@@ -574,6 +574,24 @@ def _dff_many_markers(tmp_path, n):
     return str(p)
 
 
+def _exs_over_cap(tmp_path, n):
+    """An EXS24 instrument longer than n bytes."""
+    import test_exs
+
+    p = tmp_path / "big.exs"
+    p.write_bytes(test_exs.exs_file(zones=max(2, n // 150)))
+    return str(p)
+
+
+def _exs_many_chunks(tmp_path, n):
+    """An EXS24 instrument with more than n chunks."""
+    import test_exs
+
+    p = tmp_path / "many.exs"
+    p.write_bytes(test_exs.exs_file(zones=n))
+    return str(p)
+
+
 def _kontakt_big_body(tmp_path, n):
     """A Kontakt 2 patch whose zlib body is longer than n bytes."""
     import os as _os
@@ -1356,6 +1374,10 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.dsd", "_COMMENT_CAP", 4, _dff_many_comments,
      "listing the first"),
+    ("acidcat.core.walk.exs", "_EXS_READ_CAP", 1024, _exs_over_cap,
+     "were read"),
+    ("acidcat.core.walk.exs", "_EXS_CHUNK_CAP", 4, _exs_many_chunks,
+     "stopped there"),
     ("acidcat.core.walk.ni", "_KONTAKT_READ_CAP", 256, _kontakt_big_body,
      "were read"),
     ("acidcat.core.walk.ni", "_KONTAKT_XML_CAP", 256, _kontakt_big_xml,

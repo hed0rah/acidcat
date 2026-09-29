@@ -24,6 +24,7 @@ confirms it from disk; ``sniff_bytes`` cannot classify a MOD from a head.
 from acidcat.core.codecs import ncw as ncwmod
 from acidcat.core.formats import ableton as abletonmod
 from acidcat.core.formats import akai as akaimod
+from acidcat.core.formats import exs as exsmod
 from acidcat.core.formats import mdx as mdxmod
 from acidcat.core.formats import pdx as pdxmod
 from acidcat.core.formats import pmd as pmdmod
@@ -45,7 +46,7 @@ KNOWN_FORMATS = frozenset({
     "8svx", "adg", "adv", "adx", "agr", "aifc", "aiff", "akp", "albank", "alc", "als", "amxd",
     "au",
     "asd", "bfdlac", "bitwig", "brstm",
-    "caf", "cdxa", "cmf", "cue", "e4b", "e5b", "fc", "flac", "fxp", "gbs", "gcm", "gf1pat", "hes", "hps",
+    "caf", "cdxa", "cmf", "cue", "e4b", "e5b", "exs", "fc", "flac", "fxp", "gbs", "gcm", "gf1pat", "hes", "hps",
     "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
@@ -249,6 +250,10 @@ def sniff_bytes(head):
     # requires the reserved u32 at offset 6 to be zero and a sane entry count.
     if abletonmod.looks_like_asd(head):
         return "asd"                                   # Ableton analysis sidecar
+    # 'TBOS' (or 'SOBT', big-endian) at 0x10, and the first chunk must be the
+    # instrument chunk, type 0 in byte 3
+    if exsmod.endian(head) is not None:
+        return "exs"                                   # Logic EXS24 instrument
     if head[:4] == b"CcnK":
         return "fxp"
     if head[:4] == b"CAT " and head[8:12] == b"REX2":
