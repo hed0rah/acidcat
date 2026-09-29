@@ -103,11 +103,11 @@ the new bytes; `commit()` writes atomically with a `_original` backup.
    `aiff`, `mp3`, `mp4`, `flac`, `ni`, `tracker`, `sf2`, ...),
    `core/primitives/` (shared byte readers), `core/codecs/` (ADPCM, BRR, VADPCM
    and friends), `core/containers/` (disc images and archives),
-   `core/infra/` (`sniff.py` -- 94 recognized formats, `fieldcodec.py` -- the
+   `core/infra/` (`sniff.py` -- 95 recognized formats, `fieldcodec.py` -- the
    enc-language, `geometry.py` -- which bytes a chunk occupies, `source.py`,
    `limits.py`, `findings.py`, `layers.py`, `contract.py`, `addr.py`,
    `capabilities.py`, `render.py`).
-2. **Walkers** -- `core/walk/*.py`: 59 walkers behind one dispatcher, serving 90
+2. **Walkers** -- `core/walk/*.py`: 60 walkers behind one dispatcher, serving 91
    registered format labels, each emitting the field model. **The correctness oracle and the
    default.** Dispatch: `core/walk/__init__.py::walk_file`.
 3. **Document and edit** -- `core/document.py` (`acidcat.open()`, the views),
@@ -159,9 +159,9 @@ the new bytes; `commit()` writes atomically with a `_original` backup.
 
 ```
 src/acidcat/
-  core/            209 modules
-    formats/       per-format byte decoders (39)
-    walk/          59 walker modules -> 90 format labels (60)
+  core/            211 modules
+    formats/       per-format byte decoders (40)
+    walk/          60 walker modules -> 91 format labels (61)
     primitives/    shared byte readers (6)
     codecs/        sample-data decoders, unpackers, the 6510/SID and SPC700/S-DSP players and their registry (22)
     containers/    disc images and archives, a PS1 disc's audio catalog (6)
@@ -180,7 +180,7 @@ src/acidcat/
                    Document, no Textual; state.py what it remembers between
                    runs (tui.json)
   util/            small shared helpers
-  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (277 modules in total)
+  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (279 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

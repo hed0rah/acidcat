@@ -44,6 +44,7 @@ _ID3_WRAPPED_MAGICS = (b"RIFF", b"RF64", b"FORM", b"fLaC", b"MThd")
 # test suite asserts both directions). "id3-wrapped" is a sentinel, not a format.
 KNOWN_FORMATS = frozenset({
     "8svx", "adg", "adv", "adx", "agr", "aifc", "aiff", "akp", "albank", "alc", "als", "amxd",
+    "appledouble",
     "au",
     "asd", "bfdlac", "bitwig", "brstm",
     "caf", "cdxa", "cmf", "cue", "e4b", "e5b", "exs", "fc", "flac", "fxp", "gbs", "gcm", "gf1pat", "hes", "hps",
@@ -252,6 +253,11 @@ def sniff_bytes(head):
         return "asd"                                   # Ableton analysis sidecar
     # 'TBOS' (or 'SOBT', big-endian) at 0x10, and the first chunk must be the
     # instrument chunk, type 0 in byte 3
+    # the ._name sidecars macOS leaves beside files and in __MACOSX folders;
+    # the version word is checked too
+    if head[:3] == b"\x00\x05\x16" and head[3:4] in (b"\x07", b"\x00") \
+            and head[4:8] in (b"\x00\x02\x00\x00", b"\x00\x01\x00\x00"):
+        return "appledouble"                           # AppleDouble / AppleSingle
     if exsmod.endian(head) is not None:
         return "exs"                                   # Logic EXS24 instrument
     if head[:4] == b"CcnK":

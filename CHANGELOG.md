@@ -137,6 +137,12 @@ gone.
 - **`check` names what it covers.** On a format it does not model it exits
   2 with the list of formats it checks, for `validate` and `repair` alike.
 
+- **AppleDouble sidecars**, a new format. The `._name` files macOS leaves
+  beside files on other volumes and in every `__MACOSX` folder were
+  unrecognised. They now read out: the file they describe, its Finder
+  type and creator codes (`PTul` is Pro Tools, `a-lv` Ableton), and every
+  extended attribute -- the quarantine record naming the program that
+  downloaded the file and when, the WhereFroms URLs, Finder tags.
 - **SFZ instruments** (`.sfz`), a new format. Every header section and
   opcode, each value placed on its bytes; the region, group and sample
   counts; and every sample file a region names (through `default_path`,

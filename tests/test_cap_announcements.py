@@ -137,6 +137,12 @@ EXEMPT = {
                               "there, which is the announcement; real tags are "
                               "a few dozen bytes. Covered by the corpus walk in "
                               "tests/test_sndh.py"),
+    ("acidcat.core.walk.appledouble", "_AD_PLIST_MAX"):
+        (Reason.FIELD_SANITY, "the largest extended-attribute value decoded as "
+                              "a property list. A larger one is not cut short: "
+                              "it is shown as its byte count and first bytes, "
+                              "whole. Real WhereFroms and tag plists are a few "
+                              "hundred bytes"),
     ("acidcat.core.walk.ni", "_KONTAKT_FASTLZ_CAP"):
         (Reason.RESOURCE_LIMIT, "a decompression bound on a Kontakt 4.2 patch "
                                 "body, so a crafted stream cannot expand "
@@ -598,6 +604,28 @@ def _sfz_many(tmp_path, n):
 
     p = tmp_path / "many.sfz"
     p.write_bytes(test_sfz.sfz_text(n=n + 2))
+    return str(p)
+
+
+def _ad_over_cap(tmp_path, n):
+    """An AppleDouble sidecar longer than n bytes."""
+    import test_appledouble
+
+    p = tmp_path / "._big.wav"
+    p.write_bytes(test_appledouble.sidecar() + bytes(n * 4))
+    return str(p)
+
+
+def _ad_many_attrs(tmp_path, n):
+    """An AppleDouble sidecar with more than n entries and attributes."""
+    import struct as _s
+    import test_appledouble
+
+    attrs = tuple((f"com.example.a{i}", b"v") for i in range(n + 2))
+    data = bytearray(test_appledouble.sidecar(attrs=attrs))
+    _s.pack_into(">H", data, 24, n + 2)     # more entries than are laid out
+    p = tmp_path / "._many.wav"
+    p.write_bytes(bytes(data))
     return str(p)
 
 
@@ -1391,6 +1419,12 @@ SWEPT = [
     ("acidcat.core.walk.sfz", "_SFZ_SECTION_CAP", 4, _sfz_many, "node each"),
     ("acidcat.core.walk.sfz", "_SFZ_SAMPLE_CHECK_CAP", 4, _sfz_many,
      "were looked for"),
+    ("acidcat.core.walk.appledouble", "_AD_READ_CAP", 1024, _ad_over_cap,
+     "were read"),
+    ("acidcat.core.walk.appledouble", "_AD_ENTRY_CAP", 1, _ad_many_attrs,
+     "entries; the first"),
+    ("acidcat.core.walk.appledouble", "_AD_ATTR_CAP", 2, _ad_many_attrs,
+     "extended attributes"),
     ("acidcat.core.walk.ni", "_KONTAKT_READ_CAP", 256, _kontakt_big_body,
      "were read"),
     ("acidcat.core.walk.ni", "_KONTAKT_XML_CAP", 256, _kontakt_big_xml,

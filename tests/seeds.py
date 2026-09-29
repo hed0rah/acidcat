@@ -1257,6 +1257,15 @@ def ni():
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
+@seed("appledouble", ".wav")
+def appledouble():
+    """AppleDouble sidecar: RFC 1740 header, Finder info carrying three
+    extended attributes (quarantine, a binary-plist WhereFroms, plain text),
+    and a blank resource fork. Sniffed by magic, so the extension it rides
+    under does not matter."""
+    return _call("test_appledouble", "sidecar")
+
+
 @seed("exs", ".exs")
 def exs():
     """Logic EXS24 instrument: an instrument chunk, two zones, a group, two

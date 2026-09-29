@@ -104,6 +104,14 @@ amxd	head256	.amxd	amxd
 amxd	sniff_bytes	-	amxd
 amxd	zero-pad-front	.amxd	-
 amxd	zero-pad-tail	.amxd	amxd
+appledouble	as-built	.bin	appledouble
+appledouble	as-built	.wav	appledouble
+appledouble	first-byte-flipped	.wav	-
+appledouble	head16	.wav	appledouble
+appledouble	head256	.wav	appledouble
+appledouble	sniff_bytes	-	appledouble
+appledouble	zero-pad-front	.wav	-
+appledouble	zero-pad-tail	.wav	appledouble
 asd	as-built	.asd	asd
 asd	as-built	.bin	asd
 asd	first-byte-flipped	.asd	-
