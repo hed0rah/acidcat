@@ -65,6 +65,8 @@ files through mutagen.
 | Vital | `.vital` | inspect + index | Patch name, author, tags, modulation matrix |
 | Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index + write | Preset metadata, NKS tags, FastLZ subtree (hsin); write is experimental |
 | AppleDouble | `._*` sidecars, `__MACOSX/` | inspect only | The file it describes; Finder type and creator codes; every extended attribute decoded (quarantine agent and download time, WhereFroms URLs, Finder tags); file dates; resource fork |
+| TAL-Sampler | `.talsmpl` | inspect only | Program name, category, saved path; every multisample zone (sample, key and velocity range, root key, start/end, loop) placed on its bytes |
+| UVI | `.uvip` | inspect only | Program name and saved path; every keygroup (key and velocity range) and sample player, each sample looked for beside the program |
 | SFZ | `.sfz` | inspect only | Every header section with each opcode placed on its bytes; regions, groups and the sample files they name (through `default_path`, `#define` and group inheritance), each looked for beside the file; `#include` targets looked for too |
 | Logic EXS24 | `.exs` | inspect only | Instrument counts; every zone (root key, key and velocity range, tune, pan, volume, sample start/end, loop) with its group and sample resolved; every sample (frames, rate, bits, channels, file type, original path); little- and big-endian |
 | Kontakt 2-4.2 | `.nki`, `.nkm`, `.nkb` | inspect only | Header (version, timestamp, zone/group/program counts, sample bytes, author); 2-4.1 XML body: program name and every zone's sample path; 4.2 FastLZ body; soundinfo trailer |

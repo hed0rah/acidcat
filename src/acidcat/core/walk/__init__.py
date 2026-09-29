@@ -17,7 +17,7 @@ from acidcat.core.infra.source import BytesSource, Source, as_source
 from acidcat.core.infra import sniff as sniffmod
 from acidcat.core.walk import (
     ableton, aiff, akai, albank, amiga, au, bfdlac, bitwig, caf, chiptune, cmf, containers, dmx,
-    appledouble, exs, sfz,
+    appledouble, exs, sfz, xmlsampler,
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
     mp4, mpc, multisample, ncw, ni, ogg, pdx, pmd, psf, pt3, s98, rf64, rmid, rx2, serum, sf2,
@@ -169,6 +169,9 @@ _WALKERS = {
     "appledouble": ("AppleDouble metadata sidecar",
                     lambda path, deep: appledouble.inspect_appledouble(path)),
     "exs": ("Logic EXS24 instrument", lambda path, deep: exs.inspect_exs(path)),
+    "talsmpl": ("TAL-Sampler program",
+                lambda path, deep: xmlsampler.inspect_talsmpl(path)),
+    "uvip": ("UVI program", lambda path, deep: xmlsampler.inspect_uvip(path)),
     "sfz": ("SFZ instrument", lambda path, deep: sfz.inspect_sfz(path)),
     "ni": ("Native Instruments preset",
            lambda path, deep: ni.inspect_ni(path, deep=deep)),

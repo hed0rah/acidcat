@@ -123,6 +123,7 @@ KNOWN_DIFFERENCES = {
     "cue": "the BIN files it names are looked for beside the sheet",
     "psf": "the _lib it names is looked for beside the file",
     "sfz": "the sample files it names are looked for beside it",
+    "uvip": "the sample files it names are looked for beside it",
 }
 
 

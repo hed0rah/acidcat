@@ -1266,6 +1266,18 @@ def appledouble():
     return _call("test_appledouble", "sidecar")
 
 
+@seed("talsmpl", ".talsmpl")
+def talsmpl():
+    """TAL-Sampler program: XML, a program and two multisample zones."""
+    return _call("test_xmlsampler", "tal_text")
+
+
+@seed("uvip", ".uvip")
+def uvip():
+    """UVI program: <UVI4> XML, two keygroups each with a sample player."""
+    return _call("test_xmlsampler", "uvi_text")
+
+
 @seed("exs", ".exs")
 def exs():
     """Logic EXS24 instrument: an instrument chunk, two zones, a group, two

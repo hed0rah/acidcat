@@ -629,6 +629,15 @@ def _ad_many_attrs(tmp_path, n):
     return str(p)
 
 
+def _tal_many(tmp_path, n):
+    """A TAL-Sampler program longer than n bytes and with more than n zones."""
+    import test_xmlsampler
+
+    p = tmp_path / "many.talsmpl"
+    p.write_bytes(test_xmlsampler.tal_text(n=n + 2))
+    return str(p)
+
+
 def _kontakt_big_body(tmp_path, n):
     """A Kontakt 2 patch whose zlib body is longer than n bytes."""
     import os as _os
@@ -1425,6 +1434,8 @@ SWEPT = [
      "entries; the first"),
     ("acidcat.core.walk.appledouble", "_AD_ATTR_CAP", 2, _ad_many_attrs,
      "extended attributes"),
+    ("acidcat.core.walk.xmlsampler", "_XS_READ_CAP", 256, _tal_many, "were read"),
+    ("acidcat.core.walk.xmlsampler", "_XS_ZONE_CAP", 4, _tal_many, "node each"),
     ("acidcat.core.walk.ni", "_KONTAKT_READ_CAP", 256, _kontakt_big_body,
      "were read"),
     ("acidcat.core.walk.ni", "_KONTAKT_XML_CAP", 256, _kontakt_big_xml,

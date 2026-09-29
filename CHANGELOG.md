@@ -143,6 +143,11 @@ gone.
   type and creator codes (`PTul` is Pro Tools, `a-lv` Ableton), and every
   extended attribute -- the quarantine record naming the program that
   downloaded the file and when, the WhereFroms URLs, Finder tags.
+- **TAL-Sampler and UVI programs** (`.talsmpl`, `.uvip`), two new
+  formats. Both are XML, read without an XML parser: the program name and
+  the path it was saved at, and every zone or keygroup with its sample,
+  key and velocity range. A UVI program's samples are looked for beside
+  it, like an SFZ's.
 - **SFZ instruments** (`.sfz`), a new format. Every header section and
   opcode, each value placed on its bytes; the region, group and sample
   counts; and every sample file a region names (through `default_path`,

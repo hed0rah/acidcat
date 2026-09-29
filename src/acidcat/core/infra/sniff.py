@@ -51,7 +51,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sfz", "sigmf", "smus", "sndh", "spc", "stc", "vgm", "ym",
+    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sfz", "sigmf", "smus", "sndh", "spc", "stc", "talsmpl", "uvip", "vgm", "ym",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -258,6 +258,8 @@ def sniff_bytes(head):
     if head[:3] == b"\x00\x05\x16" and head[3:4] in (b"\x07", b"\x00") \
             and head[4:8] in (b"\x00\x02\x00\x00", b"\x00\x01\x00\x00"):
         return "appledouble"                           # AppleDouble / AppleSingle
+    if head.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<UVI4>"):
+        return "uvip"                                  # UVI program (XML)
     if exsmod.endian(head) is not None:
         return "exs"                                   # Logic EXS24 instrument
     if head[:4] == b"CcnK":
@@ -620,6 +622,8 @@ def sniff(filepath):
             return "iq"
         # SFZ is text with no magic: the extension, and a header token
         # outside a comment before any opcode
+        if low.endswith(".talsmpl") and _is_tal(filepath):
+            return "talsmpl"
         if low.endswith(".sfz") and _is_sfz(filepath):
             return "sfz"
         # an MPC .xpm program is XML; content-confirm to avoid the X11 pixmap
@@ -734,6 +738,15 @@ _IQ_EXTS = (".cu8", ".c16", ".c8", ".cs8", ".cs16", ".cf32", ".cfile")
 def _gqrx_sniff(filepath):
     from acidcat.core.walk import sigmf
     return sigmf._gqrx_name(input_name(filepath)) is not None
+
+
+def _is_tal(filepath):
+    from acidcat.core.formats import xmlsampler as xsmod
+    try:
+        with open_input(filepath) as f:
+            return xsmod.is_tal(f.read(2048))
+    except OSError:
+        return False
 
 
 def _is_sfz(filepath):
