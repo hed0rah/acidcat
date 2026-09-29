@@ -432,6 +432,14 @@ gone.
 
 ### Fixed
 
+- **Every valid RF64 failed `check`.** RF64 writes 0xFFFFFFFF in its 32-bit
+  size fields and keeps the real sizes in ds64; the structure model read the
+  placeholders literally, reported the data chunk as overrunning the file, and
+  proposed an 88-byte RIFF size. `check` now declines RF64 with a note, as the
+  tag editor does.
+- **`check` advertised a fix it would refuse** on a file whose audio chunk the
+  walk cannot reach (a wrong size earlier in the file). It now explains the
+  misread and marks nothing repairable.
 - **A search anchor that finds nothing exits 1.** `od`, `carve` and
   `inspect --at find:NOPE` (or `chunk:ZZZZ`) exited 2, the code for a
   malformed argument; nothing matched is the answer no. A malformed anchor
