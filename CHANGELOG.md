@@ -16,6 +16,14 @@ beyond the fixes.
   --full`, `--json` and `od`: the preset and instrument tree has no byte
   position, and the renderers formatted its offset as a number. A test now
   runs every render mode over every seed format.
+- **Every valid RF64 failed `validate`.** RF64 writes 0xFFFFFFFF in its
+  32-bit size fields and keeps the real sizes in ds64; the checker read the
+  placeholders literally, reported the data chunk as overrunning the file,
+  and proposed an 88-byte RIFF size (repair refused to write it). RF64 is now
+  declined with a note, as `write` already declines it.
+- **`validate` advertised a fix `repair` would refuse** on a file whose audio
+  chunk the walk cannot reach (a wrong size earlier in the file). It now
+  explains the misread and marks nothing repairable.
 - **A WAV's RF64 reservation was reported as damage.** The 28-byte JUNK a
   writer puts first is filled on purpose: with the ds64 sizes (sometimes
   stale, the file having grown), with a quote Ableton Live writes there, or
