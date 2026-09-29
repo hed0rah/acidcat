@@ -122,12 +122,7 @@ class IffRepairer(Repairer):
         label = node.form_type.decode("latin-1", "replace")
         violations = [_iff_violation(c) for c in changes]
         want = _IFF_AUDIO.get(node.form_type)
-        if want and _iff_audio(node) is None and want in bytes(data):
-            # apply() refuses exactly this file (audio present, not in the
-            # tree); analyze must not advertise a fix it will refuse
-            violations = [replace(v, witness="") for v in violations]
-            violations.insert(0, _lost_audio_violation(node))
-        elif orphan:
+        if orphan:
             # The master-size change is the destructive one, so it must stop
             # advertising itself as repairable -- otherwise validate and audit
             # both print "fix with: acidcat repair" for a file repair refuses,
@@ -135,6 +130,13 @@ class IffRepairer(Repairer):
             # violation, reported first, explains why.
             violations = [replace(v, witness="") for v in violations]
             violations.insert(0, _orphan_violation(node, orphan))
+        elif want and _iff_audio(node) is None and want in bytes(data):
+            # apply() refuses exactly this file (audio present, not in the
+            # tree); analyze must not advertise a fix it will refuse. Checked
+            # after the orphan case, whose overrunning chunk also sits outside
+            # the tree and has the more specific explanation.
+            violations = [replace(v, witness="") for v in violations]
+            violations.insert(0, _lost_audio_violation(node))
         return node, violations, label, orphan
 
     def analyze(self, data, opts=None):
