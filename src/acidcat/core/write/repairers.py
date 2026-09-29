@@ -75,6 +75,18 @@ def _orphan_violation(node, n_bytes):
                 f"Recomputing the size here would orphan them."))
 
 
+def _lost_audio_violation(node):
+    want = _IFF_AUDIO.get(node.form_type, b"data").decode("latin-1")
+    return Violation(
+        SIZE, f"{node.form_type.decode('latin-1', 'replace')}/{want}",
+        "declared_size", None, None,
+        witness="",                       # NOT repairable: the walk lost the audio
+        detail=(f"the {want} chunk is in the file but the chunk walk never "
+                f"reaches it: a size before it is wrong, so every chunk after "
+                f"that one is misread. Recomputing the container size would "
+                f"cut the audio off."))
+
+
 def _iff_violation(change):
     """Map a structure.recompute change to a Violation. A top-level (master)
     size is witnessed by end-of-file; a nested size by its container's parsed
@@ -90,9 +102,18 @@ def _iff_violation(change):
 
 class IffRepairer(Repairer):
     label = "IFF"
+    # RF64 keeps its real sizes in the ds64 chunk and writes 0xFFFFFFFF in the
+    # 32-bit fields. The structure model reads those fields literally, so every
+    # valid RF64 failed validation ("data overruns the file") and repair
+    # proposed an 88-byte RIFF size. Declined, as the tag editor declines it.
+    _DS64_NOTE = ("RF64 keeps its sizes in the ds64 chunk; the 32-bit size "
+                  "fields are placeholders, and checking them is not modelled")
 
     def applies(self, data):
         return structure.is_iff(data)
+
+    def _is_rf64(self, data):
+        return bytes(data[:4]) == b"RF64"
 
     def _report(self, data, opts):
         node = structure.parse(data)
@@ -100,7 +121,13 @@ class IffRepairer(Repairer):
         changes = structure.recompute(node, normalize_pad=not (opts or {}).get("keep_pad"))
         label = node.form_type.decode("latin-1", "replace")
         violations = [_iff_violation(c) for c in changes]
-        if orphan:
+        want = _IFF_AUDIO.get(node.form_type)
+        if want and _iff_audio(node) is None and want in bytes(data):
+            # apply() refuses exactly this file (audio present, not in the
+            # tree); analyze must not advertise a fix it will refuse
+            violations = [replace(v, witness="") for v in violations]
+            violations.insert(0, _lost_audio_violation(node))
+        elif orphan:
             # The master-size change is the destructive one, so it must stop
             # advertising itself as repairable -- otherwise validate and audit
             # both print "fix with: acidcat repair" for a file repair refuses,
@@ -111,10 +138,14 @@ class IffRepairer(Repairer):
         return node, violations, label, orphan
 
     def analyze(self, data, opts=None):
+        if self._is_rf64(data):
+            return Report("WAVE", note=self._DS64_NOTE)
         _node, violations, label, _orphan = self._report(data, opts)
         return Report(label, violations)
 
     def apply(self, data, opts=None):
+        if self._is_rf64(data):
+            return data, Report("WAVE", note=self._DS64_NOTE)
         node, violations, label, orphan = self._report(data, opts)
         if orphan:
             want = _IFF_AUDIO.get(node.form_type, b"data").decode("latin-1")
