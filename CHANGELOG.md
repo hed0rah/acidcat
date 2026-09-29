@@ -4,7 +4,13 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
-## [Unreleased]
+## [2.0.0a1] - 2026-09-29
+
+An alpha of 2.0, published as a pre-release: `pip install acidcat` still
+installs 1.8.x, and `pip install --pre acidcat` installs this. The command
+line and the Python API below are what 2.0 intends to ship; the anatomy
+pages are still being reworked, and names may yet change before 2.0.0.
+Fixes to 1.x continue on the 1.8 line.
 
 ### Migrating from 1.x
 
