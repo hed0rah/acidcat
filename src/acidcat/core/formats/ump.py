@@ -32,10 +32,17 @@ _M2 = {0x0: "per_note_rcontroller", 0x1: "per_note_acontroller", 0x2: "rpn",
 _UTIL = {0x0: "noop", 0x1: "jr_clock", 0x2: "jr_timestamp",
          0x3: "dctpq", 0x4: "delta_clockstamp"}
 _SYSEX_STATUS = {0x0: "complete", 0x1: "start", 0x2: "continue", 0x3: "end"}
-_STREAM_STATUS = {0x20: "start_of_clip", 0x21: "end_of_clip",
-                  0x00: "endpoint_discovery", 0x01: "endpoint_info",
+# SysEx8's Message Type (0x5) also carries the Mixed Data Set messages
+_SYSEX8_STATUS = {**_SYSEX_STATUS, 0x8: "mixed_data_set_header",
+                  0x9: "mixed_data_set_payload"}
+# UMP Stream status values, M2-104-UM v1.1.2 section 7.1 and Appendix F
+_STREAM_STATUS = {0x00: "endpoint_discovery", 0x01: "endpoint_info",
                   0x02: "device_identity", 0x03: "endpoint_name",
-                  0x05: "function_block_discovery", 0x10: "stream_config_request"}
+                  0x04: "product_instance_id", 0x05: "stream_config_request",
+                  0x06: "stream_config_notification",
+                  0x10: "function_block_discovery", 0x11: "function_block_info",
+                  0x12: "function_block_name",
+                  0x20: "start_of_clip", 0x21: "end_of_clip"}
 
 
 def mt_words(mt):
@@ -102,6 +109,10 @@ def decode(words):
         elif st == 0xC:                               # program change
             m.update(options=w0 & 0xFF, program=(w1 >> 24) & 0x7F,
                      bank=(((w1 >> 8) & 0x7F) << 7) | (w1 & 0x7F))
+        elif st == 0xA:                               # poly pressure
+            m.update(note=(w0 >> 8) & 0x7F, data=w1)
+        elif st == 0xF:                               # per-note management
+            m.update(note=(w0 >> 8) & 0x7F, options=w0 & 0xFF)
         elif st == 0xD:                               # channel pressure
             m.update(data=w1)
         elif st == 0xE:                               # pitch bend
@@ -120,7 +131,8 @@ def decode(words):
         st = (w0 >> 20) & 0xF
         nbytes = (w0 >> 16) & 0xF
         m = {"mt": mt, "kind": "sysex7" if mt == 0x3 else "sysex8", "group": group,
-             "status": _SYSEX_STATUS.get(st, "?"), "nbytes": nbytes}
+             "status": (_SYSEX8_STATUS if mt == 0x5 else _SYSEX_STATUS).get(st, "?"),
+             "nbytes": nbytes}
         if mt == 0x5:
             m["stream_id"] = (w0 >> 8) & 0xFF
         return m

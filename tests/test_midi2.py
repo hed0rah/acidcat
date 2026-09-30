@@ -43,6 +43,28 @@ def test_ump_utility_and_stream():
     assert t["kind"] == "set_tempo" and round(t["bpm"]) == 120
 
 
+def test_ump_stream_statuses_follow_the_spec_table():
+    # M2-104-UM v1.1.2 Appendix F. 0x05 and 0x10 were once swapped here.
+    want = {0x00: "endpoint_discovery", 0x01: "endpoint_info", 0x02: "device_identity",
+            0x03: "endpoint_name", 0x04: "product_instance_id",
+            0x05: "stream_config_request", 0x06: "stream_config_notification",
+            0x10: "function_block_discovery", 0x11: "function_block_info",
+            0x12: "function_block_name", 0x20: "start_of_clip", 0x21: "end_of_clip"}
+    for status, kind in want.items():
+        assert ump.decode((0xF0000000 | status << 16, 0, 0, 0))["kind"] == kind
+
+
+def test_ump_poly_pressure_per_note_management_and_mixed_data_set():
+    m = ump.decode((0x40A03C00, 0x12345678))
+    assert (m["kind"], m["note"], m["data"]) == ("poly_pressure", 60, 0x12345678)
+    m = ump.decode((0x40F03C03, 0))
+    assert (m["kind"], m["note"], m["options"]) == ("per_note_management", 60, 3)
+    assert ump.decode((0x50800000, 0, 0, 0))["status"] == "mixed_data_set_header"
+    assert ump.decode((0x50900000, 0, 0, 0))["status"] == "mixed_data_set_payload"
+    # SysEx7 has no Mixed Data Set: the same nibble is not a known status there
+    assert ump.decode((0x30800000, 0))["status"] == "?"
+
+
 def test_ump_self_delimiting_walk():
     # every message length comes only from the MT nibble; a mixed stream stays aligned
     kinds = [m["kind"] for _, _, m in ump.iter_ump(_clip()[8:])]

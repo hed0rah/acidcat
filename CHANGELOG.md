@@ -4,6 +4,18 @@ All notable changes to acidcat. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
 adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
+## [Unreleased]
+
+### Fixed
+
+- **UMP Stream messages named from the right table.** Status 0x05 was
+  called Function Block Discovery and 0x10 Stream Configuration Request;
+  M2-104-UM v1.1.2 has them the other way round. Product Instance Id,
+  Stream Configuration Notification, Function Block Info and Function Block
+  Name are now named too, as are MIDI 2.0 Poly Pressure and Per-Note
+  Management (note, value, flags) and SysEx8's Mixed Data Set header and
+  payload. Checked against the MMA/AMEI specifications line by line.
+
 ## [2.0.0a1] - 2026-09-29
 
 An alpha of 2.0, published as a pre-release: `pip install acidcat` still
