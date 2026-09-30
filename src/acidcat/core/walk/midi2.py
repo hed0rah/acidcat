@@ -41,6 +41,10 @@ def inspect_midi2(filepath, deep=False):
 
     tpq = tempo_10ns = bpm = timesig = None
     tempo_changes = timesig_changes = 0
+    last_tempo = last_timesig = None
+    # a Flex Data text longer than 12 bytes spans UMPs: form 1 starts it, 2
+    # continues, 3 ends; 0 is a whole text in one packet
+    text_parts = {}
     # a SysEx message is start, continue..., end -- or one complete packet;
     # per group, so interleaved groups are not mistaken for disorder
     sysex_open = {}
@@ -66,17 +70,30 @@ def inspect_midi2(filepath, deep=False):
         if kind == "dctpq":
             tpq = m["value"]
         elif kind == "set_tempo":
-            # the clip opens at the first tempo; later ones are changes
-            tempo_changes += 1
+            # the clip opens at the first tempo; a later one counts as a change
+            # only when it differs (Start of Clip restates the header's tempo)
+            if m["tempo_10ns"] != last_tempo:
+                tempo_changes += 1
+            last_tempo = m["tempo_10ns"]
             if tempo_10ns is None:
                 tempo_10ns, bpm = m["tempo_10ns"], m.get("bpm")
         elif kind == "set_time_signature":
-            timesig_changes += 1
+            sig = (m["numerator"], m["denom_pow2"])
+            if sig != last_timesig:
+                timesig_changes += 1
+            last_timesig = sig
             if timesig is None:
                 den = 1 << m["denom_pow2"] if m["denom_pow2"] else 0
                 timesig = f"{m['numerator']}/{den}" if den else f"{m['numerator']}/?"
         elif kind == "flex_text":
-            metadata.append((m.get("status_bank"), m.get("text", "")))
+            key = (m.get("group"), m.get("status_bank"), m.get("status"))
+            form = m.get("form", 0)
+            if form in (0, 1):
+                text_parts[key] = m.get("text", "")
+            else:
+                text_parts[key] = text_parts.get(key, "") + m.get("text", "")
+            if form in (0, 3):
+                metadata.append((m.get("status_bank"), text_parts.pop(key)))
         elif kind == "start_of_clip":
             seen_start = True
         elif kind == "end_of_clip":

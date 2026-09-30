@@ -31,7 +31,9 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   throughout (a real tempo track changes 94 times); it now reports the first
   and counts the changes, and no longer derives a duration from one tempo.
   SysEx packets out of order (a continue or end with no start, a start while
-  one is open) are a finding. Checked against 14 real clip files from two
+  one is open) are a finding. Text split across packets (a title longer than
+  12 bytes) is joined back into one string, and a tempo restated unchanged is
+  not counted as a change. Checked against 14 real clip files from two
   independent writers.
 
 ## [2.0.0a1] - 2026-09-29

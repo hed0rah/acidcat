@@ -20,7 +20,8 @@ def _clip():
     return (b"SMF2CLIP"
             + _dcs(0) + _w(0x003001E0)                 # DCTPQ 480
             + _dcs(0) + _w(0xD0100000, 0x02FAF080, 0, 0)   # Set Tempo 120 BPM
-            + _dcs(0) + _w(0xD0100001, 0x04021800, 0, 0)   # Set Time Sig 4/4
+            + _dcs(0) + _w(0xD0100001, 0x04020800, 0, 0)   # 4/4, 8 32nds per quarter
+            #                                              (M2-104-UM 7.5.4)
             + _dcs(0) + _w(0xF0200000, 0, 0, 0)        # Start of Clip
             + _dcs(0) + _w(0x40903C00, 0x80000000)     # Note On note 60 vel 0x8000
             + _dcs(480) + _w(0x40803C00, 0)            # Note Off a quarter later
@@ -89,6 +90,17 @@ def test_midi2_reports_the_opening_tempo_and_counts_changes(tmp_path):
     assert "120 BPM (+1 changes)" in chunks[1]["summary"]
     assert not any(f["name"] == "duration" for f in chunks[1]["fields"])
     assert not codes
+
+
+def test_midi2_joins_text_split_across_packets(tmp_path):
+    # 12 text bytes per UMP: form 1 starts, 2 continues, 3 ends
+    def part(form, text):
+        return _w(0xD0000000 | form << 22 | 1 << 20 | 0x0103) + text.ljust(12, b"\x00")
+    body = (_dcs(0) + part(1, b"acidcat MIDI") + _dcs(0) + part(2, b" 2.0 feature")
+            + _dcs(0) + part(3, b" tour"))
+    chunks, codes = _walk_bytes(tmp_path, _clip_with(body))
+    meta = [f["value"] for f in chunks[1]["fields"] if f["name"] == "meta"]
+    assert meta == ["acidcat MIDI 2.0 feature tour"] and not codes
 
 
 def test_midi2_flags_sysex_out_of_order(tmp_path):
