@@ -26,6 +26,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   Name are now named too, as are MIDI 2.0 Poly Pressure and Per-Note
   Management (note, value, flags) and SysEx8's Mixed Data Set header and
   payload. Checked against the MMA/AMEI specifications line by line.
+- **A MIDI 2.0 clip's tempo is the one it opens at.** A clip that changes
+  tempo reported its last tempo and time signature as though they held
+  throughout (a real tempo track changes 94 times); it now reports the first
+  and counts the changes, and no longer derives a duration from one tempo.
+  SysEx packets out of order (a continue or end with no start, a start while
+  one is open) are a finding. Checked against 14 real clip files from two
+  independent writers.
 
 ## [2.0.0a1] - 2026-09-29
 

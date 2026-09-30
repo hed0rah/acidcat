@@ -65,6 +65,41 @@ def test_ump_poly_pressure_per_note_management_and_mixed_data_set():
     assert ump.decode((0x30800000, 0))["status"] == "?"
 
 
+def _clip_with(body):
+    return (b"SMF2CLIP" + _dcs(0) + _w(0x003001E0) + _dcs(0) + _w(0xF0200000, 0, 0, 0)
+            + body + _dcs(0) + _w(0xF0210000, 0, 0, 0))
+
+
+def _walk_bytes(tmp_path, data):
+    from acidcat.core.walk import walk_file
+    p = tmp_path / "c.midi2"
+    p.write_bytes(data)
+    _l, chunks, warns = walk_file(str(p))
+    codes = [getattr(w, "code", None) for w in list(warns)
+             + [w for c in chunks for w in c.get("warnings", [])]]
+    return chunks, codes
+
+
+def test_midi2_reports_the_opening_tempo_and_counts_changes(tmp_path):
+    # a real tempo track (Holst's Mars) changes tempo 94 times; the clip opens
+    # at the FIRST one, which is what the summary must say
+    body = (_dcs(0) + _w(0xD0100000, 0x02FAF080, 0, 0)           # 120 BPM
+            + _dcs(480) + _w(0xD0100000, 0x0BEBC200, 0, 0))      # 30 BPM
+    chunks, codes = _walk_bytes(tmp_path, _clip_with(body))
+    assert "120 BPM (+1 changes)" in chunks[1]["summary"]
+    assert not any(f["name"] == "duration" for f in chunks[1]["fields"])
+    assert not codes
+
+
+def test_midi2_flags_sysex_out_of_order(tmp_path):
+    cont = _w(0x30220000, 0)                                     # SysEx7 continue, no start
+    chunks, codes = _walk_bytes(tmp_path, _clip_with(_dcs(0) + cont))
+    assert "chunk.order" in codes
+    ok = _w(0x30120000, 0) + _dcs(0) + _w(0x30320000, 0)         # start then end
+    chunks, codes = _walk_bytes(tmp_path, _clip_with(_dcs(0) + ok))
+    assert not codes
+
+
 def test_ump_self_delimiting_walk():
     # every message length comes only from the MT nibble; a mixed stream stays aligned
     kinds = [m["kind"] for _, _, m in ump.iter_ump(_clip()[8:])]
