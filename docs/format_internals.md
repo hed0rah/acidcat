@@ -64,6 +64,7 @@ files through mutagen.
 | [Bitwig multisample](formats/bitwig-multisample.md) | `.multisample` | inspect only | ZIP zone map: per-sample root note, key/velocity range, loop |
 | Vital | `.vital` | inspect + index | Patch name, author, tags, modulation matrix |
 | Native Instruments | `.nmsv`, `.nabs`, `.nki`, `.ksd`, `.nksf` | inspect + index + write | Preset metadata, NKS tags, FastLZ subtree (hsin); write is experimental |
+| Ableton Live Pack | `.alp` | inspect + extract | The pack's whole file tree from its index: every file at its offset in the pl-a container, with size, date, original size and metadata; extract writes the audio out as stored (FLAC) |
 | AppleDouble | `._*` sidecars, `__MACOSX/` | inspect only | The file it describes; Finder type and creator codes; every extended attribute decoded (quarantine agent and download time, WhereFroms URLs, Finder tags); file dates; resource fork |
 | TAL-Sampler | `.talsmpl` | inspect only | Program name, category, saved path; every multisample zone (sample, key and velocity range, root key, start/end, loop) placed on its bytes |
 | UVI | `.uvip` | inspect only | Program name and saved path; every keygroup (key and velocity range) and sample player, each sample looked for beside the program |
@@ -106,7 +107,6 @@ under `formats/`.
 
 | Format | File | Notes |
 |--------|------|-------|
-| Ableton Live Pack | `.alp` | gzip + custom `pl-a` container, embedded FLAC |
 | Kontakt (deep) | `.nki`, `.nkc` | the Kontakt 5+ and 4.2 binary object trees (instrument parameters, KSP scripts), the `.nkc` cache, Kontakt 1 headers, the `9f 17 40 00` monolith object |
 | DLS | `.dls` | RIFF-based MIDI instrument definition; could reuse the chunk parser |
 
@@ -173,7 +173,6 @@ for every format it supports and prints the structure with byte offsets:
 
 ### Tier 3: Research in progress
 - **Kontakt (deep)** -- the binary object tree inside Kontakt 4.2 and 5+ patches; `.nkc`
-- **Ableton ALP** -- undocumented `pl-a` container
 
 ### Tier 4: Future exploration
 - **DLS** -- RIFF-based MIDI instrument definition, could reuse the chunk parser

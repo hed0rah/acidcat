@@ -6,6 +6,17 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Ableton Live Packs** (`.alp`), a new format. A pack is gzip over a
+  `pl-a` container: the files back to back, then an index in Live's own
+  object serialisation (the one `.asd` files use). `inspect` reads the
+  index and lists the pack's whole file tree, each file at its offset in
+  the container with its size, date, pre-compression size and metadata;
+  `extract` writes the samples out as the pack stores them (FLAC), in two
+  streamed passes, so a pack of hundreds of megabytes is never held whole.
+  On 34 real packs the files tile the data region exactly.
+
 ### Fixed
 
 - **UMP Stream messages named from the right table.** Status 0x05 was

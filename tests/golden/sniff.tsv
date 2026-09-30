@@ -86,6 +86,15 @@ alc	head256	.alc	alc
 alc	sniff_bytes	-	-
 alc	zero-pad-front	.alc	-
 alc	zero-pad-tail	.alc	alc
+alp	as-built	.alp	alp
+alp	as-built	.bin	alp
+alp	as-built	.cue	cue
+alp	first-byte-flipped	.alp	-
+alp	head16	.alp	-
+alp	head256	.alp	alp
+alp	sniff_bytes	-	-
+alp	zero-pad-front	.alp	-
+alp	zero-pad-tail	.alp	alp
 als	as-built	.alc	alc
 als	as-built	.als	als
 als	as-built	.bin	als

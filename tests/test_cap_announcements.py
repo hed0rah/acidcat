@@ -137,6 +137,17 @@ EXEMPT = {
                               "there, which is the announcement; real tags are "
                               "a few dozen bytes. Covered by the corpus walk in "
                               "tests/test_sndh.py"),
+    ("acidcat.core.walk.alp", "_ALP_RECORD_CAP"):
+        (Reason.RUNAWAY_BACKSTOP, "records parsed from a Live Pack's file "
+                                  "tree; a million against real packs of a "
+                                  "few hundred. Reaching it means the index "
+                                  "is not a file tree, which the parse "
+                                  "reports as such"),
+    ("acidcat.core.extract.samples", "_ALP_INDEX_MAX"):
+        (Reason.RUNAWAY_BACKSTOP, "the index bytes extract reads from a Live "
+                                  "Pack: 64 MB against real indexes of tens of "
+                                  "kilobytes. inspect announces the same bound "
+                                  "as _ALP_INDEX_CAP, swept below"),
     ("acidcat.core.walk.appledouble", "_AD_PLIST_MAX"):
         (Reason.FIELD_SANITY, "the largest extended-attribute value decoded as "
                               "a property list. A larger one is not cut short: "
@@ -604,6 +615,16 @@ def _sfz_many(tmp_path, n):
 
     p = tmp_path / "many.sfz"
     p.write_bytes(test_sfz.sfz_text(n=n + 2))
+    return str(p)
+
+
+def _alp_many(tmp_path, n):
+    """A Live Pack with more than n files and an index over n bytes."""
+    import test_alp
+
+    files = tuple((f"S/s{i}.wav.flac", b"fLaC" + bytes(8), 0) for i in range(n + 2))
+    p = tmp_path / "many.alp"
+    p.write_bytes(test_alp.alp_bytes(files=files))
     return str(p)
 
 
@@ -1428,6 +1449,8 @@ SWEPT = [
     ("acidcat.core.walk.sfz", "_SFZ_SECTION_CAP", 4, _sfz_many, "node each"),
     ("acidcat.core.walk.sfz", "_SFZ_SAMPLE_CHECK_CAP", 4, _sfz_many,
      "were looked for"),
+    ("acidcat.core.walk.alp", "_ALP_FILE_NODE_CAP", 4, _alp_many, "node each"),
+    ("acidcat.core.walk.alp", "_ALP_INDEX_CAP", 64, _alp_many, "not listed"),
     ("acidcat.core.walk.appledouble", "_AD_READ_CAP", 1024, _ad_over_cap,
      "were read"),
     ("acidcat.core.walk.appledouble", "_AD_ENTRY_CAP", 1, _ad_many_attrs,

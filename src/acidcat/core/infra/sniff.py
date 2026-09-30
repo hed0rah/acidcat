@@ -43,7 +43,7 @@ _ID3_WRAPPED_MAGICS = (b"RIFF", b"RF64", b"FORM", b"fLaC", b"MThd")
 # truth every dispatch table keys on; keep it in sync with the returns below (the
 # test suite asserts both directions). "id3-wrapped" is a sentinel, not a format.
 KNOWN_FORMATS = frozenset({
-    "8svx", "adg", "adv", "adx", "agr", "aifc", "aiff", "akp", "albank", "alc", "als", "amxd",
+    "8svx", "adg", "adv", "adx", "agr", "aifc", "aiff", "akp", "albank", "alc", "alp", "als", "amxd",
     "appledouble",
     "au",
     "asd", "bfdlac", "bitwig", "brstm",
@@ -511,6 +511,14 @@ def sniff(filepath):
             return "alc"
         if ab == "als":
             return "als"
+        # a Live Pack is gzip too, but over a 'pl-a' archive, not XML
+        from acidcat.core.formats import alp as alpmod
+        try:
+            with open_input(filepath) as fh:
+                if alpmod.looks_like_alp(fh):
+                    return "alp"                       # Ableton Live Pack
+        except OSError:
+            pass
     # ADX opens with 0x8000 (weak); confirm via the (c)CRI marker before the audio
     if fmt is None and head[:2] == b"\x80\x00":
         from acidcat.core.codecs import adx

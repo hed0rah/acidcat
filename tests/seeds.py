@@ -1257,6 +1257,13 @@ def ni():
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
+@seed("alp", ".alp")
+def alp():
+    """Ableton Live Pack: gzip over a pl-a container, three files back to
+    back, then the index with its file tree and metadata."""
+    return _call("test_alp", "alp_bytes")
+
+
 @seed("appledouble", ".wav")
 def appledouble():
     """AppleDouble sidecar: RFC 1740 header, Finder info carrying three
