@@ -112,22 +112,77 @@ def _finder_info(data, off, ln, chunk, warns):
                         if names else "Finder info")
 
 
+_PLIST_TEXT = 400        # characters of a decoded property list shown
+
+
+def _unix_date(ts):
+    """A Unix time as text. The quarantine record's hex time is read from the
+    file unchecked, so it can be any size; datetime refuses most of them."""
+    if ts is None:
+        return "no time"
+    try:
+        return (datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
+                .strftime("%Y-%m-%d %H:%M:%S UTC"))
+    except (OverflowError, OSError, ValueError):
+        return f"time {ts:#x} (out of range)"
+
+
+def _brief(obj, room):
+    """At most `room` characters describing a decoded property list.
+
+    str() is not safe here: plistlib shares objects that the file references
+    more than once, so a few hundred bytes can describe a tree whose full text
+    doubles with every level. This stops writing at `room`, so its cost is
+    bounded by the output, not by the shape of the tree."""
+    out = []
+    left = [room]
+
+    def put(text):
+        if left[0] <= 0:
+            return False
+        out.append(text[:left[0]])
+        left[0] -= len(text)
+        return left[0] > 0
+
+    def walk(x):
+        if isinstance(x, list):
+            if not put("["):
+                return False
+            for i, v in enumerate(x):
+                if (i and not put(", ")) or not walk(v):
+                    return False
+            return put("]")
+        if isinstance(x, dict):
+            if not put("{"):
+                return False
+            for i, (k, v) in enumerate(x.items()):
+                if (i and not put(", ")) or not put(f"{k}: ") or not walk(v):
+                    return False
+            return put("}")
+        if isinstance(x, (bytes, bytearray)):
+            return put(x[:16].hex(" ") + (" ..." if len(x) > 16 else ""))
+        return put(str(x)[:room])
+
+    done = walk(obj)
+    text = "".join(out)
+    return text if done else text + " ..."
+
+
 def _attr_text(name, value):
     if name == "com.apple.quarantine":
         q = admod.quarantine(value)
         if q:
             agent, ts = q
-            when = (datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
-                    .strftime("%Y-%m-%d %H:%M:%S UTC") if ts is not None else "no time")
-            return f"downloaded by {agent or '(unnamed agent)'}, {when}"
+            return f"downloaded by {agent or '(unnamed agent)'}, {_unix_date(ts)}"
     if value.startswith(b"bplist00") and len(value) <= _AD_PLIST_MAX:
         try:
             obj = plistlib.loads(value)
         except Exception:
             return f"binary property list, {len(value):,} bytes, unreadable"
         if isinstance(obj, list):
-            return ", ".join(str(x) for x in obj[:8]) + (" ..." if len(obj) > 8 else "")
-        return str(obj)[:400]
+            # a WhereFroms list reads best as its items, not as a list literal
+            return _brief(obj, _PLIST_TEXT)[1:].rstrip("]")
+        return _brief(obj, _PLIST_TEXT)
     text = value.rstrip(b"\0")
     if text and all(32 <= b < 127 or b in (9, 10, 13) for b in text):
         return text.decode("ascii")

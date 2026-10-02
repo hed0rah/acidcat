@@ -93,3 +93,36 @@ def test_finder_info_without_attributes(tmp_path):
 def test_quarantine_agent_escapes_are_decoded():
     assert admod.quarantine(b"0081;675f97b6;Google\\x20Chrome;uuid") == ("Google Chrome", 0x675f97b6)
     assert admod.quarantine(b"garbage") is None
+
+
+def test_an_out_of_range_quarantine_time_is_named_not_raised(tmp_path):
+    # the hex time is read from the file unchecked; datetime refuses most of it
+    data = sidecar(attrs=(("com.apple.quarantine", b"0081;ffffffffffffff;Safari;"),))
+    _l, chunks, warns = _walk(tmp_path, data)
+    assert "out of range" in _f(chunks[1])["com.apple.quarantine"]
+    assert not warns
+
+
+def _dag_plist(depth):
+    """A binary plist whose array k is [k-1, k-1]: tiny on disk, and its full
+    text doubles with every level, because the objects are shared."""
+    objs = [b"\x51x"] + [bytes([0xA2, k - 1, k - 1]) for k in range(1, depth + 1)]
+    body = b"bplist00"
+    offsets = []
+    for o in objs:
+        offsets.append(len(body))
+        body += o
+    table = bytes(offsets)
+    trailer = (bytes(6) + bytes([1, 1]) + (len(objs)).to_bytes(8, "big")
+               + depth.to_bytes(8, "big") + len(body).to_bytes(8, "big"))
+    return body + table + trailer
+
+
+def test_a_shared_reference_plist_renders_in_bounded_time(tmp_path):
+    import time
+    data = sidecar(attrs=(("com.apple.metadata:kMDItemWhereFroms", _dag_plist(40)),))
+    t = time.perf_counter()
+    _l, chunks, _w = _walk(tmp_path, data)
+    assert time.perf_counter() - t < 2.0
+    text = _f(chunks[1])["com.apple.metadata:kMDItemWhereFroms"]
+    assert text.endswith("...") and len(text) < 450
