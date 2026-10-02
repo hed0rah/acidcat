@@ -41,11 +41,31 @@ def safe_fourcc(cid):
     return "hex:" + cid.hex()
 
 
-def iter_chunks(filepath):
+def pad_step(f, at, file_size, byteorder):
+    """The pad after an odd chunk whose payload ends at `at`: 1, or 0 when the
+    writer left it out. Some writers do; stepping over a pad that is not there
+    lands one byte into the next chunk and every chunk after it is misread.
+
+    0 only when `at` holds a chunk header whose size fits the file and `at + 1`
+    does not, so a conformant file (a 0x00 pad is never a chunk id) always
+    gets its pad, and a non-zero pad is still read as a pad."""
+    f.seek(at)
+    b = f.read(9)
+
+    def fits(off, hdr):
+        if len(hdr) < 8 or not all(0x20 <= c < 0x7F for c in hdr[:4]):
+            return False
+        return off + 8 + int.from_bytes(hdr[4:8], byteorder) <= file_size
+    return 0 if fits(at, b[:8]) and not fits(at + 1, b[1:9]) else 1
+
+
+def iter_chunks(filepath, unpadded=None):
     """
     Yield (chunk_id_str, offset, size) for each chunk in a RIFF/WAVE file.
 
-    Lightweight iterator -- doesn't parse chunk contents.
+    Lightweight iterator -- doesn't parse chunk contents. An odd chunk the
+    writer left unpadded is followed where the next chunk really starts, and
+    (id, offset) of it is appended to `unpadded` when a list is given.
     """
     size = input_size(filepath)
     with open_input(filepath) as f:
@@ -66,7 +86,10 @@ def iter_chunks(filepath):
             yield (cid, pos, csz)
             pos += 8 + csz
             if csz % 2 == 1:
-                pos += 1
+                step = pad_step(f, pos, size, "little")
+                if not step and unpadded is not None:
+                    unpadded.append((cid, pos - 8 - csz))
+                pos += step
 
 
 def iter_spans(filepath):

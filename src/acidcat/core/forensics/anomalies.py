@@ -704,6 +704,9 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
     # every conformant reader (it lands in nobody's payload).
     if fmt_id in _CHUNKED_IDS:
         stego = []
+        # a writer that left the pad out puts the next chunk there; its first
+        # byte is an id, not a pad
+        starts = {c.get("offset") for c in chunks}
         with open(filepath, "rb") as f:
             for c in chunks:
                 csz = c.get("size")
@@ -711,7 +714,7 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 if not isinstance(csz, int) or not isinstance(coff, int) or csz % 2 == 0:
                     continue
                 pad_off = coff + 8 + csz
-                if pad_off >= size:
+                if pad_off >= size or pad_off in starts:
                     continue
                 f.seek(pad_off)
                 if f.read(1) not in (b"\x00", b""):

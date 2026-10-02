@@ -42,6 +42,33 @@ class AlpError(ValueError):
     pass
 
 
+class ChecksumError(zlib.error):
+    """The gzip trailer disagrees with the bytes; every byte was still
+    inflated and yielded before this is raised."""
+
+
+def _gzip_header_len(b):
+    """Bytes in the gzip member header at the front of `b` (RFC 1952 2.3)."""
+    if len(b) < 10 or b[:3] != b"\x1f\x8b\x08":
+        raise zlib.error("not a gzip stream")
+    flags, pos = b[3], 10
+    if flags & 0x04:                                  # FEXTRA
+        if pos + 2 > len(b):
+            raise zlib.error("the gzip header is cut short")
+        pos += 2 + int.from_bytes(b[pos:pos + 2], "little")
+    for bit in (0x08, 0x10):                          # FNAME, FCOMMENT
+        if flags & bit:
+            nul = b.find(b"\x00", pos)
+            if nul < 0:
+                raise zlib.error("the gzip header is cut short")
+            pos = nul + 1
+    if flags & 0x02:                                  # FHCRC
+        pos += 2
+    if pos > len(b):
+        raise zlib.error("the gzip header is cut short")
+    return pos
+
+
 def is_alp_container(head):
     return head[:4] == MAGIC
 
@@ -58,22 +85,42 @@ def looks_like_alp(fh):
 
 def stream(fh, chunk=1 << 20, max_out=None):
     """Yield (offset, bytes) of the decompressed container, reading `fh`
-    (the .alp) through its gzip layer."""
-    d = zlib.decompressobj(16 + zlib.MAX_WBITS)
-    pos = 0
+    (the .alp) through its gzip layer.
+
+    The deflate body is inflated raw and the trailer checked here, not by
+    zlib's gzip mode: that mode drops the output of the call that meets a bad
+    CRC (the last read's worth of the container) and says nothing when the
+    stream stops before its trailer. Raises zlib.error for a stream that ends
+    early, and ChecksumError, after yielding everything, for a bad trailer."""
+    raw = fh.read(chunk)
+    head = _gzip_header_len(raw)
+    d = zlib.decompressobj(-zlib.MAX_WBITS)
+    crc, pos, raw = 0, 0, raw[head:]
     while True:
-        raw = fh.read(chunk)
-        if not raw:
-            tail = d.flush()
-            if tail:
-                yield pos, tail
-            return
-        out = d.decompress(raw)
+        out = d.decompress(raw) if raw else d.flush()
         if out:
             yield pos, out
+            crc = zlib.crc32(out, crc)
             pos += len(out)
             if max_out is not None and pos > max_out:
                 return
+        if d.eof:
+            break
+        if not raw:
+            raise zlib.error("it ends before its trailer")
+        raw = fh.read(chunk)
+    trailer = d.unused_data
+    while len(trailer) < 8:
+        more = fh.read(8 - len(trailer))
+        if not more:
+            raise zlib.error("it ends inside its trailer")
+        trailer += more
+    want_crc, want_len = struct.unpack("<II", trailer[:8])
+    if want_crc != crc or want_len != pos & 0xFFFFFFFF:
+        raise ChecksumError(
+            f"the gzip trailer says CRC-32 {want_crc:08x} over "
+            f"{want_len:,} bytes; the stream inflates to {pos:,} bytes "
+            f"with CRC-32 {crc:08x}")
 
 
 def read_index(fh, cap):

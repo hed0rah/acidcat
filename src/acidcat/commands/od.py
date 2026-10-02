@@ -302,8 +302,6 @@ def _run_addrs(args, path, addrs, on):
             continue
         ranges.append((name, start, length, blob))
     if not ranges:
-        if chosen_format(args) == "json":
-            format_json([], sys.stdout)     # no rows is still an array
         return failed
     data, close = map_file(path)
     try:

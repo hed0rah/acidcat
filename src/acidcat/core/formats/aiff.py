@@ -9,7 +9,7 @@ shared value tables the AIFF walker (core/walk/aiff.py) consumes.
 import math
 import struct
 
-from acidcat.core.formats.riff import safe_fourcc
+from acidcat.core.formats.riff import pad_step, safe_fourcc
 from acidcat.core.infra.source import open_input, input_size
 
 
@@ -78,8 +78,9 @@ def is_aiff(filepath):
         return False
 
 
-def iter_chunks(filepath):
-    """Yield (chunk_id_str, offset, size) for each chunk in an AIFF file."""
+def iter_chunks(filepath, unpadded=None):
+    """Yield (chunk_id_str, offset, size) for each chunk in an AIFF file. An
+    odd chunk left unpadded is handled as in riff.iter_chunks."""
     file_size = input_size(filepath)
     with open_input(filepath) as f:
         header = f.read(12)
@@ -102,4 +103,7 @@ def iter_chunks(filepath):
             yield (cid, pos, csz)
             pos += 8 + csz
             if csz % 2 == 1:
-                pos += 1  # word alignment
+                step = pad_step(f, pos, file_size, "big")    # word alignment
+                if not step and unpadded is not None:
+                    unpadded.append((cid, pos - 8 - csz))
+                pos += step

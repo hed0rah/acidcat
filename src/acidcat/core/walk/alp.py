@@ -49,6 +49,10 @@ def inspect_alp(filepath, deep=False):
             complete = True
         except Unsupported:
             raise
+        except alpmod.ChecksumError as e:
+            # every byte inflated; only the trailer disagrees, so the walk
+            # goes on over the whole container, unverified
+            warns.append(defect("checksum.mismatch", str(e)))
         except Exception as e:                      # zlib.error, truncated stream
             warns.append(defect("parse.failed", f"the gzip stream stops at "
                                                 f"{total:,} bytes: {e}"))

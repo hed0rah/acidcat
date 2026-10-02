@@ -203,6 +203,7 @@ def test_a_nonprintable_text_finding_points_at_the_text(tmp_path):
     hits = [f for f in findings if f["rule"] == "nonprintable_text"]
     assert hits, "the rule did not fire"
     at = hits[0]["offset"]
-    # the INAM sub-chunk: its id, size, then the text
-    assert data[at:at + 4] == b"INAM", (at, data[at:at + 16])
-    assert data[at + 8:at + 8 + len(text)] == text
+    # the text itself, behind the INAM sub-chunk's id and size (an INFO
+    # field is located on its text, so a "05" title stays text in JSON)
+    assert data[at:at + len(text)] == text, (at, data[at:at + 16])
+    assert data[at - 8:at - 4] == b"INAM"

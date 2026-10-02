@@ -28,7 +28,9 @@ _RESU_INFLATE_CAP = 4 * 1024 * 1024
 _APPLE_SCAN_CAP = 64 * 1024
 _APPLE_CLASS_CAP = 12
 
-_TYPEDSTREAM = b"streamtyped"
+# the signature spells the writer's byte order: NeXT/Apple typedstream writes
+# 'streamtyped' little-endian and 'typedstream' big-endian
+_TYPEDSTREAM = {b"streamtyped": "little-endian", b"typedstream": "big-endian"}
 
 
 def _parse_chan(b, _ctx):
@@ -155,10 +157,12 @@ def _parse_apple_meta(b, ctx):
     format.
     """
     fields, warns = [], []
-    if _TYPEDSTREAM not in b[:32]:
+    order = next((o for sig, o in _TYPEDSTREAM.items() if sig in b[:32]), None)
+    if order is None:
         return (f"unrecognized, {len(b):,} bytes"), fields, [
             defect("magic.mismatch", "AFAn/AFmd does not open with an Apple typedstream header")]
     fields.append(_f(None, 0, "container", "Apple typedstream (NSArchiver)"))
+    fields.append(_f(None, 0, "byte_order", order))
     fields.append(_f(None, 0, "bytes", f"{len(b):,}"))
     # the class names are length-prefixed ASCII in the clear; listing them says
     # what the archive holds without claiming to have decoded its values

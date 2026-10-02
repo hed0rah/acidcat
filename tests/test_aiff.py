@@ -3,6 +3,8 @@ that replaced the legacy parse_aiff parser."""
 
 import struct
 
+import pytest
+
 from acidcat.core.formats.aiff import _parse_ieee_extended
 from acidcat.core.walk.aiff import inspect_aiff
 
@@ -132,6 +134,17 @@ class TestAppleLoopsBasc:
         assert ctx["basc_root_key"] == 57
         assert "basc" in [c["id"] for c in chunks]
 
+    def test_an_out_of_range_root_is_unset(self, tmp_path):
+        # real loops carry 0xFFFF: it was note 'D#5459' and indexed as key D#
+        f = tmp_path / "noroot.aiff"
+        f.write_bytes(_form(b"AIFF", _comm_aiff(frames=441),
+                            _basc(beats=32, root=0xFFFF), _ssnd()))
+        chunks, _, ctx = _walk(f)
+        basc = next(c for c in chunks if c["id"] == "basc")
+        root = next(x for x in basc["fields"] if x["name"] == "root_key")
+        assert root["note"] == "unset" and "root" not in basc["summary"]
+        assert ctx["basc_root_key"] == 0
+
     def test_no_basc_keys_absent(self, tmp_path):
         f = tmp_path / "plain.aiff"
         f.write_bytes(_form(b"AIFF", _comm_aiff(), _ssnd()))
@@ -244,6 +257,17 @@ def test_afan_is_named_the_same_way_in_an_aiff_as_in_a_wav(tmp_path):
     assert classes[:2] == ["NSMutableDictionary", "NSDictionary"]
 
 
+@pytest.mark.parametrize("sig,order", [(b"streamtyped", "little-endian"),
+                                       (b"typedstream", "big-endian")])
+def test_afan_takes_either_typedstream_byte_order(tmp_path, sig, order):
+    # the big-endian spelling was reported as magic.mismatch damage
+    archive = bytes([0x04, 0x0B]) + sig + bytes([19]) + b"NSMutableDictionary"
+    chunks, _w, _c = _aiff_with(_chunk(b"AFAn", archive), tmp_path)
+    afan = _named(chunks, "AFAn")
+    assert not afan["warnings"]
+    assert {x["name"]: x["value"] for x in afan["fields"]}["byte_order"] == order
+
+
 # -- the Apple Loops chunks -------------------------------------------
 
 
@@ -336,3 +360,44 @@ def test_a_12_bit_sample_point_is_stored_in_two_bytes(tmp_path):
     f.write_bytes(_form(b"AIFF", _comm_aiff(bits=12), _ssnd(441)))
     chunks, _w, _c = _walk(f)
     assert any("imply 882" in w for w in _named(chunks, "SSND")["warnings"])
+
+
+
+# -- odd chunks a writer left unpadded (bug hunt 2026-10-02) -------------
+
+def _ck(cid, payload, pad=True):
+    return cid + struct.pack(">I", len(payload)) + payload + (
+        b"\x00" if pad and len(payload) & 1 else b"")
+
+
+def _unpadded_aiff(pad):
+    rate = b"\x40\x0e\xac\x44" + b"\x00" * 6
+    body = (b"AIFF" + _ck(b"COMM", struct.pack(">hIh", 1, 100, 16) + rate)
+            + _ck(b"SSND", struct.pack(">II", 0, 0) + b"\x00" * 200)
+            + _ck(b"AUTH", b"TEKNIKS", pad) + _ck(b"(c) ", b"TEKNIKS", pad)
+            + _ck(b"ANNO", b"THE MIXTAPE TOOLKIT", pad))
+    return b"FORM" + struct.pack(">I", len(body)) + body
+
+
+@pytest.mark.parametrize("pad", [True, False])
+def test_odd_chunks_are_followed_padded_or_not(tmp_path, pad):
+    # unpadded, the walk stepped one byte into '(c) ' and lost it and ANNO
+    p = tmp_path / "odd.aif"
+    p.write_bytes(_unpadded_aiff(pad))
+    chunks, warns, _ctx = _walk(p)
+    assert [c["id"] for c in chunks][-3:] == ["AUTH", "(c) ", "ANNO"]
+    codes = [getattr(w, "code", None) for w in warns]
+    assert "size.overrun" not in codes
+    assert codes.count("length.misaligned") == (0 if pad else 2)
+
+
+def test_a_nonzero_pad_is_still_a_pad(tmp_path):
+    # the covert-channel case: a pad byte that is not 0x00 is still skipped
+    data = bytearray(_unpadded_aiff(True))
+    at = data.index(b"(c) ") - 1
+    data[at] = 0x41
+    p = tmp_path / "pad41.aif"
+    p.write_bytes(bytes(data))
+    chunks, warns, _ctx = _walk(p)
+    assert [c["id"] for c in chunks][-2:] == ["(c) ", "ANNO"]
+    assert "length.misaligned" not in [getattr(w, "code", None) for w in warns]

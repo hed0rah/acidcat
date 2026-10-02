@@ -184,12 +184,15 @@ def _aiff_basc(b, ctx):
     root, scale, sig_n, sig_d = struct.unpack_from(">HHHH", b, 8)
     fields.append(_f(0x00, 4, "version", ver))
     fields.append(_f(0x04, 4, "num_beats", beats))
+    # 0 and anything past MIDI's 127 mean no root: real loops carry 0xFFFF,
+    # which as a note was 'D#5459'
+    known = 0 < root < 128
     fields.append(_f(0x08, 2, "root_key", root,
-                     midi_note_to_name(root) if root else "unset"))
+                     midi_note_to_name(root) if known else "unset"))
     fields.append(_f(0x0A, 2, "scale_type", scale, "enum unverified"))
     fields.append(_f(0x0C, 4, "time_sig", f"{sig_n}/{sig_d}"))
     ctx["basc_beats"] = beats
-    ctx["basc_root_key"] = root
+    ctx["basc_root_key"] = root if known else 0
     ctx["basc_scale"] = scale
     summary = f"apple loop, {beats} beats"
     frames, rate = ctx.get("frames"), ctx.get("rate")
@@ -198,7 +201,7 @@ def _aiff_basc(b, ctx):
         fields.append(_f(None, 0, "derived_bpm", round(bpm, 2),
                          "beats / duration * 60"))
         summary += f", ~{bpm:.0f} bpm"
-    if root:
+    if known:
         summary += f", root {midi_note_to_name(root)}"
     return summary, fields, warns
 
@@ -349,7 +352,8 @@ def inspect_aiff(filepath, form_type, ctx=None):
         # appended bytes (the commonest stale size)
         straddle = None
 
-        for cid, offset, size in iter_aiff_chunks(filepath):
+        unpadded = []
+        for cid, offset, size in iter_aiff_chunks(filepath, unpadded):
             seen.append(cid)
             avail = max(0, file_size - offset - 8)
             past = declared_end < file_size and offset >= declared_end
@@ -493,6 +497,12 @@ def inspect_aiff(filepath, form_type, ctx=None):
     # told a capped listing was complete.
     for entry in chunks:
         file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
+
+    for ucid, uoff in unpadded:
+        file_warns.append(defect(
+            "length.misaligned",
+            f"chunk {ucid!r} at 0x{uoff:08x} has an odd size and no pad byte "
+            f"after it; the next chunk starts right after its payload"))
 
     if declared_end > file_size or chunk_past_end is not None or straddle is not None:
         where = (f"; chunk {chunk_past_end[0]!r} at 0x{chunk_past_end[1]:08x} lies "

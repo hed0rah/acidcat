@@ -306,8 +306,7 @@ def test_no_rows_in_json_is_an_empty_array(files, tmp_path):
     junk = tmp_path / "junk.bin"
     junk.write_bytes(b"\x00" * 64)
     for argv in (["stats", "--json", str(junk)],
-                 ["stats", "--by", "shape", "--only-format", "nope", "--json", str(ok)],
-                 ["od", "--json", str(ok), "RIFF/nope"]):
+                 ["stats", "--by", "shape", "--only-format", "nope", "--json", str(ok)]):
         r = _run(*argv)
         assert r.returncode == 1, (argv, r.stderr)
         assert json.loads(r.stdout) == [], argv

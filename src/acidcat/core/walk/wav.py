@@ -896,7 +896,8 @@ def _parse_copyright(b, ctx):
 
 # Apple's typedstream: the archive format NSArchiver wrote before
 # NSKeyedArchiver, still emitted by Logic and Final Cut into AFAn/AFmd. It
-# opens with a version byte and the literal "streamtyped".
+# opens with a version byte and "streamtyped" (little-endian) or "typedstream"
+# (big-endian).
 
 def _parse_xmp(b, _ctx):
     """`_PMX`: an XMP packet, which is RDF/XML.
@@ -1360,7 +1361,8 @@ def inspect_wav(filepath, ctx=None):
         # appended bytes (the commonest stale size)
         straddle = None
 
-        for cid, offset, size in iter_chunks(filepath):
+        unpadded = []
+        for cid, offset, size in iter_chunks(filepath, unpadded):
             seen.append(cid)
             avail = max(0, file_size - offset - 8)
             overruns = size > avail and not (cid == "data" and size in _STREAM_SENTINELS)
@@ -1432,6 +1434,12 @@ def inspect_wav(filepath, ctx=None):
             # primitives.notes exists to prevent.
             file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
             chunks.append(entry)
+
+    for ucid, uoff in unpadded:
+        file_warns.append(defect(
+            "length.misaligned",
+            f"chunk {ucid!r} at 0x{uoff:08x} has an odd size and no pad byte "
+            f"after it; the next chunk starts right after its payload"))
 
     if declared_end > file_size or chunk_past_end is not None or straddle is not None:
         where = (f"; chunk {chunk_past_end[0]!r} at 0x{chunk_past_end[1]:08x} lies "

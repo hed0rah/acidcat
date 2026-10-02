@@ -185,3 +185,31 @@ def test_real_packs_walk_clean():
                 bad.append((n, found[:2]))
     assert seen, "no .alp under the corpus"
     assert not bad, bad[:5]
+
+
+# ── regressions from the 2026-10-02 bug hunt ──
+
+def test_a_pack_cut_before_its_trailer_is_damage_not_verified(tmp_path):
+    # the stream stopped short without raising, and the pl-a layer was
+    # declared verified by a CRC nobody checked
+    _label, chunks, warns = _walk(tmp_path, alp_bytes()[:-8])
+    assert "parse.failed" in _codes(chunks, warns)
+    assert "layer" not in chunks[0]
+
+
+def test_a_bad_crc_still_walks_the_whole_container(tmp_path):
+    # zlib's gzip mode dropped the last read's output on a bad CRC, so the
+    # index read as dangling
+    data = bytearray(alp_bytes())
+    data[-6] ^= 0xFF
+    _label, chunks, warns = _walk(tmp_path, bytes(data))
+    codes = _codes(chunks, warns)
+    assert "checksum.mismatch" in codes and "pointer.dangling" not in codes
+    assert _f(chunks[0])["files"] == 3
+    assert "layer" not in chunks[0]
+
+
+def test_an_intact_pack_is_still_verified(tmp_path):
+    _label, chunks, warns = _walk(tmp_path, alp_bytes())
+    assert chunks[0]["layer"]["verdict"]["result"] == "verified"
+    assert not [c for c in _codes(chunks, warns) if c and not c.startswith("cap.")]
