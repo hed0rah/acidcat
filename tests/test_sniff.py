@@ -44,6 +44,9 @@ class TestSniffBytes:
     def test_ni_niks_riff(self):
         # RIFF/NIKS is an NI preset, not a WAV
         assert sniff_bytes(_pad(b"RIFF\x10\x00\x00\x00NIKS")) == "ni"
+        # an hsin preset whose u32 size has low byte 0x7B starts with '{';
+        # the magic at 12 wins over Vital's one leading byte
+        assert sniff_bytes(_pad(b"{" + b"\x00" * 11 + b"hsin")) == "ni"
 
     def test_flac(self):
         assert sniff_bytes(_pad(b"fLaC\x00\x00\x00\x22")) == "flac"

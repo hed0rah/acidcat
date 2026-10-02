@@ -154,6 +154,13 @@ EXEMPT = {
                               "it is shown as its byte count and first bytes, "
                               "whole. Real WhereFroms and tag plists are a few "
                               "hundred bytes"),
+    ("acidcat.core.formats.ni", "_SUBTREE_TOTAL_CAP"):
+        (Reason.RUNAWAY_BACKSTOP, "the output all failed FastLZ candidates in "
+                                  "an hsin preset may inflate to, together. A "
+                                  "real preset's first candidate is the right "
+                                  "one; reaching this means many crafted "
+                                  "candidates, and the deep walk then shows no "
+                                  "payload. Pinned in tests/test_ni.py"),
     ("acidcat.core.walk.ni", "_KONTAKT_FASTLZ_CAP"):
         (Reason.RESOURCE_LIMIT, "a decompression bound on a Kontakt 4.2 patch "
                                 "body, so a crafted stream cannot expand "
@@ -656,6 +663,25 @@ def _tal_many(tmp_path, n):
 
     p = tmp_path / "many.talsmpl"
     p.write_bytes(test_xmlsampler.tal_text(n=n + 2))
+    return str(p)
+
+
+def _kontakt_nested(tmp_path, n):
+    """Kontakt patches nested n deep inside each other's containers."""
+    import test_kontakt as tk
+    inner = tk.header() + tk._directory([])
+    for _ in range(n):
+        inner = tk.header() + tk._directory([]) + tk.patch_obj(inner)
+    p = tmp_path / "nested.nki"
+    p.write_bytes(inner)
+    return str(p)
+
+
+def _kontakt_big_trailer(tmp_path, n):
+    """A Kontakt 4.2 patch whose soundinfo trailer is longer than n bytes."""
+    import test_kontakt as tk
+    p = tmp_path / "trailer.nki"
+    p.write_bytes(tk.k42_patch())
     return str(p)
 
 
@@ -1459,6 +1485,9 @@ SWEPT = [
      "extended attributes"),
     ("acidcat.core.walk.xmlsampler", "_XS_READ_CAP", 256, _tal_many, "were read"),
     ("acidcat.core.walk.xmlsampler", "_XS_ZONE_CAP", 4, _tal_many, "node each"),
+    ("acidcat.core.walk.ni", "_NI_NEST_CAP", 2, _kontakt_nested, "the walk stops"),
+    ("acidcat.core.walk.ni", "_KONTAKT_TRAILER_CAP", 64, _kontakt_big_trailer,
+     "were read"),
     ("acidcat.core.walk.ni", "_KONTAKT_READ_CAP", 256, _kontakt_big_body,
      "were read"),
     ("acidcat.core.walk.ni", "_KONTAKT_XML_CAP", 256, _kontakt_big_xml,

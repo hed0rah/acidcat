@@ -390,3 +390,36 @@ def test_real_kontakt_files_walk_clean():
             break
     assert seen, "no Kontakt 2-4 patch or sample container under the corpus"
     assert not bad, bad[:5]
+
+
+# ── regressions from the 2026-10-02 bug hunt ──
+
+def _empty_dir_container(objs=b""):
+    return _directory([]) + objs
+
+
+def test_nested_monoliths_stop_at_a_depth_cap_not_a_recursion_error(tmp_path):
+    inner = header() + _empty_dir_container()
+    for _ in range(400):
+        inner = header() + _empty_dir_container(patch_obj(inner))
+    chunks, warns = _walk(tmp_path, inner)
+    codes = _codes(chunks, warns)
+    assert "cap.depth" in codes and "walker.error" not in codes
+
+
+def test_a_body_cut_by_the_read_cap_is_not_held_to_its_length(tmp_path, monkeypatch):
+    from acidcat.core.walk import ni as niwalk
+    monkeypatch.setattr(niwalk, "_KONTAKT_READ_CAP", 64)
+    chunks, warns = _walk(tmp_path, k42_patch(b"object tree " * 40), deep=True)
+    codes = _codes(chunks, warns)
+    assert "cap.read" in codes and "size.overrun" not in codes
+
+
+def test_a_trailer_past_the_read_cap_is_a_cap_not_damage(tmp_path, monkeypatch):
+    from acidcat.core.walk import ni as niwalk
+    monkeypatch.setattr(niwalk, "_KONTAKT_TRAILER_CAP", 64)
+    data = k42_patch()
+    chunks, warns = _walk(tmp_path, data)
+    codes = _codes(chunks, warns)
+    assert "cap.read" in codes
+    assert "size.overrun" not in codes and "container.trailing" not in codes

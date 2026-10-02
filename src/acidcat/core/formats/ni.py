@@ -101,10 +101,12 @@ def fastlz_decompress(src, max_out=32 * 1024 * 1024):
                 break
             if ref + length <= len(dst):
                 dst += dst[ref:ref + length]
-            else:  # overlapping: the copy reads bytes it is writing
-                for _ in range(length):
-                    dst.append(dst[ref])
-                    ref += 1
+            else:
+                # overlapping: the copy reads bytes it is writing, which makes
+                # it the last (len - ref) bytes repeated. Build it as a repeat,
+                # not byte by byte: a long run is one slice, not a Python loop.
+                period = bytes(dst[ref:])
+                dst += (period * (length // len(period) + 1))[:length]
         else:  # literal run of ctrl+1 bytes
             length = ctrl + 1
             dst.extend(src[ip:ip + length])
@@ -119,11 +121,17 @@ def fastlz_decompress(src, max_out=32 * 1024 * 1024):
     return bytes(dst)
 
 
-def decompress_subtree(data, max_attempts=64):
+_SUBTREE_TOTAL_CAP = 64 * 1024 * 1024
+
+
+def decompress_subtree(data, max_attempts=64, total=None):
     """Locate the FastLZ-compressed subtree (item 115) in an hsin preset and
     return its decompressed inner container, or None. The payload header is
     u32=1, u8=1, u32 uncompressed_size, u32 compressed_size, then FastLZ."""
     attempts = 0
+    # every attempt inflates a candidate that may prove wrong; bound them all
+    # together, not each alone, or 64 wrong candidates cost 64 times the cap
+    budget = _SUBTREE_TOTAL_CAP if total is None else total
     # locate the sentinel with a C-level find (not a Python byte-by-byte scan,
     # which a crafted sentinel-free file could stretch to seconds).
     m = data.find(b"\x01\x00\x00\x00\x01", 0x30)
@@ -135,9 +143,12 @@ def decompress_subtree(data, max_attempts=64):
             attempts += 1
             if attempts > max_attempts:
                 break
+            if uncomp + 16 > budget:
+                break
             out = fastlz_decompress(data[m + 13:m + 13 + comp], uncomp + 16)
             if out is not None and len(out) == uncomp:
                 return out
+            budget -= len(out) if out is not None else uncomp + 16
         m = data.find(b"\x01\x00\x00\x00\x01", m + 1)
     return None
 

@@ -99,6 +99,36 @@ def test_fastlz_level2_far_distance():
     assert ni.fastlz_decompress(stream) == data + data[8:11]
 
 
+def test_fastlz_long_overlapping_run_is_fast():
+    # a distance-1 match repeating one byte ~16 MB: built as a repeat, not a
+    # byte-at-a-time loop
+    import time
+    n = 16 * 1024 * 1024 // 255
+    stream = b"\x20A\xe0" + b"\xff" * n + b"\x00\x00"
+    t = time.perf_counter()
+    out = ni.fastlz_decompress(stream, max_out=64 * 1024 * 1024)
+    assert time.perf_counter() - t < 2.0
+    assert out == b"A" * len(out) and len(out) > 16_000_000
+
+
+def test_decompress_subtree_bounds_the_work_across_candidates(monkeypatch):
+    # many wrong candidates, each claiming a big output: the total is bounded
+    calls = []
+    real = ni.fastlz_decompress
+
+    def counting(src, max_out=0):
+        calls.append(max_out)
+        return real(src, max_out)
+    monkeypatch.setattr(ni, "fastlz_decompress", counting)
+    # each body really inflates to about 1 MB (a level-2 run), and each claims
+    # 2 MB, so every candidate is wrong after doing real work
+    body = b"\x20A\xe0" + b"\xff" * 4100 + b"\x00\x00"
+    cand = (b"\x01\x00\x00\x00\x01" + struct.pack("<II", 2 << 20, len(body)) + body)
+    data = b"\x00" * 12 + b"hsin" + b"\x00" * 32 + cand * 64
+    assert ni.decompress_subtree(data, total=3 << 20) is None
+    assert len(calls) <= 3
+
+
 def test_fastlz_level1_is_unchanged_by_level2_support():
     # the same bytes as the long-length case, read as level 1, stop early
     out = ni.fastlz_decompress(b"\x00A\xe0\xff\x05\x00")

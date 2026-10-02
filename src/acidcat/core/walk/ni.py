@@ -24,6 +24,10 @@ _NI_ENTRY_CAP = 1 << 20
 _NI_OBJECT_CAP = 1 << 21
 # stored objects given a chunk each; the rest share one summary chunk
 _NI_OBJECT_CHUNK_CAP = 512
+# a monolith's patch inside a monolith's patch...; real ones nest exactly once
+_NI_NEST_CAP = 4
+# the soundinfo trailer read after a patch body; real ones are a few hundred bytes
+_KONTAKT_TRAILER_CAP = 1 << 20
 
 _NCW_MAGIC = b"\x01\xa8\x9e\xd6"
 _MAGIC_OF = {name: magic for magic, (name, _l, _h) in ncmod.OBJECTS.items()}
@@ -142,7 +146,7 @@ def _header_chunk(base, h, cid):
             "fields": fields, "warnings": [], "payload_base": base}
 
 
-def _kontakt_chunks(read_at, base, end, h, deep, outer):
+def _kontakt_chunks(read_at, base, end, h, deep, outer, depth=0):
     """Header, body and trailer of the patch at `base`, which runs to `end`.
     A monolith's body is a sample container, walked by _container_chunks."""
     hv = h["header_version"][2]
@@ -151,7 +155,7 @@ def _kontakt_chunks(read_at, base, end, h, deep, outer):
     warns = []
     kind = ktmod.body_kind(read_at(start, 4), 0)
     if kind == "container":
-        cchunks, cwarns = _container_chunks(read_at, end, start, deep)
+        cchunks, cwarns = _container_chunks(read_at, end, start, deep, depth)
         return chunks + cchunks, warns + cwarns
     declared = h["body_length"][2]
     avail = end - start
@@ -163,22 +167,33 @@ def _kontakt_chunks(read_at, base, end, h, deep, outer):
     want = declared or avail
     n = min(want, _KONTAKT_READ_CAP)
     body = read_at(start, n)
-    if n < want:
+    cut = n < want
+    if cut:
         warns.append(hit("read_bytes", _KONTAKT_READ_CAP, want,
                          f"the patch body is {want:,} bytes; the first "
                          f"{_KONTAKT_READ_CAP // (1 << 20)} MB were read"))
     if kind == "zlib":
         chunk, body_len = _zlib_body(body, start, h, deep, warns)
     else:
-        chunk, body_len = _fastlz_body(body, start, h, deep, warns)
+        chunk, body_len = _fastlz_body(body, start, h, deep, warns, cut)
     if declared and body_len != declared:
         body_len = declared
         chunk["size"] = declared
     chunks.append(chunk)
     tr_at = start + body_len
     if tr_at < end:
-        tr = ktmod.parse_trailer(read_at(tr_at, min(end - tr_at, 1 << 20)), 0)
+        room = end - tr_at
+        got = min(room, _KONTAKT_TRAILER_CAP)
+        tr = ktmod.parse_trailer(read_at(tr_at, got), 0)
         if tr is not None:
+            whole = tr["xml_offset"] + tr["xml_length"]
+            if tr["xml_short"] and got < room:
+                # the read stopped, not the file: the trailer runs on past it
+                tr["xml_short"] = False
+                tr["length"] = min(whole, room)
+                warns.append(hit("read_bytes", _KONTAKT_TRAILER_CAP, whole,
+                                 f"the soundinfo trailer is {whole:,} bytes; the first "
+                                 f"{_KONTAKT_TRAILER_CAP // (1 << 20)} MB were read"))
             chunks.append(_trailer_chunk(tr, tr_at))
             tr_end = tr_at + tr["length"]
             if outer and tr_end < end:
@@ -241,7 +256,7 @@ def _zlib_body(body, start, h, deep, warns):
     return chunk, consumed or len(body)
 
 
-def _fastlz_body(body, start, h, deep, warns):
+def _fastlz_body(body, start, h, deep, warns, cut=False):
     want = h.get("uncompressed_length", (None, None, None))[2]
     chunk = {"id": "patch", "offset": start, "size": len(body),
              "summary": "FastLZ-compressed patch (binary object tree)",
@@ -256,7 +271,9 @@ def _fastlz_body(body, start, h, deep, warns):
                 f"the body decompresses past {_KONTAKT_FASTLZ_CAP // (1 << 20)} MB"))
         else:
             chunk["fields"].append(_f(None, 0, "decompressed", f"{len(out):,} bytes"))
-            if want is not None and len(out) != want:
+            # a body cut by the read cap cannot be held to the header's length;
+            # the cap is already announced
+            if want is not None and len(out) != want and not cut:
                 chunk["warnings"].append(defect(
                     "size.overrun" if len(out) < want else "count.mismatch",
                     f"the header says the body decompresses to {want:,} bytes "
@@ -315,7 +332,7 @@ def _plural(n, one, many=None):
     return f"{n:,} {one if n == 1 else (many or one + 's')}"
 
 
-def _container_chunks(read_at, size, base, deep):
+def _container_chunks(read_at, size, base, deep, depth=0):
     warns = []
     entries, _end, problem = ncmod.read_tree(read_at, base, _NI_ENTRY_CAP)
     counts = {t: 0 for t in ncmod.ENTRY_TYPES}
@@ -390,7 +407,7 @@ def _container_chunks(read_at, size, base, deep):
                        "summary": f"{o['kind']} {name or ''}".rstrip(),
                        "fields": fields, "warnings": [], "payload_base": o["at"]})
         if o["kind"] == "patch":
-            chunks += _inner_patch(read_at, o, deep, warns)
+            chunks += _inner_patch(read_at, o, deep, warns, depth)
     if len(stored) > _NI_OBJECT_CHUNK_CAP:
         rest = stored[_NI_OBJECT_CHUNK_CAP:]
         first = rest[0]["at"]
@@ -405,20 +422,25 @@ def _container_chunks(read_at, size, base, deep):
         # a patch past the chunk cap still gets its own chunks
         for o in rest:
             if o["kind"] == "patch":
-                chunks += _inner_patch(read_at, o, deep, warns)
+                chunks += _inner_patch(read_at, o, deep, warns, depth)
     if deep and rows:
         top["rows"] = rows
     return chunks, warns
 
 
-def _inner_patch(read_at, obj, deep, warns):
+def _inner_patch(read_at, obj, deep, warns, depth=0):
     """The Kontakt patch a monolith stores inside its container."""
+    if depth >= _NI_NEST_CAP:
+        warns.append(hit("depth", _NI_NEST_CAP, depth + 1,
+                         f"patches nest {depth + 1} deep here; the walk stops at "
+                         f"{_NI_NEST_CAP} (a real monolith nests one)"))
+        return []
     at = obj["payload_at"]
     head = read_at(at, ktmod.HEADER_LEN + 4)
     h = ktmod.parse_header(head)
     if h is None:
         return []
     chunks, pwarns = _kontakt_chunks(read_at, at, at + obj["length"], h, deep,
-                                     outer=False)
+                                     outer=False, depth=depth + 1)
     warns.extend(pwarns)
     return chunks
