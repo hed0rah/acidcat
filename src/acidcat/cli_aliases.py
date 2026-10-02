@@ -377,6 +377,25 @@ def _fold_at(rest, got):
     return rest, dict(got, **{"--offset": val})
 
 
+def _after_file(verb, rest, extra):
+    """`rest` with `extra` placed right after FILE: the first token that is
+    neither an option nor an option's value. Not after rest[0], which may be an
+    option ('od --color never FILE'), and not at the end: argparse before 3.13
+    takes FILE and an `ADDR...` positional in one go, so an ADDR after an
+    option is an unrecognised argument there (3.13 accepts it; CI runs 3.11)."""
+    from importlib import import_module
+    parser = _legacy.parser_for(import_module("acidcat.commands." + verb), verb)
+    takes = {o for a in parser._actions if a.nargs != 0 for o in a.option_strings}
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok.startswith("-") and tok != "-":
+            i += 2 if ("=" not in tok and tok in takes) else 1
+            continue
+        return rest[:i + 1] + extra + rest[i + 1:]
+    return rest + extra
+
+
 def _as_addr(got):
     """The ADDR (or, for an offset alone, the anchor) the 1.8 range flags
     said: --offset N --length L -> @N+L, --offset N --end E -> @N..E, a bare
@@ -421,9 +440,8 @@ def _od(rest):
     if not got:
         return ["od"] + rest
     addr = _as_addr(got)
-    # last, not after rest[0]: the first token may be an option, not FILE
     if addr.startswith("@"):
-        return ["od"] + rest + [addr]
+        return ["od"] + _after_file("od", rest, [addr])
     return ["od"] + rest + ["--at", addr]
 
 
@@ -450,7 +468,7 @@ def _carve(rest):
             extra.append(addr)
         else:
             out += ["--at", addr]
-    return ["carve"] + out + extra
+    return ["carve"] + _after_file("carve", out, extra)
 
 
 def _probe(rest):

@@ -204,6 +204,18 @@ def test_a_numeric_at_folds_into_the_range():
         ["carve", "-o", "x", "f", "@0+4"]]
 
 
+def test_the_addr_lands_right_after_file():
+    # not at the end: argparse before 3.13 takes FILE and ADDR... together, so
+    # an ADDR after an option is "unrecognized" there. A 3.13 dev box forgives
+    # it, which is how 17 CI tests broke on 3.11 and none locally.
+    t = cli_aliases.translate
+    assert t(["od", "--color", "never", "--offset", "0", "--length", "16", "f",
+              "--width", "8"])[0] == [
+        ["od", "--color", "never", "f", "@0+16", "--width", "8"]]
+    assert t(["carve", "f", "--encoding", "hex", "--offset", "0", "--length", "4"])[0] == [
+        ["carve", "f", "@0+4", "--encoding", "hex"]]
+
+
 def test_survey_and_census_caps_become_max_files():
     """survey's `-n` and census's `--limit` are `--max-files`; without one the
     10,000 default applies, which neither verb had."""
