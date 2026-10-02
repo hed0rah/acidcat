@@ -1,9 +1,0 @@
-# what "tested" means in this repo. read by ~/my-laboratory/scripts/wip.
-# committed on purpose: this is the repo telling every agent what the gate is,
-# rather than each one guessing.
-
-# the full suite. -q because promote only cares whether it is green, and the
-# failure output is what you read when it is not.
-TEST="python -m pytest -q"
-
-BASE="main"
