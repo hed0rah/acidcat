@@ -30,7 +30,10 @@ def inspect_ogg(filepath):
                  data[:4].decode("latin-1") if len(data) >= 4 else "",
                  "every Ogg page starts with it"),
               _f(None, 0, "codec", codec),
-              _f(None, 0, "pages", len(pages)),
+              # the first stream's pages, as the multistream note says
+              _f(None, 0, "pages", sum(1 for p in pages if p["serial"] == serial),
+                 "" if all(p["serial"] == serial for p in pages)
+                 else f"of {len(pages)} in the file"),
               _f(None, 0, "bitstream_serial", serial)]
     warns = []
     serials = {p["serial"] for p in pages}

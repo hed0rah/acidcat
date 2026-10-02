@@ -110,6 +110,23 @@ def _autofs_mountpoints():
     return skip
 
 
+
+def _keep(lst, path, cap):
+    """Add `path` to the sorted example list, keeping the `cap` smallest. The
+    examples are then the same whatever order the files were read in: the
+    first N seen depended on which worker thread got which file."""
+    import bisect
+    if path in lst or (len(lst) >= cap and path >= lst[-1]):
+        return
+    bisect.insort(lst, path)
+    del lst[cap:]
+
+
+def _by_count(d):
+    """A count table, largest first and ties by key, so a rerun prints the
+    same order (ties kept the dict's insertion order, which is the schedule)."""
+    return sorted(d.items(), key=lambda kv: (-kv[1], str(kv[0])))
+
 class ScanOptions:
     __slots__ = ("follow_symlinks", "one_file_system", "fadvise", "noatime")
 
@@ -248,9 +265,7 @@ class Census:
         as the number of files, so a flag hit 900 times displayed as "25". The
         count and the examples are different facts and are kept apart now.
         """
-        lst = self.flags.setdefault(name, [])
-        if len(lst) < cap:
-            lst.append(json_safe_path(path))
+        _keep(self.flags.setdefault(name, []), json_safe_path(path), cap)
         self.flag_counts[name] = self.flag_counts.get(name, 0) + 1
 
     def merge(self, other):
@@ -266,18 +281,17 @@ class Census:
             dst, src = getattr(self, attr), getattr(other, attr)
             for k, v in src.items():
                 dst[k] = dst.get(k, 0) + v
-        merged = dict(other.chunk_first)
-        for c, paths in self.chunk_first.items():
-            merged[c] = (merged.get(c, []) + paths)[:self.examples]
-        self.chunk_first = merged
+        for c, paths in other.chunk_first.items():
+            got = self.chunk_first.setdefault(c, [])
+            for p in paths:
+                _keep(got, p, self.examples)
         for k, v in other.fmt_tag_example.items():
-            self.fmt_tag_example.setdefault(k, v)
+            mine = self.fmt_tag_example.get(k)
+            self.fmt_tag_example[k] = v if mine is None else min(mine, v)
         for name, paths in other.flags.items():
             lst = self.flags.setdefault(name, [])
             for p in paths:
-                if len(lst) >= 25:
-                    break
-                lst.append(p)
+                _keep(lst, p, 25)
 
     def census_file(self, path, fadvise=True, noatime=False):
         """Dissect one file into this accumulator. Positioned reads of chunk
@@ -402,9 +416,8 @@ class Census:
             # specimen; a handful lets a reader compare specimens, which is
             # what measuring an undocumented chunk actually needs, and it
             # turned every chunk investigation into a fresh corpus walk.
-            got = self.chunk_first.setdefault(fourcc, [])
-            if len(got) < self.examples and (not got or got[-1] != path):
-                got.append(json_safe_path(path))
+            _keep(self.chunk_first.setdefault(fourcc, []), json_safe_path(path),
+                  self.examples)
 
             if cid == b"ds64":
                 # RF64/BW64 carry the real 64-bit data size here (dataSize is a
@@ -416,7 +429,9 @@ class Census:
                 tag = self._peek_u16(fd, pos + 8, u16)
                 if tag is not None:
                     self._bump(self.fmt_tags, tag)
-                    self.fmt_tag_example.setdefault(tag, json_safe_path(path))
+                    prev = self.fmt_tag_example.get(tag)
+                    here = json_safe_path(path)
+                    self.fmt_tag_example[tag] = here if prev is None else min(prev, here)
                     if tag == 0x0039:
                         self._flag("fmt_tag_0x0039", path)
                     elif 0x0101 <= tag <= 0x0103:
@@ -482,7 +497,7 @@ class Census:
             return None
 
     def result(self, top=None):
-        chunks = sorted(self.chunk_counts.items(), key=lambda kv: -kv[1])
+        chunks = _by_count(self.chunk_counts)
         rare = [[c, n, (self.chunk_first.get(c) or [""])[0]]
                 for c, n in chunks if n <= 5]
         hist = chunks[:top] if top else chunks
@@ -496,8 +511,7 @@ class Census:
             "errors": self.errors,
             "unparseable": self.unparseable,
             "distinct_chunks": len(self.chunk_counts),
-            "containers": dict(sorted(self.by_container.items(),
-                                      key=lambda kv: -kv[1])),
+            "containers": dict(_by_count(self.by_container)),
             # labelled: `files` holding the id, and every `occurrences` of it.
             # They differ whenever a file repeats an id, and a bare number
             # left a reader to guess which it was.
@@ -513,15 +527,14 @@ class Census:
             # Scoped to the histogram, so `--top` bounds this the same way.
             "chunk_examples": {c: self.chunk_first.get(c, []) for c, _n in hist},
             "rare_chunks": rare,
-            "format_tags": {"0x%04x" % t: n for t, n in
-                            sorted(self.fmt_tags.items(), key=lambda kv: -kv[1])},
-            "format_tag_examples": {"0x%04x" % t: p
-                                    for t, p in self.fmt_tag_example.items()},
-            "list_types": self.list_types,
-            "fact_sizes": {str(k): v for k, v in self.fact_sizes.items()},
-            "bext_versions": {str(k): v for k, v in self.bext_versions.items()},
-            "flags": self.flags,
-            "flag_counts": self.flag_counts,
+            "format_tags": {"0x%04x" % t: n for t, n in _by_count(self.fmt_tags)},
+            "format_tag_examples": {"0x%04x" % t: p for t, p in
+                                    sorted(self.fmt_tag_example.items())},
+            "list_types": dict(_by_count(self.list_types)),
+            "fact_sizes": {str(k): v for k, v in _by_count(self.fact_sizes)},
+            "bext_versions": {str(k): v for k, v in _by_count(self.bext_versions)},
+            "flags": dict(sorted(self.flags.items())),
+            "flag_counts": dict(sorted(self.flag_counts.items())),
             # A truncated census makes the same claims as a complete one. The
             # table disclosed "20 files opened" but --json had no limit or
             # truncation field at all, so a consumer could not tell a prefix

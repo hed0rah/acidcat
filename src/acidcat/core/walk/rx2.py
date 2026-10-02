@@ -12,6 +12,25 @@ from acidcat.core.walk.base import _f, _bu32, _dtext, _open, _size
 _MAX = 4 * 1024 * 1024
 
 
+
+# the CREI strings, in the order ReCycle writes them
+_CREI_NAMES = ("creator", "copyright", "url", "contact")
+
+
+def _crei_records(b):
+    """[(offset, length, name, text)] for a CREI payload, or None when it is
+    not a run of u32be-length strings that tiles the payload exactly. Read as
+    one string, the length prefixes and NULs leaked into the creator."""
+    out, p = [], 0
+    while p + 4 <= len(b):
+        n = int.from_bytes(b[p:p + 4], "big")
+        if p + 4 + n > len(b):
+            return None
+        name = _CREI_NAMES[len(out)] if len(out) < len(_CREI_NAMES) else f"text_{len(out)}"
+        out.append((p + 4, n, name, _dtext(b[p + 4:p + 4 + n]).strip("\x00 ").strip()))
+        p += 4 + n
+    return out if out and p == len(b) else None
+
 def _count_slices(data, start, end, depth=0):
     """Count SLCE slice markers, descending into nested 'CAT ' groups (the
     slice list is a sub-CAT, so a flat top-level walk misses them)."""
@@ -87,7 +106,12 @@ def inspect_rx2(filepath):
         cid_s = cid.decode("latin-1", "replace")
         cfields = []
         summary = ""
-        if cid == b"CREI":
+        if cid == b"CREI" and _crei_records(data[cbody:cbody + clen]) is not None:
+            for at, n, name, text in _crei_records(data[cbody:cbody + clen]):
+                if text:
+                    cfields.append(_f(at, n, name, text[:80]))
+            summary = next((f["value"] for f in cfields), "")[:60]
+        elif cid == b"CREI":
             creator = _dtext(data[cbody:cbody + clen]).strip("\x00 ").strip()
             if creator:
                 # 0, not cbody: a field offset is RELATIVE to its chunk's

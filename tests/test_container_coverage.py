@@ -348,3 +348,26 @@ def test_labx_deflated_entry_head_read_is_capped(tmp_path):
         tracemalloc.stop()
     assert chunks
     assert peak < 40 * 1024 * 1024, f"peak {peak >> 20} MB: the cap is not holding"
+
+
+
+def test_rx2_crei_is_length_prefixed_strings(tmp_path):
+    # read as one C string, the u32 prefixes and NULs leaked into the creator
+    import struct
+    from acidcat.core.walk import walk_file
+
+    def rec(s):
+        return struct.pack(">I", len(s)) + s
+    crei = (rec(b"Example Writer AB") + rec(b"Copyright (c) 2000")
+            + rec(b"http://example.com") + rec(b"user@example.com") + rec(b""))
+    chunk = b"CREI" + struct.pack(">I", len(crei)) + crei + b"\x00" * (len(crei) & 1)
+    slcl = b"CAT " + struct.pack(">I", 4) + b"SLCL"
+    body = b"REX2" + chunk + slcl
+    f = tmp_path / "crei.rx2"
+    f.write_bytes(b"CAT " + struct.pack(">I", len(body)) + body)
+    _label, chunks, _w = walk_file(str(f))
+    crei_c = next(c for c in chunks if c["id"].endswith("CREI"))
+    got = {x["name"]: x["value"] for x in crei_c["fields"]}
+    assert got == {"creator": "Example Writer AB", "copyright": "Copyright (c) 2000",
+                   "url": "http://example.com", "contact": "user@example.com"}
+    assert crei_c["summary"] == "Example Writer AB"

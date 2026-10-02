@@ -300,3 +300,30 @@ def test_examples_are_bounded_by_top_like_the_histogram(tmp_path):
     cx.census_file(p)
     res = cx.result(top=3)
     assert len(res["chunk_examples"]) == len(res["chunk_histogram"]) == 3
+
+
+
+# ---- determinism (bug hunt 2026-10-02) ---------------------------------------
+
+def test_the_report_does_not_depend_on_the_order_files_were_read(tmp_path):
+    # workers merged in finish order, examples were the first N each one saw,
+    # and count ties kept dict insertion order: five runs, five reports
+    files = []
+    for i in range(12):
+        extra = [_chunk(b"acid", b"\x00" * 24)] if i % 2 else [_chunk(b"smpl", b"\x00" * 36)]
+        files.append(_write(tmp_path, f"f{i:02d}.wav", _wav([_FMT] + extra + [_DATA])))
+
+    def report(order, split):
+        parts = [census.Census(examples=2) for _ in range(split)]
+        for n, path in enumerate(order):
+            parts[n % split].census_file(path)
+        total = parts[0]
+        for other in reversed(parts[1:]):
+            total.merge(other)
+        return total.result()
+
+    want = report(files, 1)
+    assert report(list(reversed(files)), 3) == want
+    assert report(files[5:] + files[:5], 4) == want
+    assert list(want["chunk_histogram"])[:2] == ["data", "fmt "]   # tie, by key
+    assert want["chunk_examples"]["acid"] == sorted(files[1::2])[:2]

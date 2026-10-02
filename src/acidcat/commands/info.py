@@ -61,12 +61,11 @@ def _detect_format(filepath):
         return "aiff"
     if is_serum_preset(filepath):
         return "serum"
+    # no extension fallback for AIFF or MIDI: their magic said no, and a
+    # builder handed other bytes read a RIFF/RMID header as 'MIDI type 21069'
+    # and passed an empty .aif as AIFF; the sniff below routes them instead
     ext = os.path.splitext(filepath)[1].lower()
-    if ext in (".aif", ".aiff"):
-        return "aiff"
-    if ext in (".mid", ".midi"):
-        return "midi"
-    if ext.lower() == ".serumpreset":
+    if ext == ".serumpreset":
         return "serum"
     if is_tagged_format(filepath):
         return "tagged"

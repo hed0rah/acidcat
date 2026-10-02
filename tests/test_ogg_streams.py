@@ -204,3 +204,30 @@ class TestTheSegmentedMerge:
                              "end": e, "length": e - o, "confidence": 0.5}
         out = self._merge([blob(0, 100), blob(100, 200)])
         assert len(out) == 1 and out[0]["end"] == 200
+
+
+class TestStreamCountsAgree:
+    """Bug hunt 2026-10-02: the walker counted every serial and every page,
+    the anomaly rule counted only serials that had a BOS page, and the pages
+    field counted all streams beside a note saying it described the first."""
+
+    def _walk(self, tmp_path, data):
+        from acidcat.core.walk.ogg import inspect_ogg
+        p = tmp_path / "multi.ogg"
+        p.write_bytes(data)
+        return p, inspect_ogg(str(p))
+
+    def test_pages_counts_the_first_stream(self, tmp_path):
+        _p, (chunks, _w) = self._walk(tmp_path, _stream(1, pages=3) + _stream(2, pages=10))
+        pages = next(f for f in chunks[0]["fields"] if f["name"] == "pages")
+        assert pages["value"] == 3 and "13" in pages["note"]
+
+    def test_a_stream_without_a_bos_page_is_still_counted(self, tmp_path):
+        from acidcat.core.forensics import anomalies
+        cont = b"".join(_page(2, i) for i in range(1, 4))      # no BOS page
+        p, (_c, warns) = self._walk(tmp_path, _stream(1) + cont)
+        assert any("2 logical bitstreams" in str(w) for w in warns)
+        findings = anomalies.scan(str(p))
+        hit = [f for f in findings if f["rule"] == "ogg_multistream"]
+        assert hit and "2 logical bitstreams" in hit[0]["message"]
+        assert "continuation" in hit[0]["message"]

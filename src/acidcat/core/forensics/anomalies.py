@@ -529,14 +529,21 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 # clamped: read(N) pre-allocates N bytes (see core/midi.py)
                 ogg_data = f.read(min(16 * 1024 * 1024,
                                       os.path.getsize(filepath)))
-            serials = {pg["serial"] for pg in _ogg.iter_pages(ogg_data)
-                       if pg["header_type"] & 0x02}
+            # every serial counts, as the walker counts them: a stream whose
+            # beginning-of-stream page was cut off is still a stream
+            pages = list(_ogg.iter_pages(ogg_data))
+            serials = {pg["serial"] for pg in pages}
+            begun = {pg["serial"] for pg in pages if pg["header_type"] & 0x02}
             if len(serials) > 1:
+                cont = len(serials - begun)
                 findings.append({"severity": "notice", "offset": 0,
                                  "rule": "ogg_multistream",
                                  "message": f"{len(serials)} logical bitstreams in "
                                             f"one Ogg; a single-codec player surfaces "
-                                            f"only one (possible hidden stream)"})
+                                            f"only one (possible hidden stream)"
+                                            + (f"; {cont} start without a "
+                                               f"beginning-of-stream page (a "
+                                               f"continuation)" if cont else "")})
         except Exception as e:
             # a rule that crashed is not a rule that found nothing:
             # swallowing this made a malformed structure look clean

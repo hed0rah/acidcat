@@ -420,6 +420,30 @@ class TestInfoMidiDivision:
         assert "29.97 fps" in out
 
 
+class TestSummaryRoutesOnBytes:
+    """--summary trusted a .mid/.aif extension over the bytes: 'hello' named
+    t.mid was 'Format MIDI' and a RIFF/RMID read as 'MIDI type 21069'."""
+
+    def test_an_extension_alone_is_not_a_format(self, tmp_path):
+        for name, data in (("t.mid", b"hello"), ("t.aif", b"")):
+            p = tmp_path / name
+            p.write_bytes(data)
+            code, out, _err = run_cli("inspect", "--summary", str(p))
+            assert code == 2, name
+            assert "Format" not in out
+
+    def test_rmid_named_mid_gets_the_walker_summary(self, tmp_path):
+        track = b"\x00\xFF\x2F\x00"
+        smf = (b"MThd" + struct.pack(">IHHH", 6, 0, 1, 480)
+               + b"MTrk" + struct.pack(">I", len(track)) + track)
+        body = b"RMID" + b"data" + struct.pack("<I", len(smf)) + smf
+        p = tmp_path / "r.mid"
+        p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+        code, out, _err = run_cli("inspect", "--summary", str(p))
+        assert code in (0, None)
+        assert "RMID" in out and "21069" not in out
+
+
 def test_main_reconfigures_stdout_to_utf8(monkeypatch):
     # audio metadata is Unicode; the CLI must force UTF-8 output so a non-Latin
     # tag does not raise UnicodeEncodeError on a cp1252 console (Windows/pipe).

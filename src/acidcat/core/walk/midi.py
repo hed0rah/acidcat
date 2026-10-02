@@ -34,6 +34,20 @@ _VOICE_NAMES = {
 }
 
 
+
+def _seconds(span, division, changes):
+    """Seconds from tick 0 to `span` at PPQ `division`, through `changes`
+    [(tick, microseconds per quarter)] sorted by tick; 120 bpm until the first.
+    A change past the span does not count."""
+    us, last, total = 500_000, 0, 0
+    for tick, new in changes:
+        if tick >= span:
+            break
+        total += (tick - last) * us
+        last, us = tick, new
+    total += (span - last) * us
+    return total / division / 1_000_000
+
 def _scan_track(trk, ctx, collect=False):
     """Collect display facts from one MTrk payload. Mirrors the event
     grammar in core/midi.py but keeps per-track stats. With ``collect``,
@@ -45,6 +59,7 @@ def _scan_track(trk, ctx, collect=False):
     nmin = nmax = None
     channels = set()
     tempos = []
+    tempo_map = []                     # (tick, microseconds per quarter)
     names = []
     copyright = None
     time_sig = key_sig = None
@@ -83,6 +98,7 @@ def _scan_track(trk, ctx, collect=False):
                 us = (edata[0] << 16) | (edata[1] << 8) | edata[2]
                 if us:
                     tempos.append(round(60_000_000 / us, 2))
+                    tempo_map.append((ticks, us))
                     detail = f"{round(60_000_000 / us, 2):g} bpm"
             elif etype == 0x58 and elen == 4:
                 time_sig = f"{edata[0]}/{2 ** edata[1]}"
@@ -179,7 +195,8 @@ def _scan_track(trk, ctx, collect=False):
             pos += 1
 
     return {"ticks": ticks, "notes": notes, "nmin": nmin, "nmax": nmax,
-            "channels": channels, "tempos": tempos, "names": names,
+            "channels": channels, "tempos": tempos, "tempo_map": tempo_map,
+            "names": names,
             "copyright": copyright, "time_sig": time_sig, "key_sig": key_sig,
             "has_eot": has_eot, "events": events, "n_events": n_events,
             "sysex": sysex, "unknown_meta": unknown_meta, "eot_end": eot_end}
@@ -290,6 +307,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
     found = 0
     first_tempo = None
     tempo_lists = []
+    tempo_maps = []
     max_ticks = 0
     track_ticks = []
     while offset + 8 <= file_size and found < ntrks:
@@ -374,6 +392,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
         max_ticks = max(max_ticks, st["ticks"])
         track_ticks.append(st["ticks"])
         tempo_lists.append(st["tempos"])
+        tempo_maps.append(st["tempo_map"])
 
         bits = []
         if st["names"]:
@@ -421,12 +440,20 @@ def inspect_midi(filepath, deep=False, ctx=None):
             note = "SMPTE timing, tempo-independent"
     elif division and span:
         bpm = first_tempo or 120.0
-        dur = (span / division) * 60.0 / bpm
+        if fmt == 2:
+            # each pattern keeps its own tempo map and its own timeline
+            dur = sum(_seconds(t, division, m)
+                      for t, m in zip(track_ticks, tempo_maps))
+        else:
+            # format 0/1 tempos are global, whichever track holds them
+            dur = _seconds(span, division,
+                           sorted((c for m in tempo_maps for c in m),
+                                  key=lambda c: c[0]))
         note = f"at {bpm:g} bpm"
         if first_tempo is None:
             note = "at the SMF default 120 bpm (no tempo event)"
         elif n_tempos > 1:
-            note += f"; {n_tempos} tempo events make this approximate"
+            note = f"over {n_tempos} tempo events"
     if seq:
         note = ((note + "; ") if note else "") + (
             f"the {len(track_ticks)} patterns are independent, so this is "
