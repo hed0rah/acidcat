@@ -133,3 +133,22 @@ def test_real_sfz_files_walk_without_defects():
                     bad.append((n, found[:2]))
     assert seen, "no .sfz under the corpus"
     assert not bad, bad[:5]
+
+
+def test_a_long_space_run_after_a_value_is_linear():
+    # \s+key= backtracked across the whole run from every start: 40k spaces
+    # took 11 s
+    import time
+    from acidcat.core.formats import sfz as sfzmod
+    data = b"<region> sample=a" + b" " * 200_000 + b"\n"
+    t = time.perf_counter()
+    sections, _ = sfzmod.tokenize(data)
+    assert time.perf_counter() - t < 1.0
+    assert sections[0]["opcodes"][0][2] == "a"
+
+
+def test_an_opcode_after_spaces_still_ends_the_value():
+    from acidcat.core.formats import sfz as sfzmod
+    sections, _ = sfzmod.tokenize(b"<region> sample=a b.wav   key=60\n")
+    ops = {k: v for k, _ka, v, _va, _vl in sections[0]["opcodes"]}
+    assert ops == {"sample": "a b.wav", "key": "60"}

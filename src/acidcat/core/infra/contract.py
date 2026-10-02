@@ -370,7 +370,8 @@ def _field(fl, node_pos, data, prefer_be, key, layer=0):
     type says it is text."""
     out = _field_raw(fl, node_pos, data, prefer_be, key, layer)
     v = out["value"]
-    if isinstance(v, str) and out["type"] not in ("ascii", "fourcc"):
+    if (isinstance(v, str) and out["type"] not in ("ascii", "fourcc")
+            and not fl.get("text")):
         parsed = _machine_value(v, key)
         if parsed is not None:
             out["value"] = parsed

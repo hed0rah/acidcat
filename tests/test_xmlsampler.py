@@ -74,3 +74,14 @@ def test_uvi_program_keygroups_and_missing_samples(tmp_path):
     assert _f(chunks[1])["key_low"] == "40"
     msg = [str(w) for w in warns if getattr(w, "code", None) == "sibling.missing"]
     assert msg and "1 of 2" in msg[0] and "s1.wav" in msg[0]
+
+
+def test_many_unclosed_tags_are_linear():
+    # each unclosed '<tag' scanned [^>]* to the end of the file
+    import time
+    from acidcat.core.formats import xmlsampler as xs
+    data = b'<tal version="1">' + b"<multisample " * 40_000
+    t = time.perf_counter()
+    out, total = xs.elements(data, b"multisample", 16)
+    assert time.perf_counter() - t < 1.0
+    assert out == [] and total == 0

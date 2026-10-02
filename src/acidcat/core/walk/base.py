@@ -49,8 +49,11 @@ _ID3_READ_CAP = 16 * 1024 * 1024
 
 
 def _f(off, length, name, value, note="", enc=None, raw=None, xref=None,
-       remote=False, derived_from=None):
+       remote=False, derived_from=None, text=False):
     d = {"off": off, "len": length, "name": name, "value": value, "note": note}
+    if text:
+        # the value is text even when it reads as a number: a title "05"
+        d["text"] = True
     if derived_from:
         # an unpositioned value's sources: field names on this chunk, or
         # `node_id#key` elsewhere (node-v1.md section 6)

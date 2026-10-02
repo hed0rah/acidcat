@@ -13,6 +13,7 @@ import struct
 
 from acidcat.core.infra.source import open_input, input_size
 from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
 
 # bitrate (kbps) by (version, layer) -> 16-entry table. index 0 is the
 # "free" format, index 15 is the reserved/invalid marker.
@@ -101,7 +102,7 @@ def synchsafe(b4):
             | ((b4[2] & 0x7F) << 7) | (b4[3] & 0x7F))
 
 
-def id3v2_from_bytes(data):
+def id3v2_from_bytes(data, whole=None):
     """Decode a complete ID3v2 tag held in memory.
 
     Returns (header, frames, warnings): header is
@@ -113,6 +114,10 @@ def id3v2_from_bytes(data):
     a slice of an already-open file. The alternative in use was writing it to a
     temp file to read it back, which costs a file per tag and fails wherever the
     filesystem is read-only.
+
+    `whole` is how many bytes the container really holds for the tag when the
+    caller read only the first part (a chunk payload cap): the tag is judged
+    against that, and the cut is a coverage note, not an overrun.
     """
     warns = []
     if len(data) < 10 or data[:3] != b"ID3":
@@ -130,9 +135,14 @@ def id3v2_from_bytes(data):
     # Believed only when the spec reading does not fit the data and the
     # little-endian one fits exactly. Narrow on purpose: a guess that merely
     # looked plausible would silently re-interpret conformant tags.
-    if 10 + size > len(data):
+    have = len(data) if whole is None else max(whole, len(data))
+    if 10 + size > len(data) and 10 + size <= have:
+        warns.append(hit("chunk_payload", len(data), 10 + size,
+                         f"the tag is {10 + size:,} bytes; the first "
+                         f"{len(data):,} were read"))
+    elif 10 + size > len(data):
         le = int.from_bytes(data[6:10], "little")
-        if 10 + le == len(data):
+        if 10 + le == have:
             warns.append(
                 defect("value.invalid",
                        f"the tag size is written little-endian ({le}), not the "
@@ -142,7 +152,7 @@ def id3v2_from_bytes(data):
         else:
             warns.append(defect("size.overrun",
                                 f"the tag declares {size:,} bytes but only "
-                                f"{len(data) - 10:,} follow its header"))
+                                f"{have - 10:,} follow its header"))
 
     header = {"major": major, "revision": revision, "flags": flags,
               "size": size, "size_note": size_note}
@@ -164,7 +174,15 @@ def id3v2_from_bytes(data):
             fsize = (synchsafe(raw) if major >= 4
                      else int.from_bytes(raw, "big"))
             head = 10
-        if fsize <= 0 or pos + head + fsize > end:
+        if fsize == 0:
+            # out of spec (a frame holds at least one byte) but its header is
+            # whole: step over it, or every later frame was silently lost
+            warns.append(defect("value.invalid",
+                                f"frame {fid.strip()!r} at 0x{pos:x} has size 0; "
+                                f"a frame holds at least one byte"))
+            pos += head
+            continue
+        if pos + head + fsize > end:
             break
         text = _id3_frame_text(fid, data[pos + head:pos + head + fsize])
         if text:
@@ -193,6 +211,17 @@ def read_id3v2(filepath):
 
 
 _ID3_ENCODINGS = {0: "latin-1", 1: "utf-16", 2: "utf-16-be", 3: "utf-8"}
+
+# the text frames the ID3v2 spec defines as numeric strings (v2.3 and v2.2
+# ids); every other text frame is text, whatever its characters
+ID3_NUMERIC_FRAMES = frozenset((
+    "TBPM", "TDLY", "TLEN", "TSIZ", "TYER", "TORY", "TDAT", "TIME",
+    "TBP", "TDY", "TLE", "TSI", "TYE", "TOR", "TDA", "TIM"))
+
+
+def id3_is_text(fid):
+    """Whether an ID3v2 frame's decoded value is text, not a number."""
+    return fid not in ID3_NUMERIC_FRAMES
 
 
 def _id3_frame_text(fid, body):

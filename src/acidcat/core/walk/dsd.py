@@ -40,7 +40,8 @@ def _id3_fields(payload):
     fields = [_f(None, 0, "id3_version",
                  f"2.{header['major']}.{header['revision']}")]
     for fid, text in frames[:40]:
-        fields.append(_f(None, 0, fid, str(text)[:160]))
+        fields.append(_f(None, 0, fid, str(text)[:160],
+                         text=mp3mod.id3_is_text(fid)))
     return fields, list(warns)
 
 

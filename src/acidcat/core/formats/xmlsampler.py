@@ -36,7 +36,9 @@ def elements(data, tag, max_count):
     at most max_count, and how many there were."""
     out = []
     total = 0
-    for m in re.finditer(rb"<" + re.escape(tag) + rb"\b([^>]*)>", data):
+    # [^<>], not [^>]: a tag never holds '<', and with [^>] every unclosed
+    # '<tag' scanned to the end of the file, O(n^2) over many of them
+    for m in re.finditer(rb"<" + re.escape(tag) + rb"\b([^<>]*)>", data):
         total += 1
         if len(out) >= max_count:
             continue

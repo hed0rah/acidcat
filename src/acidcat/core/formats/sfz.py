@@ -25,8 +25,10 @@ _TOKEN = re.compile(
     rb"|(?P<directive>\#(?:define|include)\b[^\r\n]*)"
     rb"|(?P<key>[A-Za-z0-9_$]+)=",
     re.S)
-# where a value stops: another opcode, a header, a comment, or the line end
-_VALUE_END = re.compile(rb"\s+[A-Za-z0-9_$]+=|<[A-Za-z_]+>|//|/\*|[\r\n]")
+# where a value stops: another opcode, a header, a comment, or the line end.
+# The opcode is found by a lookbehind, not `\s+key=`: searched from inside a
+# run of spaces, \s+ ate the run and backtracked at every start, O(run^2)
+_VALUE_END = re.compile(rb"(?<=\s)[A-Za-z0-9_$]+=|<[A-Za-z_]+>|//|/\*|[\r\n]")
 _DEFINE = re.compile(rb"#define\s+(\$\w+)\s+(\S+)")
 _INCLUDE = re.compile(rb'#include\s+"([^"]*)"')
 

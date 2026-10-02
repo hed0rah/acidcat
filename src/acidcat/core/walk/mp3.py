@@ -323,6 +323,7 @@ def _id3v2_frames(filepath, hdr):
         raw = body[data_start:data_start + fsize]
         note = (_ID3V22_TEXT_FRAMES if is_v22 else _ID3_TEXT_FRAMES).get(fid_s, "")
         opaque = ""
+        is_text = False
         skip = 0
         unsynced = False
         img_field = None
@@ -346,13 +347,16 @@ def _id3v2_frames(filepath, hdr):
             value = f"{fsize:,} bytes"
             note = (note + ", " if note else "") + opaque
         elif fid_s in ("TXXX", "WXXX"):
+            is_text = True
             value = _decode_txxx(raw, fid_s)
             note = "user-defined text" if fid_s == "TXXX" else "user-defined URL"
         elif fid_s in ("COMM", "USLT", "COM", "ULT"):
+            is_text = True
             value = _decode_comm(raw)
             if not note:
                 note = "lyrics" if fid_s in ("USLT", "ULT") else "comment"
         elif fid_s.startswith("T"):        # every T*** frame is text (id3 spec)
+            is_text = True
             value = _decode_id3_text(raw)
             if fid_s in ("TCON", "TCO"):
                 resolved = _resolve_tcon(value)
@@ -399,7 +403,8 @@ def _id3v2_frames(filepath, hdr):
         else:
             value = f"{fsize:,} bytes"
         fields.append(_f(10 + pos, fhdr_len + fsize, fid_s, value, note,
-                         xref=img_ref))
+                         xref=img_ref,
+                         text=is_text and mp3mod.id3_is_text(fid_s)))
         if img_field is not None:
             fields.append(img_field)
         pos = data_start + fsize
@@ -707,6 +712,11 @@ def inspect_mp3(filepath, deep=False):
     walk = deep or vbr_frames is None
     for off, f2 in (mp3mod.iter_frames(filepath, frame_off, audio_end)
                     if walk else ()):
+        if vbr_tag is not None and off == frame_off:
+            # the Xing/Info/VBRI frame holds the tag, not audio; its bitrate
+            # is often not the stream's (a CBR file then read as VBR), and the
+            # tag's own frame_count leaves it out
+            continue
         count += 1
         bitrates.add(f2["bitrate"])
         if deep and len(rows) < _FRAME_LISTING_CAP:

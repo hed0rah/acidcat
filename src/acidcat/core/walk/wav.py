@@ -404,11 +404,12 @@ def _parse_list(b, ctx):
         if list_type == "adtl" and sub_id in ("labl", "note") and sub_size >= 4:
             cue_id = _u32(b, start)
             text = _cstr(b, start + 4, sub_size - 4)
-            fields.append(_f(pos, 8 + sub_size, sub_id, text, f"cue id {cue_id}"))
+            fields.append(_f(start + 4, sub_size - 4, sub_id, text,
+                             f"cue id {cue_id}", text=True))
         else:
             text = _cstr(b, start, sub_size)
             note = _INFO_TAGS.get(sub_id, "")
-            fields.append(_f(pos, 8 + sub_size, sub_id, text, note))
+            fields.append(_f(start, sub_size, sub_id, text, note, text=True))
         count += 1
         pos = end + (sub_size & 1)
     return f"{list_type}, {count} entries", fields, warns
@@ -686,7 +687,7 @@ def _parse_strc(b, ctx):
     return summary, fields, warns
 
 
-def _parse_riff_id3(b, ctx):
+def _parse_riff_id3(b, ctx, whole=None):
     """An ID3v2 tag inside a RIFF chunk.
 
     The same tag acidcat reads at the front of an MP3 and inside an AIFF
@@ -701,7 +702,7 @@ def _parse_riff_id3(b, ctx):
     """
     from acidcat.core.formats import mp3 as mp3mod
     fields = []
-    header, frames, warns = mp3mod.id3v2_from_bytes(b)
+    header, frames, warns = mp3mod.id3v2_from_bytes(b, whole)
     if header is None:
         return "not an ID3v2 tag", fields, [defect("magic.mismatch",
                                                    "id3 chunk does not open with 'ID3'")]
@@ -712,7 +713,8 @@ def _parse_riff_id3(b, ctx):
     fields.append(_f(0x06, 4, "tag_size", f"{header['size']:,}",
                      header["size_note"], enc="synchsafe", raw=header["size"]))
     for fid, text in frames[:_ID3_FRAME_CAP]:
-        fields.append(_f(None, 0, fid, str(text)[:160]))
+        fields.append(_f(None, 0, fid, str(text)[:160],
+                         text=mp3mod.id3_is_text(fid)))
     if len(frames) > _ID3_FRAME_CAP:
         warns = list(warns) + [hit(
             "list_rows", _ID3_FRAME_CAP, len(frames),
@@ -1411,8 +1413,12 @@ def inspect_wav(filepath, ctx=None):
                     _parse_ds64_reservation(payload, riff_size)
             elif parser:
                 try:
+                    # the tag reader is told what the chunk really holds,
+                    # so the payload cap is a cap and not a short tag
+                    extra = ({"whole": min(size, avail)}
+                             if parser is _parse_riff_id3 else {})
                     entry["summary"], entry["fields"], entry["warnings"] = \
-                        parser(payload, ctx)
+                        parser(payload, ctx, **extra)
                 except Exception as e:
                     entry["warnings"] = [error("walker.error",
                                                f"parse error: {e.__class__.__name__}: {e}")]

@@ -1098,6 +1098,23 @@ class TestInspectMp3:
         vbr = next(f for f in frames["fields"] if f["name"] == "vbr")
         assert vbr["value"] is False
 
+    def test_an_info_frame_at_another_bitrate_is_not_counted(self, tmp_path):
+        # LAME writes the Info frame at its own bitrate; walked as audio it
+        # made a CBR stream read as VBR under --frames
+        from acidcat.core.walk.mp3 import inspect_mp3
+        tag = bytearray(b"\xff\xfb\x50\xc0" + b"\x00" * 204)    # 64 kbps
+        tag[21:25] = b"Info"
+        tag[25:29] = struct.pack(">I", 0x01)
+        tag[29:33] = struct.pack(">I", 3)
+        p = tmp_path / "cbr_tag.mp3"
+        p.write_bytes(bytes(tag) + _MP3_FRAME * 3)
+        chunks, _ = inspect_mp3(str(p), deep=True)
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert frames["summary"].startswith("3 frames")
+        assert "CBR" in frames["summary"] and "kbps" not in frames["summary"]
+        assert len(frames["rows"]) == 3
+        assert not frames["warnings"]
+
     def test_xing_tag_forces_vbr_even_with_uniform_bitrates(self, tmp_path):
         from acidcat.core.walk.mp3 import inspect_mp3
         fr = bytearray(_MP3_FRAME)

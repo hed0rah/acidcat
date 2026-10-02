@@ -312,7 +312,8 @@ def _aiff_id3_fields(tag_bytes):
     header, frames, _warns = mp3mod.id3v2_from_bytes(tag_bytes)
     if header is None:
         return []
-    return [_f(None, 0, fid, str(text)[:160]) for fid, text in frames]
+    return [_f(None, 0, fid, str(text)[:160], text=mp3mod.id3_is_text(fid))
+            for fid, text in frames]
 
 
 def inspect_aiff(filepath, form_type, ctx=None):
