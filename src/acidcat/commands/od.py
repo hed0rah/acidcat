@@ -22,6 +22,7 @@ Complements `inspect --hex` (a value-first table); this is a bytes-first layout.
 import os
 import sys
 from acidcat.util.color import add_color_arg, color_enabled
+from acidcat.util.stdin import as_given
 
 from acidcat.core.infra import bytefields as bf
 from acidcat.commands._output import add_output_format_arg, chosen_format, add_report_arg
@@ -85,7 +86,7 @@ def run(args):
     with resolved_input(args.target) as _p:
         if _p is None:
             print("acidcat od: no data on stdin", file=sys.stderr)
-            return 1
+            return 2
         args.target = _p
         return _run(args)
 
@@ -288,19 +289,21 @@ def _run_addrs(args, path, addrs, on):
         try:
             layer, start, length, name, blob = _addr.locate(path, a)
         except AddrError as e:
-            print(f"acidcat od: {path}: {e}", file=sys.stderr)
+            print(f"acidcat od: {as_given(path)}: {e}", file=sys.stderr)
             failed = max(failed, 1)
             continue
         except OSError as e:
             # the file, not this address: no other address will do better
-            print(f"acidcat od: {path}: {e.strerror or e}", file=sys.stderr)
+            print(f"acidcat od: {as_given(path)}: {e.strerror or e}", file=sys.stderr)
             return 2
         except ValueError as e:
-            print(f"acidcat od: {path}: {e}", file=sys.stderr)
+            print(f"acidcat od: {as_given(path)}: {e}", file=sys.stderr)
             failed = 2
             continue
         ranges.append((name, start, length, blob))
     if not ranges:
+        if chosen_format(args) == "json":
+            format_json([], sys.stdout)     # no rows is still an array
         return failed
     data, close = map_file(path)
     try:
@@ -315,7 +318,7 @@ def _run_addrs(args, path, addrs, on):
         for a, start, length, blob in ranges:
             src = data if blob is None else blob
             rc = _raw_dump(src, start, length, args.width, on,
-                           f"{path}  {a}  0x{start:08x} .. 0x{start + length:08x}"
+                           f"{as_given(path)}  {a}  0x{start:08x} .. 0x{start + length:08x}"
                            f"  ({length:,} bytes)",
                            _marks_for(args, src, start, length)
                            if blob is None else None) or rc
@@ -332,7 +335,7 @@ def _run(args):
     # uncaught traceback across 21 verbs x 4 kinds of bad input. `od` takes one
     # file because its whole vocabulary is offsets into that file.
     if path != "-" and os.path.isdir(path):
-        print(f"acidcat od: {path}: Is a directory", file=sys.stderr)
+        print(f"acidcat od: {as_given(path)}: Is a directory", file=sys.stderr)
         return 2
     addrs = getattr(args, "addrs", None) or []
     if addrs:
@@ -344,7 +347,7 @@ def _run(args):
     try:
         rng = _requested_range(args, path, _size(path))
     except (ValueError, KeyError, OSError) as e:
-        print(f"acidcat od: {path}: {e}", file=sys.stderr)
+        print(f"acidcat od: {as_given(path)}: {e}", file=sys.stderr)
         # a search that finds nothing is the answer no (cli-2.0.md section 1)
         return 1 if isinstance(e, bf.AnchorNotFound) else 2
 
@@ -354,7 +357,7 @@ def _run(args):
         data, close = map_file(path)
         try:
             return _raw_dump(data, start, length, args.width, on,
-                             f"{path}  0x{start:08x} .. 0x{start + length:08x}"
+                             f"{as_given(path)}  0x{start:08x} .. 0x{start + length:08x}"
                              f"  ({length:,} bytes)",
                              _marks_for(args, data, start, length))
         finally:
@@ -373,7 +376,7 @@ def _run(args):
             # learned to name the engine that stopped short; the fallback that
             # replaced a refusal has to do the same.
             shown = min(len(data), _AUTO_DUMP_CAP)
-            note = (f"{path}  {len(data):,} bytes  "
+            note = (f"{as_given(path)}  {len(data):,} bytes  "
                     f"(no structural walker -- raw dump)")
             if shown < len(data):
                 note += (f"\n  showing the first {shown:,} bytes; "

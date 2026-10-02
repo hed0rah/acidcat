@@ -49,8 +49,11 @@ _LAYER = re.compile(r"^(?P<l>\d+):(?P<rest>.+)$")
 
 
 def number(text):
-    """An ADDR number: `0x` hex or decimal."""
+    """An ADDR number: `0x` hex or decimal, never signed. int() takes a
+    leading '-', and a negative offset slices from the end of the file."""
     t = text.strip()
+    if t[:1] in "+-":
+        raise AddrError("%r is not an offset (offsets are unsigned)" % text)
     try:
         return int(t, 16) if t[:2].lower() == "0x" else int(t, 10)
     except ValueError:

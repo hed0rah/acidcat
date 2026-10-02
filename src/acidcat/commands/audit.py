@@ -36,6 +36,7 @@ from acidcat.core.write import constraints
 from acidcat.core.infra.mapped import map_file
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
+from acidcat.util.stdin import display_name
 
 # anomaly rules that mean concealed or appended data (vs structural lint) -- these
 # get their own HIDDEN section with a carve hint to extract the region
@@ -49,7 +50,7 @@ _HIDDEN_RULES = {"trailing_data", "polyglot", "cavity_content",
 
 
 def _carve_hint(path, finding):
-    base = os.path.basename(path)
+    base = display_name(path)
     if finding["rule"] == "trailing_data":
         return f"acidcat carve {base} --trailing -o out.bin"
     off = finding.get("offset")
@@ -343,7 +344,7 @@ def _run_one(args):
             print(json.dumps([out], indent=2, default=str))
         return _code(scanned, out["structure"], findings, integ)
 
-    print(f"{os.path.basename(path)}  [{label or 'unknown'}]  {size:,} bytes\n")
+    print(f"{display_name(path)}  [{label or 'unknown'}]  {size:,} bytes\n")
 
     vios = report.violations if report else []
     if report is None:
@@ -376,7 +377,7 @@ def _run_one(args):
 
     if not scanned:
         print("  FORENSICS   not scanned -- no walker for this format")
-        print(f"                try: acidcat {todo} " + os.path.basename(path)
+        print(f"                try: acidcat {todo} " + display_name(path)
               + ("   (recovers its samples)" if extract_only
                  else "   (finds embedded audio regardless)"))
     elif not other:

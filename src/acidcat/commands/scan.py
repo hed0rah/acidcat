@@ -260,6 +260,13 @@ def run(args):
     if not rows:
         if not quiet:
             print("acidcat stats: No audio files found.", file=sys.stderr)
+        if getattr(args, "output_format", None) == "json":
+            # no rows is still an array: `| jq` reads it like any other answer
+            if getattr(args, "output", None):
+                with open(args.output, "w", encoding="utf-8", newline="") as fh:
+                    fh.write("[]\n")
+            else:
+                print("[]")
         # nothing its mode reads is the answer no, as --by shape and --by
         # chunks say it (review V7)
         return 1

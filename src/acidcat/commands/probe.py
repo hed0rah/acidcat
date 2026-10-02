@@ -222,9 +222,9 @@ def run(args):
     """
     from acidcat.util.stdin import resolved_input
 
+    # both False without --byte-order: the verbs then pick the format's own
     order = getattr(args, "byte_order", None)
-    if order is not None:
-        args.be, args.le = order == "be", order == "le"
+    args.be, args.le = order == "be", order == "le"
 
     files = list(getattr(args, "files", []) or [])
     if not getattr(args, "verb", None):
@@ -238,7 +238,7 @@ def run(args):
         with resolved_input(args.file) as _p:
             if _p is None:
                 print("acidcat probe: no data on stdin", file=sys.stderr)
-                return 1
+                return 2
             args.file = _p
             return _run(args)
 
@@ -248,7 +248,7 @@ def run(args):
         with resolved_input(target) as _p:
             if _p is None:
                 print("acidcat probe: no data on stdin", file=sys.stderr)
-                return 1
+                return 2
             args.file = _p
             # grep/file style: name the file only when there is more than one,
             # so single-file output stays pipeable exactly as it was

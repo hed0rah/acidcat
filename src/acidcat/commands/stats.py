@@ -142,7 +142,13 @@ def run(args):
             _legacy.switch(argv, "--" + name.replace("_", "-"), getattr(args, name))
         ns = _legacy.parser_for(shape, "shape").parse_args(argv)
         ns.max_files = _limit(args.max_files)
-        return shape.run(ns)
+        if not args.output:
+            return shape.run(ns)
+        # shape has no -o of its own; the other two modes pass theirs down
+        import contextlib
+        with open(args.output, "w", encoding="utf-8", newline="") as fh, \
+                contextlib.redirect_stdout(fh):
+            return shape.run(ns)
     from acidcat.commands import census
     cap = _limit(args.max_files)
     argv = list(args.targets) + ["--output-format", fmt, "--top", str(args.top),

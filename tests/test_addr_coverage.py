@@ -90,3 +90,11 @@ def test_carve_a_layer_field_prints_its_value(psf, capsys):
     assert main(["carve", psf, "program/program_header#rom_bytes"]) == 0
     got = capsys.readouterr().out.strip()
     assert got == str(struct.unpack_from("<I", _layer1(psf), 8)[0])
+
+
+@pytest.mark.parametrize("spec", ["@-8+2", "@+8+2", "@-5..4"])
+def test_a_signed_offset_is_refused_not_read_from_the_end(wav, capsys, spec):
+    # int() took the '-', and the negative start sliced from the end of the file
+    assert main(["od", wav, spec]) != 0
+    out, err = capsys.readouterr()
+    assert not out and "unsigned" in err

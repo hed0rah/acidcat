@@ -99,9 +99,17 @@ def _dump(rest):
                 + (["-q"] if ns.quiet else []) for cid in ns.chunks]
     rng = "+%d" % ns.bytes if "-b" in rest or any(
         r.startswith("--bytes") for r in rest) else ""
-    new = ["od", ns.target] + [cid + rng for cid in ns.chunks]
+    new = ["od", ns.target] + [_addr_id(cid) + rng if rng else cid
+                                for cid in ns.chunks]
     _sw(new, "--json", ns.output_format == "json")
     return [new]
+
+
+def _addr_id(cid):
+    """A chunk id in its ADDR spelling: pad spaces are '_' (`fmt ` -> `fmt_`),
+    since a space before `+N` does not end the id."""
+    bare = cid.rstrip(" ")
+    return bare + "_" * (len(cid) - len(bare))
 
 
 def _wrap(rest):
@@ -348,6 +356,27 @@ def _range_flags(rest, flags=("--offset", "--length", "--end")):
     return out, got
 
 
+def _fold_at(rest, got):
+    """1.8 let --at stand in for --offset beside --length/--end. A numeric
+    --at folds into the range; a search anchor runs to the end of the file in
+    2.0, so a length on one has no spelling and is refused rather than read
+    from offset 0."""
+    if "--offset" in got or not ("--length" in got or "--end" in got):
+        return rest, got
+    rest, at = _range_flags(rest, ("--at",))
+    if "--at" not in at:
+        return rest, got
+    val = at["--at"]
+    try:
+        if int(val, 0) < 0:
+            raise ValueError
+    except ValueError:
+        raise Removed(f"--length/--end beside --at {val} was removed in 2.0 (an "
+                      "anchor runs to the end of the file); use an ADDR: a "
+                      "node with a range (data+8) or @OFF+LEN")
+    return rest, dict(got, **{"--offset": val})
+
+
 def _as_addr(got):
     """The ADDR (or, for an offset alone, the anchor) the 1.8 range flags
     said: --offset N --length L -> @N+L, --offset N --end E -> @N..E, a bare
@@ -378,7 +407,7 @@ def _rename(rest, renames):
 
 
 def _inspect(rest):
-    rest, got = _range_flags(rest)
+    rest, got = _fold_at(*_range_flags(rest))
     rest = _rename(rest, {"--pretty": "--tags", "-v": "--deep", "--verbose": "--deep",
                           "--full": "--json", "--format": "--force-format",
                           "--force": "--try-all"})
@@ -388,17 +417,18 @@ def _inspect(rest):
 
 
 def _od(rest):
-    rest, got = _range_flags(rest)
+    rest, got = _fold_at(*_range_flags(rest))
     if not got:
         return ["od"] + rest
     addr = _as_addr(got)
+    # last, not after rest[0]: the first token may be an option, not FILE
     if addr.startswith("@"):
-        return ["od"] + rest[:1] + [addr] + rest[1:]
+        return ["od"] + rest + [addr]
     return ["od"] + rest + ["--at", addr]
 
 
 def _carve(rest):
-    rest, got = _range_flags(rest)
+    rest, got = _fold_at(*_range_flags(rest))
     extra = []
     out, i = [], 0
     while i < len(rest):
@@ -420,7 +450,7 @@ def _carve(rest):
             extra.append(addr)
         else:
             out += ["--at", addr]
-    return ["carve"] + out[:1] + extra + out[1:]
+    return ["carve"] + out + extra
 
 
 def _probe(rest):

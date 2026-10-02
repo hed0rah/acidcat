@@ -167,6 +167,12 @@ OLD_SPELLINGS = [
     ["carve", "{wav}", "--offset", "0", "--length", "4", "--encoding", "hex"],
     ["carve", "{wav}", "--offset", "22", "--type", "u32", "--endian", "le"],
     ["probe", "read", "0x18", "-t", "u32", "--le", "{wav}"],
+    # bug hunt 2026-10-02: a padded id with a range, options before FILE, and
+    # a numeric --at standing in for --offset
+    ["dump", "{wav}", "fmt ", "-b", "8"],
+    ["od", "--color", "never", "--offset", "0", "--length", "16", "{wav}"],
+    ["carve", "--encoding", "hex", "--offset", "0", "--length", "4", "{wav}"],
+    ["od", "{wav}", "--at", "16", "--length", "8", "--color", "never"],
 ]
 
 
@@ -189,6 +195,13 @@ def test_an_old_spelling_is_exactly_its_new_form(files, old):
     # one line more on stderr, first, and nothing else different
     assert err.splitlines()[0] == line
     assert err.split("\n", 1)[1] == want_err
+
+
+def test_a_numeric_at_folds_into_the_range():
+    t = cli_aliases.translate
+    assert t(["od", "f", "--at", "16", "--length", "8"])[0] == [["od", "f", "@16+8"]]
+    assert t(["carve", "-o", "x", "--offset", "0", "--length", "4", "f"])[0] == [
+        ["carve", "-o", "x", "f", "@0+4"]]
 
 
 def test_survey_and_census_caps_become_max_files():
@@ -274,6 +287,8 @@ def test_the_writing_aliases_translate_to_their_new_form(old, new):
     (["probe", "map", "--no-color", "a.wav"], "--color never"),
     (["formats", "--format-out", "json"], "--output-format"),
     (["carve", "a.wav", "--format", "hex"], "--encoding"),
+    # an anchor runs to EOF in 2.0; a length on it was read from offset 0
+    (["od", "a.wav", "--at", "find:data", "--length", "8"], "ADDR"),
 ])
 def test_a_removed_spelling_exits_2_and_says_what_to_use(argv, hint):
     code, out, err = _run(argv)

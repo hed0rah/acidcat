@@ -109,7 +109,7 @@ def _print_table(rows):
     print(f"\n{len(rows)} format{'' if len(rows) == 1 else 's'}  (x = supported, . = not)")
 
 
-def _print_fields(fid):
+def _print_fields(fid, fmt="table"):
     """What metadata a format can hold, and where it goes.
 
     The capability matrix answers yes-or-no. This answers which, and where --
@@ -122,6 +122,17 @@ def _print_fields(fid):
         print(f"acidcat formats: {fid} holds no editable metadata",
               file=sys.stderr)
         return 1
+    if fmt != "table":
+        # one row per field: the table's columns, machine-readable
+        rows = []
+        for f in fields:
+            bind = M.binding(fid, f)
+            rows.append({"field": f, "kind": M.kind_of(f),
+                         "access": {"rw": "read/write", "r": "read",
+                                    "w": "write"}[bind.access],
+                         "goes_to": bind.label})
+        _emit(rows, fmt, ["field", "kind", "access", "goes_to"])
+        return 0
     wid = max(len(f) for f in fields)
     print(f"{fid} holds {len(fields)} metadata field"
           f"{'' if len(fields) == 1 else 's'}\n")
@@ -154,13 +165,25 @@ def _print_fields(fid):
     return 0
 
 
+def _emit(rows, fmt, cols):
+    if fmt == "json":
+        format_json(rows, sys.stdout)
+    elif fmt == "tsv":
+        print("	".join(cols))
+        for r in rows:
+            print("	".join(str(r[c]) for c in cols))
+    else:
+        from acidcat.core.infra.render import output as _render
+        _render(rows, fmt="csv")
+
+
 def run(args):
     if getattr(args, "fields", False):
         if not args.format:
             print("acidcat formats --fields: needs a format "
                   "(try `acidcat formats` for the list)", file=sys.stderr)
             return 2                        # a usage error, not an answer
-        return _print_fields(args.format.lower())
+        return _print_fields(args.format.lower(), args.output_format)
     rows = _matrix()
     if args.format:
         rows = [r for r in rows if r["id"] == args.format.lower()]

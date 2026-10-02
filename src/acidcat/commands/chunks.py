@@ -39,7 +39,7 @@ def _run_one(args):
     with resolved_input(args.target) as _p:
         if _p is None:
             print("acidcat inspect: no data on stdin", file=sys.stderr)
-            return 1
+            return 2
         args.target = _p
         return _run(args)
 

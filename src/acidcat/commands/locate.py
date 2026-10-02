@@ -151,7 +151,8 @@ def run(args):
         print(f"acidcat locate: {args.input}: {e}", file=sys.stderr)
         return 2
     if not data:
-        print("acidcat locate: no input bytes", file=sys.stderr)
+        print("acidcat locate: " + ("no data on stdin" if is_stdin_target(args.input)
+                                    else "no input bytes"), file=sys.stderr)
         return 2
 
     # Only the signature sweep is unbounded. The statistical pass and the frame

@@ -71,13 +71,29 @@ def test_carve_into_inspect_composes(wav, tmp_path):
     assert {c["id"] for c in doc["nodes"][0]["children"]} == {"RIFF/fmt_", "RIFF/data"}
 
 
-@pytest.mark.parametrize("verb", ["inspect", "classify"])
+# every verb that buffers `-` to a temp copy; the copy's full path carries the
+# home directory, so a leak here is a privacy bug, not a cosmetic one
+_LEAKY = [["inspect"], ["classify"], ["check"], ["audit"], ["od", "-", "@0+4"],
+          ["stats", "--by", "shape"], ["inspect", "--summary"]]
+
+
+@pytest.mark.parametrize("verb", _LEAKY, ids=" ".join)
 def test_no_temp_path_reaches_the_output(wav, verb):
     """The leak this fix must not introduce -- `extract` had exactly it."""
-    r = _pipe(wav.read_bytes(), verb, "-")
+    r = _pipe(wav.read_bytes(), *(verb if "-" in verb else verb + ["-"]))
     blob = (r.stdout + r.stderr).decode(errors="replace")
     assert "<stdin>" in blob
     assert "acidcat_stdin" not in blob and "tmp" not in blob.lower().split("/")[-1]
+
+
+@pytest.mark.parametrize("argv", [["check", "--json", "-"],
+                                  ["stats", "--by", "shape", "--json", "-"]],
+                         ids=" ".join)
+def test_every_json_path_is_stdin(wav, argv):
+    r = _pipe(wav.read_bytes(), *argv)
+    assert r.returncode == 0, r.stderr
+    text = r.stdout.decode()
+    assert "acidcat_stdin" not in text and "<stdin>" in text
 
 
 @pytest.mark.parametrize("verb", ["inspect", "classify"])
@@ -93,9 +109,12 @@ def test_json_names_stdin_not_the_temp_copy(wav, verb):
     assert got == "<stdin>"
 
 
-@pytest.mark.parametrize("verb", ["inspect", "classify"])
+@pytest.mark.parametrize("verb", [["inspect"], ["classify"], ["locate"],
+                                  ["audit"], ["od"], ["check"], ["probe", "map"],
+                                  ["stats", "--by", "shape"]], ids=" ".join)
 def test_empty_stdin_is_reported(verb):
-    r = _pipe(b"", verb, "-")
+    # one exit code for "nothing to read" on every verb; five said 1
+    r = _pipe(b"", *verb, "-")
     assert r.returncode == 2                      # could not run
     assert b"stdin" in r.stderr.lower()
 

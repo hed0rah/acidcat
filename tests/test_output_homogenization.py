@@ -284,3 +284,38 @@ def test_mutating_verbs_keep_their_human_output(tmp_path, verb, extra_args):
     out = _run(verb, str(p), *extra_args).stdout
     assert "wrote" in out
     assert not out.lstrip().startswith(("{", "["))
+
+
+@pytest.mark.parametrize("fmt", ["json", "csv", "tsv"])
+def test_formats_fields_honours_the_output_format(fmt):
+    # --fields printed its table whatever was asked for
+    r = _run("formats", "--fields", "--output-format", fmt, "wav")
+    assert r.returncode == 0, r.stderr
+    if fmt == "json":
+        rows = json.loads(r.stdout)
+    else:
+        rows = list(csv.DictReader(io.StringIO(r.stdout),
+                                   delimiter="," if fmt == "csv" else "\t"))
+    assert rows and set(rows[0]) == {"field", "kind", "access", "goes_to"}
+    assert any(row["field"] == "artist" for row in rows)
+
+
+def test_no_rows_in_json_is_an_empty_array(files, tmp_path):
+    # the exit code said "nothing matched"; stdout said nothing at all
+    ok, _bad = files
+    junk = tmp_path / "junk.bin"
+    junk.write_bytes(b"\x00" * 64)
+    for argv in (["stats", "--json", str(junk)],
+                 ["stats", "--by", "shape", "--only-format", "nope", "--json", str(ok)],
+                 ["od", "--json", str(ok), "RIFF/nope"]):
+        r = _run(*argv)
+        assert r.returncode == 1, (argv, r.stderr)
+        assert json.loads(r.stdout) == [], argv
+
+
+def test_stats_by_shape_writes_its_output_file(files, tmp_path):
+    ok, _bad = files
+    out = tmp_path / "shape.tsv"
+    r = _run("stats", str(ok), "--by", "shape", "-o", str(out))
+    assert r.returncode == 0, r.stderr
+    assert not r.stdout and "RIFF" in out.read_text(encoding="utf-8")

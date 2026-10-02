@@ -505,7 +505,7 @@ def _run_one(args):
         tmp_path = stdin_to_tempfile()
         if tmp_path is None:
             print("acidcat: no data on stdin", file=sys.stderr)
-            return 1
+            return 2
         filepath = tmp_path
 
     if not os.path.isfile(filepath):

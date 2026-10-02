@@ -26,6 +26,7 @@ from acidcat.core.infra import sniff as sniffmod
 from acidcat.core.walk import walk_file, _WALKERS
 from acidcat.core.walk.base import Unsupported
 from acidcat.util.paths import under
+from acidcat.util.stdin import as_given
 
 # chunk/block ids whose summary is the file's headline (first match wins)
 _HEADER_IDS = ("fmt", "STREAMINFO", "COMM", "MThd", "ftyp")
@@ -149,7 +150,7 @@ def run(args):
         ]
         if any(t is None for t in args.targets):
             print("acidcat stats: no data on stdin", file=sys.stderr)
-            return 1
+            return 2
         return _run(args)
 
 
@@ -187,7 +188,7 @@ def _run(args):
         emitted += 1
         row = {"format": label, "summary": summary, "chunks": ids, "flag": flag}
         if not args.no_path:
-            row["path"] = path
+            row["path"] = as_given(path)
         row["_path"] = path
         rows.append(row)
     if capped:
@@ -221,6 +222,8 @@ def _run(args):
             format_columns(rows, cols + [("chunks", "chunks")])
         else:
             _render(rows, fmt=fmt)
+    elif fmt == "json":
+        print("[]")        # no rows is still an array
     # a filter that matched nothing is a negative result, not a success --
     # `shape lib --format flac && ...` used to proceed on an empty listing;
     # and so is a listing of files no walker reads, the answer --by meta and
