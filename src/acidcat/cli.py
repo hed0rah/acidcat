@@ -90,7 +90,13 @@ def main(argv=None):
     tool treats it as "the reader left" and stops quietly, so we do too.
     """
     try:
-        return _dispatch(argv)
+        rc = _dispatch(argv)
+        # flushed here, where a closed pipe is handled. A whole report can sit
+        # in the buffer (3.14 buffers more), and then the write that meets the
+        # closed pipe is the interpreter's own at exit, which reports it and
+        # exits 120 however this function returned.
+        sys.stdout.flush()
+        return rc
     except OSError as e:
         if not _is_closed_pipe(e):
             # NOT a bare re-raise. `raise` here leaves main() entirely -- the
