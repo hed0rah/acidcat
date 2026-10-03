@@ -6,6 +6,16 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [2.0.0a2] - 2026-10-03
+
+The second alpha of 2.0, published as a pre-release like the first: `pip
+install acidcat` still installs 1.8.x, and `pip install --pre acidcat`
+installs this. It is 2.0.0a1 plus the fixes from two rounds of hunting bugs
+over real files: the first over every verb, the second over the paths that
+write (`edit`, `check --fix`, `convert`), run on copies of 551 real files.
+`check --fix` came through that second round with nothing to fix. Python 3.14
+is now tested.
+
 ### Added
 
 - **Ableton Live Packs** (`.alp`), a new format. A pack is gzip over a
@@ -39,9 +49,34 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   file in a directory). The row still says `failed`; it exited 0.
 - **`probe -q`**, before or after the subverb, drops the summary and cap notes
   on stderr.
+- **What `formats --fields` lists, the editor takes.** The NI row claimed
+  Bitwig's fields; NI presets take title, artist, comment and description,
+  and author edits now reach all three NI containers (none did). Bitwig edits
+  a field in place and cannot add one, and the table says so. MP4 `key` is
+  written to the freeform `initialkey` atom the reader already reads. A field
+  a file cannot hold is exit 2 with a plain message.
+- **`edit`, `convert`: could-not-run is 2.** An over-long value for a
+  fixed-width WAV field (bext description 256 bytes, originator 32) is refused
+  before anything is written; a file the tag library cannot read has no
+  editor; an AU encoding with no converter (float, 24-bit, G.72x); an output
+  that cannot be written. `convert X.sf2 -o out.wav` refuses: a soundfont is
+  one file per sample, so -o names a folder (it made a folder called out.wav).
+- **A WAV tempo edit keeps the acid beat count in step** with the audio, and
+  says so; under `--no-cascade` it is refused instead, as for every tied field.
 
 ### Fixed
 
+- **WAV and AIFF text is UTF-8.** Non-ASCII titles, artists and bext text
+  were written as UTF-8 and read back as latin-1, so the edit's own check
+  refused them; bext was written as ASCII with '?'. Text reads as UTF-8 when
+  it is valid UTF-8, else latin-1.
+- **The WAV and AIFF editors follow an unpadded odd chunk**, as the walkers
+  already did: a file inspect and check read fine was refused as overrunning.
+- **NI presets:** Massive X's `.mxsnd` frame tree is walked (its edits failed
+  with "bad child prefix"), and a long value reads back whole (the reader
+  capped strings at 256 and misread the name after a long edit).
+- **`od big | head` exited 120 on Python 3.14**: the closed pipe was met at
+  the interpreter's final flush, outside the handler.
 - **Thirty-three bugs from a proactive hunt over real files, specimens and
   built inputs**, each with a regression test:
   - crashes: an AppleDouble quarantine time past year 9999, Kontakt monoliths
