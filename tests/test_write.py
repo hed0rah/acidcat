@@ -416,6 +416,29 @@ def test_ni_field_a_container_lacks_is_a_bad_value():
                                  {"comment": "x"})
 
 
+def test_ni_hsin_massive_x_child_domain_edits():
+    """A Massive X .mxsnd references its first child under the domain tag
+    `2SAM` ('MAS2' reversed). The editor's frame walk knew three tags and
+    refused the file with "bad child prefix", though inspect read it."""
+    import seeds
+    from acidcat.core.formats import ni
+    data = seeds.ni_hsin(name="Snare", description="", domain=b"2SAM")
+    res = edits.edit_metadata_data(data, "a.mxsnd", {"description": "edited"})
+    assert ni.parse_hsin(res.data)["description"] == "edited"
+    assert ni.parse_hsin(res.data)["name"] == "Snare"
+    assert struct.unpack_from("<Q", res.data, 0)[0] == len(res.data)
+
+
+def test_ni_hsin_unmapped_layout_is_no_editor():
+    """A frame tree the editor cannot follow is no editor for this variant
+    (exit 2, the answer inspect gives a file it cannot walk), not a refused
+    edit of a good argument."""
+    import seeds
+    data = seeds.ni_hsin(domain=b"ZZZZ")
+    with pytest.raises(edits.EditUnmodelled, match="variant"):
+        edits.edit_metadata_data(data, "a.nmsv", {"description": "x"})
+
+
 def test_ni_write_routes_not_refused(tmp_path):
     # an NI hsin-magic file no longer hits the blanket refusal; it reaches edit_ni
     # (which will raise its own specific error on a stub, not the "not enabled" one)

@@ -140,3 +140,33 @@ def test_fastlz_level1_is_unchanged_by_level2_support():
 def test_hsin_walk_depth_guard():
     with pytest.raises(ValueError):
         ni._hsin_walk(b"\x00" * 64, 0, [], depth=200)
+
+
+def test_a_long_hsin_value_reads_back_whole():
+    """The editor writes a SoundInfoItem string of up to 65,536 units; the
+    reader's scan capped one at 256 to keep noise out. A 500-character
+    description was written and never shown, and the scan then took a run of
+    the item's own bytes for the name. The reader now locates the item
+    through the same frame walk the editor uses."""
+    import seeds
+    data = seeds.ni_hsin(name="Pizz", author="", vendor="Seeds")
+    out, _ = ni.edit_hsin(data, {"description": "x" * 500})
+    meta = ni.parse_hsin(out)
+    assert meta["description"] == "x" * 500
+    assert meta["name"] == "Pizz"
+    out, _ = ni.edit_hsin(data, {"name": "n" * 300})
+    assert ni.parse_hsin(out)["name"] == "n" * 300
+
+
+def test_a_numeric_hsin_name_is_the_name():
+    """The scan wanted an alphabetic name, so a preset called `120` reported
+    its author as its name (three Absynth factory presets did)."""
+    import seeds
+    meta = ni.parse_hsin(seeds.ni_hsin(name="120", author="Paradox"))
+    assert meta["name"] == "120" and meta["author"] == "Paradox"
+
+
+def test_an_hsin_value_past_the_count_field_is_refused():
+    import seeds
+    with pytest.raises(ni.NotHeld, match="at most"):
+        ni.edit_hsin(seeds.ni_hsin(), {"description": "x" * 0x10001})

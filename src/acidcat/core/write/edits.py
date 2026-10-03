@@ -213,6 +213,10 @@ def edit_ni(data, changes):
             return ni.edit_hsin(data, changes)
     except ni.NotHeld as e:
         raise BadValue(str(e))
+    except ni.Unmapped as e:
+        # a frame tree the editor cannot follow is no editor for this
+        # variant (exit 2), the answer `inspect` gives a file it cannot walk
+        raise EditUnmodelled(f"no editor for this NI preset variant: {e}")
     except ValueError as e:
         raise EditError(str(e))
     raise EditError("unrecognized Native Instruments preset")

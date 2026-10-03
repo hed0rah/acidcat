@@ -161,6 +161,14 @@ EXEMPT = {
                                   "one; reaching this means many crafted "
                                   "candidates, and the deep walk then shows no "
                                   "payload. Pinned in tests/test_ni.py"),
+    ("acidcat.core.formats.ni", "_HSIN_STR_MAX"):
+        (Reason.FIELD_SANITY, "the largest SoundInfoItem string count an hsin "
+                              "preset is read with. A larger count is not a "
+                              "string cut short: the item is not the mapped "
+                              "layout, parse_hsin falls back to its scan and "
+                              "the editor refuses the file; a value past it "
+                              "is refused before it is written. Pinned in "
+                              "tests/test_ni.py"),
     ("acidcat.core.walk.ni", "_KONTAKT_FASTLZ_CAP"):
         (Reason.RESOURCE_LIMIT, "a decompression bound on a Kontakt 4.2 patch "
                                 "body, so a crafted stream cannot expand "

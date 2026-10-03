@@ -163,14 +163,24 @@ class NotHeld(ValueError):
     refused edit."""
 
 
+class Unmapped(ValueError):
+    """The container is a layout the editor does not map (an hsin frame
+    tree it cannot follow): there is no editor for this variant."""
+
+
 # ── hsin writing (frame-size cascade; verified against Massive + Absynth) ──
 
-_HSIN_DOMAINS = (b"DSIN", b"4KIN", b"NISD")
+# the child-reference domain tags, each a reversed 4CC. 2SAM ('MAS2') is
+# Massive X's: a .mxsnd whose first child carries it walks exactly with it
+# accepted -- every frame filled, the SoundInfoItem where the others put it
+_HSIN_DOMAINS = (b"DSIN", b"4KIN", b"NISD", b"2SAM")
 # field -> index of the UTF-16LE pascal string in the SoundInfoItem(108) payload.
 # `artist` is the canonical spelling edit_metadata folds author and creator
 # to before dispatch; without it no author edit could reach this map
 _HSIN_EDIT = {"name": 0, "title": 0, "author": 1, "creator": 1, "artist": 1,
               "vendor": 2, "comment": 3, "description": 3}
+_HSIN_INFO = ("name", "author", "vendor", "description")
+_HSIN_STR_MAX = 0x10000          # UTF-16 units; the writer's own bound
 
 
 def _hsin_walk(data, off, fields, depth=0):
@@ -178,15 +188,17 @@ def _hsin_walk(data, off, fields, depth=0):
     (field_offset, width, span_start, span_end). Returns
     [(item_id, frame_off, data_start, data_end, payload_start), ...]."""
     if depth > 128:
-        raise ValueError("hsin nesting too deep")
+        raise Unmapped("hsin nesting too deep")
     frames = []
+    if off + 0x30 > len(data):
+        raise Unmapped(f"bad hsin frame at {off:#x}")
     fs = struct.unpack_from("<Q", data, off)[0]
     if data[off + 12:off + 16] != b"hsin" or off + fs > len(data):
-        raise ValueError(f"bad hsin frame at {off:#x}")
+        raise Unmapped(f"bad hsin frame at {off:#x}")
     ds = struct.unpack_from("<Q", data, off + 0x28)[0]
     data_start, data_end, frame_end = off + 0x30, off + 0x30 + ds, off + fs
     if data_end > frame_end:
-        raise ValueError("data section overruns frame")
+        raise Unmapped("data section overruns frame")
     fields.append((off, 8, off, frame_end))               # frame_size (inclusive)
     fields.append((off + 0x28, 8, data_start, data_end))  # data_size (exclusive)
     item_id, payload_start, pos = None, data_start, data_start
@@ -200,7 +212,7 @@ def _hsin_walk(data, off, fields, depth=0):
         inner = struct.unpack_from("<Q", data, pos + 12)[0]
         inner_start, inner_end = pos + 20, pos + 20 + inner
         if inner_end > data_end:
-            raise ValueError("stack inner_size overruns data")
+            raise Unmapped("stack inner_size overruns data")
         fields.append((pos + 12, 8, inner_start, inner_end))
         payload_start = max(payload_start, inner_end)
         pos = inner_start
@@ -208,40 +220,70 @@ def _hsin_walk(data, off, fields, depth=0):
     pos = data_end
     while pos < frame_end:
         if pos + 20 > frame_end or data[pos + 4:pos + 8] not in _HSIN_DOMAINS:
-            raise ValueError("bad child prefix")
+            raise Unmapped(f"bad child prefix {bytes(data[pos + 4:pos + 8])!r} "
+                           f"at {pos:#x}")
         child_off = pos + 12
         cfs = struct.unpack_from("<Q", data, child_off)[0]
         frames.extend(_hsin_walk(data, child_off, fields, depth + 1))
         pos = child_off + cfs
     if pos != frame_end:
-        raise ValueError("children do not fill frame")
+        raise Unmapped("children do not fill frame")
     return frames
+
+
+def _hsin_info(data, fields=None):
+    """The SoundInfoItem(108) strings, located through the frame walk:
+    [(offset, count), ...] for name, author, vendor and description, as many
+    as the item holds. `fields`, when a list, collects the walk's size fields.
+    Raises Unmapped when the tree or the item is not the mapped layout."""
+    frames = _hsin_walk(data, 0, [] if fields is None else fields)
+    info = [f for f in frames if f[0] == 108]
+    if len(info) != 1:
+        raise Unmapped(f"expected one SoundInfoItem(108), found {len(info)}")
+    _, _, _, d_end, payload = info[0]
+    if payload + 8 > d_end or struct.unpack_from("<I", data, payload)[0] != 1:
+        raise Unmapped("unexpected SoundInfoItem payload")
+    out, off = [], payload + 8
+    while len(out) < len(_HSIN_INFO) and off + 4 <= d_end:
+        count = struct.unpack_from("<I", data, off)[0]
+        if count > _HSIN_STR_MAX or off + 4 + count * 2 > d_end:
+            raise Unmapped("info string overruns SoundInfoItem")
+        out.append((off, count))
+        off += 4 + count * 2
+    return out
+
+
+def read_hsin_info(data):
+    """{name, author, vendor, description} read exactly out of the
+    SoundInfoItem, the bytes the editor writes, or None when the frame tree
+    is not the mapped layout. Empty strings are left out."""
+    try:
+        strings = _hsin_info(data)
+    except (Unmapped, struct.error):
+        return None
+    meta = {}
+    for label, (off, count) in zip(_HSIN_INFO, strings):
+        val = data[off + 4:off + 4 + count * 2].decode(
+            "utf-16-le", errors="replace").strip()
+        if val:
+            meta[label] = val
+    return meta
 
 
 def _edit_hsin_string(data, index, new_value):
     """Replace the index-th SoundInfoItem string (0 name, 1 author, 2 vendor,
     3 description) and bump every enclosing size field. Returns (new_bytes, old)."""
     fields = []
-    frames = _hsin_walk(data, 0, fields)
-    info = [f for f in frames if f[0] == 108]
-    if len(info) != 1:
-        raise ValueError(f"expected one SoundInfoItem(108), found {len(info)}")
-    _, _, _, d_end, payload = info[0]
-    if payload + 8 > d_end or struct.unpack_from("<I", data, payload)[0] != 1:
-        raise ValueError("unexpected SoundInfoItem payload")
-    off = payload + 8
-    for i in range(index + 1):
-        if off + 4 > d_end:
-            raise ValueError("info string index out of range")
-        count = struct.unpack_from("<I", data, off)[0]
-        if count > 0x10000 or off + 4 + count * 2 > d_end:
-            raise ValueError("info string overruns SoundInfoItem")
-        if i == index:
-            break
-        off += 4 + count * 2
+    strings = _hsin_info(data, fields)
+    if index >= len(strings):
+        raise Unmapped("info string index out of range")
+    off, count = strings[index]
     str_end = off + 4 + count * 2
     old = data[off + 4:str_end].decode("utf-16-le", "replace")
     enc = new_value.encode("utf-16-le")
+    if len(enc) // 2 > _HSIN_STR_MAX:
+        raise NotHeld(f"{_HSIN_INFO[index]} holds at most {_HSIN_STR_MAX:,} "
+                      f"characters; got {len(enc) // 2:,}")
     new_field = struct.pack("<I", len(enc) // 2) + enc
     delta = len(new_field) - (4 + count * 2)
     out = bytearray(data)
@@ -678,6 +720,15 @@ def parse_hsin(data):
         if _VERSION_RE.match(s):
             meta["version"], version_off = s, off
             break
+    # the SoundInfoItem read exactly, through the same frame walk the editor
+    # uses, when the tree is one it maps. The scan below caps a string at 256
+    # units to keep noise out, so a longer value the editor wrote (500
+    # characters of description) was not shown -- and the scan then took a
+    # run of the item's own bytes for the name
+    exact = read_hsin_info(data)
+    if exact is not None:
+        meta.update(exact)
+        return meta
     # the SoundInfoItem name is the FIRST alphabetic, non-version pascal string
     # after the version; author/vendor/description are the fields right after it
     # (positional, so they read correctly even when the name field is populated).
