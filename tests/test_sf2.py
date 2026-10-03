@@ -124,6 +124,24 @@ def test_convert_extracts_samples(tmp_path):
     assert open(os.path.join(outdir, wavs[0]), "rb").read()[:4] == b"RIFF"
 
 
+def test_convert_refuses_a_file_looking_output(tmp_path, capsys):
+    # a soundfont is one file per sample, so -o names a folder; `-o out.wav`
+    # made a folder called out.wav
+    import types
+    from acidcat.commands import convert
+    p = tmp_path / "f.sf2"
+    p.write_bytes(_make_sf2([("Kick", 0, 100, 0, 0, 44100)], 100))
+
+    def args(out):
+        return types.SimpleNamespace(input=str(p), output=out, division=480,
+                                     skip_existing=False, quiet=False,
+                                     to_pcm=False, codec=None, force=False)
+    out = tmp_path / "out.wav"
+    assert convert.run(args(str(out))) == 2
+    assert not out.exists() and "names a folder" in capsys.readouterr().err
+    assert convert.run(args(str(tmp_path / "samples"))) == 0
+
+
 # ── SF3 (Ogg Vorbis samples) + unpadded-chunk robustness ───────────
 
 def test_sf3_samples_are_ogg_ranges():

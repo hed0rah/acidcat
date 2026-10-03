@@ -135,6 +135,9 @@ def _run_ncw(path, data, args):
     return 0
 
 
+_FILE_EXTS = (".wav", ".wave", ".ogg", ".aif", ".aiff", ".flac", ".mp3", ".sf2", ".sf3")
+
+
 def _run_sf2(path, data, args):
     try:
         info = sf2mod.parse_sf2(data)
@@ -146,6 +149,13 @@ def _run_sf2(path, data, args):
         print(f"acidcat convert: {path}: no extractable samples", file=sys.stderr)
         return 1
     outdir = args.output or (os.path.splitext(path)[0] + "_samples")
+    if os.path.splitext(outdir)[1].lower() in _FILE_EXTS and not os.path.isdir(outdir):
+        # one file per sample, so -o names a folder; `-o out.wav` made a folder
+        # called out.wav, which reads as a file that will not open
+        print(f"acidcat convert: {path}: a soundfont converts to one file per "
+              f"sample, so -o names a folder; {outdir!r} looks like a file",
+              file=sys.stderr)
+        return 2
     os.makedirs(outdir, exist_ok=True)
     for i, s in enumerate(samples):
         if s.get("compressed"):
@@ -222,9 +232,11 @@ def _run_au(path, data, args):
     enc = hdr["encoding"]
     name = aumod._ENC.get(enc, (f"encoding {enc}", 0, False, False))[0]
     if enc not in _AU_TO_PCM:
+        # no converter for this encoding: could not run (2), as for a format
+        # convert does not model at all
         print(f"acidcat convert: {path}: {name} is not supported for conversion "
               f"yet (mu-law, A-law, 8- and 16-bit linear PCM are)", file=sys.stderr)
-        return 1
+        return 2
     off = hdr["data_offset"]
     if off < 24 or off > len(data):
         print(f"acidcat convert: {path}: data offset {off} is outside the file",
@@ -335,6 +347,18 @@ def _run_to_pcm(path, data, args):
 
 
 def run(args):
+    try:
+        return _convert(args)
+    except OSError as e:
+        # a write that failed names its file; a closed stdout does not, and
+        # must reach the CLI's closed-pipe handler untouched
+        if e.filename is None:
+            raise
+        print(f"acidcat convert: {e.filename}: {e.strerror or e}", file=sys.stderr)
+        return 2
+
+
+def _convert(args):
     path = args.input
     if os.path.isdir(path):
         return _batch_ncw(path, args)
