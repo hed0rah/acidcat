@@ -424,3 +424,43 @@ def test_wav_edit_follows_an_unpadded_odd_chunk():
     padded = _wav(_fmt(), _chunk(b"ISFT", b"tool!"), _data(16))
     assert edits._audio_digest(src)[1] is not None
     assert edits._audio_digest(src) == edits._audio_digest(padded)
+
+
+def _loop_wav(beats, tempo, frames=88200):
+    """Mono 16-bit 44.1 kHz, `frames` long (2.0 s by default), with an acid
+    chunk saying `beats` at `tempo`."""
+    fmt = _chunk(b"fmt ", struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16))
+    acid = struct.pack("<IHHfIHHf", 0, 0, 0x8000, 0.0, beats, 4, 4, tempo)
+    return _wav(fmt, _chunk(b"data", bytes(frames * 2)), _chunk(b"acid", acid))
+
+
+@pytest.mark.parametrize("bpm,beats", [
+    ("123", 4),        # 4 beats still fit 2.0 s at 123 (2.4% off): left alone
+    ("240", 8),        # double time: 8 beats is what 2.0 s holds
+    ("128", 0),        # 4.27 beats: no whole number fits, so not stated
+])
+def test_wav_bpm_keeps_the_acid_beats_in_step(bpm, beats):
+    # A2: a new tempo against the chunk's old beat count contradicted the
+    # audio length (a new field.inconsistent defect) and the edit was refused
+    notes = []
+    out, applied = edit_riff.edit_wav(_loop_wav(4, 120.0), {"bpm": bpm}, notes)
+    acid = _payload(out, b"acid")
+    assert struct.unpack_from("<I", acid, 12)[0] == beats
+    assert struct.unpack_from("<f", acid, 20)[0] == float(bpm)
+    assert applied == [("bpm", 120.0, bpm)]
+    assert bool(notes) == (beats != 4)
+    _verified(_loop_wav(4, 120.0), "x.wav", {"bpm": bpm})
+
+
+def test_wav_bpm_on_a_single_cycle_with_stale_beats_verifies():
+    # the field case: 600 frames whose acid chunk says 4 beats (17640 bpm)
+    src = _loop_wav(4, 4 / (600 / 44100) * 60, frames=600)
+    patch = _verified(src, "x.wav", {"bpm": "128"})
+    assert struct.unpack_from("<I", _payload(patch.data, b"acid"), 12)[0] == 0
+    assert any("not stated" in n for n in patch.notes)
+
+
+def test_wav_bpm_on_a_new_acid_chunk_had_no_old_tempo():
+    out, applied = edit_riff.edit_wav(_wav(_fmt(), _data()), {"bpm": "128"})
+    assert applied == [("bpm", None, "128")]
+

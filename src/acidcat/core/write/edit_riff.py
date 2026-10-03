@@ -48,6 +48,55 @@ def _fmt_sample_rate(chunks):
     return 44100
 
 
+# how far an acid chunk's beats at its tempo may miss the audio's length
+# before the walker calls the chunk inconsistent (core/walk/wav.py _parse_acid)
+_BEAT_DRIFT = 0.05
+
+
+def _audio_seconds(chunks):
+    """The audio's length in seconds as the walker reckons it: the fact
+    chunk's sample count, else the data bytes over block_align. None when
+    the file does not say."""
+    fmt = next((c[1] for c in chunks if c[0] == b"fmt "), None)
+    if not fmt or len(fmt) < 16:
+        return None
+    rate = struct.unpack_from("<I", fmt, 4)[0]
+    align = struct.unpack_from("<H", fmt, 12)[0]
+    fact = next((c[1] for c in chunks if c[0] == b"fact"), None)
+    data = next(c[1] for c in chunks if c[0] == b"data")
+    if fact is not None and len(fact) >= 4:
+        frames = struct.unpack_from("<I", fact, 0)[0]
+    elif align:
+        frames = len(data) // align
+    else:
+        return None
+    return frames / rate if rate and frames else None
+
+
+def _drifts(beats, bpm, seconds):
+    return abs(beats / bpm * 60 - seconds) / seconds > _BEAT_DRIFT
+
+
+def _keep_beats_in_step(buf, seconds, notes):
+    """After a new tempo, the acid chunk's beat count must still describe the
+    audio, or the edit leaves a chunk that contradicts itself (4 beats at 128
+    bpm in 0.014 s). A count that no longer fits becomes the whole number the
+    new tempo gives over the audio, or 0 (not stated) when no whole number
+    fits; `notes` says which."""
+    beats = struct.unpack_from("<I", buf, 12)[0]
+    bpm = struct.unpack_from("<f", buf, 20)[0]       # as stored, float32
+    if not (beats and bpm > 0 and seconds) or not _drifts(beats, bpm, seconds):
+        return
+    fit = round(bpm * seconds / 60)
+    if fit and _drifts(fit, bpm, seconds):
+        fit = 0
+    struct.pack_into("<I", buf, 12, fit)
+    if notes is not None:
+        notes.append(f"the acid chunk's {beats} beat(s) do not fit {seconds:.3f} s "
+                     f"at {bpm:g} bpm; its beat count is now "
+                     f"{fit if fit else '0 (not stated)'}")
+
+
 _MINOR = ("m", "min", "minor")
 _MAJOR = ("M", "maj", "major")
 
@@ -202,12 +251,14 @@ def edit_wav(data, changes, notes=None):
         for field, value in acid_changes.items():
             fl = field.lower()
             if fl in ("bpm", "tempo"):
-                old = round(struct.unpack_from("<f", buf, 20)[0], 3)
+                # a chunk this edit creates held no tempo, whatever its default
+                old = round(struct.unpack_from("<f", buf, 20)[0], 3) if ac else None
                 try:
                     bpm = float(value) if value else 0.0
                 except ValueError:
                     raise BadValue(f"{field}={value!r}: not a number") from None
                 struct.pack_into("<f", buf, 20, bpm)
+                _keep_beats_in_step(buf, _audio_seconds(chunks), notes)
                 applied.append((field, old, value))
             elif fl == "key":
                 # the root note (offset 4) counts only when flag 0x02 says so
