@@ -207,10 +207,12 @@ def _build_info(tags):
     return body
 
 
-def edit_wav(data, changes, notes=None):
+def edit_wav(data, changes, notes=None, cascade=True):
     """(new bytes, applied) for `changes`. What the edit could not store as
     asked, and wrote anyway, is said in `notes` when a list is given: the
-    acid chunk holds a root note, so the mode of `key=Am` is dropped."""
+    acid chunk holds a root note, so the mode of `key=Am` is dropped. Without
+    `cascade` a new tempo leaves the beat count as it was, and an edit that
+    then contradicts the audio is refused by verify, as --no-cascade says."""
     chunks, trailing = _iter_chunks(data)
     applied = []
 
@@ -269,7 +271,8 @@ def edit_wav(data, changes, notes=None):
                 except ValueError:
                     raise BadValue(f"{field}={value!r}: not a number") from None
                 struct.pack_into("<f", buf, 20, bpm)
-                _keep_beats_in_step(buf, _audio_seconds(chunks), notes)
+                if cascade:
+                    _keep_beats_in_step(buf, _audio_seconds(chunks), notes)
                 applied.append((field, old, value))
             elif fl == "key":
                 # the root note (offset 4) counts only when flag 0x02 says so

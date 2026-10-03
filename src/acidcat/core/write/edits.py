@@ -70,7 +70,7 @@ def edit_metadata(path, changes):
     return edit_metadata_data(data, path, changes)
 
 
-def edit_metadata_data(data, name, changes, notes=None):
+def edit_metadata_data(data, name, changes, notes=None, cascade=True):
     """`edit_metadata` on bytes already in memory. `name` is the file's name
     (a path is fine): only its extension is read, for the formats whose
     magic does not say which they are. `notes`, when a list, collects what a
@@ -107,7 +107,8 @@ def edit_metadata_data(data, name, changes, notes=None):
             from acidcat.core.write import edit_riff
         except ImportError:
             raise EditError("WAV editing is not available in this build")
-        return EditResult("WAV", *_spoken(edit_riff.edit_wav(data, changes, notes),
+        return EditResult("WAV", *_spoken(edit_riff.edit_wav(data, changes, notes,
+                                                             cascade=cascade),
                                           _spelling))
     if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
         from acidcat.core.write import edit_aiff
@@ -371,7 +372,8 @@ def _apply_custom_frames(tmp, suffix, changes):
     import mutagen
     m = mutagen.File(tmp)
     if m is None:
-        raise EditError("mutagen could not read this audio file")
+        raise EditUnmodelled("the tag library cannot read this file, so it has "
+                                 "no editor")
     cls = m.__class__.__name__
     is_id3 = cls in ("MP3", "AIFF", "WAVE") or (
         getattr(m, "tags", None) is not None
@@ -442,7 +444,8 @@ def strip_tagged(data, suffix):
             os.fsync(f.fileno())
         audio = mutagen.File(tmp)
         if audio is None:
-            raise EditError("mutagen could not read this audio file")
+            raise EditUnmodelled("the tag library cannot read this file, so it has "
+                                 "no editor")
         removed = sorted(audio.tags.keys()) if audio.tags else []
         audio.delete()          # removes the tag block from the file on disk
         with open(tmp, "rb") as r:
@@ -482,7 +485,8 @@ def edit_tagged(data, suffix, changes):
         if easy:
             audio = mutagen.File(tmp, easy=True)
             if audio is None:
-                raise EditError("mutagen could not read this audio file")
+                raise EditUnmodelled("the tag library cannot read this file, so it has "
+                                 "no editor")
             for field, value in easy.items():
                 key = _EASY_FIELDS.get(field.lower())
                 if key is None:

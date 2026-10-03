@@ -628,3 +628,29 @@ def test_wav_key_am_round_trip_is_a_no_op():
     assert struct.unpack_from("<I", acid, 0)[0] & 0x02                # root set
     twice, applied = edit_riff.edit_wav(once, {"key": "Am"})
     assert twice == once and applied == [("key", "A3", "A3")]
+
+
+
+def test_no_cascade_leaves_the_beat_count_and_refuses(tmp_path):
+    # --no-cascade: a field tied to the edit is not changed for you; the edit
+    # that then contradicts the audio is refused, as the flag says
+    from acidcat.cli import main
+    p = tmp_path / "x.wav"
+    p.write_bytes(_loop_wav(4, 4 / (600 / 44100) * 60, frames=600))
+    out = tmp_path / "o.wav"
+    assert main(["edit", str(p), "--set", "bpm=128", "--no-cascade",
+                 "-o", str(out), "-q"]) == 1
+    assert not out.exists()
+    assert main(["edit", str(p), "--set", "bpm=128", "-o", str(out), "-q"]) == 0
+
+
+def test_a_file_the_tag_library_cannot_read_has_no_editor(tmp_path, capsys):
+    # mutagen reads no codec it knows: could not run (2), said plainly
+    from acidcat.cli import main
+    page = (b"OggS\x00\x02" + b"\x00" * 8 + b"\x01\x00\x00\x00" + b"\x00" * 8
+            + b"\x01\x10" + b"NOTACODEC" + b"\x00" * 7)
+    p = tmp_path / "u.ogg"
+    p.write_bytes(page)
+    assert main(["edit", str(p), "--set", "title=x", "-o", str(tmp_path / "o.ogg")]) == 2
+    err = capsys.readouterr().err
+    assert "tag library cannot read" in err

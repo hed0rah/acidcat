@@ -234,7 +234,7 @@ def _plan_byte_edit(raw_doc, key, value, force, data):
                   wanted=want), new
 
 
-def plan(data, name, changes, raw_doc=None, force=False):
+def plan(data, name, changes, raw_doc=None, force=False, cascade=True):
     """A Patch for `changes` against the file image `data` (named `name`,
     for the profiles that go by extension). `raw_doc` is its v1 dict when the
     caller has walked it; it is walked here when an address needs it."""
@@ -270,7 +270,8 @@ def plan(data, name, changes, raw_doc=None, force=False):
         if spans:
             raise EditError("a patch either edits bytes in place or rewrites "
                             "metadata, not both: give them as two edits")
-        fmt, out, applied = edits.edit_metadata_data(out, name, meta, notes)
+        fmt, out, applied = edits.edit_metadata_data(out, name, meta, notes,
+                                                     cascade=cascade)
         for field, old, newv in applied:
             records.append(Record("meta", field, old, newv, wanted=meta.get(field)))
     if cover is not None:
@@ -515,10 +516,10 @@ def strip_patch(before, after, name, removed, fmt):
     return Patch(before, after, rec, name, fmt)
 
 
-def edit_path(path, changes, force=False):
+def edit_path(path, changes, force=False, cascade=True):
     """A Patch for the file at `path` (walked only if an address needs it)."""
     with open(path, "rb") as fh:
         data = fh.read()
-    patch = plan(data, path, changes, force=force)
+    patch = plan(data, path, changes, force=force, cascade=cascade)
     patch.path = path
     return patch

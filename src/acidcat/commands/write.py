@@ -74,7 +74,7 @@ def _edit(path, changes, force=False, cascade=True, repairs=None, quiet=False):
     after its sample_rate); what changed that way is appended to `repairs`.
     Without it, such an edit is refused by verify() as a new defect."""
     from acidcat.core import edit as editmod
-    patch = editmod.edit_path(path, changes, force=force)
+    patch = editmod.edit_path(path, changes, force=force, cascade=cascade)
     if cascade and any(r.kind in ("field", "bytes") for r in patch.records):
         patch.repair()
         if repairs is not None:
@@ -136,7 +136,7 @@ def _run_strip(args):
         try:
             fmt, new_data, removed = _strip(path)
         except (edits.EditError,) + _mutagen_errors() as e:
-            print(f"acidcat edit: {path}: {e}", file=sys.stderr)
+            print(f"acidcat edit: {path}: {_said(e)}", file=sys.stderr)
             rc = max(rc, 2 if isinstance(e, edits.Unmodelled) else 1)
             continue
         row = None
@@ -193,6 +193,13 @@ def _commit_and_report(path, new_data, args, row=None):
     return 0
 
 
+def _said(e):
+    """An editor's refusal as it is, a tag-library exception as what it is."""
+    if isinstance(e, edits.EditError):
+        return str(e)
+    return f"the tag library cannot read this file ({e})"
+
+
 def _mutagen_errors():
     """Whatever mutagen raises on a file it recognizes but cannot parse.
 
@@ -245,11 +252,11 @@ def run(args):
                                            repairs=cascaded,
                                            quiet=getattr(args, "quiet", False))
         except (edits.EditError,) + _mutagen_errors() as e:
-            print(f"acidcat edit: {path}: {e}", file=sys.stderr)
+            print(f"acidcat edit: {path}: {_said(e)}", file=sys.stderr)
             # no editor for this kind of file, or a --set it cannot take as
             # given, is could-not-run (2); a refused edit is the answer no (1)
             rc = max(rc, 2 if isinstance(e, (edits.Unmodelled, edits.BadValue))
-                     else 1)
+                     or not isinstance(e, edits.EditError) else 1)
             continue
         row = None
         if rows is not None:
