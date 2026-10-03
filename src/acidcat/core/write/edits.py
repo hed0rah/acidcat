@@ -250,16 +250,23 @@ def _audio_digest(data):
         # an ID3 chunk after it; before this branch a RIFF file fell through
         # to the mp3 rule, hashed whole, and every cover edit looked like
         # changed audio
+        import io
+        from acidcat.core.formats.riff import pad_step
         big = data[:4] == b"FORM"
+        order = "big" if big else "little"
         want = b"SSND" if big else b"data"
+        f = io.BytesIO(data)
         pos = 12
         while pos + 8 <= len(data):
             cid = data[pos:pos + 4]
-            size = int.from_bytes(data[pos + 4:pos + 8], "big" if big else "little")
+            size = int.from_bytes(data[pos + 4:pos + 8], order)
             if cid == want:
                 h.update(mv[pos + 8:min(pos + 8 + size, len(data))])
                 return "iff", h.hexdigest()
-            pos += 8 + size + (size & 1)
+            pos += 8 + size
+            if size & 1:
+                # an odd chunk left unpadded, followed as the walker does
+                pos += pad_step(f, pos, len(data), order)
         return "iff", None
     if data[:4] == b"OggS":
         from acidcat.core.formats import ogg as oggmod

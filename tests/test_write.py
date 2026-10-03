@@ -368,3 +368,59 @@ def test_ni_write_routes_not_refused(tmp_path):
         _edit(str(p), {"name": "y"})
     except edits.EditError as e:
         assert "not enabled" not in str(e)      # the refusal is gone
+
+
+# ── bug hunt 2026-10-03, area A ────────────────────────────────────
+
+def _bck(cid, payload, pad=True):
+    return cid + struct.pack(">I", len(payload)) + payload + (
+        b"\x00" if pad and len(payload) & 1 else b"")
+
+
+def _aiff(*chunks):
+    rate80 = bytes.fromhex("400EAC44000000000000")
+    body = (b"AIFF" + _bck(b"COMM", struct.pack(">hIh", 1, 100, 16) + rate80)
+            + _bck(b"SSND", struct.pack(">II", 0, 0) + bytes(range(200)))
+            + b"".join(chunks))
+    return b"FORM" + struct.pack(">I", len(body)) + body
+
+
+def _verified(data, name, changes):
+    """The edit as `acidcat edit` makes it: planned, then verified (each value
+    reads back, the re-walk has no new defect)."""
+    from acidcat.core import edit as editmod
+    return editmod.plan(data, name, changes).verify()
+
+
+def test_aiff_edit_follows_unpadded_odd_chunks():
+    # A1: odd chunks whose writer left the pad out. The editor stepped over a
+    # pad that was not there, landed one byte into the next chunk and refused
+    # the file as overrunning; the walker follows it, so the editor must too
+    from acidcat.core.write import edit_aiff
+    src = _aiff(_bck(b"AUTH", b"TEKNIKS", False), _bck(b"(c) ", b"TEKNIKS", False),
+                _bck(b"ANNO", b"THE MIXTAPE TOOLKIT", False))
+    patch = _verified(src, "x.aif", {"title": "x"})
+    chunks, trailing = edit_aiff._iter_chunks(patch.data)
+    got = {c[0]: c[1] for c in chunks}
+    assert [c[0] for c in chunks] == [b"COMM", b"NAME", b"SSND", b"AUTH", b"(c) ", b"ANNO"]
+    assert got[b"ANNO"] == b"THE MIXTAPE TOOLKIT" and got[b"(c) "] == b"TEKNIKS"
+    assert got[b"SSND"] == next(c[1] for c in edit_aiff._iter_chunks(src)[0]
+                                if c[0] == b"SSND")
+    # the rewrite adds the missing pads: a repair, and the file stays whole
+    assert trailing == b"" and len(patch.data) % 2 == 0
+    assert struct.unpack_from(">I", patch.data, 4)[0] == len(patch.data) - 8
+    assert edit_aiff.strip_aiff(src)[1] == ["AUTH", "(c)", "ANNO"]
+
+
+def test_wav_edit_follows_an_unpadded_odd_chunk():
+    # A1, the RIFF editor's reader had the same blind step
+    odd = b"ISFT" + struct.pack("<I", 5) + b"tool!"           # no pad byte
+    src = _wav(_fmt(), odd, _data(16))
+    patch = _verified(src, "x.wav", {"title": "x"})
+    got = {c[0]: c[1] for c in _iter_chunks(patch.data)[0]}
+    assert got[b"ISFT"] == b"tool!" and got[b"data"] == _payload(src, b"data")
+    assert len(patch.data) % 2 == 0
+    # the audio fingerprint a tag rewrite is checked against walks it too
+    padded = _wav(_fmt(), _chunk(b"ISFT", b"tool!"), _data(16))
+    assert edits._audio_digest(src)[1] is not None
+    assert edits._audio_digest(src) == edits._audio_digest(padded)

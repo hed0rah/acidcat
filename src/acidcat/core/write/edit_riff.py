@@ -4,10 +4,14 @@ Edits LIST/INFO tags and the acid chunk (bpm/key) while preserving the audio and
 every unknown chunk byte-for-byte. Follows the RIFF rules exactly: little-endian
 sizes, one uncounted 0x00 pad after any odd-sized chunk, riff_size = file - 8,
 fmt before data. RF64/BW64 and malformed files are refused rather than guessed.
+An odd chunk whose writer left the pad out is followed where the next chunk
+really starts, as the walker does, and gets its pad on the rewrite.
 """
 
+import io
 import struct
 
+from acidcat.core.formats.riff import pad_step
 from acidcat.core.write.edits import BadValue, EditError
 from acidcat.util.midi import NOTES, midi_note_to_name
 
@@ -98,6 +102,7 @@ def _iter_chunks(data):
     if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         raise EditError("not a RIFF/WAVE file")
     n = len(data)
+    f = io.BytesIO(data)
     pos = 12
     chunks = []
     seen_fmt = seen_data = False
@@ -116,7 +121,9 @@ def _iter_chunks(data):
                 raise EditError("data chunk precedes fmt; refusing to rewrite")
             seen_data = True
         chunks.append([cid, payload])
-        pos += 8 + size + (size & 1)
+        pos += 8 + size
+        if size & 1:
+            pos += pad_step(f, pos, n, "little")   # 0 when the writer left it out
     if not seen_data:
         raise EditError("no data chunk; refusing to rewrite")
     trailing = data[pos:]  # bytes past the last aligned chunk, preserved verbatim
