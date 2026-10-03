@@ -464,3 +464,72 @@ def test_wav_bpm_on_a_new_acid_chunk_had_no_old_tempo():
     out, applied = edit_riff.edit_wav(_wav(_fmt(), _data()), {"bpm": "128"})
     assert applied == [("bpm", None, "128")]
 
+
+_UNICODE = "Ünïcødé ✓ 日本"
+
+
+@pytest.mark.parametrize("field", ["album", "title", "comment", "engineer",
+                                   "originator", "originator_reference",
+                                   "description"])
+def test_wav_text_round_trips_as_utf8(field):
+    # A3: the editor wrote UTF-8 and read its own old value back as latin-1
+    # (INFO), or wrote bext as ascii with '?' for the rest
+    bext = bytes(602)
+    src = _wav(_fmt(), _chunk(b"bext", bext), _data())
+    patch = _verified(src, "x.wav", {field: _UNICODE})
+    assert patch.applied == [(field, None, _UNICODE)]
+    # and inspect shows it as written
+    from acidcat.core import edit as editmod
+
+    def values(nodes):
+        for n in nodes:
+            yield from (f.get("value") for f in n.get("fields", []))
+            yield from values(n.get("children", []))
+    assert _UNICODE in values(editmod._walk_bytes(patch.data, "x.wav")["nodes"])
+
+
+@pytest.mark.parametrize("field", ["title", "artist", "comment", "annotation"])
+def test_aiff_text_round_trips_as_utf8(field):
+    patch = _verified(_aiff(), "x.aif", {field: _UNICODE})
+    assert patch.applied == [(field, None, _UNICODE)]
+
+
+def test_text_that_is_not_utf8_still_reads_as_latin1():
+    # a cp1252 tag written by an older tool is reported as it reads
+    from acidcat.core.write import edit_aiff
+    info = b"INFO" + b"INAM" + struct.pack("<I", 5) + b"caf\xe9\x00" + b"\x00"
+    src = _wav(_fmt(), _chunk(b"LIST", info), _data())
+    assert edit_riff.edit_wav(src, {"title": "x"})[1] == [("title", "café", "x")]
+    src = _aiff(_bck(b"NAME", b"caf\xe9"))
+    assert edit_aiff.edit_aiff(src, {"title": "x"})[1] == [("title", "café", "x")]
+
+
+@pytest.mark.parametrize("field,width", [
+    ("description", 256), ("originator", 32), ("originator_reference", 32),
+    ("origination_date", 10), ("origination_time", 8)])
+def test_wav_bext_value_wider_than_its_field_is_a_bad_value(field, width):
+    # A4: an over-long value was cut to fit, failed the read-back late (exit 1)
+    # and the message held the value twice. Refused up front, by byte count
+    with pytest.raises(edits.BadValue) as e:
+        edit_riff.edit_wav(_wav(_fmt(), _data()), {field: "x" * 500})
+    assert str(e.value) == f"{field} holds at most {width} bytes; got 500"
+    # bytes, not characters: 17 'é' are 34 bytes
+    if width == 32:
+        with pytest.raises(edits.BadValue, match="got 34$"):
+            edit_riff.edit_wav(_wav(_fmt(), _data()), {field: "é" * 17})
+    # exactly full is fine, with no terminator
+    out, _ = edit_riff.edit_wav(_wav(_fmt(), _data()), {field: "y" * width})
+    assert b"y" * width in _payload(out, b"bext")
+
+
+def test_cli_refuses_a_too_wide_bext_value_with_exit_2(tmp_path, capsys):
+    from acidcat.cli import main
+    src = tmp_path / "in.wav"
+    src.write_bytes(_wav(_fmt(), _data()))
+    out = tmp_path / "out.wav"
+    assert main(["edit", str(src), "--set", "description=" + "x" * 500,
+                 "-o", str(out)]) == 2
+    err = capsys.readouterr().err
+    assert "description holds at most 256 bytes; got 500" in err
+    assert "x" * 50 not in err
+    assert not out.exists()

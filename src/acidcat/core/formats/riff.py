@@ -41,6 +41,20 @@ def safe_fourcc(cid):
     return "hex:" + cid.hex()
 
 
+def decode_text(raw):
+    """Decode metadata text: UTF-8, falling back to latin-1. RIFF INFO, bext
+    and the AIFF text chunks declare no encoding; modern DAWs (and bandcamp)
+    write UTF-8, and ascii/errors='replace' silently destroyed non-Latin tags
+    (Korean, CJK, the whole non-ASCII world) into U+FFFD. latin-1 never
+    raises, so a real cp1252 tag still round-trips. The walkers read text
+    through this and the editors read old values through it, so a value an
+    editor writes as UTF-8 reads back as written."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
 def pad_step(f, at, file_size, byteorder):
     """The pad after an odd chunk whose payload ends at `at`: 1, or 0 when the
     writer left it out. Some writers do; stepping over a pad that is not there

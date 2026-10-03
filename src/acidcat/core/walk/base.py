@@ -24,6 +24,7 @@ import struct
 # single source for the per-chunk payload read cap: the walkers and riff's
 # traversal share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
 from acidcat.core.formats.riff import PAYLOAD_CAP as _PAYLOAD_CAP
+from acidcat.core.formats.riff import decode_text as _decode_text
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import input_name, input_size, open_input
 from acidcat.core.infra.findings import defect, info
@@ -101,15 +102,9 @@ def _f32(b, off):
     return struct.unpack_from("<f", b, off)[0]
 
 
-def _dtext(raw):
-    """Decode metadata text: UTF-8, falling back to latin-1. Modern DAWs (and
-    bandcamp) write RIFF/AIFF text as UTF-8; ascii/errors='replace' silently
-    destroyed non-Latin tags (Korean, CJK, the whole non-ASCII world) into
-    U+FFFD. latin-1 never raises, so a real cp1252 tag still round-trips."""
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return raw.decode("latin-1")
+# metadata text: UTF-8, falling back to latin-1. One definition, in
+# formats/riff.py, because the editors read old values through it too
+_dtext = _decode_text
 
 
 def _cstr(b, off, length):

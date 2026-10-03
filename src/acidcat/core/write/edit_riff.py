@@ -11,7 +11,7 @@ really starts, as the walker does, and gets its pad on the rewrite.
 import io
 import struct
 
-from acidcat.core.formats.riff import pad_step
+from acidcat.core.formats.riff import decode_text, pad_step
 from acidcat.core.write.edits import BadValue, EditError
 from acidcat.util.midi import NOTES, midi_note_to_name
 
@@ -26,8 +26,9 @@ _INFO_TAGS = {
     "software": b"ISFT", "engineer": b"IENG", "track": b"ITRK",
 }
 _ACID_FIELDS = {"bpm", "tempo", "key"}
-# bext fixed ASCII fields: field -> (offset, width). Editing is a size-stable
-# in-place patch (truncate to width, null-pad).
+# bext fixed text fields: field -> (offset, width in bytes). Editing is a
+# size-stable in-place patch (UTF-8, null-padded; a value wider than the field
+# is refused, never cut).
 _BEXT_FIELDS = {
     "bext_description": (0, 256), "description": (0, 256),
     "originator": (256, 32),
@@ -221,6 +222,16 @@ def edit_wav(data, changes, notes=None):
                - set(bext_changes) - set(smpl_changes))
     if unknown:
         raise BadValue(f"WAV has no editable field(s): {', '.join(sorted(unknown))}")
+    # a fixed-width field takes a value that fits its bytes, or none: cut to
+    # fit, the edit is not the one asked for, and the cut can land inside a
+    # UTF-8 sequence. Refused before anything is built.
+    bext_raw = {}
+    for field, value in bext_changes.items():
+        width = _BEXT_FIELDS[field.lower()][1]
+        raw = ("" if value is None else str(value)).encode("utf-8")
+        if len(raw) > width:
+            raise BadValue(f"{field} holds at most {width} bytes; got {len(raw)}")
+        bext_raw[field] = raw
 
     # ---- LIST/INFO tags ----
     if info_changes:
@@ -229,7 +240,7 @@ def edit_wav(data, changes, notes=None):
         tags = _parse_info(li[1]) if li else {}
         for field, value in info_changes.items():
             sid = _INFO_TAGS[field.lower()]
-            old = tags.get(sid, b"").decode("latin-1") or None
+            old = decode_text(tags.get(sid, b"")) or None
             if value is None:
                 tags.pop(sid, None)
             else:
@@ -295,8 +306,8 @@ def edit_wav(data, changes, notes=None):
             buf += bytearray(_BEXT_MIN - len(buf))
         for field, value in bext_changes.items():
             off, width = _BEXT_FIELDS[field.lower()]
-            old = buf[off:off + width].split(b"\x00", 1)[0].decode("latin-1") or None
-            raw = ("" if value is None else str(value)).encode("ascii", "replace")[:width]
+            old = decode_text(buf[off:off + width].split(b"\x00", 1)[0]) or None
+            raw = bext_raw[field]
             buf[off:off + width] = raw + b"\x00" * (width - len(raw))
             applied.append((field, old, value))
         if bx:

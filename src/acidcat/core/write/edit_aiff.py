@@ -12,7 +12,7 @@ starts, as the walker does, and gets its pad on the rewrite.
 import io
 import struct
 
-from acidcat.core.formats.riff import pad_step
+from acidcat.core.formats.riff import decode_text, pad_step
 from acidcat.core.write.edits import BadValue, EditError
 
 # field -> AIFF text chunk id (raw text, not null-terminated, not pascal)
@@ -62,7 +62,7 @@ def edit_aiff(data, changes):
     for field, value in changes.items():
         cid = _AIFF_TEXT[field.lower()]
         existing = next((c for c in chunks if c[0] == cid), None)
-        old = existing[1].decode("latin-1") if existing else None
+        old = decode_text(existing[1]) if existing else None
         if value is None:
             if existing:
                 chunks.remove(existing)
