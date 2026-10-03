@@ -26,7 +26,7 @@ import struct
 from acidcat.core.formats.riff import PAYLOAD_CAP as _PAYLOAD_CAP
 from acidcat.core.infra.limits import hit
 from acidcat.core.infra.source import input_name, input_size, open_input
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import defect, info
 
 
 class Unsupported(Exception):
@@ -161,12 +161,29 @@ def parse_padding(payload):
     readable = "".join(c for c in text if c.isprintable())
     if len(readable) >= 8:
         fields.append(_f(None, 0, "readable", readable[:120]))
-    warns.append(defect("reserved.nonzero",
-                        f"{nonzero:,} of {len(payload):,} padding bytes are not zero; "
-                        f"this block may hold the tail of something overwritten in "
-                        f"place"))
+    former = _former_chunk(payload)
+    # info, not a defect: the spec makes padding filler whatever it holds, and
+    # a writer that deletes a chunk in place by renaming it leaves a healthy
+    # file. Worth a look (it can hide things), not damage.
+    warns.append(info("padding.nonzero",
+                      f"{nonzero:,} of {len(payload):,} padding bytes are not zero"
+                      + (f"; it looks like {former}, left in place"
+                         if former else
+                         "; this block may hold the tail of something "
+                         "overwritten in place")))
     return (f"padding, {len(payload):,} bytes, {nonzero:,} NOT zero",
             fields, warns)
+
+
+def _former_chunk(payload):
+    """What a padding block's bytes look like they used to be, or None. Only
+    the two shapes measured in the wild: a LIST body and an Apple typedstream
+    (AFAn), each left behind when a writer renamed the chunk to JUNK."""
+    if payload[:4] in (b"INFO", b"adtl"):
+        return f"a former LIST/{payload[:4].decode()} body"
+    if b"streamtyped" in payload[:32] or b"typedstream" in payload[:32]:
+        return "a former Apple typedstream (AFAn)"
+    return None
 
 
 # How far into a vendor chunk to scan for readable text, and how many runs to

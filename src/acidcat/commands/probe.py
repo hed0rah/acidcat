@@ -64,6 +64,8 @@ def register(subparsers):
     # csv could honestly claim to be.
     add_output_format_arg(p, only=("table", "json"))
     add_report_arg(p)                  # before the subverb, like --output-format
+    p.add_argument("-q", "--quiet", action="store_true",
+                   help="Drop the summary and cap notes on stderr (errors stay).")
     sub = p.add_subparsers(dest="verb", metavar="VERB")
 
     # The gap between acidcat-as-hex-viewer and acidcat-as-RE-workbench. You
@@ -171,6 +173,10 @@ def register(subparsers):
         sp.add_argument("-o", "--output", dest="report_to", metavar="PATH",
                         default=argparse.SUPPRESS,
                         help="Write the report here instead of stdout.")
+        sp.add_argument("-q", "--quiet", action="store_true",
+                        default=argparse.SUPPRESS,
+                        help="Drop the summary and cap notes on stderr "
+                             "(errors stay); never changes stdout.")
 
     p.set_defaults(func=run)
 
@@ -207,8 +213,12 @@ _STRINGS_CAP = 1000
 _DIFF_SHOWN_CAP = 256
 
 
-def _cap_note(total, shown, unit):
-    if total <= shown:
+def _quiet(args):
+    return getattr(args, "quiet", False)
+
+
+def _cap_note(args, total, shown, unit):
+    if total <= shown or _quiet(args):
         return
     print(f"acidcat probe: {total:,} {unit} found; listing the first "
           f"{shown:,} (the rest are not shown)", file=sys.stderr)
@@ -354,12 +364,13 @@ def _dispatch(args, verb, path, data):
             return 2
         if _emit(args, {"verb": "table", **meta, "regions": recs}):
             return 0 if recs else 1
-        if meta["truncated_to_file"]:
-            print(f"  count {meta['declared_count']} exceeds what the file "
-                  f"holds; walked {meta['entries']}", file=sys.stderr)
-        print(f"{meta['entries']} entr(ies) at 0x{meta['table_at']:08x}, "
-              f"base 0x{meta['base']:08x} -> {len(recs)} region(s)",
-              file=sys.stderr)
+        if not _quiet(args):
+            if meta["truncated_to_file"]:
+                print(f"  count {meta['declared_count']} exceeds what the file "
+                      f"holds; walked {meta['entries']}", file=sys.stderr)
+            print(f"{meta['entries']} entr(ies) at 0x{meta['table_at']:08x}, "
+                  f"base 0x{meta['base']:08x} -> {len(recs)} region(s)",
+                  file=sys.stderr)
         for r in recs:
             print(f"  [{r['index']:>4}]  0x{r['offset']:08x}  {r['length']:>12,}")
         return 0 if recs else 1
@@ -395,11 +406,12 @@ def _dispatch(args, verb, path, data):
         hits, total_hits = pr.scan_value_counted(data, value, args.type, _SHOWN_CAP)
         if _emit(args, {"verb": "scan", "value": args.value, "type": args.type,
                         "hits": [{"offset": o, "endian": e} for o, e in hits]}):
-            _cap_note(total_hits, len(hits), "hit(s)")
+            _cap_note(args, total_hits, len(hits), "hit(s)")
             return 0 if hits else 1
-        print(f"{total_hits:,} hit(s) for {args.value} as {args.type}",
-              file=sys.stderr)
-        _cap_note(total_hits, len(hits), "hit(s)")
+        if not _quiet(args):
+            print(f"{total_hits:,} hit(s) for {args.value} as {args.type}",
+                  file=sys.stderr)
+        _cap_note(args, total_hits, len(hits), "hit(s)")
         for off, order in hits:
             print(f"  0x{off:08x}  ({order})")
         return 0 if hits else 1
@@ -418,10 +430,11 @@ def _dispatch(args, verb, path, data):
         if _emit(args, {"verb": "find", "pattern": pat,
                         "length": len(needle),
                         "hits": [{"offset": o} for o in offs]}):
-            _cap_note(total_offs, len(offs), "hit(s)")
+            _cap_note(args, total_offs, len(offs), "hit(s)")
             return 0 if offs else 1
-        print(f"{total_offs:,} hit(s) for {pat}", file=sys.stderr)
-        _cap_note(total_offs, len(offs), "hit(s)")
+        if not _quiet(args):
+            print(f"{total_offs:,} hit(s) for {pat}", file=sys.stderr)
+        _cap_note(args, total_offs, len(offs), "hit(s)")
         for off in offs:
             print(f"  0x{off:08x}")
         return 0 if offs else 1
@@ -434,9 +447,9 @@ def _dispatch(args, verb, path, data):
         if _emit(args, {"verb": "strings", "min_length": args.min,
                         "strings": [{"offset": o, "text": t}
                                     for o, t in found]}):
-            _cap_note(total_found, len(found), "string(s)")
+            _cap_note(args, total_found, len(found), "string(s)")
             return 0 if found else 1
-        _cap_note(total_found, len(found), "string(s)")
+        _cap_note(args, total_found, len(found), "string(s)")
         for off, text in found:
             print(f"0x{off:08x}  {text}")
         return 0 if found else 1
@@ -469,14 +482,14 @@ def _dispatch(args, verb, path, data):
                         "identical": not ranges and la == lb,
                         "ranges": [{"offset": st, "end": en, "length": en - st}
                                    for st, en in ranges]}):
-            _cap_note(total_ranges, len(ranges), "changed range(s)")
+            _cap_note(args, total_ranges, len(ranges), "changed range(s)")
             return 0 if (not ranges and la == lb) else 1
         if not ranges and la == lb:
             print("identical")
             return 0
         print(f"{display_name(path)} ({la:,}) vs {os.path.basename(args.other)} "
               f"({lb:,}): {total_ranges:,} changed range(s)")
-        _cap_note(total_ranges, len(ranges), "changed range(s)")
+        _cap_note(args, total_ranges, len(ranges), "changed range(s)")
         for s, e in ranges:
             print(f"  0x{s:08x}..0x{e:08x}  ({e - s} bytes)")
         if la != lb:

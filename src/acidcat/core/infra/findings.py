@@ -98,6 +98,9 @@ REGISTRY = {
     "convention.noted": (INFO, "info",
                          "the file follows a known convention that reads like "
                          "damage and is not"),
+    "padding.nonzero": (INFO, "notice",
+                        "a padding block holds non-zero bytes: legal filler, "
+                        "but often the tail of something overwritten in place"),
     "container.trailing": (INFO, "notice",
                            "bytes follow the container's declared end and hold "
                            "no chunk of it: appended data, not damage"),

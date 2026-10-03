@@ -76,9 +76,10 @@ def _c(code, text, on):
     return f"\033[{code}m{text}\033[0m" if on else text
 
 
-# verdicts that mean "there is nothing here acidcat can work with". Every other
-# shape names something it understood well enough to hand to another verb.
-_NOTHING_FOUND = {"opaque", "foreign", "empty"}
+# verdicts that mean "no walker reads this, so inspect cannot run on it".
+# `unwalked` names the format and still belongs here: named is not walkable,
+# and `classify f && inspect f` is promised to stop on exactly these.
+_NOTHING_FOUND = {"opaque", "foreign", "empty", "unwalked"}
 
 
 def run(args):
@@ -132,9 +133,9 @@ def run(args):
                          "detail": v["detail"], "path": target,
                          "evidence": v["evidence"]})
 
-    # 1 when nothing among the targets was identifiable, so `classify f &&
-    # inspect f` stops instead of running inspect on a file classify just
-    # called opaque. A read failure (2) outranks it.
+    # 1 when no target is one a walker reads, so `classify f && inspect f`
+    # stops instead of running inspect on a file it cannot walk. A read
+    # failure (2) outranks it.
     if not exit_code and not identified:
         exit_code = 1
 

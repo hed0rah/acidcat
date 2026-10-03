@@ -42,9 +42,24 @@ def test_a_file_the_verb_has_nothing_for_exits_2(junk, tmp_path, argv, capsys):
 
 
 def test_a_refused_edit_of_a_file_it_edits_is_still_1(tmp_path, capsys):
+    # the editor reads the file and declines: an acid chunk too short to
+    # rewrite safely
+    import struct
+    fmt = struct.pack("<HHIIHH", 1, 1, 8000, 16000, 2, 16)
+    body = (b"WAVE" + b"fmt " + struct.pack("<I", 16) + fmt
+            + b"acid" + struct.pack("<I", 8) + b"\x00" * 8
+            + b"data" + struct.pack("<I", 4) + b"\x00" * 4)
+    p = tmp_path / "a.wav"
+    p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    assert main(["edit", str(p), "--set", "bpm=120", "--dry-run"]) == 1
+
+
+def test_a_field_the_format_does_not_have_is_a_bad_argument(tmp_path, capsys):
+    # was 1 (a refused edit); a name the editor has no field for is a bad
+    # argument value, like `formats nope`: could not run, 2
     p = tmp_path / "a.wav"
     p.write_bytes(seeds.build("wav"))
-    assert main(["edit", str(p), "--set", "nosuchtag=1", "--dry-run"]) == 1
+    assert main(["edit", str(p), "--set", "nosuchtag=1", "--dry-run"]) == 2
 
 
 @pytest.mark.parametrize("by", ["meta", "shape", "chunks"])

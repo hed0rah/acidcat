@@ -167,3 +167,25 @@ def test_mono_and_multichannel_are_not_judged():
     y = _noise(RATE)
     assert channels.analyze([y]) is None
     assert channels.analyze([y, y, y]) is None
+
+
+
+def test_audit_reports_matching_channels_without_failing_the_file(tmp_path):
+    """A stereo file whose channels match is legal: audit --signal names it
+    and exits 0 (it counted as an integrity mismatch, exit 1)."""
+    import struct
+    import subprocess
+    import sys
+    pytest.importorskip("numpy")
+    mono = _tone(n=RATE)
+    pcm = b"".join(struct.pack("<hh", int(s * 16000), int(s * 16000)) for s in mono)
+    fmt = struct.pack("<HHIIHH", 1, 2, RATE, RATE * 4, 4, 16)
+    body = (b"WAVE" + b"fmt " + struct.pack("<I", 16) + fmt
+            + b"data" + struct.pack("<I", len(pcm)) + pcm)
+    p = tmp_path / "twin.wav"
+    p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    r = subprocess.run([sys.executable, "-m", "acidcat", "audit", "--signal", str(p)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "NOTE        dual-mono" in r.stdout
+    assert "mismatch" not in r.stdout

@@ -30,6 +30,13 @@ class EditUnmodelled(EditError, Unmodelled):
     """No editor for this file type."""
 
 
+class BadValue(EditError):
+    """A --set the editor cannot take as given: a field this kind of file does
+    not have, or a value its field cannot hold. A bad argument, so the edit
+    could not run (exit 2); a refused edit of a good argument is the answer
+    no (exit 1)."""
+
+
 class EditResult(NamedTuple):
     """Result of edit_metadata. fmt is a display label (not an identifier -- do
     not branch on it); data is the complete new file image; applied is a list of
@@ -133,7 +140,7 @@ def edit_vital(data, changes):
     for field, value in changes.items():
         key = _VITAL_FIELDS.get(field.lower())
         if key is None:
-            raise EditError(f"Vital preset has no editable field {field!r}")
+            raise BadValue(f"Vital preset has no editable field {field!r}")
         old = obj.get(key)
         obj[key] = "" if value is None else str(value)
         applied.append((field, old, obj[key]))
@@ -168,7 +175,7 @@ def edit_bitwig(data, changes):
     for field, value in changes.items():
         key = _BITWIG_FIELDS.get(field.lower())
         if key is None:
-            raise EditError(f"Bitwig preset has no editable field {field!r}")
+            raise BadValue(f"Bitwig preset has no editable field {field!r}")
         marker = _struct.pack(">I", len(key)) + key + b"\x08"
         idx = out.find(marker)
         if idx < 0:
@@ -452,7 +459,7 @@ def edit_tagged(data, suffix, changes):
             for field, value in easy.items():
                 key = _EASY_FIELDS.get(field.lower())
                 if key is None:
-                    raise EditError(f"tagged audio has no editable field {field!r} "
+                    raise BadValue(f"tagged audio has no editable field {field!r} "
                                     f"(custom ID3 frames use txxx:NAME=value)")
                 old = audio.get(key)
                 old = old[0] if isinstance(old, list) and old else old

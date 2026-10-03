@@ -9,7 +9,7 @@ FORM size = file - 8). Malformed files are refused rather than guessed.
 
 import struct
 
-from acidcat.core.write.edits import EditError
+from acidcat.core.write.edits import BadValue, EditError
 
 # field -> AIFF text chunk id (raw text, not null-terminated, not pascal)
 _AIFF_TEXT = {
@@ -47,7 +47,7 @@ def _iter_chunks(data):
 def edit_aiff(data, changes):
     unknown = [f for f in changes if f.lower() not in _AIFF_TEXT]
     if unknown:
-        raise EditError(f"AIFF has no editable field(s): {', '.join(sorted(unknown))}")
+        raise BadValue(f"AIFF has no editable field(s): {', '.join(sorted(unknown))}")
     chunks, trailing = _iter_chunks(data)
     audio = next(c[1] for c in chunks if c[0] == b"SSND")
     applied = []

@@ -421,3 +421,42 @@ def test_probe_hexdump_names_an_address_od_takes(files, at, want):
     code, out, err = _run(old)
     assert code == 0, err
     assert out
+
+
+
+@pytest.mark.parametrize("spec", ["bpm=abc", "nofield=1", "RIFF/fmt_#sample_rate=abc"])
+def test_an_edit_that_cannot_take_its_value_is_2(files, spec):
+    # a bad argument value is could-not-run (2), with a clean message rather
+    # than "could not convert string to float"
+    code, out, err = _run(["edit", files["wav"], "--set", spec, "--dry-run"])
+    assert code == 2, err
+    assert "convert string" not in err and "Traceback" not in err
+
+
+def test_analyze_on_nothing_it_can_decode_is_2(tmp_path):
+    pytest.importorskip("librosa")
+    junk = tmp_path / "notes.txt"
+    junk.write_text("not audio at all", encoding="utf-8")
+    code, out, err = _run(["analyze", "--bpm-key", "--json", str(junk)])
+    assert code == 2, err
+    assert '"failed"' in out                       # the row still says why
+
+
+@pytest.mark.parametrize("where", ["before", "after"])
+def test_probe_takes_q_and_drops_its_notes(tmp_path, where):
+    p = tmp_path / "s.bin"
+    p.write_bytes(b"abcdefgh\x00" * 1500)          # past the 1,000 strings shown
+    argv = (["probe", "-q", "strings", str(p)] if where == "before"
+            else ["probe", "strings", "-q", str(p)])
+    code, out, err = _run(argv)
+    assert code == 0 and out and not err
+
+
+def test_classify_stops_the_chain_on_a_file_no_walker_reads(tmp_path):
+    # `unwalked` (named, no walker) exited 0, so `classify f && inspect f`
+    # ran inspect, which exits 2
+    txt = tmp_path / "notes.md"
+    txt.write_text("# readable text, no walker\n", encoding="utf-8")
+    code, out, _err = _run(["classify", str(txt)])
+    assert code == 1 and "unwalked" in out
+    assert _run(["inspect", str(txt)])[0] == 2

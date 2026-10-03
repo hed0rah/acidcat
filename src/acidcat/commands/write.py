@@ -246,9 +246,10 @@ def run(args):
                                            quiet=getattr(args, "quiet", False))
         except (edits.EditError,) + _mutagen_errors() as e:
             print(f"acidcat edit: {path}: {e}", file=sys.stderr)
-            # no editor for this kind of file is could-not-run (2); a refused
-            # edit of a file it does edit is the answer no (1)
-            rc = max(rc, 2 if isinstance(e, edits.Unmodelled) else 1)
+            # no editor for this kind of file, or a --set it cannot take as
+            # given, is could-not-run (2); a refused edit is the answer no (1)
+            rc = max(rc, 2 if isinstance(e, (edits.Unmodelled, edits.BadValue))
+                     else 1)
             continue
         row = None
         if rows is not None:

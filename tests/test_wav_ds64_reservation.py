@@ -55,10 +55,42 @@ def test_riff_size_over_a_quote(tmp_path):
 
 
 def test_other_bytes_are_still_flagged(tmp_path):
-    """The control: a non-zero reservation that is none of the three stays a
-    reserved.nonzero defect."""
+    """The control: a non-zero reservation that is none of the three is still
+    flagged, as padding.nonzero: a suspicion (info), not damage."""
     j = _junk(tmp_path, lambda riff: bytes(range(1, 29)))
-    assert [w.code for w in j["warnings"]] == ["reserved.nonzero"]
+    assert [w.code for w in j["warnings"]] == ["padding.nonzero"]
+    assert [w.kind for w in j["warnings"]] == ["info"]
+
+
+def _audit(path, *extra):
+    import subprocess
+    import sys
+    return subprocess.run([sys.executable, "-m", "acidcat", "audit", *extra, path],
+                          capture_output=True, text=True)
+
+
+def test_a_chunk_deleted_in_place_as_junk_is_named_and_not_damage(tmp_path):
+    """A writer that renamed an old LIST/INFO to JUNK left a healthy file:
+    audit reports it and exits 0 (it said damage, exit 1)."""
+    j = _junk(tmp_path, lambda riff: b"INFOIPRD" + struct.pack("<I", 10)
+              + b"Tape TR66\x00" + b"\x00" * 6)
+    assert "a former LIST/INFO body" in str(j["warnings"][0])
+    path, _r = _wav(tmp_path, b"INFOIPRD" + struct.pack("<I", 10)
+                    + b"Tape TR66\x00" + b"\x00" * 6)
+    r = _audit(path)
+    assert r.returncode == 0, r.stdout
+    assert "former LIST/INFO" in r.stdout
+
+
+def test_a_walker_note_is_reported_at_its_registered_severity(tmp_path):
+    """Every defect printed as warn whatever the registry said: a notice-level
+    code now prints as notice."""
+    import json
+    from acidcat.core.infra.findings import REGISTRY
+    path, _r = _wav(tmp_path, bytes(range(1, 29)))
+    rows = json.loads(_audit(path, "--json").stdout)[0]["forensics"]
+    pad = next(f for f in rows if f["code"] == "padding.nonzero")
+    assert pad["severity"] == REGISTRY["padding.nonzero"][1] == "notice"
 
 
 def test_the_quote_names_ableton_live_as_the_writer(tmp_path):

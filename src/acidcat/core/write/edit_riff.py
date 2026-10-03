@@ -8,7 +8,7 @@ fmt before data. RF64/BW64 and malformed files are refused rather than guessed.
 
 import struct
 
-from acidcat.core.write.edits import EditError
+from acidcat.core.write.edits import BadValue, EditError
 from acidcat.util.midi import NOTES, midi_note_to_name
 
 # field -> INFO sub-chunk id
@@ -164,7 +164,7 @@ def edit_wav(data, changes, notes=None):
     unknown = (set(changes) - set(info_changes) - set(acid_changes)
                - set(bext_changes) - set(smpl_changes))
     if unknown:
-        raise EditError(f"WAV has no editable field(s): {', '.join(sorted(unknown))}")
+        raise BadValue(f"WAV has no editable field(s): {', '.join(sorted(unknown))}")
 
     # ---- LIST/INFO tags ----
     if info_changes:
@@ -196,7 +196,11 @@ def edit_wav(data, changes, notes=None):
             fl = field.lower()
             if fl in ("bpm", "tempo"):
                 old = round(struct.unpack_from("<f", buf, 20)[0], 3)
-                struct.pack_into("<f", buf, 20, float(value) if value else 0.0)
+                try:
+                    bpm = float(value) if value else 0.0
+                except ValueError:
+                    raise BadValue(f"{field}={value!r}: not a number") from None
+                struct.pack_into("<f", buf, 20, bpm)
                 applied.append((field, old, value))
             elif fl == "key":
                 # the root note (offset 4) counts only when flag 0x02 says so

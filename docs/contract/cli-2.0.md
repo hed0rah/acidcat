@@ -53,8 +53,9 @@ when a 2.0 flag is not named here.
   (`inspect`, `audit`, `check`: 2), as is a file a verb has no editor,
   extractor or converter for (`edit`, `extract`, `convert`: 2), and so is a bad argument value
   (`formats nope`, `inspect --force-format nope`: 2). Two verbs answer it
-  instead: `classify`'s job is to say what a file is, and "opaque, no walker"
-  is its answer (1, so `classify f && inspect f` stops there); `inspect
+  instead: `classify`'s job is to say what a file is, and "no walker reads
+  it" is its answer (1, so `classify f && inspect f` stops there), whether the
+  file is opaque, foreign, empty or named but unwalked; `inspect
   --try-all` runs every walker and reports what each made of it (1: still
   unidentified, but the report is the answer).
 - `acidcat --version` is unchanged.

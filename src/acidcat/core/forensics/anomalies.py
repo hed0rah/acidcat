@@ -27,6 +27,15 @@ from acidcat.core.primitives.signal import byte_entropy
 # ("coverage", "info") beside real ones, and a row had no kind (review V4).
 _NOTE_SEVERITY = {COVERAGE: "info", ENVIRONMENT: "notice", INFO: "info"}
 
+
+def _note_severity(w):
+    """The severity a walker note is reported at: its code's registered one,
+    else its kind's (a plain string or an unregistered code is warn)."""
+    code = code_of(w)
+    if code in REGISTRY:
+        return REGISTRY[code][1]
+    return _NOTE_SEVERITY.get(kind_of(w), "warn")
+
 # second-format magics worth flagging when appended after an audio container
 _MAGICS = [
     (b"PK\x03\x04", "ZIP local header"),
@@ -353,12 +362,12 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
     # Note the classification happens BEFORE the chunk id is prefixed below:
     # string formatting returns a plain str and drops the kind.
     for w in warns or []:
-        findings.append({"severity": _NOTE_SEVERITY.get(kind_of(w), "warn"),
+        findings.append({"severity": _note_severity(w),
                          "offset": 0, "rule": "structure", "kind": kind_of(w),
                          "code": code_of(w) or "legacy", "message": w})
     for c in chunks:
         for w in c.get("warnings") or []:
-            findings.append({"severity": _NOTE_SEVERITY.get(kind_of(w), "warn"),
+            findings.append({"severity": _note_severity(w),
                              "offset": c.get("offset", 0) or 0,
                              "rule": "structure", "kind": kind_of(w),
                              "code": code_of(w) or "legacy",

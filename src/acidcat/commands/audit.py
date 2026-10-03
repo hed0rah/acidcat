@@ -167,8 +167,11 @@ def _signal_findings(path):
                                   f"file was NOT screened for it"})
             continue
         if check and check["verdict"] not in clean:
-            out.append({"check": check["check"], "verdict": check["verdict"],
-                        "detail": check["detail"]})
+            row = {"check": check["check"], "verdict": check["verdict"],
+                   "detail": check["detail"]}
+            if check["verdict"] in _CONTENT_FACTS:
+                row["kind"] = "info"
+            out.append(row)
     return out
 
 
@@ -233,13 +236,24 @@ def _gather(path, signal=False):
 # blaming the file for it.
 _NOT_A_FINDING = ("not-applicable", "check-failed")
 
+# Verdicts that are facts about the content rather than a header the audio
+# contradicts: a stereo file whose channels match is legal and plays as
+# written. Reported, as `info`, and never counted as a mismatch or an exit 1;
+# a suspicion is not damage, the line the contract draws for appended data.
+_CONTENT_FACTS = ("near-mono", "dual-mono")
+
 
 def _real_findings(integ):
-    return [i for i in integ if i.get("verdict") not in _NOT_A_FINDING]
+    return [i for i in integ if i.get("verdict") not in _NOT_A_FINDING
+            and i.get("kind") != "info"]
 
 
 def _skipped_notes(integ):
     return [i for i in integ if i.get("verdict") in _NOT_A_FINDING]
+
+
+def _content_notes(integ):
+    return [i for i in integ if i.get("kind") == "info"]
 
 
 def _blaming_the_file(findings):
@@ -396,6 +410,9 @@ def _run_one(args):
         for it in real:
             print(f"                {it['verdict']}")
             print(f"                  {it['detail']}")
+    for it in _content_notes(integ):
+        # worth knowing, not a mismatch: the file says nothing untrue
+        print(f"  NOTE        {it['verdict']}: {it['detail']}")
     for it in skipped:
         # named separately from the mismatch count, because a check that did
         # not run is not evidence about the file

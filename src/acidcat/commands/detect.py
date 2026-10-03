@@ -45,6 +45,12 @@ def _detect_single(filepath, quiet=False):
     }
 
 
+def _failed(rec):
+    """Nothing could be read: the decode failed and the name held nothing
+    either. Not the same as a file analysed to no answer (sources None)."""
+    return rec["bpm_source"] == "failed" and rec["key_source"] == "failed"
+
+
 def run(args):
     from acidcat.util.stdin import resolved_input
     with resolved_input(args.target) as _p:
@@ -71,6 +77,12 @@ def _run(args):
         if (rec["bpm"] is None and rec["key"] is None
                 and not deps.available("librosa", "numpy")):
             return 1
+        if _failed(rec):
+            # the row says failed; the exit code says it too: unreadable input
+            # is could-not-run, so `analyze f && ...` does not go on
+            print(f"acidcat analyze: {display_name(target)}: could not decode "
+                  f"the audio", file=sys.stderr)
+            return 2
         return 0
 
     if os.path.isdir(target):
@@ -100,7 +112,8 @@ def _run(args):
                         if capped else "")
             print(f"\n[INFO] Detected BPM/key for {len(rows)} file(s){cap_note}.",
                   file=sys.stderr)
-        return 0
+        # some failing is a row each; every one failing is could-not-run
+        return 2 if rows and all(_failed(r) for r in rows) else 0
 
     print(f"acidcat analyze: {target}: No such file or directory", file=sys.stderr)
     return 2

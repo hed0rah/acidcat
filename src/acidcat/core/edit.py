@@ -79,15 +79,18 @@ def _number(value, want_float=False):
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value) if want_float else value
     text = str(value).strip()
-    if want_float:
-        return float(text)
     try:
-        return int(text, 0)
+        if want_float:
+            return float(text)
+        try:
+            return int(text, 0)
+        except ValueError:
+            f = float(text)
     except ValueError:
-        f = float(text)
-        if f != int(f):
-            raise EditError("%r is not a whole number" % value) from None
-        return int(f)
+        raise edits.BadValue("%r is not a number" % value) from None
+    if f != int(f):
+        raise edits.BadValue("%r is not a whole number" % value)
+    return int(f)
 
 
 def unxform(xform, value, old_stored, at=None, node_off=None):
