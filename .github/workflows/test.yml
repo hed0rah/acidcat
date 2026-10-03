@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pyproject claims 3.11 through 3.13; test every one rather than
+        # pyproject claims 3.11 through 3.14; test every one rather than
         # trusting the classifier. 3.10 was the floor through 1.x and reaches
         # end of life in 2026-10 (decisions K4); 3.9 was claimed until CI
         # proved `pip install acidcat[mcp]` could not resolve on it.
@@ -51,7 +51,7 @@ jobs:
         # theoretical: a closed-pipe bug and a hardcoded /tmp in a test have
         # each already cost a fix.
         os: [ubuntu-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
         include:
           - os: windows-latest
             python-version: "3.13"
