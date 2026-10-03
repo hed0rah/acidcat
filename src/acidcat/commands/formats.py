@@ -151,6 +151,10 @@ def _print_fields(fid, fmt="table"):
         print("\n  write-only -- set them, and the reader cannot show them "
               "back:")
         print("    " + ", ".join(wo))
+    if fid in M.IN_PLACE:
+        print("\n  edited in place -- set only where the file already has "
+              "the field:")
+        print("    " + M.IN_PLACE[fid])
     clashes = M.collisions(fid)
     if clashes:
         print("\n  sharing a destination -- setting one replaces the other:")

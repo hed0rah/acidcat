@@ -179,7 +179,10 @@ def edit_bitwig(data, changes):
         marker = _struct.pack(">I", len(key)) + key + b"\x08"
         idx = out.find(marker)
         if idx < 0:
-            raise EditError(f"field {field!r} not present in this preset")
+            # a field is changed where it stands (metadata.IN_PLACE): one the
+            # file does not have is a --set it cannot take, not a refusal
+            raise BadValue(f"this preset has no {field!r} field; the Bitwig "
+                           f"editor changes a field in place and cannot add one")
         vp = idx + len(marker)
         vlen = _struct.unpack_from(">I", out, vp)[0]
         if vp + 4 + vlen > len(out):
@@ -208,6 +211,8 @@ def edit_ni(data, changes):
                 raise EditError("hsin (Massive/Absynth) writing is not available "
                                 "yet in this build")
             return ni.edit_hsin(data, changes)
+    except ni.NotHeld as e:
+        raise BadValue(str(e))
     except ValueError as e:
         raise EditError(str(e))
     raise EditError("unrecognized Native Instruments preset")
@@ -339,7 +344,18 @@ def _register_easyid3_comment():
         def _del(id3, _):
             id3.delall("COMM")
         EasyID3.RegisterKey("comment", _get, _set, _del)
+    _register_easymp4_key()
     _easyid3_ready = True
+
+
+def _register_easymp4_key():
+    """Teach EasyMP4 a `key`. iTunes defines no key atom; the freeform
+    ----:com.apple.iTunes:initialkey is what most tools write, and the first
+    place core/tagged.py's MP4 reader looks. Without it the ledger offered
+    `key` for mp4 and every --set of it was refused."""
+    from mutagen.easymp4 import EasyMP4Tags
+    if "key" not in EasyMP4Tags.Get:
+        EasyMP4Tags.RegisterFreeformKey("key", "initialkey")
 
 
 def _apply_custom_frames(tmp, suffix, changes):
@@ -476,9 +492,12 @@ def edit_tagged(data, suffix, changes):
                     else:
                         audio[key] = [str(value)]
                 except (KeyError, ValueError, TypeError):
-                    raise EditError(
+                    # a field the container has no frame for, or a value its
+                    # frame cannot hold (a tempo of 120.5 in mp4's integer
+                    # tmpo): a --set the file cannot take as given
+                    raise BadValue(
                         f"{suffix.lstrip('.') or 'this format'} cannot store "
-                        f"field {field!r}")
+                        f"field {field!r} as given")
                 applied.append((field, old, value))
             audio.save()
         if custom:

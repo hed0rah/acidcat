@@ -357,6 +357,65 @@ def test_bitwig_write_reenabled_cli(tmp_path):
     assert parse_meta(new_data)["creator"] == "new"
 
 
+def test_bitwig_field_the_file_lacks_is_a_bad_value(tmp_path):
+    """The Bitwig editor changes a field where it stands. A preset (or a
+    .bwproject) without `device_name` has nowhere to put a device, so that
+    --set is one the file cannot take: BadValue, exit 2 -- not a refused
+    edit, which is what `field not present` used to be."""
+    import argparse
+
+    from acidcat.commands import write as writecmd
+
+    def field(key, val):
+        return (struct.pack(">I", len(key)) + key + b"\x08"
+                + struct.pack(">I", len(val)) + val)
+    data = b"BtWg0003000200" + field(b"creator", b"old")
+    with pytest.raises(edits.BadValue, match="in place"):
+        edits.edit_bitwig(data, {"device": "x"})
+    p = tmp_path / "x.bwproject"
+    p.write_bytes(data)
+    args = argparse.Namespace(
+        inputs=[str(p)], sets=["device=x"], output=str(tmp_path / "o.bwproject"),
+        dry_run=False, overwrite=False, strip=False, output_format=None,
+        json=False, csv=False, tsv=False)
+    assert writecmd.run(args) == 2
+    assert not (tmp_path / "o.bwproject").exists()
+
+
+def test_formats_fields_says_bitwig_edits_in_place(capsys):
+    from acidcat.commands import formats
+    assert formats._print_fields("bitwig") == 0
+    assert "edited in place" in capsys.readouterr().out
+
+
+def test_ni_author_reaches_every_container():
+    """edit_metadata folds author and creator to the canonical `artist`
+    before dispatch, and none of the three NI editors knew that name: no
+    author edit could reach an NI preset at all."""
+    import seeds
+    from acidcat.core.formats import ni
+    for name, data, read in (
+            ("a.nmsv", seeds.ni_hsin(), ni.parse_hsin),
+            ("a.nksf", seeds.ni(), ni.parse_nksf),
+            ("a.ksd", seeds.ni_ksd(), ni.parse_ksd)):
+        for spelling in ("artist", "author", "creator"):
+            res = edits.edit_metadata_data(data, name, {spelling: "Me"})
+            assert res.applied[0][0] == spelling, name
+            assert read(res.data)["author"] == "Me", (name, spelling)
+
+
+def test_ni_field_a_container_lacks_is_a_bad_value():
+    import seeds
+    for name, data in (("a.nmsv", seeds.ni_hsin()), ("a.nksf", seeds.ni()),
+                       ("a.ksd", seeds.ni_ksd())):
+        with pytest.raises(edits.BadValue):
+            edits.edit_metadata_data(data, name, {"tags": "x"})
+    # .ksd edits a tag in place: one the XML does not have cannot be added
+    with pytest.raises(edits.BadValue, match="in place"):
+        edits.edit_metadata_data(seeds.ni_ksd(doc_name="Seed"), "a.ksd",
+                                 {"comment": "x"})
+
+
 def test_ni_write_routes_not_refused(tmp_path):
     # an NI hsin-magic file no longer hits the blanket refusal; it reaches edit_ni
     # (which will raise its own specific error on a stub, not the "not enabled" one)

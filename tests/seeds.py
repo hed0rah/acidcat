@@ -1257,6 +1257,51 @@ def ni():
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
+# NI's two other containers. The registry holds one seed per format id and
+# `ni` is the .nksf above, but the editor is three editors behind that id, so
+# a test that holds the ledger to the editor needs all three.
+
+def _hsin_frame(item_id, payload=b"", children=()):
+    """One hsin frame: the 0x30-byte header, a data section whose item stack
+    is `item_id` over the terminating item 1, the payload, then each child
+    behind its 12-byte reference (u32 0, a domain tag, u32 0)."""
+    term = b"DSIN" + struct.pack("<II", 1, 1) + bytes(12)
+    data = (b"DSIN" + struct.pack("<II", item_id, 1)
+            + struct.pack("<Q", len(term)) + term + payload)
+    body = b"".join(struct.pack("<I", 0) + dom + struct.pack("<I", 0) + child
+                    for dom, child in children)
+    size = 0x30 + len(data) + len(body)
+    return (struct.pack("<QI", size, 1) + b"hsin" + struct.pack("<II", 1, 0)
+            + bytes(16) + struct.pack("<Q", len(data)) + data + body)
+
+
+def ni_hsin(name="Seed", author="Nobody", vendor="Seeds", description="",
+            domain=b"DSIN"):
+    """An hsin preset (Massive, Absynth, Kontakt 5+): a root frame holding
+    one SoundInfoItem(108), whose payload is u32 1, u32 0, then name, author,
+    vendor and description as u32-counted UTF-16LE. `domain` is the root's
+    child reference tag."""
+    strings = b"".join(struct.pack("<I", len(s)) + s.encode("utf-16-le")
+                       for s in (name, author, vendor, description))
+    info = _hsin_frame(108, struct.pack("<II", 1, 0) + strings)
+    return _hsin_frame(118, children=[(domain, info)])
+
+
+def ni_ksd(**tags):
+    """An old .ksd (Absynth / KORE): `-in-`, then compSize and uncompSize
+    ahead of a zlib stream holding the NI_DOC_HEADER and its XML. `tags`
+    replaces the default doc_name/Author/Vendor/Comment tags."""
+    import zlib
+    tags = tags or {"doc_name": "Seed", "Author": "Nobody", "Vendor": "Seeds",
+                    "Comment": "seed"}
+    xml = "<?xml version=\"1.0\"?><NI_DOC_HEADER>" + "".join(
+        f"<{t}>{v}</{t}>" for t, v in tags.items()) + "</NI_DOC_HEADER>"
+    blob = b"NI_DOC_HEADER" + xml.encode("utf-8")
+    comp = zlib.compress(blob, 9)
+    return (b"-in-" + bytes(4) + struct.pack("<II", len(comp), len(blob))
+            + comp)
+
+
 @seed("alp", ".alp")
 def alp():
     """Ableton Live Pack: gzip over a pl-a container, three files back to

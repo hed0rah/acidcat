@@ -157,11 +157,19 @@ def is_ni_ksd(data):
     return data[:4] == KSD_MAGIC
 
 
+class NotHeld(ValueError):
+    """A field this preset cannot take: not one its container's editor maps,
+    or (an in-place edit) not present in this file. A bad --set, not a
+    refused edit."""
+
+
 # ── hsin writing (frame-size cascade; verified against Massive + Absynth) ──
 
 _HSIN_DOMAINS = (b"DSIN", b"4KIN", b"NISD")
-# field -> index of the UTF-16LE pascal string in the SoundInfoItem(108) payload
-_HSIN_EDIT = {"name": 0, "title": 0, "author": 1, "creator": 1,
+# field -> index of the UTF-16LE pascal string in the SoundInfoItem(108) payload.
+# `artist` is the canonical spelling edit_metadata folds author and creator
+# to before dispatch; without it no author edit could reach this map
+_HSIN_EDIT = {"name": 0, "title": 0, "author": 1, "creator": 1, "artist": 1,
               "vendor": 2, "comment": 3, "description": 3}
 
 
@@ -255,7 +263,7 @@ def edit_hsin(data, changes):
     for field, value in changes.items():
         idx = _HSIN_EDIT.get(field.lower())
         if idx is None:
-            raise ValueError(f"hsin preset has no editable field {field!r}")
+            raise NotHeld(f"hsin preset has no editable field {field!r}")
         out, old = _edit_hsin_string(out, idx, "" if value is None else str(value))
         applied.append((field, old, value))
     return out, applied
@@ -439,7 +447,7 @@ def _mp_encode(obj):
 
 _NKSF_EDIT = {
     "name": "name", "title": "name",
-    "author": "author", "creator": "author",
+    "author": "author", "creator": "author", "artist": "author",
     "vendor": "vendor",
     "comment": "comment", "description": "comment",
 }
@@ -471,7 +479,7 @@ def edit_nksf(data, changes):
     for field, value in changes.items():
         key = _NKSF_EDIT.get(field.lower())
         if key is None:
-            raise ValueError(f"nksf has no editable field {field!r}")
+            raise NotHeld(f"nksf has no editable field {field!r}")
         old = obj.get(key)
         obj[key] = "" if value is None else str(value)
         applied.append((field, old, obj[key]))
@@ -554,7 +562,7 @@ _KSD_FIELDS = [
 # field -> (xml tag) for .ksd NI_DOC_HEADER editing
 _KSD_EDIT = {
     "name": "doc_name", "title": "doc_name",
-    "author": "Author", "creator": "Author",
+    "author": "Author", "creator": "Author", "artist": "Author",
     "vendor": "Vendor",
     "bank": "Bankname",
     "comment": "Comment", "description": "Comment",
@@ -599,11 +607,14 @@ def edit_ksd(data, changes):
     for field, value in changes.items():
         tag = _KSD_EDIT.get(field.lower())
         if tag is None:
-            raise ValueError(f".ksd has no editable field {field!r}")
+            raise NotHeld(f".ksd has no editable field {field!r}")
         pat = re.compile(rf"(<{tag}>)(.*?)(</{tag}>)", re.S)
         mo = pat.search(xml)
         if mo is None:
-            raise ValueError(f"tag <{tag}> not present in this preset")
+            # edited in place: a tag is replaced where it stands, and where a
+            # missing one would go is not mapped
+            raise NotHeld(f"this .ksd has no <{tag}> tag for {field!r}; the "
+                          f"editor changes a tag in place and cannot add one")
         old = mo.group(2)
         repl = _xml_escape("" if value is None else str(value))
         xml = pat.sub(lambda m2: m2.group(1) + repl + m2.group(3), xml, count=1)
