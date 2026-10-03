@@ -17,7 +17,61 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   streamed passes, so a pack of hundreds of megabytes is never held whole.
   On 34 real packs the files tile the data region exactly.
 
+### Changed
+
+- **A suspicion is not a defect, in three more places.** Non-zero padding
+  (JUNK, FLLR, PAD, FLAC PADDING) is `padding.nonzero`, an `info` finding:
+  the spec makes padding filler whatever it holds, and a writer that deletes
+  a chunk in place by renaming it JUNK leaves a healthy file, so `audit` names
+  it (and what it looks like, e.g. a former LIST/INFO body) and exits 0. It
+  was `reserved.nonzero`, a defect, which stays for real reserved fields.
+  `audit --signal` reports matching channels (near-mono, dual-mono) as a note,
+  not an integrity mismatch, and exits 0. Walker findings print at their
+  code's registered severity (a `notice` code printed as `warn`).
+- **`classify` exits 1 on a file it names but no walker reads** (`unwalked`),
+  as it does on opaque, foreign and empty files, so `classify f && inspect f`
+  stops there. It exited 0, and inspect then exited 2.
+- **`edit` exits 2 on a --set it cannot take**: a field the file's format does
+  not have, or a value its field cannot hold (`bpm=abc`), with a plain message
+  (it exited 1 with "could not convert string to float"). A refused edit is
+  still 1.
+- **`analyze` exits 2 when nothing could be decoded** (a named file, or every
+  file in a directory). The row still says `failed`; it exited 0.
+- **`probe -q`**, before or after the subverb, drops the summary and cap notes
+  on stderr.
+
 ### Fixed
+
+- **Thirty-three bugs from a proactive hunt over real files, specimens and
+  built inputs**, each with a regression test:
+  - crashes: an AppleDouble quarantine time past year 9999, Kontakt monoliths
+    nested hundreds deep (now a depth cap), `probe table` without
+    `--byte-order`;
+  - stdin: `check`, `stats --by shape`, `od` and `audit` printed the stdin
+    buffer's temp path, home directory included; they say `<stdin>`. Every
+    verb exits 2 on an empty pipe;
+  - wrong values: a CBR MP3 called VBR under `--frames` (the Info frame was
+    walked as audio); RX2 CREI read as one string, prefixes and all; a MIDI
+    file's duration taken at its first tempo (the tempo map is now
+    integrated); `inspect --summary` trusting a .mid/.aif extension over the
+    bytes; an hsin preset whose size starts with '{' sniffed as Vital; an
+    Apple Loops root of 0xFFFF read as D#; a title "05" became the number 5
+    in JSON; an ID3 tag stopped at a zero-size frame; a cut or bad-CRC Live
+    Pack passed as verified or lost its last read; the Ogg pages count and
+    the multistream rule;
+  - false alarms: an unpadded odd chunk in AIFF and RIFF (now followed, one
+    defect); a big-endian typedstream; four read caps reported as damage
+    (Kontakt body and trailer, a RIFF id3 chunk, the hsin subtree);
+  - CLI: 1.8 range aliases put the ADDR inside an option's value, read
+    offset 0 for an `--at` anchor, and built `fmt +8`; a signed `@OFF` read
+    from the end of the file; `formats --fields` ignored `--json`/`--csv`;
+    an empty JSON answer from `stats` is `[]`; `stats --by shape -o` wrote
+    nothing;
+  - speed: SFZ values and TAL/UVI tags were quadratic on hostile input,
+    long FastLZ runs were copied a byte at a time, AppleDouble plists were
+    rendered exponentially;
+  - `stats --by chunks` differed run to run (examples are now the smallest
+    paths, ties sort by key).
 
 - **UMP Stream messages named from the right table.** Status 0x05 was
   called Function Block Discovery and 0x10 Stream Configuration Request;
