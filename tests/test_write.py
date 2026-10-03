@@ -533,3 +533,16 @@ def test_cli_refuses_a_too_wide_bext_value_with_exit_2(tmp_path, capsys):
     assert "description holds at most 256 bytes; got 500" in err
     assert "x" * 50 not in err
     assert not out.exists()
+
+
+def test_wav_key_am_round_trip_is_a_no_op():
+    # A5: key=Am stores the root A3 (the acid chunk holds no mode, and says
+    # so in a note); setting it again on the result changes nothing
+    notes = []
+    once, applied = edit_riff.edit_wav(_wav(_fmt(), _data()), {"key": "Am"}, notes)
+    assert applied == [("key", None, "A3")] and notes
+    acid = _payload(once, b"acid")
+    assert struct.unpack_from("<H", acid, 4)[0] == 69                 # A3
+    assert struct.unpack_from("<I", acid, 0)[0] & 0x02                # root set
+    twice, applied = edit_riff.edit_wav(once, {"key": "Am"})
+    assert twice == once and applied == [("key", "A3", "A3")]
