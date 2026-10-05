@@ -17,7 +17,7 @@ from acidcat.core.formats.spc import NUL
 from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
-from acidcat.core.infra.findings import coded, defect
+from acidcat.core.infra.findings import coded, defect, info
 
 # An SPC is 66,048 bytes plus an optional xid6 chunk, which real files keep
 # under a kilobyte. The cap is for a forged one.
@@ -118,10 +118,12 @@ def inspect_spc(filepath, deep=False):
             "payload_len": length, "extent_len": length}
         for o_start, o_len, o_idx in placed:
             if start < o_start + o_len and o_start < start + length:
+                # a snapshot holds whatever the driver left in RAM, so this
+                # is how one in twenty real files looks, not damage
                 chunk["warnings"].append(
-                    defect("geometry.invalid",
-                           "overlaps sample[%d]: two voices reading the same RAM "
-                           "from different points, or a stale entry" % o_idx))
+                    info("convention.noted",
+                         "overlaps sample[%d]: two voices reading the same RAM "
+                         "from different points, or a stale entry" % o_idx))
                 break
         placed.append((start, length, idx))
         chunks.append(chunk)
@@ -233,6 +235,19 @@ def _dsp_fields(raw):
     return out
 
 
+def _xid6_fits(raw, pos, end, aligned):
+    """Every sub-chunk id is a defined one and the walk ends at `end` (within
+    the last sub-chunk's padding when aligned)."""
+    while pos + 4 <= end:
+        sid, stype, data = raw[pos], raw[pos + 1], struct.unpack_from("<H", raw, pos + 2)[0]
+        if sid not in _XID6_IDS:
+            return False
+        pos += 4
+        if stype:
+            pos += (data + 3) & ~3 if aligned else data
+    return pos == end or (aligned and end < pos < end + 4)
+
+
 def _xid6(raw, size, warns):
     """The extended tag, if one follows the base image."""
     at = spcmod.XID6_AT
@@ -254,6 +269,18 @@ def _xid6(raw, size, warns):
     # in 36,872 declares four bytes more than it has, and reading the last
     # sub-chunk header off the end of the buffer raised.
     avail = min(end, len(raw))
+    # the spec pads each sub-chunk's data to 4 bytes; some writers pack them.
+    # Packed is taken only when the padded walk fails and the packed one
+    # lands exactly on the end with every id a defined one.
+    packed = (not _xid6_fits(raw, pos, avail, True)
+              and _xid6_fits(raw, pos, avail, False))
+    if packed:
+        xw.append(info("convention.noted",
+                       "the sub-chunks are packed, not padded to 4 bytes as the "
+                       "spec writes them; read as packed"))
+
+    def step(data):
+        return data if packed else (data + 3) & ~3
     while pos + 4 <= avail and n < _SPC_XID6_CAP:
         sid, stype, data = raw[pos], raw[pos + 1], struct.unpack_from("<H", raw, pos + 2)[0]
         n += 1
@@ -275,7 +302,7 @@ def _xid6(raw, size, warns):
                 # an integer sub-chunk: the field is the value, after the header
                 fields.append(_f(pos - at - 8 + 4, 4, "sub[0x%02X]" % sid, value,
                                  _XID6_IDS.get(sid, ""), enc="<I", raw=value))
-                pos += 4 + ((data + 3) & ~3)
+                pos += 4 + step(data)
                 continue
             elif stype == 4:
                 value = data
@@ -284,7 +311,7 @@ def _xid6(raw, size, warns):
             # the field spans what is there, not what the sub-chunk declares
             fields.append(_f(pos - at - 8, 4 + len(body), "sub[0x%02X]" % sid, value,
                              _XID6_IDS.get(sid, "")))
-            pos += 4 + ((data + 3) & ~3)
+            pos += 4 + step(data)
     if n >= _SPC_XID6_CAP:
         xw.append(hit("list_rows", _SPC_XID6_CAP, n,
                       "listing the first %d xid6 sub-chunks" % n))
