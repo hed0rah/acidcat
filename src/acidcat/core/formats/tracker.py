@@ -478,7 +478,10 @@ def parse_it(data):
             "compressed": compressed, "has_sample": bool(sflags & 0x01),
         })
     for i, s in enumerate(samples):
-        if s.get("valid") and s.get("data_off", 0) and s["data_off"] > len(data):
+        # an empty slot (no data flag, or length 0) keeps any pointer, often
+        # past the end, and its name holds the credits: it points at nothing
+        if (s.get("valid") and s.get("has_sample") and s.get("length")
+                and s.get("data_off", 0) and s["data_off"] > len(data)):
             # several samples of a cut file can share one pointer: say which
             warns.append(defect("pointer.dangling",
                                 f"smp[{i}] sample data pointer 0x{s['data_off']:08x} "

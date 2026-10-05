@@ -200,6 +200,27 @@ def test_it_detect_walk_and_xref(tmp_path):
     assert not warns
 
 
+def test_an_empty_sample_slots_pointer_is_not_followed(tmp_path):
+    """Trackers leave empty slots (length 0, no data flag) with any pointer --
+    often past the end, and the slot's name holds the credits. It points at
+    nothing, so it is neither an xref nor a dangling pointer."""
+    from acidcat.core.infra import contract
+    raw, imps_off, _data_off = _make_it()
+    raw = bytearray(raw)
+    raw[imps_off + 0x12] = 0                                   # no sample data
+    struct.pack_into("<I", raw, imps_off + 0x30, 0)            # length 0
+    struct.pack_into("<I", raw, imps_off + 0x48, len(raw) + 4096)
+    p = tmp_path / "empty.it"
+    p.write_bytes(bytes(raw))
+    chunks, warns = wtk.inspect_it(str(p))
+    smp = next(c for c in chunks if c["id"].startswith("smp["))
+    ptr = next(f for f in smp["fields"] if f["name"] == "sample_pointer")
+    assert ptr.get("xref") is None
+    assert not [w for w in warns if "past EOF" in w]
+    doc = contract.walk(str(p))
+    assert not [f for f in doc["findings"] if f.get("code") == "pointer.dangling"]
+
+
 def test_truncated_headers_degrade(tmp_path):
     """A valid magic followed by a header too short for the fixed struct must
     degrade with a warning, never raise -- the crash class the external audit

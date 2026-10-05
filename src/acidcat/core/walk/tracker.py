@@ -361,6 +361,7 @@ def inspect_it(filepath):
         chan = "stereo" if s["stereo"] else "mono"
         codec = "IT-compressed" if s["compressed"] else "PCM"
         name = s["name"] or s["dos_name"] or "(unnamed)"
+        empty = not (s["has_sample"] and s["length"])
         # the IMPS header at s['offset'], its data pointer at +72 xrefs the PCM
         chunks.append({
             "id": f"smp[{i + 1}]", "offset": s["offset"], "size": 80,
@@ -372,7 +373,9 @@ def inspect_it(filepath):
                 _f(0x30, 4, "length", f"{s['length']:,}", "sample points"),
                 _f(0x3C, 4, "c5_speed", s["c5_speed"], "Hz"),
                 _f(0x48, 4, "sample_pointer", f"0x{s['data_off']:08x}",
-                   f"{s['byte_len']:,} bytes of {codec} PCM", xref=s["data_off"]),
+                   f"{s['byte_len']:,} bytes of {codec} PCM" if not empty
+                   else "an empty slot; the pointer is unused",
+                   xref=None if empty else s["data_off"]),
             ],
             "warnings": [], "payload_base": s["offset"],
         })
