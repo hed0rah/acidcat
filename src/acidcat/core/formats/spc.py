@@ -11,8 +11,8 @@ What IS parseable is the tag in front, called ID666, and the DSP registers,
 which say where in RAM the samples live. The layout, from the published spec:
 
     0x000   33   "SNES-SPC700 Sound File Data v0.30"
-    0x021    3   1A 1A 1A in every real file (the spec says 26 26 then a
-                 tag flag; see below)
+    0x021    2   26 26 (0x1A 0x1A)
+    0x023    1   26 (0x1A) when an ID666 tag follows, 27 (0x1B) when not
     0x024    1   minor version
     0x025    2   PC        0x027 A   0x028 X   0x029 Y   0x02A PSW   0x02B SP
     0x02E   32   song title            0x04E   32   game title
@@ -69,9 +69,10 @@ IPL_SIZE = 0x40
 BASE_SIZE = 0x10200           # everything before an xid6 chunk
 XID6_AT = BASE_SIZE
 
-HAS_TAG = 0x26
+# the spec's numbers are decimal: 26 and 27, which are 0x1A and 0x1B
+HAS_TAG = 26
 NUL = bytes(1)
-NO_TAG = 0x27
+NO_TAG = 27
 
 EMULATORS = {0: "unknown", 1: "ZSNES", 2: "Snes9x"}
 
@@ -125,6 +126,7 @@ def parse_header(raw):
         h["code"] = "header.truncated"
         return h
     h["magic_version"] = magic_version(raw)
+    h["tag_flag"] = raw[0x23]
     h["has_tag"] = raw[0x23] == HAS_TAG          # the spec's flag, recorded
     h["version"] = raw[0x24]
     h["pc"], h["a"], h["x"], h["y"], h["psw"], h["sp"] = struct.unpack_from(

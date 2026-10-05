@@ -84,16 +84,19 @@ def test_the_text_tag_reads_title_game_artist_and_length():
     assert h["emulator"] == 2
 
 
-def test_the_specs_tag_flag_is_recorded_and_not_obeyed():
-    """The spec says byte 0x23 is 0x26 for "tag follows" and 0x27 for "no
-    tag". 328 of 328 real files have 0x1A there -- a DOS EOF marker -- and
-    every one carries a full tag. So the flag is reported for what it is and
-    the slots are read regardless; a file with the spec's "no tag" value and
-    a title in the slot still gives up its title."""
+def test_the_tag_flag_reads_as_the_spec_says():
+    """The spec's 26 and 27 at byte 0x23 are decimal: 0x1A means a tag
+    follows, 0x1B that none does. Real files carry 0x1A and a tag, as the
+    spec says (they were once read as hex 0x26/0x27 and reported as breaking
+    it). The slots are still read regardless: a file marked 27 with a title
+    in the slot gives up its title."""
+    blob = bytearray(_spc(title="TAGGED"))
+    blob[0x23] = 0x1A
+    assert spcmod.parse_header(bytes(blob))["has_tag"]
     blob = bytearray(_spc(title="STILL HERE"))
     blob[0x23] = spcmod.NO_TAG
     h = spcmod.parse_header(bytes(blob))
-    assert h["ok"] and not h["has_tag"]
+    assert h["ok"] and not h["has_tag"] and spcmod.NO_TAG == 0x1B
     assert h["tag"]["title"] == "STILL HERE"
 
 

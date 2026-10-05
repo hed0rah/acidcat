@@ -156,9 +156,9 @@ def _header_chunk(h):
         _f(0x00, 33, "magic", "SNES-SPC700 Sound File Data " + h["magic_version"],
            "" if h["magic_version"] == "v0.30"
            else "an older dumper; the spec documents only v0.30"),
-        _f(0x23, 1, "tag_flag", "0x%02X" % (0x26 if h["has_tag"] else 0x1A),
-           "the spec says 0x26 means a tag follows; real files carry 0x1A "
-           "and a tag anyway, so the slots are read regardless"),
+        _f(0x23, 1, "tag_flag", "0x%02X" % h["tag_flag"],
+           "26 (0x1A): a tag follows; 27 (0x1B): none. The slots are read "
+           "either way, since a few early dumpers wrote a title with 27"),
         _f(0x24, 1, "version_minor", h["version"]),
         _f(0x25, 2, "pc", "$%04X" % h["pc"], "where the SPC700 was stopped"),
         _f(0x27, 1, "a", "$%02X" % h["a"]),
@@ -167,8 +167,8 @@ def _header_chunk(h):
         _f(0x2A, 1, "psw", "$%02X" % h["psw"]),
         _f(0x2B, 1, "sp", "$%02X" % h["sp"], "low byte; the stack is page 1"),
     ]
-    # the spec's flag byte is reported above and not obeyed: every real file
-    # has 0x1A there and a full tag. If the slots held text, show it.
+    # the flag is reported above and the slots are read regardless; if they
+    # held text, show it
     if h["tag"]:
         fields.append(_f(None, 0, "tag_style", h["tag_style"],
                          "the date, length and fade are text in one spelling "
