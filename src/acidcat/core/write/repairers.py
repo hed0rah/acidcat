@@ -109,17 +109,28 @@ class IffRepairer(Repairer):
     _DS64_NOTE = ("RF64 keeps its sizes in the ds64 chunk; the 32-bit size "
                   "fields are placeholders, and checking them is not modelled")
 
+    # the Akai S5000/S6000 writes 0 in an .akp's RIFF size and reads the
+    # program to the end of the file; most .akp files in the wild carry it
+    _AKAI_NOTE = ("the RIFF size is 0, as the Akai S5000/S6000 writes it; "
+                  "the program runs to the end of the file")
+
     def applies(self, data):
         return structure.is_iff(data)
 
     def _is_rf64(self, data):
         return bytes(data[:4]) == b"RF64"
 
+    def _akai_zero(self, data):
+        return bytes(data[8:12]) == b"APRG" and bytes(data[4:8]) == bytes(4)
+
     def _report(self, data, opts):
         node = structure.parse(data)
         orphan = _orphaned_audio(node)
         changes = structure.recompute(node, normalize_pad=not (opts or {}).get("keep_pad"))
         label = node.form_type.decode("latin-1", "replace")
+        if self._akai_zero(data):
+            changes = [c for c in changes if not (c["path"] == "RIFF"
+                                                  and c["field"] == "size")]
         violations = [_iff_violation(c) for c in changes]
         want = _IFF_AUDIO.get(node.form_type)
         if orphan:
@@ -143,7 +154,8 @@ class IffRepairer(Repairer):
         if self._is_rf64(data):
             return Report("WAVE", note=self._DS64_NOTE)
         _node, violations, label, _orphan = self._report(data, opts)
-        return Report(label, violations)
+        return Report(label, violations,
+                      note=self._AKAI_NOTE if self._akai_zero(data) else "")
 
     def apply(self, data, opts=None):
         if self._is_rf64(data):
@@ -167,7 +179,13 @@ class IffRepairer(Repairer):
                 f"cannot locate the {want.decode('latin-1')} chunk in the "
                 f"parsed structure, so audio preservation cannot be verified. "
                 f"Nothing written")
+        if self._akai_zero(data) and not violations:
+            return data, Report(label, [], note=self._AKAI_NOTE)
         new_data = structure.emit(node)
+        if self._akai_zero(data):
+            new_data = bytearray(new_data)
+            new_data[4:8] = bytes(4)          # keep the writer's convention
+            new_data = bytes(new_data)
         after = _iff_audio(structure.parse(new_data))
         if before != after:
             raise AudioGuardError("audio payload would change")

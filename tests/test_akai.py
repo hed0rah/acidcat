@@ -84,3 +84,41 @@ def test_akp_rejects_non_aprg(tmp_path):
         assert False, "expected Unsupported"
     except Unsupported:
         pass
+
+
+def _zero_size(p):
+    raw = bytearray(open(p, "rb").read())
+    raw[4:8] = bytes(4)
+    open(p, "wb").write(bytes(raw))
+    return bytes(raw)
+
+
+def test_a_zero_riff_size_is_akais_convention_not_damage(tmp_path):
+    """The S5000/S6000 writes 0 in an .akp's RIFF size and most real programs
+    carry it: check must not call them broken, and --fix must not rewrite one."""
+    from acidcat.core.write import constraints
+    raw = _zero_size(_make_akp(tmp_path))
+    rep = constraints.analyze(raw)
+    assert rep.violations == []
+    assert "Akai" in rep.note
+    new, _rep = constraints.repair(raw)
+    assert new == raw
+
+
+def test_a_wrong_nonzero_riff_size_is_still_reported(tmp_path):
+    from acidcat.core.write import constraints
+    p = _make_akp(tmp_path)
+    raw = bytearray(open(p, "rb").read())
+    raw[4:8] = (len(raw) - 100).to_bytes(4, "little")
+    rep = constraints.analyze(bytes(raw))
+    assert [(v.path, v.field) for v in rep.violations] == [("RIFF", "size")]
+
+
+def test_a_zero_riff_size_survives_another_repair(tmp_path):
+    """A program with a real fault elsewhere is fixed there and keeps its 0."""
+    from acidcat.core.write import constraints
+    p = _make_akp(tmp_path)
+    raw = _zero_size(p) + b"junk" + (3).to_bytes(4, "little") + b"abc" + b"U"
+    new, rep = constraints.repair(raw)
+    assert [v.field for v in rep.violations] == ["pad_byte"]
+    assert new[4:8] == bytes(4) and new[-1:] == bytes(1)
