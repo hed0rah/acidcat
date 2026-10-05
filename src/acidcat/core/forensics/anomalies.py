@@ -57,8 +57,11 @@ _SEVERITY = {"alert": 3, "warn": 2, "notice": 1, "info": 0}
 # ID3 frames that legitimately repeat (so duplicates are not suspicious), plus
 # the synthetic header fields inspect emits for the tag itself.
 _ID3_REPEATABLE = {"TXXX", "WXXX", "APIC", "PIC", "PRIV", "GEOB", "COMM", "UFID",
-                   "USLT", "SYLT", "WCOM", "WOAR", "WXXX", "version", "flags",
-                   "tag_size"}
+                   "USLT", "SYLT", "WCOM", "WOAR", "POPM",
+                   # the same frames under their ID3v2.2 names
+                   "TXX", "WXX", "COM", "UFI", "ULT", "SLT", "GEO", "WCM", "WAR",
+                   "POP",
+                   "version", "flags", "tag_size"}
 
 # spec-ignorable regions: content there is a classic smuggling spot
 _CAVITY = {"PADDING": "FLAC PADDING", "FREE": "MP4 free box", "SKIP": "MP4 skip box",

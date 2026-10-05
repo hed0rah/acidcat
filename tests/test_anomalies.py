@@ -99,6 +99,21 @@ def test_duplicate_id3_frame_flagged(tmp_path):
     assert dups
 
 
+def test_two_itunes_comment_frames_in_a_v22_tag_are_legal(tmp_path):
+    """iTunes and Logic write COM twice (iTunNORM, iTunSMPB); ID3 allows one
+    comment per language and descriptor, in v2.2 as in v2.3."""
+    def fr(fid, desc, text):
+        b = b"\x00eng" + desc + b"\x00" + text
+        return fid + len(b).to_bytes(3, "big") + b
+    frames = (fr(b"COM", b"iTunNORM", b" 00000258") + fr(b"COM", b"iTunSMPB", b" 00000000")
+              + b"TT2" + (2).to_bytes(3, "big") + b"\x00x")
+    n = len(frames)
+    ss = bytes([(n >> 21) & 0x7f, (n >> 14) & 0x7f, (n >> 7) & 0x7f, n & 0x7f])
+    raw = b"ID3\x02\x00\x00" + ss + frames + (b"\xff\xfb\x90\x00" + b"\x00" * 413) * 8
+    findings = _scan(_write(tmp_path, "itunes.mp3", raw))
+    assert not [f for f in findings if f["rule"] == "duplicate_frame"]
+
+
 def test_nonzero_padding_flagged(tmp_path):
     # a synthetic FLAC-shaped PADDING chunk whose content is non-zero
     path = _write(tmp_path, "pad.bin", b"\xaa" * 16)
