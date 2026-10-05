@@ -6,6 +6,27 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- **SPC**: the ID666 tag flag's 26 and 27 are decimal, as the spec says; they
+  were read as hex, so real files' tags were taken for absent.
+- **SPC**: two voices whose samples overlap in RAM are a note, not damage. A
+  snapshot holds whatever the driver left there, and one real file in twenty
+  shows it; `audit` exited 1 on all of them.
+- **SPC**: an xid6 tag whose sub-chunks are packed rather than padded to four
+  bytes is read as packed (about one in fifty real tags), with a note. It
+  read as a damaged block.
+- **Akai `.akp`**: a RIFF size of 0 is how the S5000/S6000 writes it, and most
+  real programs carry it. `check` and `audit` called each one broken, and
+  `check --fix` rewrote a file the sampler wrote. It is now a note, and a
+  repair of anything else keeps the 0.
+- **Impulse Tracker**: an empty sample slot (no data, length 0) keeps whatever
+  pointer it was saved with, often past the end of the file. It is no longer
+  followed as a cross-reference or reported as a dangling pointer.
+- **ID3v2.2**: a tag with two comment frames of different descriptors, as
+  iTunes and Logic write (`iTunNORM`, `iTunSMPB`), is legal; the duplicate
+  frame rule knew only the v2.3 frame names, so `audit` exited 1.
+
 ## [2.0.0a2] - 2026-10-03
 
 The second alpha of 2.0, published as a pre-release like the first: `pip
