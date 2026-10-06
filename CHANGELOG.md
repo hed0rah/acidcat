@@ -6,6 +6,17 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [2.0.0rc1] - 2026-10-06
+
+The first release candidate of 2.0, published as a pre-release: `pip install
+acidcat` still installs 1.8.x, and `pip install --pre acidcat` installs this.
+2.0 is feature-frozen from here; what changes before 2.0.0 is fixes. It is
+2.0.0a2 plus a third round of hunting bugs, over the paths that read: every
+reading verb on 837 real files across 89 formats and on damaged copies of
+them, about 27,000 runs over two seeds, with no crash, hang, malformed JSON
+or exit code outside 0, 1 and 2. What it found was real files reported as
+damaged; those are fixed below.
+
 ### Fixed
 
 - **SPC**: the ID666 tag flag's 26 and 27 are decimal, as the spec says; they
