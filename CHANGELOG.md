@@ -20,7 +20,8 @@ damaged; those are fixed below.
 ### Fixed
 
 - **SPC**: the ID666 tag flag's 26 and 27 are decimal, as the spec says; they
-  were read as hex, so real files' tags were taken for absent.
+  were read as hex, so every tagged file was reported as breaking the spec and
+  as having no tag (its text was read anyway).
 - **SPC**: two voices whose samples overlap in RAM are a note, not damage. A
   snapshot holds whatever the driver left there, and one real file in twenty
   shows it; `audit` exited 1 on all of them.
