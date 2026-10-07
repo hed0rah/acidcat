@@ -62,3 +62,16 @@ def test_repair_refuses_when_chain_not_witnessed():
     # (ends without a 0xFFF8 sync)
     vios = F.analyze(data)
     assert all(v["field"] != "last_flag" for v in vios)
+
+
+def test_nonzero_padding_is_filler_not_a_failed_check(tmp_path):
+    """Junk in a PADDING block is the same harmless filler as a RIFF pad byte
+    (decisions.md F1): check passes the file, --fix still zeroes it."""
+    from acidcat.cli import main
+    from acidcat.core.write import constraints
+    data = _flac(_blk(False, 0, b"\x00" * 34), _blk(True, 1, b"junkjunk"))
+    rep = constraints.analyze(data)
+    assert [v.field for v in rep.violations] == ["padding"] and rep.defects == []
+    p = tmp_path / "pad.flac"
+    p.write_bytes(data)
+    assert main(["check", str(p)]) == 0

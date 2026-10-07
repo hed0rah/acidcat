@@ -49,11 +49,11 @@ class Violation:
 
     @property
     def filler(self):
-        """A non-zero RIFF/IFF pad byte: the spec says write 0, readers skip
-        it, and what it holds is a writer's leftover, not damage (the
-        nonzero_pad finding is info). --fix still zeroes it; it never fails a
-        check (decisions.md, 2026-10-07)."""
-        return self.kind == ZERO and self.field == "pad_byte"
+        """A non-zero RIFF/IFF pad byte or FLAC PADDING block: the spec says
+        write 0, readers skip it, and what it holds is a writer's leftover,
+        not damage (the nonzero_pad finding is info). --fix still zeroes it;
+        it never fails a check (decisions.md, 2026-10-07)."""
+        return self.kind == ZERO and self.field in ("pad_byte", "padding")
 
     def describe(self):
         # some violations are not a stored-vs-computed mismatch at all -- an

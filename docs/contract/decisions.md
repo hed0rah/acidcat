@@ -167,7 +167,7 @@ the catalogue.
 
 | # | Question | Answer | Reason | Commits us to |
 |---|---|---|---|---|
-| F1 | Is a harmless spec breach a defect? A non-zero RIFF/IFF alignment pad byte; a YM file with no `End!` marker | No: a note. Still reported, and `check --fix` still zeroes the pad byte, but neither makes `check` or `audit` exit 1 | Readers skip a pad byte and players stop a YM at its frame count, so the file plays the same; an exit code cannot say "harmless", and non-zero padding blocks are already info | `nonzero_pad` is info; a pad byte is `Violation.filler`, outside `Report.defects`; the YM note is `convention.noted`, while an `End!` that is present but misplaced stays a defect |
+| F1 | Is a harmless spec breach a defect? A non-zero RIFF/IFF alignment pad byte, FLAC PADDING block or ID3v2 padding; a YM file with no `End!` marker | No: a note. Still reported, and `check --fix` still zeroes the pad byte, but neither makes `check` or `audit` exit 1 | Readers skip a pad byte and players stop a YM at its frame count, so the file plays the same; an exit code cannot say "harmless", and non-zero padding blocks are already info | `nonzero_pad` and `id3_padding_nonzero` are info; a pad byte or FLAC PADDING is `Violation.filler`, outside `Report.defects`; the YM note is `convention.noted`, while an `End!` that is present but misplaced stays a defect |
 
 ## Order after review (2026-09-26)
 

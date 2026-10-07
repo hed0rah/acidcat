@@ -144,7 +144,9 @@ _ANOMALY_KIND = {
     "nonzero_pad": INFO,
     # the format broken
     "wrong_format_tag": DEFECT, "duplicate_chunk": DEFECT,
-    "duplicate_frame": DEFECT, "id3_padding_nonzero": DEFECT,
+    "duplicate_frame": DEFECT,
+    # harmless filler, like nonzero_pad (decisions.md, 2026-10-07)
+    "id3_padding_nonzero": INFO,
 }
 assert set(_ANOMALY_KIND) == set(ANOMALY_RULES)
 REGISTRY.update({f"anomaly.{r}": (_ANOMALY_KIND[r], "notice", f"forensic rule {r}")

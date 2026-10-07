@@ -264,10 +264,10 @@ what its writer meant, and `audit` does not exit 1 for them): `trailing_data`,
 `polyglot`, `embedded_standalone_media`, `json_trailing_data`,
 `json_unknown_key`, `unaccounted_bytes`, `mp4_mdat_coverage`,
 `dual_endianness`, `cavity_content`, `application_block`, `ogg_multistream`,
-`lsb_entropy`, `nonprintable_text`, and `nonzero_pad`, a spec breach no
-reader sees (decisions.md F1). The format broken is a `defect`:
-`wrong_format_tag`, `duplicate_chunk`, `duplicate_frame`,
-`id3_padding_nonzero`. The WAV and AIFF walkers agree: a RIFF or FORM size
+`lsb_entropy`, `nonprintable_text`, `nonzero_pad` and
+`id3_padding_nonzero`, spec breaches no reader sees (decisions.md F1). The
+format broken is a `defect`: `wrong_format_tag`, `duplicate_chunk`,
+`duplicate_frame`. The WAV and AIFF walkers agree: a RIFF or FORM size
 short of the file, with no chunk past it, is `container.trailing` (info,
 appended data); a real chunk past it, or a size past the file, stays
 `count.mismatch` (a defect). `audit` exits 1 on defect findings only.
