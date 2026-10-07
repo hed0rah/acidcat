@@ -74,7 +74,7 @@ def register(subparsers):
 def _batch_ncw(directory, args):
     """Convert every .ncw under `directory` to a sibling .wav. Read-only on the
     inputs; one bad file is counted and skipped, never fatal."""
-    done = skipped = failed = refused = 0
+    done = skipped = failed = refused = unreadable = 0
     for root, _dirs, files in os.walk(directory):
         for name in files:
             if not name.lower().endswith(".ncw"):
@@ -102,16 +102,24 @@ def _batch_ncw(directory, args):
                     print(f"  {os.path.relpath(src, directory)} -> "
                           f"{hdr['num_samples']:,} samples", file=sys.stderr)
             except (ncwmod.NcwError, OSError) as e:
-                failed += 1
+                if isinstance(e, OSError):
+                    unreadable += 1         # could not read it or write the wav
+                else:
+                    failed += 1             # the file itself is bad
                 print(f"  [skip] {os.path.relpath(src, directory)}: {e}",
                       file=sys.stderr)
     print(f"converted {done:,} .ncw -> .wav"
           + (f", skipped {skipped:,} existing" if skipped else "")
           + (f", refused {refused:,} that would overwrite an existing file"
              if refused else "")
-          + (f", {failed:,} failed" if failed else ""))
-    # a refusal is a file NOT converted, so it must not report success
-    return 0 if done or not (failed or refused) else 1
+          + (f", {failed + unreadable:,} failed" if failed + unreadable else ""))
+    # a refusal is a file NOT converted, so it must not report success, and
+    # neither is a failure beside a success: `done` used to excuse both, so
+    # one good file made a run with failures exit 0. 2 when a file could not
+    # be read or written (could not run), else 1 for a refused or bad file.
+    if unreadable:
+        return 2
+    return 1 if failed or refused else 0
 
 
 def _run_ncw(path, data, args):
@@ -404,7 +412,7 @@ def _convert(args):
     except Exception as e:
         print(f"acidcat convert: {path}: could not build MIDI "
               f"({e.__class__.__name__})", file=sys.stderr)
-        return 1
+        return 2            # the notes parsed: a failure here is ours
     out = args.output or (os.path.splitext(path)[0] + ".mid")
     err = outpath.refuse_self_overwrite("convert", path, out)
     if err:

@@ -120,6 +120,22 @@ def test_convert_au_unsupported_encoding_is_refused(tmp_path):
     assert not out.exists()
 
 
+def test_a_failure_building_the_midi_is_2(tmp_path, monkeypatch, capsys):
+    """The notes parsed, so an exception building the SMF is acidcat's bug,
+    not the clip's: it exited 1, the code for "no"."""
+    from acidcat.core.formats import bitwig as bwmod
+
+    def boom(*_a, **_k):
+        raise RuntimeError("smf writer bug")
+
+    monkeypatch.setattr(bwmod, "parse_notes", lambda _d: [object()])
+    monkeypatch.setattr(convert, "notes_to_smf", boom)
+    src = tmp_path / "c.bwclip"
+    src.write_bytes(bwmod.MAGIC + bytes(64))
+    assert convert.run(_au_args(str(src), str(tmp_path / "c.mid"))) == 2
+    assert "could not build MIDI" in capsys.readouterr().err
+
+
 def test_convert_to_an_unwritable_output_is_2_not_a_traceback(tmp_path, capsys):
     src = tmp_path / "e.au"; src.write_bytes(_au(1, 8000, 1, b"\xff" * 64))
     out = tmp_path / "taken.wav"
