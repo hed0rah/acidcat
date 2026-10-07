@@ -850,6 +850,57 @@ gone.
   first data byte was read as a Pascal-string length of 71 in a 12-byte
   chunk (the name is decoded only when it fits).
 
+## [1.8.7] - 2026-09-28
+
+Bug fixes only, found by running acidcat over a curated library of real files
+from every format it reads. No new features and no changes in behaviour
+beyond the fixes.
+
+### Fixed
+
+- **`acidcat inspect` crashed on every SoundFont**, and so did `inspect
+  --full`, `--json` and `od`: the preset and instrument tree has no byte
+  position, and the renderers formatted its offset as a number. A test now
+  runs every render mode over every seed format.
+- **Every valid RF64 failed `validate`.** RF64 writes 0xFFFFFFFF in its
+  32-bit size fields and keeps the real sizes in ds64; the checker read the
+  placeholders literally, reported the data chunk as overrunning the file,
+  and proposed an 88-byte RIFF size (repair refused to write it). RF64 is now
+  declined with a note, as `write` already declines it.
+- **`validate` advertised a fix `repair` would refuse** on a file whose audio
+  chunk the walk cannot reach (a wrong size earlier in the file). It now
+  explains the misread and marks nothing repairable.
+- **A WAV's RF64 reservation was reported as damage.** The 28-byte JUNK a
+  writer puts first is filled on purpose: with the ds64 sizes (sometimes
+  stale, the file having grown), with a quote Ableton Live writes there, or
+  with the RIFF size over such a quote. It is now read as the reservation,
+  and the quote names Ableton Live as the writer in `audit`.
+- **Bytes appended past a WAV's RIFF end were read as chunks.** 2 MB of
+  appended zeros became 262,144 empty chunks and opening the file took
+  seconds. The walk now stops at the first id that is not four ASCII
+  characters; the bytes are still reported as trailing data.
+- **Zip-based formats were reported as polyglots** (.xpn, .labx,
+  .multisample): the archive's own end record read as an appended zip, its
+  members as smuggled files. An SF3's Ogg samples were flagged the same way.
+- **A Max for Live instrument was a "magic mismatch".** The four bytes at 8
+  are the device type: `aaaa` for an audio effect, `iiii` for an instrument.
+- **A `.vitalskin` was read as a Vital preset**, every theme key flagged as
+  an unknown one.
+- **A cut BRSTM was reported as whole.** The header's file size at 0x08 is
+  now read, and a file shorter than it declares says the stream is cut.
+- **A SigMF recording opened by its `.sigmf-meta` was reported as broken.**
+- **Every 12-bit AIFF and WAV was reported as damaged**: the size checks
+  rounded 12 bits down to one byte per sample.
+- **Two walkers found wrong by McGill's public test files**: an AU whose
+  data runs past the end of the file, and an AIFF APPL chunk without a
+  fitting name.
+- **76 X68000 PDX banks with a short slot table, and 16 cut MDX modules,
+  were not recognised.**
+- **`constraints.repair` raised on a multi-track MP4** instead of declining
+  it, and MP4 timestamps used a call Python 3.12 deprecates.
+- **`audit` called a console ROM `[unknown]`**; it now names the ROM and
+  suggests `acidcat extract`.
+
 ## [1.8.6] - 2026-09-25
 
 ### Fixed
