@@ -452,7 +452,7 @@ def _run_layer(args, filepath):
         err = _write_out(blob, args.output)
         if err:
             print(err, file=sys.stderr)
-            return 1
+            return 2            # an unwritable output is could-not-run
     else:
         sys.stdout.buffer.write(blob)
     if not args.quiet:
@@ -487,7 +487,7 @@ def _run_typed(args, filepath, size):
                 err = _write_out(blob, args.output)
                 if err:
                     print(err, file=sys.stderr)
-                    return 1
+                    return 2    # an unwritable output is could-not-run
             else:
                 sys.stdout.buffer.write(blob)
             return 0
@@ -543,8 +543,9 @@ def _run_field(args, filepath):
     try:
         _label, chunks, _warns = walk_file(filepath)
     except Unsupported as e:
+        # no walker read it: 2, as inspect and audit say for the same file
         print(f"acidcat carve: {e}", file=sys.stderr)
-        return 1
+        return 2
     matches = [(cid, name, val) for cid, name, val in bf.flatten_fields(chunks)
                if name == args.field]
     if not matches:
@@ -795,7 +796,7 @@ def _run_carve(args):
         err = _write_out(blob, args.output)
         if err:
             print(err, file=sys.stderr)
-            return 1
+            return 2            # an unwritable output is could-not-run
         if not args.quiet:
             print(f"carved {len(blob):,} bytes from 0x{start:08x} -> {args.output}",
                   file=sys.stderr)

@@ -137,3 +137,24 @@ def test_carve_no_trailing_data(tmp_path):
 
 def test_carve_missing_file():
     assert carve.run(_Args(target="/nonexistent/nope.wav", offset="0")) == 2
+
+
+@pytest.mark.parametrize("extra", [
+    ["--at", "0"],                                        # plain range
+    ["--at", "0", "--type", "u8", "--encoding", "raw"],   # typed
+    ["--layer", "0"],                                     # layer
+])
+def test_an_unwritable_output_is_2_on_every_path(tmp_path, extra):
+    """The field and as-wav paths returned 2 for an output they could not
+    write; the range, typed and layer paths returned 1, the code for "not
+    found", so a script could not tell a bad -o from a missing chunk."""
+    from acidcat.cli import main
+    p = _write(tmp_path, "t.wav", _wav(_FMT, _DATA))
+    bad = str(tmp_path / "nodir" / "x.bin")
+    assert main(["carve", p, *extra, "-o", bad]) == 2
+
+
+def test_field_on_a_file_no_walker_reads_is_2(tmp_path):
+    """inspect and audit say 2 for a file no walker reads; carve said 1."""
+    p = _write(tmp_path, "junk.bin", b"\x13\x37" * 40)
+    assert carve.run(_Args(target=p, field="sample_rate")) == 2
