@@ -334,6 +334,22 @@ def test_an_xid6_that_declares_more_than_the_file_holds_does_not_raise(tmp_path)
     assert any("declares" in w and "remain" in w for w in x["warnings"])
 
 
+def test_xid6_notes_reach_the_file_list_once_capped_or_not(tmp_path):
+    """The file-level extend ran only inside the sub-chunk cap branch: an
+    uncapped walk kept every xid6 note off the file list, and a capped one
+    lost the overrun appended after the extend."""
+    one = bytes([0x01, 0x01]) + struct.pack("<H", 5) + b"HELLO\x00\x00\x00"
+    for sub in (one, one * (walker._SPC_XID6_CAP + 1)):
+        ext = b"xid6" + struct.pack("<I", len(sub) + 4) + sub   # claims 4 more
+        p = _write(tmp_path, _spc() + ext)
+        chunks, warns = walker.inspect_spc(str(p))
+        x = next(c for c in chunks if c["id"] == "xid6")
+        over = [w for w in warns if "xid6 declares" in w]
+        assert len(over) == 1, warns
+        assert [str(w) for w in warns if w in x["warnings"]] == \
+            [str(w) for w in x["warnings"]]                # each once
+
+
 def test_bytes_after_the_image_that_are_not_xid6_are_named(tmp_path):
     p = _write(tmp_path, _spc() + b"junk")
     chunks, warns = walker.inspect_spc(str(p))

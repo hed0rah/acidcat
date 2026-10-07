@@ -315,10 +315,13 @@ def _xid6(raw, size, warns):
     if n >= _SPC_XID6_CAP:
         xw.append(hit("list_rows", _SPC_XID6_CAP, n,
                       "listing the first %d xid6 sub-chunks" % n))
-        warns.extend(xw)
     if 8 + declared > size - at:
         xw.append(defect("size.overrun",
                          "xid6 declares %d bytes and %d remain" % (declared, size - at - 8)))
+    # once, after the last append: this ran only inside the cap branch, so an
+    # uncapped walk kept every xid6 note off the file-level list and a capped
+    # one dropped the overrun appended after it
+    warns.extend(xw)
     return [{"id": "xid6", "offset": at, "size": length,
              "summary": "extended ID666, %d sub-chunk%s" % (n, "" if n == 1 else "s"),
              "fields": fields, "warnings": xw, "payload_base": at + 8,
