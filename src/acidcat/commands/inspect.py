@@ -789,7 +789,7 @@ def _run_inspect(args):
 
             if delimited:
                 table_rows.extend(
-                    {"file": source_path, "idx": c.get("_idx", i),
+                    {"path": source_path, "idx": c.get("_idx", i),
                      "id": _node_id(c), "name": str(c["id"]).strip(),
                      "offset": c["offset"], "size": c["size"],
                      "summary": c["summary"]}

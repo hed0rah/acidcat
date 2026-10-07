@@ -147,7 +147,7 @@ class TestChunksCommand:
         code, out, err = run_cli("inspect", "--chunks", minimal_wav, "--csv")
         assert code == 0 or code is None
         head, *rows = out.strip().splitlines()
-        assert head.split(",")[:5] == ["file", "idx", "id", "name", "offset"]
+        assert head.split(",")[:5] == ["path", "idx", "id", "name", "offset"]
         assert rows[0].split(",")[2:4] == ["RIFF/fmt_", "fmt"]
         assert len(rows) >= 2
 

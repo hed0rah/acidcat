@@ -18,6 +18,9 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `ticks_per_beat` (or `smpte_fps` and `ticks_per_frame`) for a MIDI
   `division`; `duration_ticks` for a MIDI length in ticks. The table is
   unchanged.
+- **`inspect --chunks --csv` names the file `path`.** Its first column was
+  `file`; every other row the CLI writes calls it `path`, as the contract
+  says.
 
 ### Fixed
 
