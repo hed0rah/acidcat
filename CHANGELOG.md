@@ -8,6 +8,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **A directory walk takes every format acidcat reads.** `audit DIR`,
+  `stats DIR`, `inspect DIR`, `lib index DIR` and the rest skipped 49 of the
+  99 formats with a walker (REX/RX2 loops, Serum presets, EXS, SFZ, Live
+  Packs, MPC, NI monoliths, the chiptune formats) as "unrecognised
+  extension", while the same file named directly read fine. A test now ties
+  the walk to every walker's extension.
+
 - **WAV `acid`**: a one-shot whose beat count does not match its length is a
   note, not damage. Exporters leave defaults there (8 beats at 120 bpm on a
   0.2 s clap) and nothing stretches a one-shot; on a loop the mismatch is

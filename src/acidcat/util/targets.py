@@ -55,11 +55,36 @@ GAME_EXTS = frozenset({
     ".bin", ".z64", ".n64", ".v64", ".sfc", ".smc", ".spc", ".brr",
 })
 
-MIDI_EXTS = frozenset({".mid", ".midi", ".rmi", ".midi2", ".syx"})
+MIDI_EXTS = frozenset({".mid", ".midi", ".rmi", ".rmid", ".midi2", ".syx"})
+
+# The rest of what the walkers read. A directory walk skipped every one of
+# these (REX loops, Serum presets, EXS/SFZ, Live Packs, chiptunes) while the
+# same file named directly read fine; tests/test_targets.py now checks every
+# walker's seed extension is here. The bare ".m" of PMD and the raw IQ
+# extensions are left out: both name far more files that are not ours.
+FORMAT_EXTS = frozenset({
+    # samplers, loops and instruments
+    ".rx2", ".rex", ".rcy", ".exs", ".sfz", ".xpm", ".xpn", ".mpcpattern",
+    ".multisample", ".labx", ".uvip", ".talsmpl", ".sxt", ".mxgrp", ".mxsnd",
+    ".nkx", ".nkr", ".exb", ".pat", ".bfdlac", ".alp", ".serumpreset", ".wt",
+    ".xtd",
+    # high resolution and capture
+    ".dsf", ".dff", ".sigmf-meta",
+    # trackers and chip music
+    ".okt", ".stm", ".s3p", ".fc", ".smus", ".cmf", ".dmx",
+    ".sid", ".nsf", ".nsfe", ".gbs", ".hes", ".kss", ".sap", ".ym", ".sndh",
+    ".vgm", ".vgz", ".s98", ".mdx", ".pdx", ".pt2", ".pt3", ".stc", ".m2",
+    ".mz",
+    ".psf", ".minipsf", ".psf2", ".minipsf2", ".gsf", ".minigsf", ".2sf",
+    ".mini2sf", ".usf", ".miniusf", ".snsf", ".minisnsf", ".ssf", ".minissf",
+    ".qsf", ".miniqsf",
+    # consoles and discs
+    ".ctl", ".cdxa",
+})
 
 # The default gate for a directory walk: anything acidcat might parse.
 KNOWN_EXTS = (CONTAINER_EXTS | TRACKER_EXTS | PRESET_EXTS | GAME_EXTS
-              | MIDI_EXTS)
+              | MIDI_EXTS | FORMAT_EXTS)
 
 
 def _ext(path):
