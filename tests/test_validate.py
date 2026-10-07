@@ -37,6 +37,28 @@ def test_broken_file_fails_with_exit_1(tmp_path, capsys):
     assert "FAIL" in out and "RIFF size" in out
 
 
+def test_unreadable_file_in_a_directory_exits_2(tmp_path, capsys, monkeypatch):
+    """The contract gives unreadable input 2; a walked directory with a file
+    that could not be opened exited 1, the code for a defect, and when the
+    rest held a defect the unreadable file did not raise it to 2."""
+    (tmp_path / "a.wav").write_bytes(_wav())
+    (tmp_path / "locked.wav").write_bytes(_wav())
+    real = validate.map_file
+
+    def locked(path):
+        if str(path).endswith("locked.wav"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path)
+
+    monkeypatch.setattr(validate, "map_file", locked)
+    assert validate.run(_args([str(tmp_path)])) == 2
+    assert "1 unreadable" in capsys.readouterr().out
+    bad = bytearray(_wav())
+    struct.pack_into("<I", bad, 4, 1)
+    (tmp_path / "a.wav").write_bytes(bytes(bad))
+    assert validate.run(_args([str(tmp_path)])) == 2
+
+
 def test_directory_walk_and_quiet(tmp_path, capsys):
     (tmp_path / "a.wav").write_bytes(_wav())
     bad = bytearray(_wav())

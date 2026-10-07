@@ -276,9 +276,10 @@ def run(args):
 
 def _run(args):
     # grep/diff exit-code family: 0 = every checked file is consistent,
-    # 1 = some file has a violation (ran fine), 2 = a named input could not be
-    # accessed (a real error). a file inside a walked directory that is missing
-    # or unreadable is a skip, not a hard error.
+    # 1 = some file has a violation (ran fine), 2 = an input could not be
+    # read. a named input that cannot be read stops the verdict; a file inside
+    # a walked directory that cannot be read is counted and the walk goes on,
+    # but the run still exits 2 (the contract's unreadable input).
     checked = failed = errors = unreadable = total_skipped = 0
     unmodeled = 0
     any_repairable = False
@@ -301,7 +302,8 @@ def _run(args):
                 # Inside a directory walk an unreadable file used to be counted
                 # nowhere -- not checked, not failed, not an error -- so a run
                 # over a library with locked files printed "all N consistent"
-                # and exited 0. It is not a failure, but it is not a pass.
+                # and exited 0. It is not a pass: it is input the verb could
+                # not read, which the contract gives 2, outranking a defect.
                 if named:
                     errors += 1
                 else:
@@ -355,8 +357,8 @@ def _run(args):
         if not (getattr(args, "hush", False) and rows is not None):
             print(f"\n{failed} of {checked} file(s) have structural issues"
                   f"{hint}{skipped}", file=sys.stderr if rows is not None else sys.stdout)
-        return 1
+        return 2 if unreadable else 1
     if not args.quiet and not (getattr(args, "hush", False) and rows is not None):
         print(f"\nall {checked} file(s) consistent{skipped}",
               file=sys.stderr if rows is not None else sys.stdout)
-    return 1 if unreadable else 0
+    return 2 if unreadable else 0

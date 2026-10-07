@@ -5,7 +5,8 @@
     acidcat check DIR --problems-only     # only the files with issues
 
 Exit 0 when every checked file is consistent, 1 when one is not (or --fix
-found something it would not fix), 2 when nothing could be checked.
+found something it would not fix), 2 when nothing could be checked or a file
+could not be read.
 """
 
 from acidcat.commands import _legacy
