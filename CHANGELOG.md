@@ -6,6 +6,17 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [2.0.0rc2] - 2026-10-07
+
+The second release candidate, published as a pre-release: `pip install
+acidcat` still installs 1.8.x, and `pip install --pre acidcat` installs this.
+It is rc1 plus what a review of the whole release turned up: four reviews
+(the plan, the docs against the CLI, the code changed since 2.0.0a1, and the
+package), checked against the code before anything was changed. Two of the
+fixes are data safety: an `-o` that named the input destroyed it. The
+behaviour changes below are the last before 2.0.0, made now because each would
+break a script if made after.
+
 ### Changed
 
 - **Harmless spec breaches are notes, not defects** (decisions.md F1). A
@@ -15,7 +26,6 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   an exit code. They are still reported, and `check --fix` still zeroes
   padding. An `End!` that is present but not where the frames end is still a
   defect.
-
 - **`inspect --summary --json`/`--csv`** (and bare `acidcat FILE`) give
   values, not the card's words: `"duration_sec": 0.19` where it said
   `"duration": "0.19s"`, `null` where it said `"-"`, `"acid": false` where it
@@ -52,16 +62,13 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   described as a Document is 2 in `inspect`; an unwritable output or unread
   file is 2 on every `carve` path; a `convert` batch with a failure or a
   refusal no longer exits 0.
-
 - **`tui`**: a missing `[tui]` extra or a missing file is exit 2, on stderr,
   like every other could-not-run; it was 1, and the missing file went to
   stdout.
-
 - **`lib index DIR` without `--label`** keeps the label the library already
   has. It fell back to the folder's name, so re-indexing a library named with
   `--label` renamed it and `lib stats`/`lib forget` by the old name found
   nothing.
-
 - **WAV `acid`**: a tempo outside 40-300 on a file flagged one-shot is a
   note, not damage. A one-shot plays at its own speed and nothing reads the
   field; a near-zero float left there printed as `acid tempo 0.00 outside
