@@ -1,8 +1,8 @@
 # acidcat 2.0: the CLI, old to new
 
 Every command and flag acidcat 1.8 accepts, what it becomes in 2.0, and
-whether the old spelling keeps working. Built in 2.0.0a1 (section 5 says where
-the build refines it). `tests/test_cli_mapping.py` runs the old spellings
+whether the old spelling keeps working. Section 5 says where 2.0 as built
+refines it. `tests/test_cli_mapping.py` runs the old spellings
 through their aliases and holds each to its new form's exact output, and fails
 when a 2.0 flag is not named here.
 
@@ -16,7 +16,8 @@ when a 2.0 flag is not named here.
   every 2.x release: it prints one line to stderr naming the new spelling, then
   runs exactly the new form. Aliases are removed in 3.0. A flag already
   deprecated in 1.x (`-f`, `--no-color`, `carve --format`, `formats
-  --format-out`) is removed in 2.0; that is marked *removed*.
+  --format-out`) is removed in 2.0, and so is `--length` or `--end` beside a
+  search anchor, which has no 2.0 spelling; both are marked *removed*.
 - **Standard flags**, the same on every verb that has the behaviour:
 
   | Flag | Meaning |
@@ -79,7 +80,7 @@ when a 2.0 flag is not named here.
 | `validate` | `check` | alias |
 | `repair` | `check --fix` | alias |
 | `write` | `edit` | alias |
-| `cover` | `edit --set cover=@IMG`, `edit --unset cover`, `carve FILE cover` | alias |
+| `cover` | `edit --set cover=@IMG`, `edit --unset cover`, `edit --get cover` | alias |
 | `scan` | `stats DIR --by meta` | alias |
 | `shape` | `stats DIR --by shape` | alias |
 | `survey` | `stats DIR --by chunks` | alias |
@@ -120,6 +121,7 @@ Every flag of every 1.8 verb. "same" means the flag is unchanged.
 | `--force` | `--try-all` (`--force` means "overwrite" on every other verb) | alias |
 | `--resync` | same | |
 | `--offset`, `--length`, `--end` | `--at @OFF+LEN` / `--at @OFF..END` | alias |
+| `--length`, `--end` beside a search anchor (`--at find:RIFF`) | an ADDR (`RIFF/data+8`, `@OFF+LEN`): an anchor runs to the end of the file | removed |
 | `--at` | `--at ADDR` or a search anchor | |
 | `--region` | same | |
 
@@ -155,6 +157,7 @@ Every flag of every 1.8 verb. "same" means the flag is unchanged.
 | `--color` | same | |
 | `--width` | same | |
 | `--offset`, `--length`, `--end` | positional ADDR: `@OFF+LEN`, `@OFF..END` | alias |
+| `--length`, `--end` beside a search anchor (`--at find:RIFF`) | an ADDR (`RIFF/data+8`, `@OFF+LEN`): an anchor runs to the end of the file | removed |
 | `--at` | positional ADDR, or `--at` for a search anchor | |
 | `--region` | same | |
 | `--marks` | same | |
@@ -179,6 +182,7 @@ Every flag of every 1.8 verb. "same" means the flag is unchanged.
 | 1.8 | 2.0 | |
 |---|---|---|
 | `--offset`, `--length`, `--end` | ADDR: `@OFF+LEN`, `@OFF..END` | alias |
+| `--length`, `--end` beside a search anchor (`--at find:RIFF`) | an ADDR (`RIFF/data+8`, `@OFF+LEN`): an anchor runs to the end of the file | removed |
 | `--at` | ADDR, or `--at` for a search anchor | |
 | `--trailing` | same | |
 | `--chunk` | ADDR naming the node (`RIFF/data`) | alias |
@@ -191,7 +195,7 @@ Every flag of every 1.8 verb. "same" means the flag is unchanged.
 | `--batch`, `--wrap`, `--rate` | same | |
 | `-o`, `--output` | same | |
 | `-q`, `--quiet` | same | |
-| `--layer` | same (added in 2.0.0a1): writes a decoded layer's bytes, `0` the file | |
+| `--layer` | same (new in 2.0): writes a decoded layer's bytes, `0` the file | |
 | (new) | `--as-wav` wraps raw PCM (from `wrap`) | |
 
 ### `wrap`
@@ -297,7 +301,7 @@ today) or an ADDR naming a typed field.
 
 | 1.8 | 2.0 | |
 |---|---|---|
-| `-o`, `--output` | `carve FILE cover -o PATH` | alias |
+| `-o`, `--output` | `edit FILE --get cover -o PATH` | alias |
 | `--set` | `edit FILE --set cover=@IMG` | alias |
 | `--remove` | `edit FILE --unset cover` | alias |
 | `--overwrite` | same, on `edit` | |
@@ -519,7 +523,7 @@ Every verb's `--json` (and csv/tsv, where the verb offers them) follows it:
     query|similar`. `audit` gives one row per file, as `check` does.
   - *Report verbs*: one object for the run, `stats --by chunks`.
 
-## 5. As built (2.0.0a1)
+## 5. As built
 
 Where the build refines this page, and what it does not do yet:
 
@@ -575,7 +579,7 @@ Where the build refines this page, and what it does not do yet:
   `--noatime` and `--no-fadvise` are census's reader, which serves
   `--by chunks` only. A flag that belongs to another `--by` is refused
   (exit 2), not ignored. `stats FILE` works in every mode.
-- Not in 2.0.0a1, and so not in the standard-flag table: `--no-recurse`
+- Not in 2.0, and so not in the standard-flag table: `--no-recurse`
   and `--limit NAME=VALUE`. Adding either later is additive.
 - Positional files are `FILE` in every usage line (`DIR` for `lib index`).
   `analyze` takes several; its rows are one array, and it exits 2 once

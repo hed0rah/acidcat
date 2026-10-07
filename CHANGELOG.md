@@ -205,6 +205,11 @@ The aliases go in 3.0. What does not alias:
 - `-f`, `--no-color`, `formats --format-out` and `carve --format`, deprecated
   in 1.x, are removed; each exits 2 naming what to write instead
   (`--output-format`, `--color never`, `--encoding`).
+- `--length` or `--end` beside a search anchor (`carve --at find:RIFF --end
+  0x4000`, also on `od` and `inspect`) is removed: an anchor runs to the end
+  of the file in 2.0, and 1.8 read the range from offset 0. It exits 2; use
+  an ADDR (`RIFF/data+8`, `@OFF+LEN`). A numeric `--at` with a length still
+  aliases to `@OFF+LEN`.
 - `inspect -q` only quiets stderr. The chunk table alone is `inspect
   --chunks` (what `chunks` now runs).
 - `inspect --only/--exclude` take node ids, globs or names and match
