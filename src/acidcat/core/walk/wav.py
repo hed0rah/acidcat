@@ -258,7 +258,17 @@ def _parse_acid(b, ctx):
     ctx["acid_beats"] = beats
     ctx["acid_one_shot"] = bool(flags & 0x01)
     if tempo and not (40 <= tempo <= 300):
-        warns.append(defect("value.invalid", f"acid tempo {tempo:.2f} outside sane range 40-300"))
+        # a tempo too small for two places printed as "0.00", a zero it is not
+        shown = f"{tempo:.2f}" if abs(tempo) >= 0.01 else f"{tempo:.3g}"
+        if flags & 0x01:
+            # a one-shot plays at its own speed, so nothing reads its tempo:
+            # whatever the writer left in the field is not damage
+            warns.append(info("convention.noted",
+                              f"acid tempo {shown} is outside 40-300, but the "
+                              f"one-shot flag is set, so the tempo is not used"))
+        else:
+            warns.append(defect("value.invalid",
+                                f"acid tempo {shown} outside sane range 40-300"))
     dur = ctx.get("duration")
     if beats and tempo and dur:
         expected = beats / tempo * 60

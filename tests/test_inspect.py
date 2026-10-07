@@ -83,6 +83,35 @@ class TestInspectWav:
         acid = next(c for c in chunks if c["id"] == "acid")
         assert any("drift" in w for w in acid["warnings"])
 
+    @pytest.mark.parametrize("tempo", [1e-6, -1e-6, 1000.0])
+    def test_a_one_shots_tempo_out_of_range_is_a_note(self, tmp_path, tempo):
+        # a one-shot plays at its own speed and nothing reads its tempo; a
+        # near-zero float there printed as "acid tempo 0.00 outside sane
+        # range" and audit exited 1 on the file
+        path = _wav(tmp_path, _fmt(), _data(),
+                    _acid(beats=0, tempo=tempo, root=0, flags=0x01))
+        chunks, _ = inspect_wav(path)
+        (w,) = next(c for c in chunks if c["id"] == "acid")["warnings"]
+        assert (w.kind, w.code) == ("info", "convention.noted")
+        assert "tempo 0.00" not in w and "tempo -0.00" not in w
+        assert "one-shot" in w
+
+    @pytest.mark.parametrize("flags", [0x00, 0x02])
+    def test_a_loops_tempo_out_of_range_stays_a_defect(self, tmp_path, flags):
+        path = _wav(tmp_path, _fmt(), _data(),
+                    _acid(beats=0, tempo=1e-6, flags=flags))
+        chunks, _ = inspect_wav(path)
+        (w,) = next(c for c in chunks if c["id"] == "acid")["warnings"]
+        assert (w.kind, w.code) == ("defect", "value.invalid")
+        assert "outside sane range" in w and "1e-06" in w
+
+    def test_a_one_shot_with_tempo_zero_is_clean(self, tmp_path):
+        path = _wav(tmp_path, _fmt(), _data(),
+                    _acid(beats=0, tempo=0.0, root=0, flags=0x01))
+        chunks, warns = inspect_wav(path)
+        assert next(c for c in chunks if c["id"] == "acid")["warnings"] == []
+        assert warns == []
+
     def test_missing_fmt_is_flagged(self, tmp_path):
         path = _wav(tmp_path, _data())
         _, warns = inspect_wav(path)

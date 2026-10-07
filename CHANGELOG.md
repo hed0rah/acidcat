@@ -19,6 +19,14 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   `division`; `duration_ticks` for a MIDI length in ticks. The table is
   unchanged.
 
+### Fixed
+
+- **WAV `acid`**: a tempo outside 40-300 on a file flagged one-shot is a
+  note, not damage. A one-shot plays at its own speed and nothing reads the
+  field; a near-zero float left there printed as `acid tempo 0.00 outside
+  sane range` and `audit` exited 1. The message now prints such a value as
+  it is (`1e-06`), not as a zero it is not. On a loop it is still a defect.
+
 ## [2.0.0rc1] - 2026-10-06
 
 The first release candidate of 2.0, published as a pre-release: `pip install
