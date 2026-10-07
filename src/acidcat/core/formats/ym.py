@@ -28,7 +28,7 @@ published; they are recognised and refused.
 """
 
 import struct
-from acidcat.core.infra.findings import defect
+from acidcat.core.infra.findings import defect, info
 
 MAGICS = (b"YM2!", b"YM3!", b"YM3b", b"YM5!", b"YM6!")
 LEONARD = b"LeOnArD!"
@@ -136,7 +136,21 @@ def parse(image):
                                         % (len(image) - end - 4)))
     else:
         r["end_at"] = None
-        r["warnings"].append(defect("required.missing", "no End! marker after the register data"))
+        later = image.find(END, end)
+        if later >= 0:
+            # the marker is there, just not where the frame count ends:
+            # the count is wrong, which is not the harmless case below
+            r["warnings"].append(defect(
+                "count.mismatch",
+                "the End! marker is at 0x%x, not where the %d frames end (0x%x)"
+                % (later, frames, end)))
+        else:
+            # players stop at the frame count and never read the marker, so a
+            # file without one plays the same: a spec breach, not damage
+            # (decisions.md, 2026-10-07). a short file still says so above.
+            r["warnings"].append(info("convention.noted",
+                                      "no End! marker after the register data; "
+                                      "players stop at the frame count"))
     if frames and loop >= frames:
         r["warnings"].append(defect("value.invalid",
                                     "the loop frame %d is past the last frame" % loop))

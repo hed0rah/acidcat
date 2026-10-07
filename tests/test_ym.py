@@ -145,6 +145,19 @@ def test_a_missing_end_marker_and_short_data_are_said():
     assert any("says 4 frames; 2 fit" in w for w in y["warnings"])
 
 
+def test_no_end_marker_is_a_note_but_a_misplaced_one_is_a_defect():
+    """Players stop at the frame count, so a YM without End! plays the same:
+    a convention note, not damage (decided 2026-10-07). A marker that is in
+    the file but not where the frames end means the count is wrong."""
+    img = seeds.SEEDS["ym"][0](frames=4)
+    y = ymmod.parse(img[:-4])
+    assert [(w.kind, w.code) for w in y["warnings"]] == [
+        ("info", "convention.noted")]
+    y = ymmod.parse(img[:-4] + bytes(16) + b"End!")      # one frame too many
+    assert [(w.kind, w.code) for w in y["warnings"]] == [
+        ("defect", "count.mismatch")]
+
+
 # -- the walk --------------------------------------------------------------
 
 def _walk(tmp_path, raw, name="a.ym"):
