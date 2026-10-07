@@ -299,7 +299,7 @@ class TestInfoSmplKeyDisplay:
         # JSON form is unambiguous for the assertion
         code_j, out_j, _ = run_cli(path, "--json")
         (data,) = json.loads(out_j)            # rows, one per file
-        assert data["key"] == "-"
+        assert data["key"] is None and data["key_source"] is None
 
     def test_smpl_root_60_renders_as_pitch_class(self, tmp_path):
         path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
@@ -314,14 +314,73 @@ class TestInfoSmplKeyDisplay:
         code, out, err = run_cli(path, "--json")
         assert code == 0 or code is None
         (data,) = json.loads(out)
-        assert data["key"].startswith("C ")
-        assert "C4" not in data["key"]
+        assert (data["key"], data["key_source"]) == ("C", "smpl")
+        assert data["smpl_root"] == "C3"
 
     def test_no_smpl_no_acid_renders_as_unset(self, tmp_path):
         path = _riff_wav_with_smpl(tmp_path / "nokey.wav", smpl_root_key=None)
         code, out, err = run_cli(path)
         assert code == 0 or code is None
         assert "C-1" not in out
+
+
+def _acid_loop_wav(path, beats=1, tempo=120.0, root=60, n=8192):
+    """A minimal PCM WAV with an acid chunk: a loop of `beats` at `tempo`."""
+    fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+    data = b"\x00" * (n * 2)
+    acid = struct.pack("<IHHfIHHf", 0x02, root, 0x8000, 0.0, beats, 4, 4, tempo)
+    body = (b"WAVE" + b"fmt " + struct.pack("<I", 16) + fmt
+            + b"data" + struct.pack("<I", len(data)) + data
+            + b"acid" + struct.pack("<I", len(acid)) + acid)
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    return str(path)
+
+
+class TestSummaryRowsAreTyped:
+    """The summary's json/csv rows carry values, not the card's display
+    strings: `Duration 0.19s` was `"duration": "0.19s"`, `BPM -` was `"-"`
+    and `ACID no` was `"no"`, while `stats --by meta` gave the same file's
+    duration as a number. The table keeps its words."""
+
+    def test_json_values_are_typed(self, tmp_path):
+        loop = _acid_loop_wav(tmp_path / "loop.wav")
+        plain = _riff_wav_with_smpl(tmp_path / "plain.wav", num_samples=8192)
+        code, out, _ = run_cli("inspect", "--summary", loop, plain, "--json")
+        assert code in (0, None)
+        a, b = json.loads(out)
+        assert a["duration_sec"] == 0.1858 and a["bpm"] == 120.0
+        assert (a["acid"], a["acid_beats"]) == (True, 1)
+        assert (a["expected_duration"], a["duration_diff"]) == (0.5, -0.3142)
+        assert (a["key"], a["key_source"], a["acid_root"]) == ("C", "acid", "C3")
+        assert b["duration_sec"] == 0.1858
+        assert (b["bpm"], b["key"], b["acid"]) == (None, None, False)
+        assert (b["smpl_root"], b["smpl_loop_start"]) == (None, None)
+        for row in (a, b):
+            assert "duration" not in row and "smpl" not in row
+
+    def test_json_matches_stats_meta_where_both_report(self, tmp_path):
+        loop = _acid_loop_wav(tmp_path / "loop.wav")
+        _c, out, _ = run_cli("inspect", "--summary", loop, "--json")
+        (summary,) = json.loads(out)
+        _c, out, _ = run_cli("stats", "--by", "meta", loop, "--json")
+        (meta,) = json.loads(out)
+        for k in ("duration_sec", "bpm", "acid_beats", "expected_duration",
+                  "duration_diff"):
+            assert summary[k] == meta[k] and type(summary[k]) is type(meta[k]), k
+
+    def test_csv_leaves_an_absent_value_empty(self, tmp_path):
+        plain = _riff_wav_with_smpl(tmp_path / "plain.wav", num_samples=8192)
+        _c, out, _ = run_cli("inspect", "--summary", plain, "--csv")
+        (row,) = list(csv.DictReader(out.splitlines()))
+        assert row["duration_sec"] == "0.1858"
+        assert row["bpm"] == "" and row["key"] == ""
+
+    def test_the_table_keeps_its_words(self, tmp_path):
+        plain = _riff_wav_with_smpl(tmp_path / "plain.wav", num_samples=8192)
+        _c, out, _ = run_cli("inspect", "--summary", plain)
+        for line in ("0.1858s", "BPM", "ACID", "SMPL"):
+            assert line in out
+        assert out.count(" -") >= 2 and " no" in out
 
 
 class TestVerboseStderr:

@@ -494,7 +494,17 @@ The five questions this page left open, as the user answered them:
 Every verb's `--json` (and csv/tsv, where the verb offers them) follows it:
 
 - **Keys are snake_case and name what the value is**, never a display label
-  (`duration`, `acid_root`; not `Duration`, `ACID Root`).
+  (`duration_sec`, `acid_root`; not `Duration`, `ACID Root`).
+- **Values are values**, never the table's words: a number is a number in
+  its base unit (`"duration_sec": 0.19`, not `"0.19s"`), an absent value is
+  `null` (an empty cell in csv/tsv), a yes or no is `true` or `false`. Where
+  two verbs report the same fact they give it one name and one type:
+  `inspect --summary` and `stats --by meta` both say `duration_sec`, `bpm`,
+  `acid_beats`, `expected_duration` and `duration_diff`. A summary line that
+  carries two facts is two keys (`Key C (from SMPL)` is `key: "C"`,
+  `key_source: "smpl"`; `SMPL` is `smpl_root`, `smpl_loop_start`,
+  `smpl_loop_end`; a MIDI `Division` is `ticks_per_beat`, or `smpte_fps` and
+  `ticks_per_frame`).
 - **A file is named by `path`**: the path as given (`<stdin>` for `-`, never
   a temporary copy's name). No basename beside it; that is the table's.
 - **A format is named twice**: `format` is its registry id (what `acidcat

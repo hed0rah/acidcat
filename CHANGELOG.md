@@ -6,6 +6,19 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+### Changed
+
+- **`inspect --summary --json`/`--csv`** (and bare `acidcat FILE`) give
+  values, not the card's words: `"duration_sec": 0.19` where it said
+  `"duration": "0.19s"`, `null` where it said `"-"`, `"acid": false` where it
+  said `"no"`. Names and types match `stats --by meta` where both report a
+  fact (`duration_sec`, `bpm`, `acid_beats`, `expected_duration`,
+  `duration_diff`), and a line that held two facts is two keys: `key` and
+  `key_source`; `smpl_root`, `smpl_loop_start` and `smpl_loop_end` for `smpl`;
+  `ticks_per_beat` (or `smpte_fps` and `ticks_per_frame`) for a MIDI
+  `division`; `duration_ticks` for a MIDI length in ticks. The table is
+  unchanged.
+
 ## [2.0.0rc1] - 2026-10-06
 
 The first release candidate of 2.0, published as a pre-release: `pip install
