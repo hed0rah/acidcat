@@ -302,7 +302,7 @@ def inspect_it(filepath):
     if data[:4] != b"IMPM":
         raise Unsupported("not an Impulse Tracker module")
     try:
-        it = tk.parse_it(data)
+        it = tk.parse_it(data, file_size)
     except (struct.error, IndexError):
         return _truncated("IMPM", file_size, "IT header is truncated (need 52 bytes)")
     flag_names = ", ".join(n for b, n in tk._IT_FLAGS if it["flags"] & b) or "none"
@@ -359,7 +359,7 @@ def inspect_it(filepath):
             continue
         bits = "16-bit" if s["bits16"] else "8-bit"
         chan = "stereo" if s["stereo"] else "mono"
-        codec = "IT-compressed" if s["compressed"] else "PCM"
+        codec = "IT-compressed PCM" if s["compressed"] else "PCM"
         name = s["name"] or s["dos_name"] or "(unnamed)"
         empty = not (s["has_sample"] and s["length"])
         # the IMPS header at s['offset'], its data pointer at +72 xrefs the PCM
@@ -373,7 +373,7 @@ def inspect_it(filepath):
                 _f(0x30, 4, "length", f"{s['length']:,}", "sample points"),
                 _f(0x3C, 4, "c5_speed", s["c5_speed"], "Hz"),
                 _f(0x48, 4, "sample_pointer", f"0x{s['data_off']:08x}",
-                   f"{s['byte_len']:,} bytes of {codec} PCM" if not empty
+                   f"{s['byte_len']:,} bytes of {codec}" if not empty
                    else "an empty slot; the pointer is unused",
                    xref=None if empty else s["data_off"]),
             ],

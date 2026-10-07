@@ -409,10 +409,11 @@ _IT_FLAGS = [
 ]
 
 
-def parse_it(data):
+def parse_it(data, file_size=None):
     """Parse an Impulse Tracker IT. Reads the on-disk offset tables
     (instrument/sample/pattern pointers) and each IMPS sample header, whose
-    SamplePointer is an absolute file offset to the PCM."""
+    SamplePointer is an absolute file offset to the PCM. ``file_size`` is the
+    real end of the file when ``data`` is a capped read of it."""
     warns = []
     # parse_it was the one tracker parser with no length guard. The fields at
     # 32..47 are read with unpack_from, which raises the struct.error every
@@ -477,15 +478,29 @@ def parse_it(data):
             "data_off": dataptr, "bits16": bits16, "stereo": stereo,
             "compressed": compressed, "has_sample": bool(sflags & 0x01),
         })
+    end = len(data) if file_size is None else file_size
     for i, s in enumerate(samples):
         # an empty slot (no data flag, or length 0) keeps any pointer, often
         # past the end, and its name holds the credits: it points at nothing
-        if (s.get("valid") and s.get("has_sample") and s.get("length")
-                and s.get("data_off", 0) and s["data_off"] > len(data)):
-            # several samples of a cut file can share one pointer: say which
+        if not (s.get("valid") and s.get("has_sample") and s.get("length")
+                and s.get("data_off", 0)):
+            continue
+        off = s["data_off"]
+        if off >= end:
+            # >=, not >: a non-empty sample whose data starts AT the end has
+            # none of it. several samples of a cut file can share one
+            # pointer: say which
             warns.append(defect("pointer.dangling",
-                                f"smp[{i}] sample data pointer 0x{s['data_off']:08x} "
-                                f"is past EOF"))
+                                f"smp[{i}] sample data pointer 0x{off:08x} "
+                                f"is at or past EOF"))
+        elif not s["compressed"] and off + s["byte_len"] > end:
+            # a cut file whose last sample is short walked clean: only the
+            # pointer was checked. compressed data has no length up front
+            # (it is read block by block), so only raw PCM is measured
+            warns.append(defect("size.overrun",
+                                f"smp[{i}] sample data @ 0x{off:08x} needs "
+                                f"{s['byte_len']:,} bytes, {end - off:,} remain: "
+                                f"runs past EOF"))
     return {
         "kind": "it", "songname": songname, "ordnum": ordnum, "insnum": insnum,
         "smpnum": smpnum, "patnum": patnum, "cwt": cwt, "cmwt": cmwt,
