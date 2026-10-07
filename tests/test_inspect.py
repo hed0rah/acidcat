@@ -83,6 +83,16 @@ class TestInspectWav:
         acid = next(c for c in chunks if c["id"] == "acid")
         assert any("drift" in w for w in acid["warnings"])
 
+    def test_a_one_shots_beat_count_is_a_note_not_drift_damage(self, tmp_path):
+        # a 0.01 s one-shot carrying an exporter's default 8 beats at 120:
+        # nothing stretches a one-shot, so the mismatch is not damage (8 of
+        # 46 drift files in a real sample tree were one-shots like this)
+        path = _wav(tmp_path, _fmt(), _data(441), _acid(beats=8, flags=0x01))
+        chunks, _ = inspect_wav(path)
+        (w,) = next(c for c in chunks if c["id"] == "acid")["warnings"]
+        assert (w.kind, w.code) == ("info", "convention.noted")
+        assert "drift" in w and "one-shot" in w
+
     @pytest.mark.parametrize("tempo", [1e-6, -1e-6, 1000.0])
     def test_a_one_shots_tempo_out_of_range_is_a_note(self, tmp_path, tempo):
         # a one-shot plays at its own speed and nothing reads its tempo; a

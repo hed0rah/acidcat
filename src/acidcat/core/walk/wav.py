@@ -274,11 +274,16 @@ def _parse_acid(b, ctx):
         expected = beats / tempo * 60
         drift = abs(expected - dur) / dur if dur else 0
         if drift > 0.05:
-            warns.append(
-                defect("field.inconsistent",
-                       f"acid says {beats} beats at {tempo:.2f} bpm = {expected:.3f} s "
-                       f"but data holds {dur:.3f} s ({drift * 100:.0f}% drift)")
-            )
+            said = (f"acid says {beats} beats at {tempo:.2f} bpm = {expected:.3f} s "
+                    f"but data holds {dur:.3f} s ({drift * 100:.0f}% drift)")
+            if flags & 0x01:
+                # a one-shot is not stretched to its beat count, so exporters'
+                # defaults (8 beats at 120 on a 0.2 s clap) mislead nothing
+                warns.append(info("convention.noted",
+                                  said + "; the one-shot flag is set, so nothing "
+                                         "stretches it"))
+            else:
+                warns.append(defect("field.inconsistent", said))
     kind = "one-shot" if flags & 0x01 else "loop"
     summary = f"{kind}, {beats} beats, {numer}/{denom}, {tempo:.2f} bpm"
     if root:
