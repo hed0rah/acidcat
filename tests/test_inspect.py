@@ -2226,3 +2226,43 @@ class TestFlacPadding:
                    for w in pad["warnings"]), pad["warnings"]
         readable = next(f for f in pad["fields"] if f["name"] == "readable")
         assert "ISFT was here" in readable["value"]
+
+
+class TestCouldNotRunIsTwo:
+    """A walker crash, a sandbox failure and a walk that cannot be described
+    as a Document are acidcat failing, not the file: exit 2. They exited 1,
+    the code for a defect, and the crash and sandbox paths assigned rather
+    than max()ed, so they also erased an earlier file's 2."""
+
+    def _wav(self, tmp_path):
+        return _wav(tmp_path, _fmt(), _data())
+
+    def test_a_walker_crash_is_2_and_keeps_an_earlier_2(self, tmp_path,
+                                                         monkeypatch):
+        from acidcat.cli import main
+        from acidcat.commands import inspect as insp
+
+        def boom(*_a, **_k):
+            raise RuntimeError("walker bug")
+
+        monkeypatch.setattr(insp, "walk_file", boom)
+        p = self._wav(tmp_path)
+        assert main(["inspect", p]) == 2
+        assert main(["inspect", str(tmp_path / "missing.wav"), p]) == 2
+
+    def test_a_sandbox_failure_is_2(self, tmp_path, monkeypatch):
+        from acidcat.cli import main
+        from acidcat.core.infra import sandbox
+
+        def fail(*_a, **_k):
+            raise sandbox.SandboxError("worker died")
+
+        monkeypatch.setattr(sandbox, "resolve_profile", lambda _p: "limits")
+        monkeypatch.setattr(sandbox, "run_walk", fail)
+        assert main(["inspect", "--sandbox", "-q", self._wav(tmp_path)]) == 2
+
+    def test_no_document_is_2(self, tmp_path, monkeypatch):
+        from acidcat.cli import main
+        from acidcat.commands import inspect as insp
+        monkeypatch.setattr(insp, "_node_ids", lambda *_a, **_k: (None, {}))
+        assert main(["inspect", "--json", self._wav(tmp_path)]) == 2

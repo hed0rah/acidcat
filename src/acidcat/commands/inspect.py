@@ -691,7 +691,7 @@ def _run_inspect(args):
                 # so recovery runs instead of it rather than after it
                 rc = _run_resync(filepath, _Paint(color_enabled(args)),
                                  source_path=source_path, as_json=as_json)
-                exit_code = exit_code or rc
+                exit_code = max(exit_code, rc)
                 continue
             walked_label = None     # the walker's label, before a region note
             try:
@@ -705,7 +705,9 @@ def _run_inspect(args):
                     except _sb.SandboxError as e:
                         print(f"acidcat inspect: {filepath}: sandbox: {e}",
                               file=sys.stderr)
-                        exit_code = 1
+                        # the walk could not run: 2, and never lower an
+                        # earlier file's 2 by assigning
+                        exit_code = max(exit_code, 2)
                         continue
                 else:
                     fmt_label, chunks, file_warns = walk_file(
@@ -723,7 +725,7 @@ def _run_inspect(args):
                         else:
                             _print_forced_candidates(
                                 filepath, rows, _Paint(color_enabled(args)))
-                        exit_code = 1     # still unidentified; these are leads
+                        exit_code = max(exit_code, 1)  # still unidentified; leads
                         continue
                 if True:
                     # "I have no walker for this" is the honest answer here --
@@ -750,7 +752,7 @@ def _run_inspect(args):
             except Exception as e:  # a walker bug must not sink the whole run
                 print(f"acidcat inspect: {filepath}: {e.__class__.__name__}: {e}",
                       file=sys.stderr)
-                exit_code = 1
+                exit_code = max(exit_code, 2)   # a crash is could-not-run
                 continue
 
             total = len(chunks)
@@ -811,7 +813,7 @@ def _run_inspect(args):
                 if doc is None:
                     print(f"acidcat inspect: {source_path}: could not describe "
                           f"the walk as a Document", file=sys.stderr)
-                    exit_code = max(exit_code, 1)
+                    exit_code = max(exit_code, 2)   # our failure, not the file's
                     continue
                 out = dict(doc)
                 # the caller named the file, so the path is theirs to see
