@@ -131,6 +131,32 @@ def test_a_zero_riff_size_does_not_hide_an_overrunning_last_chunk(tmp_path):
     assert new == bytes(raw) and not rep.repairable          # nothing to write
 
 
+def test_fix_refuses_a_pad_byte_that_is_part_of_the_next_chunk_id(tmp_path):
+    """prg's size one too large swallows the 'o' of the next "out ", and the
+    parse reads the 'u' as prg's pad. --fix zeroed it, writing new damage into
+    a chunk id; APRG has no audio payload, so no audio guard stopped it.
+    The layout is the real S5000 one: prg, then out (8 bytes), then kgrps."""
+    import pytest
+    from acidcat.cli import main
+    from acidcat.core.write import constraints
+    from acidcat.core.write.repairers import AudioGuardError
+    body = (b"APRG" + _chunk(b"prg ", bytes([1, 7, 1, 0, 2, 0]))
+            + _chunk(b"out ", bytes(8)) + _kgrp(0, 127, ["Kick"]))
+    for size in (len(body), 0):
+        raw = bytearray(b"RIFF" + struct.pack("<I", size) + body)
+        struct.pack_into("<I", raw, raw.find(b"prg ") + 4, 7)
+        raw = bytes(raw)
+        p = tmp_path / "desync.akp"
+        p.write_bytes(raw)
+        rep = constraints.analyze(raw)
+        assert "'out '" in rep.violations[0].describe()
+        assert not rep.repairable                 # check must not offer --fix
+        with pytest.raises(AudioGuardError):
+            constraints.repair(raw)
+        assert main(["check", "--fix", "--overwrite", str(p)]) == 1
+        assert p.read_bytes() == raw              # nothing written
+
+
 def test_a_zero_riff_size_survives_another_repair(tmp_path):
     """A program with a real fault elsewhere is fixed there and keeps its 0."""
     from acidcat.core.write import constraints

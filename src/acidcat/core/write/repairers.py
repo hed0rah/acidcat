@@ -87,6 +87,54 @@ def _lost_audio_violation(node):
                 f"cut the audio off."))
 
 
+def _desynced_pad(node, data, path=""):
+    """(path, offset, id) of a non-zero "pad byte" that is really part of a
+    chunk id the walk stepped over, or None.
+
+    A size one too large (prg 6 -> 7) swallows the first byte of the next id,
+    and the parse then calls the id's second byte a pad: --fix zeroed it and
+    wrote new damage. On WAV/AIFF the audio guard refuses once the walk loses
+    the audio chunk; nothing refused on a non-audio form such as APRG. Two
+    tells, both required, so a real pad before appended junk is still fixed:
+      - the walk broke right after the pad (it was the container's last child
+        and the rest of the container went to its tail), and
+      - a printable 4-char id containing the pad byte starts within the 3
+        bytes before it, with a size that fits in the file -- a chunk header
+        the parse misaligned on.
+    """
+    if not node.is_container:
+        return None
+    here = path + node.id.decode("latin-1", "replace").strip()
+    for c in node.children:
+        hit = _desynced_pad(c, data, here + "/")
+        if hit:
+            return hit
+    if not node.children or not node.tail:
+        return None
+    last = node.children[-1]
+    if not last.pad or last.pad_byte == 0:
+        return None
+    p = last.offset + 8 + last.computed_size()          # the pad byte
+    for q in range(max(0, p - 3), p + 1):
+        if (structure._id_ok(data, q) and q + 8 <= len(data)
+                and q + 8 + int.from_bytes(bytes(data[q + 4:q + 8]),
+                                           "little" if node.endian == "<"
+                                           else "big") <= len(data)):
+            return (here + "/" + last.id.decode("latin-1", "replace").strip(),
+                    p, bytes(data[q:q + 4]).decode("latin-1"))
+    return None
+
+
+def _desync_violation(hit):
+    path, off, cid = hit
+    return Violation(
+        SIZE, path, "size", None, None, witness="",
+        detail=(f"the byte read as this chunk's pad (offset {off:,}) is part "
+                f"of what looks like the chunk id '{cid}', and the walk breaks "
+                f"right after it: a size here is wrong and the chunks after it "
+                f"are misread. Rewriting from this parse would damage them."))
+
+
 def _iff_violation(change):
     """Map a structure.recompute change to a Violation. A top-level (master)
     size is witnessed by end-of-file; a nested size by its container's parsed
@@ -126,6 +174,8 @@ class IffRepairer(Repairer):
     def _report(self, data, opts):
         node = structure.parse(data)
         orphan = _orphaned_audio(node)
+        # before recompute, which zeroes the pad bytes it reports
+        desync = _desynced_pad(node, data)
         changes = structure.recompute(node, normalize_pad=not (opts or {}).get("keep_pad"))
         label = node.form_type.decode("latin-1", "replace")
         akai_short = None
@@ -168,19 +218,23 @@ class IffRepairer(Repairer):
             # the tree and has the more specific explanation.
             violations = [replace(v, witness="") for v in violations]
             violations.insert(0, _lost_audio_violation(node))
-        return node, violations, label, orphan
+        elif desync:
+            # apply() refuses this file; analyze must not advertise a fix
+            violations = [replace(v, witness="") for v in violations]
+            violations.insert(0, _desync_violation(desync))
+        return node, violations, label, orphan, desync
 
     def analyze(self, data, opts=None):
         if self._is_rf64(data):
             return Report("WAVE", note=self._DS64_NOTE)
-        _node, violations, label, _orphan = self._report(data, opts)
+        _node, violations, label, _orphan, _desync = self._report(data, opts)
         return Report(label, violations,
                       note=self._AKAI_NOTE if self._akai_zero(data) else "")
 
     def apply(self, data, opts=None):
         if self._is_rf64(data):
             return data, Report("WAVE", note=self._DS64_NOTE)
-        node, violations, label, orphan = self._report(data, opts)
+        node, violations, label, orphan, desync = self._report(data, opts)
         if orphan:
             want = _IFF_AUDIO.get(node.form_type, b"data").decode("latin-1")
             raise AudioGuardError(
@@ -199,6 +253,12 @@ class IffRepairer(Repairer):
                 f"cannot locate the {want.decode('latin-1')} chunk in the "
                 f"parsed structure, so audio preservation cannot be verified. "
                 f"Nothing written")
+        if desync:
+            raise AudioGuardError(
+                f"{desync[0]}: the byte read as its pad (offset {desync[1]:,}) "
+                f"is part of the chunk id '{desync[2]}', so the chunk walk is "
+                f"misaligned and zeroing it would damage that chunk. Nothing "
+                f"written")
         if self._akai_zero(data) and not violations:
             return data, Report(label, [], note=self._AKAI_NOTE)
         new_data = structure.emit(node)
