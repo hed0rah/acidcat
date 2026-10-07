@@ -139,10 +139,12 @@ _ANOMALY_KIND = {
     "dual_endianness": INFO, "cavity_content": INFO,
     "application_block": INFO, "ogg_multistream": INFO, "lsb_entropy": INFO,
     "nonprintable_text": INFO,
+    # a spec breach with no reader consequence: readers skip a pad byte, and
+    # what it holds is a writer's leftover (decisions.md, 2026-10-07)
+    "nonzero_pad": INFO,
     # the format broken
     "wrong_format_tag": DEFECT, "duplicate_chunk": DEFECT,
-    "duplicate_frame": DEFECT, "nonzero_pad": DEFECT,
-    "id3_padding_nonzero": DEFECT,
+    "duplicate_frame": DEFECT, "id3_padding_nonzero": DEFECT,
 }
 assert set(_ANOMALY_KIND) == set(ANOMALY_RULES)
 REGISTRY.update({f"anomaly.{r}": (_ANOMALY_KIND[r], "notice", f"forensic rule {r}")

@@ -163,6 +163,12 @@ the catalogue.
 | X1 | Branching (doc decision 6) **(recommended, accepted)**; refined by R2 | One branch per milestone, merged by PR on a green full tier (into `next` during 2.0) | Since September work has gone straight to `main`, so CI checks after the fact; the TUI rebuild touches one large file across several releases | PR per release; CI's three-OS matrix gates each merge |
 | X2 | Where the spec lives | `docs/contract/` in the repo, pushed for review, no code until approved | Reviewable by any agent or person, versioned with the code it describes | this directory |
 
+## Findings (2026-10-07)
+
+| # | Question | Answer | Reason | Commits us to |
+|---|---|---|---|---|
+| F1 | Is a harmless spec breach a defect? A non-zero RIFF/IFF alignment pad byte; a YM file with no `End!` marker | No: a note. Still reported, and `check --fix` still zeroes the pad byte, but neither makes `check` or `audit` exit 1 | Readers skip a pad byte and players stop a YM at its frame count, so the file plays the same; an exit code cannot say "harmless", and non-zero padding blocks are already info | `nonzero_pad` is info; a pad byte is `Violation.filler`, outside `Report.defects`; the YM note is `convention.noted`, while an `End!` that is present but misplaced stays a defect |
+
 ## Order after review (2026-09-26)
 
 The review accepted the architecture in direction and changed the order:

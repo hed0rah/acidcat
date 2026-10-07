@@ -216,18 +216,25 @@ def _check(path, quiet, rows=None, deep=False):
                          "detail": "not a structurally-modeled container"})
         return False, True, False, False        # not a structurally-modeled container
     base = display_name(path)
-    if not report.violations and not deep_note:
+    # a non-zero pad byte is reported and --fix zeroes it, but it is filler,
+    # not a defect, so it never turns OK into FAIL (decisions.md, 2026-10-07)
+    filler = [v.describe() + (" (filler; --fix zeroes it)" if v.repairable
+                              else " (filler)")
+              for v in report.violations if v.filler]
+    if not report.defects and not deep_note:
         if rows is not None:
             rows.append({"path": as_given(path), **format_of(path), "status": "ok",
                          "issues": 0, "repairable": False,
-                         "detail": caveat or ""})
+                         "detail": "; ".join(([caveat] if caveat else []) + filler)})
         elif not quiet:
             print(f"OK    {base}  [{report.label}]")
             if caveat:
                 # a pass over part of a file is not a pass over the file
                 print(f"        {caveat}")
+            for line in filler:
+                print(f"        note: {line}")
         return True, True, False, False
-    if not report.violations:
+    if not report.defects:
         # structurally sound, but a checksum over its own payload disagrees --
         # which is a stronger statement than any structural check can make.
         # The caveat belongs here too: "damage found" over a partial scan still
@@ -243,19 +250,22 @@ def _check(path, quiet, rows=None, deep=False):
         return True, False, False, False
     if rows is not None:
         rows.append({"path": as_given(path), **format_of(path), "status": "fail",
-                     "issues": len(report.violations),
+                     "issues": len(report.defects),
                      "repairable": any(v.repairable for v in report.violations),
                      "detail": "; ".join(v.describe() for v in report.violations),
                      "violations": [{"describe": v.describe(), "kind": v.kind,
                                      "field": v.field, "stored": v.stored,
                                      "computed": v.computed,
-                                     "repairable": v.repairable}
+                                     "repairable": v.repairable,
+                                     "filler": v.filler}
                                     for v in report.violations]})
         return True, False, False, any(v.repairable for v in report.violations)
-    print(f"FAIL  {base}  [{report.label}]  {len(report.violations)} issue(s)")
-    for v in report.violations:
+    print(f"FAIL  {base}  [{report.label}]  {len(report.defects)} issue(s)")
+    for v in report.defects:
         mark = "" if v.repairable else "  (no witness)"
         print(f"        {v.describe()}{mark}")
+    for line in filler:
+        print(f"        note: {line}")
     return True, False, False, any(v.repairable for v in report.violations)
 
 

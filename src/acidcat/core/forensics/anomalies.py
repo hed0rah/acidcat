@@ -739,7 +739,8 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 if f.read(1) not in (b"\x00", b""):
                     stego.append(pad_off)
         if stego:
-            findings.append({"severity": "warn", "offset": stego[0],
+            # notice, not warn: no reader sees it (decisions.md F1)
+            findings.append({"severity": "notice", "offset": stego[0],
                              "rule": "nonzero_pad",
                              "message": f"non-zero pad byte after {len(stego)} "
                                         f"odd-sized chunk(s); the alignment pad is "

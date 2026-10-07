@@ -343,7 +343,8 @@ def _run_one(args):
             "label": label or fmt["label"], "size": size,
             "structure": [{"kind": v.kind, "path": v.path, "field": v.field,
                            "stored": v.stored, "computed": v.computed,
-                           "witness": v.witness, "repairable": v.repairable}
+                           "witness": v.witness, "repairable": v.repairable,
+                           "filler": v.filler}
                           for v in (report.violations if report else [])],
             "hidden": [f for f in findings if f["rule"] in _HIDDEN_RULES],
             "forensics": [f for f in findings if f["rule"] not in _HIDDEN_RULES],
@@ -356,22 +357,29 @@ def _run_one(args):
             args._rows.append(out)
         else:
             print(json.dumps([out], indent=2, default=str))
-        return _code(scanned, out["structure"], findings, integ)
+        # a non-zero pad byte is filler: listed, never an exit 1
+        return _code(scanned, [v for v in out["structure"] if not v["filler"]],
+                     findings, integ)
 
     print(f"{display_name(path)}  [{label or 'unknown'}]  {size:,} bytes\n")
 
-    vios = report.violations if report else []
+    vios = report.defects if report else []
+    filler = [v for v in report.violations if v.filler] if report else []
     if report is None:
         print("  STRUCTURE   not a structurally-modeled container")
     elif not vios:
         print("  STRUCTURE   consistent")
+        for v in filler:
+            print(f"                note: {v.describe()} (filler; --fix zeroes it)")
     else:
-        n_fix = len(report.repairable)
+        n_fix = sum(1 for v in vios if v.repairable)
         tail = f" (repairable with: acidcat check --fix)" if n_fix else ""
         print(f"  STRUCTURE   {len(vios)} issue(s){tail}")
         for v in vios:
             mark = f"  [{v.witness}]" if v.repairable else "  (no witness)"
             print(f"                {v.describe()}{mark}")
+        for v in filler:
+            print(f"                note: {v.describe()} (filler)")
 
     hidden = [f for f in findings if f["rule"] in _HIDDEN_RULES]
     other = [f for f in findings if f["rule"] not in _HIDDEN_RULES]
@@ -429,7 +437,7 @@ def _run_one(args):
         print("  PROVENANCE  no writer tells")
 
     # one-line verdict
-    n_fix = len(report.repairable) if report else 0
+    n_fix = sum(1 for v in vios if v.repairable)
     alerts = sum(1 for f in findings if f["severity"] == "alert")
     bits = []
     if _real_findings(integ):

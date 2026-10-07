@@ -37,6 +37,38 @@ def test_broken_file_fails_with_exit_1(tmp_path, capsys):
     assert "FAIL" in out and "RIFF size" in out
 
 
+def test_a_nonzero_pad_byte_is_a_note_not_a_defect(tmp_path, capsys):
+    """A non-zero alignment pad is a spec breach no reader sees (decided
+    2026-10-07): check reports it and --fix still zeroes it, but no mode of
+    check, and not audit, exits 1 for it."""
+    import json
+    from acidcat.cli import main
+    odd = b"note" + struct.pack("<I", 3) + b"abc" + b"U"      # pad = 'U'
+    fmt = b"fmt " + struct.pack("<I", 16) + struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+    data = b"data" + struct.pack("<I", 32) + bytes(32)
+    body = b"WAVE" + fmt + odd + data
+    raw = b"RIFF" + struct.pack("<I", len(body)) + body
+    p = tmp_path / "pad.wav"
+    p.write_bytes(raw)
+    assert main(["check", str(p)]) == 0
+    assert "pad byte" in capsys.readouterr().out
+    assert main(["check", "--json", str(p)]) == 0
+    row = json.loads(capsys.readouterr().out)[0]
+    assert row["status"] == "ok" and "pad byte" in row["detail"]
+    assert main(["check", "--fix", "--dry-run", str(p)]) == 0
+    assert main(["audit", str(p)]) == 0
+    capsys.readouterr()
+    assert main(["check", "--fix", "--overwrite", str(p)]) == 0
+    assert p.read_bytes() == raw.replace(b"abcU", b"abc\x00")
+    # a real defect beside it still fails, and the count is the defect alone
+    broken = bytearray(raw)
+    struct.pack_into("<I", broken, 4, 3)
+    p.write_bytes(bytes(broken))
+    capsys.readouterr()
+    assert main(["check", str(p)]) == 1
+    assert "1 issue(s)" in capsys.readouterr().out
+
+
 def test_unreadable_file_in_a_directory_exits_2(tmp_path, capsys, monkeypatch):
     """The contract gives unreadable input 2; a walked directory with a file
     that could not be opened exited 1, the code for a defect, and when the

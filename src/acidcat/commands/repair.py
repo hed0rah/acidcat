@@ -103,7 +103,9 @@ def _repair_one(path, args, rows=None):
         if rows is not None:
             rows[-1]["action"] = "would-repair" if report.violations else "clean"
             rows[-1]["written"] = rows[-1]["backup"] = None
-        return 1 if report.violations else 0
+        # a non-zero pad byte would be zeroed, but it is filler, not a fault
+        # (decisions.md, 2026-10-07), so it does not fail the dry run
+        return 1 if report.defects else 0
 
     try:
         new_data, report = constraints.repair(data, opts)
@@ -116,7 +118,7 @@ def _repair_one(path, args, rows=None):
     # call such a file "clean", so `check --fix f && ship f` shipped it while
     # --dry-run on the same file said 1. Whatever is left after the fix
     # decides the exit, the same way it decides --dry-run's.
-    left = [v for v in report.violations if not v.repairable]
+    left = [v for v in report.defects if not v.repairable]
     rc = 1 if left else 0
     to_write = _present(path, report, rows)
     if left:

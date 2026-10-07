@@ -47,6 +47,14 @@ class Violation:
     def repairable(self):
         return bool(self.witness)
 
+    @property
+    def filler(self):
+        """A non-zero RIFF/IFF pad byte: the spec says write 0, readers skip
+        it, and what it holds is a writer's leftover, not damage (the
+        nonzero_pad finding is info). --fix still zeroes it; it never fails a
+        check (decisions.md, 2026-10-07)."""
+        return self.kind == ZERO and self.field == "pad_byte"
+
     def describe(self):
         # some violations are not a stored-vs-computed mismatch at all -- an
         # orphaned audio payload has no meaningful "computed" value, and the
@@ -72,6 +80,11 @@ class Report:
     @property
     def repairable(self):
         return [v for v in self.violations if v.repairable]
+
+    @property
+    def defects(self):
+        """The violations that fail a check: all but filler."""
+        return [v for v in self.violations if not v.filler]
 
 
 class Repairer:
