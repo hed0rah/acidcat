@@ -128,10 +128,30 @@ class IffRepairer(Repairer):
         orphan = _orphaned_audio(node)
         changes = structure.recompute(node, normalize_pad=not (opts or {}).get("keep_pad"))
         label = node.form_type.decode("latin-1", "replace")
+        akai_short = None
         if self._akai_zero(data):
+            # the stored 0 is the convention, so the size change itself is
+            # dropped. what the 0 stands for -- the program runs to the end of
+            # the file -- must still hold: the top-level parse reads to EOF, so
+            # a recomputed size short of len-8 means a chunk overruns the file
+            # (the parse leaves it as tail) or bytes follow the last chunk.
+            # dropping that too blinded check to a truncated program.
+            for c in changes:
+                if (c["path"] == "RIFF" and c["field"] == "size"
+                        and c["new"] != len(data) - 8):
+                    akai_short = c["new"]
             changes = [c for c in changes if not (c["path"] == "RIFF"
                                                   and c["field"] == "size")]
         violations = [_iff_violation(c) for c in changes]
+        if akai_short is not None:
+            gap = len(data) - 8 - akai_short
+            violations.insert(0, Violation(
+                SIZE, "RIFF", "size", 0, akai_short, witness="",
+                detail=(f"the RIFF size is 0 (Akai's run-to-end-of-file "
+                        f"convention), but the chunk walk stops {gap:,} "
+                        f"byte(s) short of the end of the file: a chunk "
+                        f"overruns the file, a size before it is wrong, or "
+                        f"bytes follow the last chunk")))
         want = _IFF_AUDIO.get(node.form_type)
         if orphan:
             # The master-size change is the destructive one, so it must stop

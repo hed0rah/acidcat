@@ -114,6 +114,23 @@ def test_a_wrong_nonzero_riff_size_is_still_reported(tmp_path):
     assert [(v.path, v.field) for v in rep.violations] == [("RIFF", "size")]
 
 
+def test_a_zero_riff_size_does_not_hide_an_overrunning_last_chunk(tmp_path):
+    """The size-0 filter dropped the only signal the IFF model has for a
+    chunk running past EOF, so check called a truncated program consistent.
+    The 0 is the convention; the chunks must still end where the file does."""
+    from acidcat.core.write import constraints
+    raw = bytearray(_zero_size(_make_akp(tmp_path)))
+    last = raw.rfind(b"kgrp")
+    size = struct.unpack_from("<I", raw, last + 4)[0]
+    struct.pack_into("<I", raw, last + 4, size + 64)       # 64 bytes past EOF
+    rep = constraints.analyze(bytes(raw))
+    assert [(v.path, v.field, v.repairable) for v in rep.violations] == [
+        ("RIFF", "size", False)]
+    assert "overruns the file" in rep.violations[0].describe()
+    new, rep = constraints.repair(bytes(raw))
+    assert new == bytes(raw) and not rep.repairable          # nothing to write
+
+
 def test_a_zero_riff_size_survives_another_repair(tmp_path):
     """A program with a real fault elsewhere is fixed there and keeps its 0."""
     from acidcat.core.write import constraints
