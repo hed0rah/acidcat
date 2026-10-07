@@ -40,7 +40,8 @@ from acidcat.tui_theme import BYTE_CLASS
 def register(subparsers):
     p = subparsers.add_parser(
         "probe",
-        help="Byte-level dissection: typed read, value scan, find, strings, hexdump, diff.")
+        help="Byte-level dissection: offset table, typed read, value scan, find, "
+             "strings, diff, entropy, byte map, sample LSBs.")
     # The file operand belongs to each SUB-VERB, not to `probe` itself.
     #
     # It used to sit here, giving `acidcat probe FILE VERB ...` -- which reads

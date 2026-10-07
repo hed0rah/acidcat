@@ -42,7 +42,7 @@ SUBCOMMANDS = set()
 def _build_parser():
     parser = argparse.ArgumentParser(
         prog="acidcat",
-        description="Audio metadata explorer and analysis tool.",
+        description="Byte-level dissection of audio, sampler, synth-preset and DAW files.",
     )
     parser.add_argument("--version", action="version", version=f"acidcat {__version__}")
 

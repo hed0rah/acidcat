@@ -50,8 +50,8 @@ _ASSUMED_RATE = 44100
 
 def register(subparsers):
     p = subparsers.add_parser(
-        "carve", help="Extract a byte range or a typed field (chunk / offset / "
-                      "anchored / struct) to a file or stdout.")
+        "carve", help="Extract a node, a field or a byte range (ADDR, --at, "
+                      "--trailing) to a file or stdout.")
     p.add_argument("target", metavar="FILE", help="File to carve from (never modified); '-' "
                                   "is stdin with --as-wav.")
     p.add_argument("addr", nargs="?", metavar="ADDR",
@@ -83,7 +83,7 @@ def register(subparsers):
                         "(default: raw for ranges, value when typed).")
     p.add_argument("--batch", metavar="SRC",
                    help="Extract many regions: read `locate` records (JSON or TSV) "
-                        "from SRC ('-' = stdin) and carve each from TARGET into -o DIR.")
+                        "from SRC ('-' = stdin) and carve each from FILE into -o DIR.")
     p.add_argument("--wrap", action="store_true",
                    help="With --batch: give headerless regions a WAV header "
                         "using the geometry from `locate --analyze`, so they "

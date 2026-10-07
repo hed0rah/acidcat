@@ -182,10 +182,10 @@ def _run(args):
             return
         if total_matched is None:
             print(f"acidcat lib: showing {len(rows)}; the total could not be "
-                  f"counted (raise --limit to see more)", file=sys.stderr)
+                  f"counted (raise --top to see more)", file=sys.stderr)
         else:
             print(f"acidcat lib: showing {len(rows)} of {total_matched} "
-                  f"match(es) -- raise --limit to see more", file=sys.stderr)
+                  f"match(es) -- raise --top to see more", file=sys.stderr)
 
     if args.paths_only:
         for r in rows:

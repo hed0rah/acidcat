@@ -112,7 +112,7 @@ def register(subparsers):
                    help="On a file no walker claims, try every walker and report "
                         "what each made of it -- chunk/field counts, whether the "
                         "chunk ids are really at those offsets, and the walker's "
-                        "own complaint. Leads for --format, not identifications.")
+                        "own complaint. Leads for --force-format, not identifications.")
     p.add_argument("--resync", action="store_true",
                    help="Recover chunk structure from a damaged container by "
                         "scanning for plausible [id][size] records and keeping "

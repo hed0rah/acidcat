@@ -39,7 +39,7 @@ def register(subparsers):
                    help=f"Stop after N files (default {DEFAULT_MAX_FILES:,}; "
                         f"0 = no limit).")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"), deprecated_f=False)
-    p.add_argument("-o", "--output", help="Write the rows here (--by meta).")
+    p.add_argument("-o", "--output", help="Write the rows here.")
     p.add_argument("-q", "--quiet", action="store_true",
                    help="Drop progress and summary lines on stderr.")
     p.add_argument("-v", "--verbose", action="store_true",
