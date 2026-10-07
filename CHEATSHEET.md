@@ -217,7 +217,7 @@ file can hold, and the report says when it was clamped.
 
 ```
 acidcat lib index ~/samples --label samples
-acidcat lib index ~/samples --features           # vectors for lib similar ([analysis])
+acidcat lib index ~/samples --label samples --features   # vectors for lib similar ([analysis])
 acidcat lib index --discover ~/Samples --dry-run
 acidcat lib list
 acidcat lib query --bpm 120:130 --key Am

@@ -318,7 +318,7 @@ them. By default a library's DB lives at `~/.acidcat/libraries/<label>_<hash>.db
 `--in-tree` keeps it at `<library>/.acidcat/index.db` instead.
 
     acidcat lib index ~/Samples/Loops --label loops
-    acidcat lib index ~/Samples/Loops --features      # vectors for lib similar
+    acidcat lib index ~/Samples/Loops --label loops --features   # vectors for lib similar
     acidcat lib index --discover ~/Samples --dry-run   # one library per pack
     acidcat lib list
     acidcat lib stats loops
