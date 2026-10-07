@@ -40,8 +40,11 @@ From a checkout, swap `acidcat` for `-e .`:
     cd acidcat
     pip install -e ".[all]"
 
-Coming from 1.8? Every 1.8 command and flag still runs, prints one line on
-stderr naming its 2.0 spelling, and then runs that. `CHANGELOG.md` has a
+Coming from 1.8? Every 1.8 verb still runs as an alias: it prints one line
+on stderr naming its 2.0 spelling, and then runs that. A few flags 1.x
+already deprecated are gone and exit 2 with the spelling to use instead:
+`-f`, `probe --no-color`, `formats --format-out`, `carve --format`, and
+`--length`/`--end` beside a search anchor (`--at find:...`). `CHANGELOG.md` has a
 "Migrating from 1.x" section, and
 [docs/contract/cli-2.0.md](docs/contract/cli-2.0.md) maps every old verb
 and flag.
@@ -183,7 +186,10 @@ and the forensic scan's together. `limits` records what the walk ran under
 and which caps it hit. `layers` lists the decoded images. `typing` says
 which fields were read from the file and which were inferred.
 
-    acidcat inspect --json loop.wav | jq -r '.nodes[] | .id'
+Nodes nest under `children`, so walk them to list every id, the same list
+`doc.walk()` gives in Python:
+
+    acidcat inspect --json loop.wav | jq -r '.nodes[] | recurse(.children[]?) | .id'
     acidcat inspect --json *.wav | jq -c '{path: .file.path, findings: [.findings[].code]}'
 
 ## Exit codes

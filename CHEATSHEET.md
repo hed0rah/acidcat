@@ -92,8 +92,8 @@ acidcat carve loop.wav RIFF/fmt_#sample_rate          # 44100
 acidcat carve loop.wav RIFF/fmt_#sample_rate -o r.bin # its bytes: 44 ac 00 00
 acidcat probe read RIFF/fmt_#sample_rate loop.wav     # typed, with its offset
 
-# the Document, into jq
-acidcat inspect --json loop.wav | jq -r '.nodes[].id'
+# the Document, into jq (nodes nest under children)
+acidcat inspect --json loop.wav | jq -r '.nodes[] | recurse(.children[]?) | .id'
 acidcat inspect --json *.wav | jq -c '{path: .file.path, codes: [.findings[].code]}'
 
 # over a tree
