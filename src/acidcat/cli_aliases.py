@@ -173,14 +173,19 @@ def _cover(rest):
 
 def _scan(rest):
     ns = _parse("scan", "scan", rest)
+    # scan's own default rendering was csv; stats' and analyze's is table, so
+    # a 1.8 scan that asked for nothing asked for csv
+    fmt = ["--output-format", ns.output_format or "csv"]
     if ns.fallback or ns.features:
-        # both were librosa passes riding on scan; they are analyze now
-        return [["analyze"] + (["--bpm-key"] if ns.fallback else [])
-                + (["--features"] if ns.features else []) + [ns.target]]
-    new = ["stats", ns.target, "--by", "meta"]
-    # scan's own default rendering was csv; stats' is table, so a 1.8 scan
-    # that asked for nothing asked for csv
-    new += ["--output-format", ns.output_format or "csv"]
+        # both were librosa passes riding on scan; they are analyze now, and
+        # keep scan's -n, -o, -q and rendering
+        new = (["analyze"] + (["--bpm-key"] if ns.fallback else [])
+               + (["--features"] if ns.features else []) + [ns.target]
+               + fmt + ["--max-files", str(ns.num)])
+        _opt(new, "-o", ns.output)
+        _sw(new, "-q", ns.quiet)
+        return [new]
+    new = ["stats", ns.target, "--by", "meta"] + fmt
     if ns.num != 500 or any(r in ("-n", "--num") or r.startswith("--num=")
                             for r in rest):
         new += ["--max-files", str(ns.num)]
