@@ -43,7 +43,8 @@ def test_unwritable_output_reports_failure(tmp_path, capsys):
     src.write_bytes(bytes(64))
     rc = main(["carve", str(src), "--offset", "0", "--length", "8",
                "-o", str(tmp_path / "q?w.bin")])
-    assert rc == 1, "a write that produced no file exited as success"
+    # could-not-run is 2: the output cannot be written, nothing was answered
+    assert rc == 2, "a write that produced no file exited as success"
     assert "acidcat carve:" in capsys.readouterr().err
 
 
