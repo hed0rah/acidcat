@@ -112,10 +112,21 @@ def _repair_one(path, args, rows=None):
               file=sys.stderr)
         return 1
 
-    if not _present(path, report, rows):
+    # a defect with no witness is left in the file. --fix used to exit 0 and
+    # call such a file "clean", so `check --fix f && ship f` shipped it while
+    # --dry-run on the same file said 1. Whatever is left after the fix
+    # decides the exit, the same way it decides --dry-run's.
+    left = [v for v in report.violations if not v.repairable]
+    rc = 1 if left else 0
+    to_write = _present(path, report, rows)
+    if left:
+        print(f"acidcat check: {path}: {len(left)} defect(s) left unrepaired "
+              f"(no witness to fix them from)", file=sys.stderr)
+    if not to_write:
         if rows is not None:
-            rows[-1].update(action="clean", written=None, backup=None)
-        return 0
+            rows[-1].update(action="unrepaired" if left else "clean",
+                            written=None, backup=None)
+        return rc
     try:
         written, backup = writer.commit(
             path, new_data, out=args.output, overwrite=args.overwrite)
@@ -123,8 +134,9 @@ def _repair_one(path, args, rows=None):
         print(f"acidcat check: {path}: {e}", file=sys.stderr)
         return 2
     if rows is not None:
-        rows[-1].update(action="repaired", written=written, backup=backup)
-        return 0
+        rows[-1].update(action="partly-repaired" if left else "repaired",
+                        written=written, backup=backup)
+        return rc
     if backup:
         note = f"  (backup: {os.path.basename(backup)})"
     elif not args.output and not args.overwrite:
@@ -138,7 +150,7 @@ def _repair_one(path, args, rows=None):
     else:
         note = ""
     print(f"  wrote {os.path.basename(written)}{note}")
-    return 0
+    return rc
 
 
 def run(args):

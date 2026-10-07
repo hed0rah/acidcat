@@ -70,3 +70,38 @@ def test_repair_rejects_non_iff(tmp_path, capsys):
     assert rc == 2                     # nothing checkable, as validate says
     err = capsys.readouterr().err
     assert "not a format check models" in err and "check covers: 8svx" in err
+
+
+def _box(btype, payload):
+    return struct.pack(">I", 8 + len(payload)) + btype + payload
+
+
+def _m4a_forged_stsz():
+    """A single-track m4a whose stsz claims 1000 entries it does not hold:
+    damage with no witness, so --fix has nothing safe to write."""
+    stsz = _box(b"stsz", bytes(4) + struct.pack(">II", 0, 1000))
+    stsc = _box(b"stsc", bytes(4) + struct.pack(">IIII", 1, 1, 1, 1))
+    stco = _box(b"stco", bytes(4) + struct.pack(">II", 1, 1))
+    tree = _box(b"moov", _box(b"trak", _box(b"mdia", _box(
+        b"minf", _box(b"stbl", stsz + stsc + stco)))))
+    return (_box(b"ftyp", b"M4A \x00\x00\x00\x00") + tree
+            + _box(b"mdat", bytes(16)))
+
+
+def test_fix_leaving_a_defect_exits_1_like_dry_run(tmp_path, capsys):
+    """check --fix on a file whose defect has no witness wrote nothing and
+    exited 0, its json row saying "clean", while --dry-run on the same file
+    exited 1. `check --fix f && ship f` shipped the defect."""
+    import json
+    from acidcat.cli import main
+    p = tmp_path / "hostile.m4a"
+    original = _m4a_forged_stsz()
+    p.write_bytes(original)
+    assert main(["check", "--fix", "--dry-run", str(p)]) == 1
+    capsys.readouterr()
+    assert main(["check", "--fix", str(p)]) == 1
+    assert "left unrepaired" in capsys.readouterr().err
+    assert p.read_bytes() == original
+    assert main(["check", "--fix", "--json", str(p)]) == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert doc[0]["action"] == "unrepaired"
