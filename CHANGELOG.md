@@ -8,6 +8,14 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Changed
 
+- **Harmless spec breaches are notes, not defects** (decisions.md F1). A
+  non-zero RIFF/IFF pad byte, FLAC PADDING block or ID3v2 padding, and a YM
+  file with no `End!` marker: readers skip them and the file plays the same,
+  but `check` and `audit` exited 1, and a script cannot read "harmless" from
+  an exit code. They are still reported, and `check --fix` still zeroes
+  padding. An `End!` that is present but not where the frames end is still a
+  defect.
+
 - **`inspect --summary --json`/`--csv`** (and bare `acidcat FILE`) give
   values, not the card's words: `"duration_sec": 0.19` where it said
   `"duration": "0.19s"`, `null` where it said `"-"`, `"acid": false` where it
@@ -23,6 +31,27 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
   says.
 
 ### Fixed
+
+- **An `-o` that names the input is refused (exit 2), not written over it.**
+  The report verbs (`audit`, `od`, `classify`, `inspect`, `stats`, `probe`,
+  ...) opened `-o` before reading, so naming the input replaced it with the
+  report (`inspect` left it empty; `od` and `stats` exited 0), and `carve
+  FILE FIELD -o FILE` wrote the field over the file. `edit` and `check --fix`
+  keep `-o` naming the input as their atomic in-place edit with a backup.
+- **`check --fix`** exits 1 when it leaves a defect it cannot repair (it
+  exited 0 and called the file clean; the JSON row says `unrepaired` or
+  `partly-repaired`); over several files it exits with the worst code in any
+  order; a file in a checked directory that cannot be read is exit 2.
+- **`check --fix` refuses a "pad byte" that is part of the next chunk id**
+  (a size one too large desyncs the walk) instead of zeroing it.
+- **Akai `.akp`**: a RIFF size of 0 no longer hides a chunk that runs past the
+  end of the file.
+- **Impulse Tracker**: a sample cut short by a truncated file is a defect; a
+  truncated module audited clean.
+- **Exit codes**: a walker crash, a sandbox failure or a walk that cannot be
+  described as a Document is 2 in `inspect`; an unwritable output or unread
+  file is 2 on every `carve` path; a `convert` batch with a failure or a
+  refusal no longer exits 0.
 
 - **`tui`**: a missing `[tui]` extra or a missing file is exit 2, on stderr,
   like every other could-not-run; it was 1, and the missing file went to
