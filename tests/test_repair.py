@@ -105,3 +105,15 @@ def test_fix_leaving_a_defect_exits_1_like_dry_run(tmp_path, capsys):
     assert main(["check", "--fix", "--json", str(p)]) == 1
     doc = json.loads(capsys.readouterr().out)
     assert doc[0]["action"] == "unrepaired"
+
+
+def test_fix_exit_does_not_depend_on_file_order(tmp_path):
+    """`rc = one() or rc` let a later 1 overwrite an earlier 2: a missing
+    file then a damaged one exited 1, the reverse order 2."""
+    missing = str(tmp_path / "missing.wav")
+    broken = bytearray(_wav())
+    struct.pack_into("<I", broken, 4, 1)
+    bad = tmp_path / "bad.wav"
+    bad.write_bytes(bytes(broken))
+    for order in ([missing, str(bad)], [str(bad), missing]):
+        assert repair.run(_args(order, dry_run=True)) == 2, order

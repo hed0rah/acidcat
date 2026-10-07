@@ -161,8 +161,10 @@ def run(args):
     rows = None if fmt == "table" else []
     rc = 0
     for path in args.inputs:
+        # max, not `or`: a later 1 overwrote an earlier 2, so the exit
+        # depended on the order the files were named in
         try:
-            rc = _repair_one(path, args, rows) or rc
+            rc = max(rc, _repair_one(path, args, rows))
         except (OSError, ValueError) as e:
             print(f"acidcat check: {path}: {e}", file=sys.stderr)
             rc = 2
