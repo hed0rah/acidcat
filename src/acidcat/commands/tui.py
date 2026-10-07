@@ -61,11 +61,13 @@ def _no_terminal():
 
 def run(args):
     from acidcat.util.deps import require
+    # a missing extra and a missing file are could-not-run, 2, like the
+    # no-terminal case below
     if not require("textual", group="tui"):
-        return 1
+        return 2
     if args.file and not os.path.isfile(args.file):
-        print(f"not a file: {args.file}")
-        return 1
+        print(f"acidcat tui: {args.file}: No such file", file=sys.stderr)
+        return 2
     why = _no_terminal()
     if why:
         # 2, not 1: the repo's convention is 0 it worked, 1 it ran and the

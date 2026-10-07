@@ -24,6 +24,10 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **`tui`**: a missing `[tui]` extra or a missing file is exit 2, on stderr,
+  like every other could-not-run; it was 1, and the missing file went to
+  stdout.
+
 - **`lib index DIR` without `--label`** keeps the label the library already
   has. It fell back to the folder's name, so re-indexing a library named with
   `--label` renamed it and `lib stats`/`lib forget` by the old name found
