@@ -209,6 +209,17 @@ def _run_one(argv):
         parser.print_help(sys.stderr)
         return 2
     report_to = getattr(args, "report_to", None)
+    # an -o that names an input destroyed it: the report verbs open their
+    # output before reading, and carve's field path wrote its bytes over the
+    # file. edit and check --fix are exempt: there, -o naming the input is an
+    # in-place edit through the atomic writer, with a backup.
+    out = report_to or getattr(args, "output", None)
+    if isinstance(out, str) and args.command not in ("edit", "check"):
+        from acidcat.util import outpath
+        if outpath.input_named(out, argv):
+            print(f"acidcat {args.command}: {out}: output is the input; "
+                  f"refusing to overwrite the file being read", file=sys.stderr)
+            return 2
     if report_to:
         # -o on a verb whose -o only redirects its report (add_report_arg)
         import contextlib

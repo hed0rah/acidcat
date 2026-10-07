@@ -34,6 +34,28 @@ def same_file(a, b):
         return os.path.realpath(a) == os.path.realpath(b)
 
 
+def input_named(out, argv):
+    """The argument in `argv` that names the same file as `out`, else None.
+
+    The output's own value (after -o/--output) is skipped; so are flags and
+    stdin's "-". Only files that exist count: an output that does not exist
+    yet cannot be anyone's input.
+    """
+    skip = False
+    for tok in argv:
+        if skip:
+            skip = False
+            continue
+        if tok in ("-o", "--output"):
+            skip = True
+            continue
+        if tok.startswith("-"):
+            continue
+        if os.path.isfile(tok) and same_file(tok, out):
+            return tok
+    return None
+
+
 def refuse_self_overwrite(verb, source, out):
     """An error string when `out` would clobber `source`, else None.
 
