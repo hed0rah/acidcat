@@ -87,7 +87,7 @@ analysis = [
 # Supporting the 2.x API is a port, not a version bump.
 mcp = ["mcp>=1.0,<2"]
 mcp-http = ["acidcat[mcp]", "starlette>=0.37", "uvicorn>=0.30"]
-tui = ["textual>=0.60"]
+tui = ["textual>=0.60,<9"]
 # encrypted-disc support (Wii): AES for partition decryption. Kept optional so
 # the base install stays dependency-light and DRM-adjacent crypto is opt-in.
 crypto = ["cryptography>=42"]
