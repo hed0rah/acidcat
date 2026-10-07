@@ -187,6 +187,20 @@ class TestWavRowExtraction:
         finally:
             rconn.close()
 
+    def test_a_reindex_without_label_keeps_the_label(self, tmp_path, central_root,
+                                                     registry_path, wav_bytes):
+        """`lib index X --label loops` then `lib index X` renamed the library to
+        the folder name, so `lib stats loops` found nothing."""
+        lib = _library(tmp_path, wav_bytes, name="Loops")
+        index_cmd.run(_Args(target=str(lib), label="loops", registry=registry_path))
+        index_cmd.run(_Args(target=str(lib), registry=registry_path))
+        rconn = reg.open_registry(registry_path)
+        try:
+            rows = reg.list_libraries(rconn)
+            assert [r["label"] for r in rows] == ["loops"]
+        finally:
+            rconn.close()
+
     def test_in_tree_mode(self, tmp_path, central_root, registry_path, wav_bytes):
         lib = _library(tmp_path, wav_bytes)
         rc = index_cmd.run(_Args(target=str(lib), label="intree",

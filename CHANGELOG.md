@@ -24,6 +24,11 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ### Fixed
 
+- **`lib index DIR` without `--label`** keeps the label the library already
+  has. It fell back to the folder's name, so re-indexing a library named with
+  `--label` renamed it and `lib stats`/`lib forget` by the old name found
+  nothing.
+
 - **WAV `acid`**: a tempo outside 40-300 on a file flagged one-shot is a
   note, not damage. A one-shot plays at its own speed and nothing reads the
   field; a near-zero float left there printed as `acid tempo 0.00 outside

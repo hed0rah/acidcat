@@ -214,7 +214,19 @@ def _run(args):
     _warn_legacy_db(args)
 
     scan_root = acidpaths.normalize(target)
-    label = args.label or os.path.basename(scan_root) or "library"
+    label = args.label
+    if not label:
+        # a re-index without --label keeps the name the library has: falling
+        # back to the folder name renamed it, and `lib stats OLDNAME` then
+        # found nothing
+        rconn = reg.open_registry(registry_path)
+        try:
+            known = reg.get_library(rconn, scan_root)
+        finally:
+            rconn.close()
+        if known is not None and known["root_path"] == scan_root:
+            label = known["label"]
+    label = label or os.path.basename(scan_root) or "library"
     in_tree = bool(args.in_tree)
     db_path = (
         acidpaths.in_tree_db_path_for(scan_root) if in_tree
