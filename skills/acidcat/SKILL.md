@@ -89,8 +89,8 @@ acidcat inspect --json FILE          # the contract v1 Document
 acidcat inspect FILE1 FILE2 ...      # several files; JSON becomes one Document per line
 ```
 
-`acidcat formats` lists the 88 formats with a walker; do not rely on a list
-from memory. Non-Latin metadata (Korean, CJK, mixed-script) decodes
+Run `acidcat formats` for the formats acidcat reads and what each supports;
+do not rely on a list or a count from memory. Non-Latin metadata (Korean, CJK, mixed-script) decodes
 correctly.
 
 ### The JSON
