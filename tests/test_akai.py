@@ -165,3 +165,23 @@ def test_a_zero_riff_size_survives_another_repair(tmp_path):
     new, rep = constraints.repair(raw)
     assert [v.field for v in rep.violations] == ["pad_byte"]
     assert new[4:8] == bytes(4) and new[-1:] == bytes(1)
+
+
+def test_fix_leaves_a_master_size_the_walk_cannot_reach_eof_for(tmp_path):
+    """prg 6 -> 8 with a real RIFF size: the walk misaligns after prg and
+    stops, and --fix wrote the walk's end (20) as the RIFF size, leaving every
+    keygroup outside the RIFF, exit 0. A master size is witnessed by the end
+    of the file only when the recomputed size reaches it."""
+    from acidcat.cli import main
+    from acidcat.core.write import constraints
+    raw = bytearray(open(_make_akp(tmp_path), "rb").read())
+    struct.pack_into("<I", raw, raw.find(b"prg ") + 4, 8)
+    raw = bytes(raw)
+    p = tmp_path / "prg8.akp"
+    p.write_bytes(raw)
+    rep = constraints.analyze(raw)
+    assert [(v.path, v.field, v.repairable) for v in rep.violations] == [
+        ("RIFF", "size", False)]
+    assert main(["check", str(p)]) == 1
+    assert main(["check", "--fix", "--overwrite", str(p)]) == 1
+    assert p.read_bytes() == raw                  # nothing written

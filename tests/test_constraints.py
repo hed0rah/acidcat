@@ -175,3 +175,34 @@ def test_text_chunk_pad_stays_filler():
     rep = C.analyze(wav)
     assert [v.field for v in rep.violations] == ["pad_byte"]
     assert rep.violations[0].filler and rep.defects == []
+
+
+def test_fix_leaves_a_master_size_short_of_eof(tmp_path):
+    """A LIST stored 18 (really 16) misaligns the walk into smpl; --fix wrote
+    the walk's end as the RIFF size, orphaning smpl, and exited 0. The master
+    size is witnessed by end-of-file only when the recomputed size is it."""
+    from acidcat.cli import main
+    fmt = b"fmt " + struct.pack("<I", 16) + struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+    data = b"data" + struct.pack("<I", 1000) + b"\x00" * 1000
+    lst = b"LIST" + struct.pack("<I", 18) + b"INFO" + b"INAM" + struct.pack("<I", 4) + b"abc\x00"
+    smpl = b"smpl" + struct.pack("<I", 36) + b"\x00" * 36
+    body = b"WAVE" + fmt + data + lst + smpl
+    wav = b"RIFF" + struct.pack("<I", len(body)) + body
+    rep = C.analyze(wav)
+    top = [v for v in rep.violations if v.path == "RIFF"]
+    assert len(top) == 1 and not top[0].repairable and top[0] in rep.defects
+    assert "short of the end of the file" in top[0].describe()
+    new, _rep = C.repair(wav)
+    assert new[4:8] == wav[4:8]                   # the master size kept
+    p = tmp_path / "list18.wav"
+    p.write_bytes(wav)
+    assert main(["check", str(p)]) == 1
+    assert main(["check", "--fix", "--overwrite", str(p)]) == 1
+    assert p.read_bytes() == wav
+
+
+def test_master_size_reaching_eof_is_still_repaired():
+    # the witnessed case stays repairable: a stale master size, chunks to EOF
+    rep = C.analyze(_broken_wav())
+    assert rep.violations[0].witness == "end-of-file"
+    assert C.repair(_broken_wav())[0] == _wav()

@@ -201,17 +201,31 @@ def _cut_audio_violation(path, audio):
                 f"not a pad byte. Zeroing it would destroy audio"))
 
 
-def _iff_violation(change):
+def _iff_violation(change, file_len):
     """Map a structure.recompute change to a Violation. A top-level (master)
-    size is witnessed by end-of-file; a nested size by its container's parsed
-    contents; a pad byte by the spec."""
+    size is witnessed by end-of-file, but only when the recomputed size IS
+    end-of-file; a nested size by its container's parsed contents; a pad byte
+    by the spec."""
     if change["field"] == "pad_byte":
         return Violation(ZERO, change["path"], "pad_byte", change["old"],
                          change["new"], witness="spec (pad = 0x00)")
-    top = "/" not in change["path"]
-    witness = "end-of-file" if top else "container contents"
-    return Violation(SIZE, change["path"], "size", change["old"], change["new"],
-                     witness=witness)
+    if "/" in change["path"]:
+        return Violation(SIZE, change["path"], "size", change["old"],
+                         change["new"], witness="container contents")
+    if change["new"] == file_len - 8:
+        return Violation(SIZE, change["path"], "size", change["old"],
+                         change["new"], witness="end-of-file")
+    # the walk stopped short of the end: a wrong chunk size before that point
+    # misaligned it, and writing the walk's end as the master size would
+    # leave every chunk after it outside the container
+    gap = file_len - 8 - change["new"]
+    return Violation(
+        SIZE, change["path"], "size", change["old"], change["new"], witness="",
+        detail=(f"the size is {change['old']:,}, but the chunk walk ends "
+                f"{gap:,} byte(s) short of the end of the file: a chunk size "
+                f"before that point is wrong, or bytes follow the last chunk. "
+                f"Setting the size to where the walk ends ({change['new']:,}) "
+                f"would leave those bytes outside the container"))
 
 
 class IffRepairer(Repairer):
@@ -267,7 +281,11 @@ class IffRepairer(Repairer):
                     akai_short = c["new"]
             changes = [c for c in changes if not (c["path"] == "RIFF"
                                                   and c["field"] == "size")]
-        violations = [_iff_violation(c) for c in changes]
+        for c in changes:
+            if ("/" not in c["path"] and c["field"] == "size"
+                    and c["new"] != len(data) - 8):
+                node.declared_size = c["old"]     # no witness: emit keeps it
+        violations = [_iff_violation(c, len(data)) for c in changes]
         if cut:
             violations.insert(0, _cut_audio_violation(cut_path, cut))
         if akai_short is not None:
