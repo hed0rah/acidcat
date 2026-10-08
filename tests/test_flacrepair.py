@@ -75,3 +75,61 @@ def test_nonzero_padding_is_filler_not_a_failed_check(tmp_path):
     p = tmp_path / "pad.flac"
     p.write_bytes(data)
     assert main(["check", str(p)]) == 0
+
+
+# non-zero PADDING is filler only inside an intact chain and only when it
+# holds nothing a reader needs: a PADDING length that swallowed audio frames,
+# or tags whose type byte now reads PADDING, is damage, and --fix must not
+# zero it (it zeroed real audio and tags, exit 0)
+
+def _frames(n=3):
+    return b"".join(b"\xff\xf8" + bytes([0x69, 0x08, 0, 0x10 + i]) + b"\x55" * 26
+                    for i in range(n))
+
+
+def _swallowed_tail():
+    # PADDING length grown into the first frame: the walk then lands mid-frame
+    good = _flac(_blk(False, 0, b"\x00" * 34), _blk(True, 1, b"\x00" * 8),
+                 audio=_frames())
+    d = bytearray(good)
+    d[4 + 38 + 1:4 + 38 + 4] = (8 + 10).to_bytes(3, "big")
+    return bytes(d)
+
+
+def _swallowed_frame():
+    # PADDING length grown to exactly the second frame: the chain is ok
+    good = _flac(_blk(False, 0, b"\x00" * 34), _blk(True, 1, b"\x00" * 8),
+                 audio=_frames())
+    d = bytearray(good)
+    d[4 + 38 + 1:4 + 38 + 4] = (8 + 32).to_bytes(3, "big")
+    return bytes(d)
+
+
+def _tags_typed_padding():
+    vendor = b"reference libFLAC 1.3.2 20170101"
+    vc = len(vendor).to_bytes(4, "little") + vendor + (0).to_bytes(4, "little")
+    return _flac(_blk(False, 0, b"\x00" * 34), _blk(True, 1, vc))
+
+
+def test_padding_that_is_not_filler_is_a_defect_and_kept(tmp_path):
+    from acidcat.cli import main
+    for name, data in (("tail", _swallowed_tail()), ("frame", _swallowed_frame()),
+                       ("tags", _tags_typed_padding())):
+        rep = C.analyze(data)
+        pad = [v for v in rep.violations if v.field == "padding"]
+        assert len(pad) == 1, name
+        assert not pad[0].filler and not pad[0].repairable, name
+        assert pad[0] in rep.defects and "not filler" in pad[0].describe(), name
+        assert F.repair_flac(data)[0] == data, name   # never zeroed
+        p = tmp_path / f"{name}.flac"
+        p.write_bytes(data)
+        assert main(["check", str(p)]) == 1, name
+        assert main(["check", "--fix", "--overwrite", str(p)]) == 1, name
+        assert p.read_bytes() == data, name
+
+
+def test_vorbis_tell_needs_the_whole_vendor_string():
+    # a length that does not fit, or bytes that are not text, is not a tell
+    assert not F._vorbis_like(b"junkjunk")
+    assert not F._vorbis_like((3).to_bytes(4, "little") + b"a\x01c")
+    assert F._vorbis_like((3).to_bytes(4, "little") + b"abc")

@@ -420,7 +420,8 @@ class FlacRepairer(Repairer):
         out = []
         for c in changes:
             out.append(Violation(c["kind"], c["path"], c["field"], c["old"],
-                                 c["new"], witness=c["witness"]))
+                                 c["new"], witness=c["witness"],
+                                 detail=c.get("detail", "")))
         return out
 
     def _audio(self, data):
