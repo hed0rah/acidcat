@@ -135,6 +135,72 @@ def _desync_violation(hit):
                 f"are misread. Rewriting from this parse would damage them."))
 
 
+# AIFC compression types whose SSND bytes are whole PCM frames
+_AIFC_PCM = {b"NONE", b"sowt", b"twos", b"raw ", b"in24", b"in32", b"fl32",
+             b"FL32", b"fl64", b"FL64"}
+
+
+def _frame_bytes(node):
+    """Bytes per audio frame from fmt (WAVE) or COMM (AIFF/AIFC), or None."""
+    kids = {c.id: c for c in node.children or () if not c.is_container}
+    if node.form_type == b"WAVE" and b"fmt " in kids:
+        p = bytes(kids[b"fmt "].payload[:16])
+        if len(p) < 16:
+            return None
+        ch, align, bits = (int.from_bytes(p[2:4], "little"),
+                           int.from_bytes(p[12:14], "little"),
+                           int.from_bytes(p[14:16], "little"))
+        return align or ch * ((bits + 7) // 8) or None
+    if node.form_type in (b"AIFF", b"AIFC") and b"COMM" in kids:
+        p = bytes(kids[b"COMM"].payload[:22])
+        if len(p) < 8:
+            return None
+        if node.form_type == b"AIFC" and p[18:22] not in _AIFC_PCM:
+            return None                   # compressed: no fixed frame
+        ch, bits = int.from_bytes(p[0:2], "big"), int.from_bytes(p[6:8], "big")
+        return ch * ((bits + 7) // 8) or None
+    return None
+
+
+def _cut_audio_pad(node):
+    """The audio chunk (data/SSND) when its non-zero "pad byte" is really its
+    own last byte, else None.
+
+    A data size one short of a whole frame leaves the last audio byte where a
+    pad byte would sit. Real filler follows a chunk that ends on a frame
+    boundary; a size that ends mid-frame is the size that is wrong, and
+    zeroing the byte after it destroys audio for good."""
+    want = _IFF_AUDIO.get(node.form_type)
+    if not want or not node.children:
+        return None
+    audio = next((c for c in node.children
+                  if c.id == want and not c.is_container), None)
+    if audio is None or not audio.pad or audio.pad_byte == 0:
+        return None
+    frame = _frame_bytes(node)
+    if not frame:
+        return None
+    n = len(audio.payload)
+    if want == b"SSND":
+        # SSND opens with offset + blockSize before the sample frames
+        if n < 8:
+            return None
+        n -= 8 + int.from_bytes(bytes(audio.payload[:4]), "big")
+        if n < 0:
+            return None
+    return audio if n % frame else None
+
+
+def _cut_audio_violation(path, audio):
+    return Violation(
+        SIZE, path, "size", audio.declared_size, None, witness="",
+        detail=(f"the {audio.id.decode('latin-1').strip()} chunk declares "
+                f"{audio.declared_size:,} bytes, which ends mid-frame, and "
+                f"the byte after it (0x{audio.pad_byte:02x}) is not zero: it "
+                f"is most likely the last audio byte behind a size one short, "
+                f"not a pad byte. Zeroing it would destroy audio"))
+
+
 def _iff_violation(change):
     """Map a structure.recompute change to a Violation. A top-level (master)
     size is witnessed by end-of-file; a nested size by its container's parsed
@@ -176,7 +242,16 @@ class IffRepairer(Repairer):
         orphan = _orphaned_audio(node)
         # before recompute, which zeroes the pad bytes it reports
         desync = _desynced_pad(node, data)
+        cut = _cut_audio_pad(node)
+        cut_byte = cut.pad_byte if cut else 0
         changes = structure.recompute(node, normalize_pad=not (opts or {}).get("keep_pad"))
+        if cut:
+            # not filler: keep the byte, and report the size, not the pad
+            cut.pad_byte = cut_byte
+            cut_path = "/".join(x.id.decode("latin-1", "replace").strip()
+                                for x in (node, cut))
+            changes = [c for c in changes if not (c["path"] == cut_path
+                                                  and c["field"] == "pad_byte")]
         label = node.form_type.decode("latin-1", "replace")
         akai_short = None
         if self._akai_zero(data):
@@ -193,6 +268,8 @@ class IffRepairer(Repairer):
             changes = [c for c in changes if not (c["path"] == "RIFF"
                                                   and c["field"] == "size")]
         violations = [_iff_violation(c) for c in changes]
+        if cut:
+            violations.insert(0, _cut_audio_violation(cut_path, cut))
         if akai_short is not None:
             gap = len(data) - 8 - akai_short
             violations.insert(0, Violation(

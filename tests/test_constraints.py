@@ -49,9 +49,12 @@ def test_repair_via_framework_restores_bytes():
 
 
 def test_pad_byte_is_zero_kind_witnessed_by_spec():
+    # 8-bit mono: 3 bytes is 3 whole frames, so the 0xEE after them is filler.
+    # (a 16-bit fmt here made 3 bytes end mid-frame, which is a cut size, not
+    # a pad: see test_cut_audio_size_is_a_defect_not_filler)
     odd = b"data" + struct.pack("<I", 3) + b"\x01\x02\x03" + b"\xEE"
     body = b"WAVE" + b"fmt " + struct.pack("<I", 16) \
-        + struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16) + odd
+        + struct.pack("<HHIIHH", 1, 1, 44100, 44100, 1, 8) + odd
     wav = b"RIFF" + struct.pack("<I", len(body)) + body
     report = C.analyze(wav)
     pad = next(v for v in report.violations if v.field == "pad_byte")
@@ -111,3 +114,64 @@ def test_offset_violation_kind_from_mp4(tmp_path):
     report = C.analyze(data)
     assert report.label == "MP4"
     assert any(v.kind == OFFSET and v.repairable for v in report.violations)
+
+
+# a data/SSND size one short of a whole frame leaves the last audio byte where
+# a pad byte would sit. It is the size that is wrong; the byte is audio.
+
+def _wav_cut(bits=16, ch=1, n=1000, extra=b""):
+    align = ch * bits // 8
+    pcm = bytes((i * 37 + 1) & 0xFF for i in range(n))
+    fmt = b"fmt " + struct.pack("<I", 16) + struct.pack(
+        "<HHIIHH", 1, ch, 44100, 44100 * align, align, bits)
+    body = b"WAVE" + fmt + b"data" + struct.pack("<I", n - 1) + pcm + extra
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def _aiff_cut(n=1000):
+    pcm = bytes((i * 11 + 1) & 0xFF for i in range(n))
+    comm = struct.pack(">hIh", 1, n // 2, 16) + bytes.fromhex("400EAC44000000000000")
+    ssnd = struct.pack(">II", 0, 0) + pcm
+    body = (b"AIFF" + b"COMM" + struct.pack(">I", len(comm)) + comm
+            + b"SSND" + struct.pack(">I", len(ssnd) - 1) + ssnd)
+    return b"FORM" + struct.pack(">I", len(body)) + body
+
+
+_INAM = b"LIST" + struct.pack("<I", 16) + b"INFO" + b"INAM" + struct.pack("<I", 4) + b"abc\x00"
+
+
+def _cut_case(data, tmp_path, name):
+    from acidcat.cli import main
+    rep = C.analyze(data)
+    assert [v.field for v in rep.violations] == ["size"]
+    v = rep.violations[0]
+    assert not v.filler and not v.repairable and rep.defects == [v]
+    assert "mid-frame" in v.describe()
+    p = tmp_path / name
+    p.write_bytes(data)
+    assert main(["check", str(p)]) == 1
+    assert main(["check", "--fix", "--overwrite", str(p)]) == 1
+    assert p.read_bytes() == data                 # the last audio byte kept
+
+
+def test_cut_audio_size_is_a_defect_not_filler(tmp_path):
+    _cut_case(_wav_cut(extra=_INAM), tmp_path, "mid.wav")       # LIST after
+    _cut_case(_wav_cut(), tmp_path, "last.wav")                  # data last
+    _cut_case(_wav_cut(bits=24, ch=2, n=600), tmp_path, "s24.wav")
+
+
+def test_cut_ssnd_size_is_a_defect_not_filler(tmp_path):
+    _cut_case(_aiff_cut(), tmp_path, "cut.aiff")
+
+
+def test_text_chunk_pad_stays_filler():
+    # a LIST/INAM string one short: "abcd" read as "abc" + pad. Text has no
+    # frame, so the byte is filler and --fix zeroes it, as decided (F1)
+    pcm = b"\x00" * 1000
+    fmt = b"fmt " + struct.pack("<I", 16) + struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+    inam = b"LIST" + struct.pack("<I", 16) + b"INFO" + b"INAM" + struct.pack("<I", 3) + b"abcd"
+    body = b"WAVE" + fmt + b"data" + struct.pack("<I", len(pcm)) + pcm + inam
+    wav = b"RIFF" + struct.pack("<I", len(body)) + body
+    rep = C.analyze(wav)
+    assert [v.field for v in rep.violations] == ["pad_byte"]
+    assert rep.violations[0].filler and rep.defects == []
