@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-horizontal-dark.svg">
-    <img src="docs/brand/logo-horizontal-light.svg" alt="acidcat" width="400">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/hed0rah/acidcat/main/docs/brand/logo-horizontal-dark.svg">
+    <img src="https://raw.githubusercontent.com/hed0rah/acidcat/main/docs/brand/logo-horizontal-light.svg" alt="acidcat" width="400">
   </picture>
 </p>
 
@@ -46,7 +46,7 @@ already deprecated are gone and exit 2 with the spelling to use instead:
 `-f`, `probe --no-color`, `formats --format-out`, `carve --format`, and
 `--length`/`--end` beside a search anchor (`--at find:...`). `CHANGELOG.md` has a
 "Migrating from 1.x" section, and
-[docs/contract/cli-2.0.md](docs/contract/cli-2.0.md) maps every old verb
+[docs/contract/cli-2.0.md](https://github.com/hed0rah/acidcat/blob/main/docs/contract/cli-2.0.md) maps every old verb
 and flag.
 
 ## Quick start
@@ -66,7 +66,7 @@ and flag.
 ## Addresses
 
 Everything acidcat shows has an address, and every verb that takes a location
-takes the same one (an ADDR, [docs/contract/node-v1.md](docs/contract/node-v1.md)
+takes the same one (an ADDR, [docs/contract/node-v1.md](https://github.com/hed0rah/acidcat/blob/main/docs/contract/node-v1.md)
 section 13):
 
 | ADDR | names |
@@ -104,7 +104,7 @@ Seventeen verbs. `acidcat VERB --help` has the rest.
 
 | Verb | Does |
 |---|---|
-| `inspect FILE...` | The structural dump, for the 94 formats `acidcat formats` lists: audio, sampler banks, trackers, synth presets, console streams, disc images. Nodes, fields, offsets and findings. `--summary` one record per file (format, duration, tempo, key); `--tags` the decoded tags without offsets; `--chunks` the node table alone; `--hex` bytes beside each field; `--only/--exclude ADDR-GLOB`; `-F/--frames` every MPEG frame or MIDI event; `--deep` the walkers' extra decoding (Bitwig device tree, Vital modulation matrix, NI compressed subtree); `--anomalies` the forensic scan; `--json` the contract v1 Document |
+| `inspect FILE...` | The structural dump, for the 94 formats `inspect` reads: audio, sampler banks, trackers, synth presets, console streams, disc images. Nodes, fields, offsets and findings. `--summary` one record per file (format, duration, tempo, key); `--tags` the decoded tags without offsets; `--chunks` the node table alone; `--hex` bytes beside each field; `--only/--exclude ADDR-GLOB`; `-F/--frames` every MPEG frame or MIDI event; `--deep` the walkers' extra decoding (Bitwig device tree, Vital modulation matrix, NI compressed subtree); `--anomalies` the forensic scan; `--json` the contract v1 Document |
 | `od FILE [ADDR...]` | Annotated, coloured hex: the whole file by its structure, or the nodes, fields and ranges you name. `--at` for a search anchor (`find:STR`, `end-N`), `--region N` for a `locate` region, `--marks` to tint an unwalked dump |
 | `carve FILE [ADDR]` | Write out what an ADDR names: a node's payload (`--raw` with its header), a field (its value on the terminal, its bytes with `-o` or `--encoding raw`), a byte range, or a decoded layer (`--layer N`). `--type`/`--struct` decode typed values at any offset; `--trailing` is everything past the container; `--batch -` cuts every region `locate` found; `--as-wav` wraps raw PCM in a WAV header |
 | `probe read\|table\|scan\|find\|strings\|diff\|entropy\|map\|lsb` | Byte dissection: a typed read at an ADDR, an offset table walked into regions, value scan, pattern find, strings, binary diff, Shannon entropy, a Hilbert byte map, sample-LSB entropy |
@@ -160,7 +160,7 @@ The same on every verb that has the behaviour:
 
 `--json` writes records to stdout and everything else to stderr, so a bounded
 run stays parseable. One rule holds on every verb
-([cli-2.0.md](docs/contract/cli-2.0.md) section 4.1):
+([cli-2.0.md](https://github.com/hed0rah/acidcat/blob/main/docs/contract/cli-2.0.md) section 4.1):
 
 - keys are snake_case and name what the value is;
 - a file is `path`, as you gave it (`<stdin>` for `-`);
@@ -174,7 +174,7 @@ know. Removing or renaming a key, or wrapping an array in an object, is a
 breaking change.
 
 **The Document** (`inspect --json`, `acidcat.open()`) is specified in
-[docs/contract/node-v1.md](docs/contract/node-v1.md), with a JSON Schema
+[docs/contract/node-v1.md](https://github.com/hed0rah/acidcat/blob/main/docs/contract/node-v1.md), with a JSON Schema
 beside it. Each node has an `id` (its ADDR), a `name`, an `extent` and a
 `payload` (`{layer, off, len}`) and its `fields`. Each field has a `key`, the
 machine `value`, the `display` string, and `at`, the bytes it was read from.
@@ -287,7 +287,7 @@ leaves the audio alone.
 Find audio in a raw blob, cut it out, make it play. The verbs chain like
 coreutils: `classify` (what is this), `locate` (where is the audio), `carve`
 (cut it out, `--as-wav` to give raw PCM a header), `extract` for known banks.
-The whole workflow is in [docs/recovery.md](docs/recovery.md).
+The whole workflow is in [docs/recovery.md](https://github.com/hed0rah/acidcat/blob/main/docs/recovery.md).
 
     acidcat classify mystery.bin
     acidcat locate disk.img --mode aggressive --analyze

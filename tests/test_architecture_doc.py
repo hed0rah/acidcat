@@ -110,7 +110,7 @@ def test_readme_format_count_matches_the_dispatcher():
     """
     from acidcat.core import walk
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    stated = _stated(readme, r"for the (\d+) formats\s*\n?\s*`acidcat formats` lists")
+    stated = _stated(readme, r"for the (\d+) formats\s*\n?\s*`inspect` reads")
     assert stated == len(walk._WALKERS), (
         f"README says inspect reads {stated} formats, the dispatcher "
         f"registers {len(walk._WALKERS)}")
