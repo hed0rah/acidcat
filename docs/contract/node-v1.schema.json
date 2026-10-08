@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/hed0rah/acidcat/docs/contract/node-v1.schema.json",
   "title": "acidcat Document, contract v1",
-  "description": "DRAFT 2026-09-25. See node-v1.md for the intent behind every key. Additional properties are allowed everywhere: consumers must ignore keys they do not know.",
+  "description": "Contract v1, shipped in 2.0.0. See node-v1.md for the intent behind every key. Additional properties are allowed everywhere: consumers must ignore keys they do not know.",
   "type": "object",
   "required": [
     "contract",

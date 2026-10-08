@@ -8,8 +8,10 @@ answer, the reason, and what it commits us to. Entries marked
 recommendation rather than by picking between options; they deserve a second
 look in review.
 
-Status: DRAFT for review. Nothing below is implemented. The next step is review, then the
-pre-step (1.8.6). Evidence for the engine, surface and data decisions (E, S, K)
+Status: the decisions below are implemented in 2.0.0, except E4 (the
+`FormatSpec` registry), K1
+(index schema v4), K2 (the shared anatomy builder), the MCP half of S4, and the
+TUI decisions (T1 to T6) and milestones from 2.1 on, which are a plan. Evidence for the engine, surface and data decisions (E, S, K)
 comes from a second round of four audits: the CLI, format registration, walker
 I/O and limits, and the API, index, MCP and editing paths.
 
@@ -111,7 +113,7 @@ sniff order lives in comments.
 | E1 | Should walkers read a Source instead of a path? | Yes: `view`, `head`, `file`, `sibling` (through a Resolver), `child` for decoded layers; mmap, bytes and slice backends | Layers need in-memory walks constantly; zero-copy views end the temp files; siblings become an explicit, testable dependency | porting about 45 head-read walkers (one line each) and the seek-based helpers (riff, aiff, flac, mp3, mp4); an AST test banning `open` and `os.path` in walkers |
 | E2 | One Limits object instead of ~60 caps and the overloaded `deep`? | Yes, with a shared Budget across nested layers | One place to read and set limits; a zip of gzips cannot multiply the allowance; a cap hit is structurally unable to be reported as a defect | `limits.take` / `limits.hit` in every walker; `Document.limits`; `--limit NAME=VALUE` on the CLI |
 | E3 | Structured warnings? | One record for walker warnings and forensic findings: `kind`, `code`, `severity`, `message`, `node`, `at`, `cap` | Consumers key on stable codes, not text; `environment` stops blaming the file for a missing sibling; one list ends double reporting | a code registry (`core/infra/findings.py`); about 469 sites migrate mechanically; `code: legacy` counted until gone |
-| E4 | Is a format one record? | Yes: `FormatSpec` in `core/infra/registry.py`, every existing list derived from it, a golden sniff test written first | One source of truth per format; sniff order becomes data; adding a format drops to the real work | a golden test over all seeds and known near-misses before sniff moves; lazy imports; variants as one spec |
+| E4 | Is a format one record? | Yes: `FormatSpec` in a registry module (planned as core/infra/registry.py; not in 2.0.0), every existing list derived from it, a golden sniff test written first | One source of truth per format; sniff order becomes data; adding a format drops to the real work | a golden test over all seeds and known near-misses before sniff moves; lazy imports; variants as one spec |
 
 ## Surface (2.0)
 

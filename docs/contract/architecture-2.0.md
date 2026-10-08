@@ -1,10 +1,16 @@
 # acidcat 2.0: architecture
 
-Status: DRAFT for review, 2026-09-25. Companion to [node-v1.md](node-v1.md)
-(the output contract) and [decisions.md](decisions.md) (why). This document
+Status: the design 2.0 was built from, written 2026-09-25. 2.0.0 ships
+sections 2 to 4, 6 to 8 and 13, and section 12 except `ctx`/`CTX_KEYS` and the
+per-format anatomy scripts, which are still there. Not in 2.0.0: the
+FormatSpec registry (section 5, the top box in section 1's diagram), the MCP
+tools (9), index schema v4 (10) and the shared anatomy builder (11).
+
+Companion to [node-v1.md](node-v1.md) (the output contract) and
+[decisions.md](decisions.md) (why). This document
 covers everything around the contract: how walkers read, how they are limited,
 how formats are registered, and what the CLI, the Python API, editing, MCP and
-the index look like on top of it. Nothing here is implemented yet.
+the index look like on top of it.
 
 ## 1. The shape of 2.0
 
@@ -316,8 +322,8 @@ FormatSpec(
 )
 ```
 
-`core/infra/registry.py` holds an explicit list of specs (no plugin discovery)
-and derives everything that is a separate list today: `KNOWN_FORMATS`,
+A registry module (planned as core/infra/registry.py, not in 2.0.0) holds an
+explicit list of specs (no plugin discovery) and derives everything that is a separate list today: `KNOWN_FORMATS`,
 `_WALKERS`, `_EXTRACT_ONLY`, `EXTRACTABLE`, `AUDIO_CONTAINERS`, `_BE_FMTS`
 (keyed on id, not label), the whole `acidcat formats` matrix,
 `corpus_env.sh`, `tests_for.py`'s shared-walker map, the anatomy mirror's

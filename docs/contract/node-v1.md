@@ -1,7 +1,7 @@
 # Node contract v1
 
-Status: DRAFT for review, 2026-09-25. Nothing in this document is implemented
-yet. The decisions behind every rule are recorded, with their reasons, in
+Status: contract v1, shipped in 2.0.0. Written 2026-09-25. The decisions
+behind every rule are recorded, with their reasons, in
 [decisions.md](decisions.md). The machine-readable form is
 [node-v1.schema.json](node-v1.schema.json); where the two disagree, this
 document is the intent and the schema is the bug.
