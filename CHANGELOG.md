@@ -6,9 +6,57 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-07
+
+acidcat 2.0. From this release `pip install acidcat` installs 2.0; 1.8.x
+stays available as `pip install "acidcat<2"`. 2.0 needs Python 3.11 or newer:
+on 3.10, pip keeps installing 1.8.7.
+
+**Coming from 1.8:** read "Migrating from 1.x" under [2.0.0a1] below. In
+short: every 1.8 verb still runs, as an alias that prints its 2.0 spelling on
+stderr (aliases are removed in 3.0); a handful of flags are gone (`-f`,
+`probe --no-color`, `formats --format-out`, `carve --format`, `--length` or
+`--end` beside a search anchor); exit codes mean one thing everywhere (0 ok, 1
+the answer is no, 2 could not run), and only a defect exits 1; `inspect
+--json` is the versioned Document (docs/contract/node-v1.md). `inspect
+--summary --json` keys and types changed (see [2.0.0rc2] Changed and
+docs/contract/cli-2.0.md section 4.1), and `inspect --chunks --csv` names its
+file column `path`. The full 1.8 to 2.0 table is docs/contract/cli-2.0.md.
+
+2.x is the supported line; fixes land in the latest 2.x release. 1.8.7 stays
+installable with `pip install "acidcat<2"` but gets no further releases.
+
+2.0.0 is 2.0.0rc2 plus the fixes below. They came from running rc2 over a
+real sample library of 3,229 files (every reading verb, damaged copies, and
+500 edits on copies, with no crash and the library untouched) and from a last
+review of the release, which found that rc2's guard against `-o` naming the
+input missed a file reached through a directory, and that demoting harmless
+padding to a note also let real damage through. The work since 1.8.7 is in
+the sections after it: the breaking pass (2.0.0a1), then rounds of hunting
+bugs over real files and a review of the whole release (a2, rc1, rc2).
+
+If 2.0.0 breaks something for you, open an issue: a release that breaks users
+is yanked from PyPI and a 2.0.1 follows; until then `pip install "acidcat<2"`
+gets 1.8.7.
+
+### Changed
+
+- **Padded bit depth is a note** (decisions.md F2): 16-bit audio in a 24-bit
+  file is legal and plays as written, so `audit` reports it under INTEGRITY
+  and exits 0, as for dual-mono. 42 of 2,328 WAVs in one real library exited
+  1 for it.
+
 ### Fixed
 
-- **Damage that looks like padding is a defect again.** 2.0 made harmless
+- **The `-o` guard covers every way to name the input.** `stats DIR -o
+  DIR/x.wav` (and `audit`, `classify`, `inspect` the same way) truncated
+  x.wav before the walk read it, exit 0: rc2's guard matched only files named
+  on the command line. `edit F --get cover -o F` wrote the picture over F.
+  And `--out`, which argparse reads as `--output`, had its value taken for an
+  input, so an old output file was refused.
+- **`lib similar` without the analysis extra is exit 2**, as every missing
+  extra is; it was 1.
+- **Damage that looks like padding is a defect again.** rc2 made harmless
   filler a note (a non-zero pad byte, FLAC PADDING or ID3v2 padding, a YM
   with no `End!`); that also passed real damage, and `check --fix` destroyed
   data. Filler stays a note. These now fail `check` or `audit` (exit 1), and
@@ -30,46 +78,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The "fix with: acidcat check --fix" hint and JSON `repairable` count
   defects only.** A file whose only repairable item was filler advertised a
   fix that then exited 1.
-
-## [2.0.0] - 2026-10-07
-
-acidcat 2.0. From this release `pip install acidcat` installs 2.0; 1.8.x
-stays available as `pip install "acidcat<2"`. 2.0 needs Python 3.11 or newer:
-on 3.10, pip keeps installing 1.8.7.
-
-**Coming from 1.8:** read "Migrating from 1.x" under [2.0.0a1] below. In
-short: every 1.8 verb still runs, as an alias that prints its 2.0 spelling on
-stderr (aliases are removed in 3.0); a handful of flags are gone (`-f`,
-`probe --no-color`, `formats --format-out`, `carve --format`, `--length` or
-`--end` beside a search anchor); exit codes mean one thing everywhere (0 ok, 1
-the answer is no, 2 could not run), and only a defect exits 1; `inspect
---json` is the versioned Document (docs/contract/node-v1.md). `inspect
---summary --json` keys and types changed (see [2.0.0rc2] Changed and
-docs/contract/cli-2.0.md section 4.1), and `inspect --chunks --csv` names its
-file column `path`. The full 1.8 to 2.0 table is docs/contract/cli-2.0.md.
-
-2.x is the supported line; fixes land in the latest 2.x release. 1.8.7 stays
-installable with `pip install "acidcat<2"` but gets no further releases.
-
-2.0.0 is 2.0.0rc2 plus the two fixes below, both found by running it over a
-real sample library of 3,229 files (every reading verb, damaged copies, and
-500 edits on copies, with no crash and the library untouched). The work since
-1.8.7 is in the sections after it: the breaking pass (2.0.0a1), then rounds of
-hunting bugs over real files and a review of the whole release (a2, rc1, rc2).
-
-If 2.0.0 breaks something for you, open an issue: a release that breaks users
-is yanked from PyPI and a 2.0.1 follows; until then `pip install "acidcat<2"`
-gets 1.8.7.
-
-### Fixed
-
 - **A directory walk takes every format acidcat reads.** `audit DIR`,
   `stats DIR`, `inspect DIR`, `lib index DIR` and the rest skipped 49 of the
   99 formats with a walker (REX/RX2 loops, Serum presets, EXS, SFZ, Live
   Packs, MPC, NI monoliths, the chiptune formats) as "unrecognised
   extension", while the same file named directly read fine. A test now ties
   the walk to every walker's extension.
-
 - **WAV `acid`**: a one-shot whose beat count does not match its length is a
   note, not damage. Exporters leave defaults there (8 beats at 120 bpm on a
   0.2 s clap) and nothing stretches a one-shot; on a loop the mismatch is
