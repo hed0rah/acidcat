@@ -248,10 +248,12 @@ def _check(path, quiet, rows=None, deep=False):
             print(f"FAIL  {base}  [{report.label}]  1 issue(s)")
             print(f"        {detail}")
         return True, False, False, False
+    # "repairable" means --fix clears a defect; zeroing filler alone leaves
+    # the file failing, so it must not advertise the fix
     if rows is not None:
         rows.append({"path": as_given(path), **format_of(path), "status": "fail",
                      "issues": len(report.defects),
-                     "repairable": any(v.repairable for v in report.violations),
+                     "repairable": any(v.repairable for v in report.defects),
                      "detail": "; ".join(v.describe() for v in report.violations),
                      "violations": [{"describe": v.describe(), "kind": v.kind,
                                      "field": v.field, "stored": v.stored,
@@ -259,14 +261,14 @@ def _check(path, quiet, rows=None, deep=False):
                                      "repairable": v.repairable,
                                      "filler": v.filler}
                                     for v in report.violations]})
-        return True, False, False, any(v.repairable for v in report.violations)
+        return True, False, False, any(v.repairable for v in report.defects)
     print(f"FAIL  {base}  [{report.label}]  {len(report.defects)} issue(s)")
     for v in report.defects:
         mark = "" if v.repairable else "  (no witness)"
         print(f"        {v.describe()}{mark}")
     for line in filler:
         print(f"        note: {line}")
-    return True, False, False, any(v.repairable for v in report.violations)
+    return True, False, False, any(v.repairable for v in report.defects)
 
 
 def run(args):

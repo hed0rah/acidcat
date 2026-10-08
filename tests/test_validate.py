@@ -109,3 +109,26 @@ def test_non_container_skipped(tmp_path, capsys):
     # a gate must not pass files it never examined.
     rc = validate.run(_args([str(tmp_path)]))
     assert rc == 2
+
+
+def test_filler_alone_does_not_advertise_the_fix(tmp_path, capsys):
+    """The only repairable item is a filler pad; the defect has no witness.
+    "fix with: acidcat check --fix" and JSON repairable sent the user to a
+    --fix that then exits 1 (review F9)."""
+    import json
+    from acidcat.cli import main
+    fmt = b"fmt " + struct.pack("<I", 16) + struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+    junk = b"JUNK" + struct.pack("<I", 3) + b"abc" + b"Z"        # filler pad
+    data = b"data" + struct.pack("<I", 32) + b"\x00" * 32
+    lst = b"LIST" + struct.pack("<I", 18) + b"INFO" + b"INAM" + struct.pack("<I", 4) + b"abc\x00"
+    smpl = b"smpl" + struct.pack("<I", 36) + b"\x00" * 36
+    body = b"WAVE" + fmt + junk + data + lst + smpl
+    p = tmp_path / "f.wav"
+    p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    assert validate.run(_args([str(p)])) == 1
+    out = capsys.readouterr().out
+    assert "FAIL" in out and "check --fix" not in out
+    assert main(["check", "--json", str(p)]) == 1
+    rows = json.loads(capsys.readouterr().out)
+    assert rows[0]["repairable"] is False
+    assert [v["filler"] for v in rows[0]["violations"] if v["repairable"]] == [True]
