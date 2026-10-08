@@ -170,6 +170,8 @@ the catalogue.
 | # | Question | Answer | Reason | Commits us to |
 |---|---|---|---|---|
 | F1 | Is a harmless spec breach a defect? A non-zero RIFF/IFF alignment pad byte, FLAC PADDING block or ID3v2 padding; a YM file with no `End!` marker | No: a note. Still reported, and `check --fix` still zeroes the pad byte, but neither makes `check` or `audit` exit 1 | Readers skip a pad byte and players stop a YM at its frame count, so the file plays the same; an exit code cannot say "harmless", and non-zero padding blocks are already info | `nonzero_pad` and `id3_padding_nonzero` are info; a pad byte or FLAC PADDING is `Violation.filler`, outside `Report.defects`; the YM note is `convention.noted`, while an `End!` that is present but misplaced stays a defect |
+| F2 | Is audio padded to a higher bit depth (16-bit in a 24-bit file) a defect? | No: a note under INTEGRITY, like near-mono and dual-mono. `audit` exits 0 for it | The file is legal and plays exactly as written; the padding says how it was made, not that it is broken. Commercial packs ship it (42 of 2,328 WAVs in one real library) | the `bit_depth` integrity row carries `kind: info` |
+| F3 | Does a one-shot's acid tempo or beat count make the file defective? | No: a note. On a loop it is still a defect | Nothing stretches a one-shot to its beat count; exporters leave defaults there (8 beats at 120 bpm on a 0.2 s clap) | the acid rules check the one-shot flag (0x01) |
 
 ## Order after review (2026-09-26)
 
