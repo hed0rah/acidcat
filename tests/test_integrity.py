@@ -34,6 +34,17 @@ def test_fake_24bit_flagged(tmp_path):
     assert "effective 16-bit" in findings[0]["verdict"]
 
 
+def test_padded_bit_depth_is_a_note_audit_passes(tmp_path):
+    """16-bit audio padded to 24-bit is legal and plays as written: reported,
+    but audit exits 0 for it, as for dual-mono (42 of 2,328 real WAVs)."""
+    from acidcat.cli import main
+    vals = [(i * 517 & 0xFFFF) << 8 for i in range(4000)]
+    path = _wav(tmp_path, 24, vals)
+    (f,) = _run(path)
+    assert f["kind"] == "info"
+    assert main(["audit", path]) == 0
+
+
 def test_genuine_24bit_not_flagged(tmp_path):
     # values that use the low bits too
     vals = [(i * 2654435761) & 0xFFFFFF for i in range(4000)]
