@@ -6,6 +6,31 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Damage that looks like padding is a defect again.** 2.0 made harmless
+  filler a note (a non-zero pad byte, FLAC PADDING or ID3v2 padding, a YM
+  with no `End!`); that also passed real damage, and `check --fix` destroyed
+  data. Filler stays a note. These now fail `check` or `audit` (exit 1), and
+  `--fix` leaves the bytes alone:
+  - a WAV `data` or AIFF `SSND` size that ends mid-frame, with a non-zero
+    byte after it: that byte is the last audio byte, not a pad, and `--fix`
+    zeroed it;
+  - FLAC PADDING inside a metadata chain that does not reach the audio, or
+    that holds a frame sync or a vorbis-comment body: `--fix` zeroed audio
+    frames or the tags;
+  - ID3v2 padding that holds MPEG frames (new rule `id3_swallows_frames`):
+    the tag size runs over audio every reader skips;
+  - a YM with no `End!` and frames of data after the frame count.
+- **`check --fix` no longer shrinks a RIFF/FORM size to where a broken
+  chunk walk stops.** A wrong chunk size earlier in the file made it write
+  that point as the master size, leaving every later chunk outside the
+  container, exit 0. A master size is fixed only when the chunks reach the
+  end of the file; otherwise it is reported with no witness and left.
+- **The "fix with: acidcat check --fix" hint and JSON `repairable` count
+  defects only.** A file whose only repairable item was filler advertised a
+  fix that then exited 1.
+
 ## [2.0.0] - 2026-10-07
 
 acidcat 2.0. From this release `pip install acidcat` installs 2.0; 1.8.x
