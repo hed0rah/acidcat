@@ -2,13 +2,15 @@
 Xing/LAME/VBRI first-frame headers. Frame and tag primitives live in
 core/mp3.py; this module shapes them into the chunk model."""
 
-import os
 import re
 import struct
 
 from acidcat.core.formats import mp3 as mp3mod
+from acidcat.core.infra.findings import defect, info
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import (
     _FRAME_LISTING_CAP, _ID3_READ_CAP, _PAYLOAD_CAP, _bu16, _bu32, _f,
+    _open, _size,
 )
 
 _ID3_TEXT_FRAMES = {
@@ -239,7 +241,7 @@ def _id3v2_frames(filepath, hdr):
     fields, warns = [], []
     major = hdr["major"]
     tag_size = hdr["size"]
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         f.seek(10)
         body = f.read(min(tag_size, _ID3_READ_CAP))
     fields.append(_f(0x03, 1, "version", f"2.{major}.{hdr['revision']}"))
@@ -270,8 +272,9 @@ def _id3v2_frames(filepath, hdr):
     # length, so a global de-escape there would misalign every later frame.
     if flags & 0x80 and major != 4:
         body = body.replace(b"\xff\x00", b"\xff")
-        warns.append("tag is unsynchronised; byte offsets shown are logical "
-                     "(post-desync), not raw file positions")
+        warns.append(info("convention.noted",
+                          "tag is unsynchronised; byte offsets shown are logical "
+                          "(post-desync), not raw file positions"))
     # after a whole-tag de-escape the field offsets are logical, not on-disk, so
     # a carve range computed from them would not line up with the real file.
     tag_desynced = bool(flags & 0x80 and major != 4)
@@ -303,9 +306,10 @@ def _id3v2_frames(filepath, hdr):
             # the frame claims to run past the tag's own declared size:
             # a genuine structural error, compared against the true tag
             # size rather than however much we happened to read.
-            warns.append(
+            warns.append(defect(
+                "size.overrun",
                 f"frame {fid_s!r} size {fsize} overruns the "
-                f"{tag_size:,}-byte tag"
+                f"{tag_size:,}-byte tag")
             )
             break
         if data_start + fsize > len(body):
@@ -319,6 +323,7 @@ def _id3v2_frames(filepath, hdr):
         raw = body[data_start:data_start + fsize]
         note = (_ID3V22_TEXT_FRAMES if is_v22 else _ID3_TEXT_FRAMES).get(fid_s, "")
         opaque = ""
+        is_text = False
         skip = 0
         unsynced = False
         img_field = None
@@ -342,13 +347,16 @@ def _id3v2_frames(filepath, hdr):
             value = f"{fsize:,} bytes"
             note = (note + ", " if note else "") + opaque
         elif fid_s in ("TXXX", "WXXX"):
+            is_text = True
             value = _decode_txxx(raw, fid_s)
             note = "user-defined text" if fid_s == "TXXX" else "user-defined URL"
         elif fid_s in ("COMM", "USLT", "COM", "ULT"):
+            is_text = True
             value = _decode_comm(raw)
             if not note:
                 note = "lyrics" if fid_s in ("USLT", "ULT") else "comment"
         elif fid_s.startswith("T"):        # every T*** frame is text (id3 spec)
+            is_text = True
             value = _decode_id3_text(raw)
             if fid_s in ("TCON", "TCO"):
                 resolved = _resolve_tcon(value)
@@ -383,9 +391,10 @@ def _id3v2_frames(filepath, hdr):
                         media = (f"complete {fmt_name} (carveable), "
                                  f"{len(trailing):,} bytes follow it")
                         warns.append(
-                            f"{fid_s} image is a complete {fmt_name} with "
-                            f"{len(trailing):,} non-padding bytes after its "
-                            "terminator")
+                            defect("bytes.stray",
+                                   f"{fid_s} image is a complete {fmt_name} with "
+                                   f"{len(trailing):,} non-padding bytes after its "
+                                   "terminator"))
                     else:
                         media = f"complete {fmt_name} (carveable)"
                 img_field = _f(img_abs, img_len, f"{fid_s}:image",
@@ -394,7 +403,8 @@ def _id3v2_frames(filepath, hdr):
         else:
             value = f"{fsize:,} bytes"
         fields.append(_f(10 + pos, fhdr_len + fsize, fid_s, value, note,
-                         xref=img_ref))
+                         xref=img_ref,
+                         text=is_text and mp3mod.id3_is_text(fid_s)))
         if img_field is not None:
             fields.append(img_field)
         pos = data_start + fsize
@@ -452,8 +462,9 @@ def _parse_vbri(buf, off):
             fields.append(_f(off + 26, toc_n * esize, "toc",
                              f"{toc_n} x {esize}-byte seek entries"))
         if esize not in (0, 1, 2, 3, 4):
-            warns.append(f"VBRI TOC entry size {esize} is outside the "
-                         "1-4 byte range the spec allows")
+            warns.append(defect("value.invalid",
+                                f"VBRI TOC entry size {esize} is outside the "
+                                "1-4 byte range the spec allows"))
     return fields, warns, frame_count, b"VBRI"
 
 
@@ -463,7 +474,7 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     b"Xing" (VBR), b"Info" (CBR), or None if no tag is present."""
     fields, warns = [], []
     xoff = _xing_offset(hdr)
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         f.seek(frame_off)
         buf = f.read(max(hdr["frame_length"], xoff + 200, 64))
     # VBRI (Fraunhofer) sits at a fixed offset, 32 bytes past the 4-byte frame
@@ -485,7 +496,7 @@ def _parse_xing_lame(filepath, frame_off, hdr):
     frame_count = None
     if flags & 0x01:
         if pos + 4 > len(buf):
-            warns.append("Xing header truncated before frame_count")
+            warns.append(defect("header.truncated", "Xing header truncated before frame_count"))
             return fields, warns, frame_count, tag
         frame_count = _bu32(buf, pos)
         fields.append(_f(pos, 4, "frame_count", f"{frame_count:,}",
@@ -493,20 +504,20 @@ def _parse_xing_lame(filepath, frame_off, hdr):
         pos += 4
     if flags & 0x02:
         if pos + 4 > len(buf):
-            warns.append("Xing header truncated before byte_count")
+            warns.append(defect("header.truncated", "Xing header truncated before byte_count"))
             return fields, warns, frame_count, tag
         nbytes = _bu32(buf, pos)
         fields.append(_f(pos, 4, "byte_count", f"{nbytes:,}", enc=">I", raw=nbytes))
         pos += 4
     if flags & 0x04:
         if pos + 100 > len(buf):
-            warns.append("Xing header truncated before seek table")
+            warns.append(defect("header.truncated", "Xing header truncated before seek table"))
             return fields, warns, frame_count, tag
         fields.append(_f(pos, 100, "toc", "100-entry seek table"))
         pos += 100
     if flags & 0x08:
         if pos + 4 > len(buf):
-            warns.append("Xing header truncated before quality")
+            warns.append(defect("header.truncated", "Xing header truncated before quality"))
             return fields, warns, frame_count, tag
         quality = _bu32(buf, pos)
         fields.append(_f(pos, 4, "quality", quality, "0=best, 100=worst"))
@@ -562,7 +573,7 @@ def inspect_mp3(filepath, deep=False):
     first frame fully decoded and any Xing/LAME header), and an optional
     ID3v1 trailer. With ``deep``, the frame run carries a per-frame
     listing (offset, bitrate, sample rate, channel mode, size)."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     chunks = []
     file_warns = []
 
@@ -586,13 +597,13 @@ def inspect_mp3(filepath, deep=False):
         first = (off, fh)
         break
     if first is None:
-        file_warns.append("no valid MPEG audio frame found")
+        file_warns.append(defect("required.missing", "no valid MPEG audio frame found"))
         return chunks, file_warns
 
     frame_off, fh = first
     if frame_off > audio_start:
         gap = frame_off - audio_start
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(audio_start)
             skipped = f.read(min(gap, _PAYLOAD_CAP))
         # all-zero is the damaged-head case rather than the stray-bytes one: a
@@ -602,12 +613,14 @@ def inspect_mp3(filepath, deep=False):
         where = "the tag" if audio_start else "the start of the file"
         if gap and not any(skipped):
             file_warns.append(
-                f"the first {gap:,} bytes are ZERO; the audio begins at "
-                f"0x{frame_off:x}. A head that was erased or reserved and "
-                f"never written, not a tag")
+                defect("bytes.stray",
+                       f"the first {gap:,} bytes are ZERO; the audio begins at "
+                       f"0x{frame_off:x}. A head that was erased or reserved and "
+                       f"never written, not a tag"))
         else:
             file_warns.append(
-                f"{gap} bytes of junk between {where} and the first frame sync")
+                defect("bytes.stray",
+                       f"{gap} bytes of junk between {where} and the first frame sync"))
     if fh.get("free_format"):
         # bitrate index 0: the length was measured from sync spacing, so the
         # true bitrate is derived, not tabled -- and not bit-editable
@@ -664,8 +677,9 @@ def inspect_mp3(filepath, deep=False):
     _avail = file_size - frame_off
     if fh["frame_length"] > _avail:
         frame0_warns.append(
-            f"the frame header declares {fh['frame_length']:,} bytes and only "
-            f"{_avail:,} follow it; the file ends inside the first frame")
+            defect("size.overrun",
+                   f"the frame header declares {fh['frame_length']:,} bytes and only "
+                   f"{_avail:,} follow it; the file ends inside the first frame"))
     chunks.append({"id": "frame0", "offset": frame_off, "size": fh["frame_length"],
                    "summary": (f"{fh['version']} {fh['layer']}, {kbps_txt}, "
                                f"{fh['sample_rate']} Hz, {fh['channel_mode_name']}"),
@@ -698,17 +712,27 @@ def inspect_mp3(filepath, deep=False):
     walk = deep or vbr_frames is None
     for off, f2 in (mp3mod.iter_frames(filepath, frame_off, audio_end)
                     if walk else ()):
+        if vbr_tag is not None and off == frame_off:
+            # the Xing/Info/VBRI frame holds the tag, not audio; its bitrate
+            # is often not the stream's (a CBR file then read as VBR), and the
+            # tag's own frame_count leaves it out
+            continue
         count += 1
         bitrates.add(f2["bitrate"])
         if deep and len(rows) < _FRAME_LISTING_CAP:
-            rows.append({
-                "#": len(rows),
+            # snake_case keys holding machine values, like every other
+            # walker's rows; `bytes` is also the frame's at.len in the Document
+            row = {
+                "index": len(rows),
                 "offset": f"0x{off:08x}",
-                "kbps": "free" if f2.get("free_format") else f2["bitrate"],
-                "Hz": f2["sample_rate"],
+                "bitrate_kbps": None if f2.get("free_format") else f2["bitrate"],
+                "sample_rate": f2["sample_rate"],
                 "mode": f2["channel_mode_name"],
                 "bytes": f2["frame_length"],
-            })
+            }
+            if f2.get("free_format"):
+                row["free_format"] = True
+            rows.append(row)
         elif deep:
             truncated = True
     walked = count
@@ -732,19 +756,20 @@ def inspect_mp3(filepath, deep=False):
                     "warnings": [], "payload_base": frame_off}
     if vbr_frames and walked and abs(vbr_frames - walked) > max(2, walked // 20):
         frames_entry["warnings"].append(
-            f"Xing/VBRI frame_count {vbr_frames:,} diverges from {walked:,} "
-            f"frames walked; VBR duration may be wrong")
+            defect("count.mismatch",
+                   f"Xing/VBRI frame_count {vbr_frames:,} diverges from {walked:,} "
+                   f"frames walked; VBR duration may be wrong"))
     if deep:
         frames_entry["rows"] = rows
         if truncated:
-            frames_entry["warnings"].append(
+            frames_entry["warnings"].append(hit(
+                "frame_rows", _FRAME_LISTING_CAP, count,
                 f"frame listing capped at {_FRAME_LISTING_CAP:,}; "
-                f"{count:,} frames total"
-            )
+                f"{count:,} frames total"))
     chunks.append(frames_entry)
 
     if id3v1_off is not None:
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(id3v1_off)
             tag = f.read(128)
         v1_fields, title = _id3v1_fields(tag)

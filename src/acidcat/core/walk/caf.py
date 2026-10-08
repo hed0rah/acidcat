@@ -19,12 +19,13 @@ trap: a file whose desc flags are 0 stores big-endian samples, and decoding its
 data little-endian reproduces noise rather than the tone that is there.
 """
 
-import os
 import struct
 
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.findings import defect, error, info
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.apple import _parse_chan
-from acidcat.core.walk.base import _PAYLOAD_CAP, _f
+from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _open, _size
 
 MAGIC = b"caff"
 
@@ -68,7 +69,7 @@ def _parse_desc(b, ctx):
     fields, warns = [], []
     if len(b) < _DESC:
         return "truncated", fields, [
-            f"desc payload is {len(b)} bytes, the spec fixes it at {_DESC}"]
+            defect("chunk.short", f"desc payload is {len(b)} bytes, the spec fixes it at {_DESC}")]
     rate, fmt_id, flags, bpp, fpp, chans, bits = struct.unpack_from(
         ">d4sIIIII", b, 0)
     fid = _fourcc(fmt_id)
@@ -77,7 +78,8 @@ def _parse_desc(b, ctx):
                bits_per_channel=bits, bytes_per_packet=bpp,
                frames_per_packet=fpp)
 
-    fields.append(_f(0x00, 8, "sample_rate", f"{rate:g}", "f64, big-endian"))
+    fields.append(_f(0x00, 8, "sample_rate", f"{rate:g}", "f64, big-endian",
+                     enc=">d", raw=rate))
     fields.append(_f(0x08, 4, "format_id", fid, name))
     flag_note = ""
     if fid == "lpcm":
@@ -98,15 +100,16 @@ def _parse_desc(b, ctx):
                      "0 for a compressed format"))
 
     if rate <= 0:
-        warns.append(f"sample rate is {rate:g}, which cannot be played")
+        warns.append(defect("value.invalid", f"sample rate is {rate:g}, which cannot be played"))
     if chans == 0:
-        warns.append("channels_per_frame is 0")
+        warns.append(defect("value.invalid", "channels_per_frame is 0"))
     if fid == "lpcm" and bpp and chans and bits:
         expect = chans * ((bits + 7) // 8)
         if bpp != expect:
             warns.append(
-                f"bytes_per_packet is {bpp} but {chans}ch x {bits}-bit needs "
-                f"{expect}")
+                defect("field.inconsistent",
+                       f"bytes_per_packet is {bpp} but {chans}ch x {bits}-bit needs "
+                       f"{expect}"))
     summary = f"{name} {rate:g} Hz, {chans}ch"
     if bits:
         summary += f", {bits}-bit"
@@ -119,7 +122,8 @@ def _parse_data(b, ctx, size):
     """The audio. Its first four bytes are an edit count, NOT samples."""
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["data payload is too short for its edit count"]
+        return "truncated", fields, [defect("chunk.short",
+                                            "data payload is too short for its edit count")]
     edits = struct.unpack_from(">I", b, 0)[0]
     audio = max(0, size - 4)
     fields.append(_f(0x00, 4, "edit_count", edits,
@@ -136,9 +140,10 @@ def _parse_data(b, ctx, size):
         if rate > 0:
             summary += f", {frames / rate:.3f} s"
         if audio % bpp:
-            warns.append(
+            warns.append(defect(
+                "length.misaligned",
                 f"{audio:,} audio bytes is not a whole number of {bpp}-byte "
-                f"packets ({audio % bpp} trail)")
+                f"packets ({audio % bpp} trail)"))
     elif bpp == 0:
         # Not a defect: a variable-bitrate format says so with bpp 0 and puts
         # the sizes in `pakt`. Saying that beats reporting no duration at all.
@@ -150,7 +155,8 @@ def _parse_info(b, _ctx):
     """A u32 count, then that many NUL-terminated key/value string pairs."""
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["info payload is too short for its count"]
+        return "truncated", fields, [defect("chunk.short",
+                                            "info payload is too short for its count")]
     n = struct.unpack_from(">I", b, 0)[0]
     parts = b[4:].split(b"\x00")
     pairs = 0
@@ -163,9 +169,11 @@ def _parse_info(b, _ctx):
             fields.append(_f(None, 0, key[:40], val[:120]))
         pairs += 1
     if pairs > _STRING_CAP:
-        warns.append(coverage(f"listing the first {_STRING_CAP} of {pairs} entries"))
+        warns.append(hit("list_rows", _STRING_CAP, pairs,
+                         f"listing the first {_STRING_CAP} of {pairs} entries"))
     if n != pairs:
-        warns.append(f"declares {n:,} entries, {pairs:,} strings are present")
+        warns.append(defect("count.mismatch",
+                            f"declares {n:,} entries, {pairs:,} strings are present"))
     return f"{pairs} metadata entr{'y' if pairs == 1 else 'ies'}", fields, warns
 
 
@@ -175,7 +183,7 @@ def _parse_pakt(b, _ctx):
     fields, warns = [], []
     if len(b) < 24:
         return "truncated", fields, [
-            f"pakt payload is {len(b)} bytes, the header alone is 24"]
+            defect("chunk.short", f"pakt payload is {len(b)} bytes, the header alone is 24")]
     packets, valid, priming, remainder = struct.unpack_from(">qqii", b, 0)
     fields.append(_f(0x00, 8, "packets", f"{packets:,}"))
     fields.append(_f(0x08, 8, "valid_frames", f"{valid:,}"))
@@ -184,14 +192,14 @@ def _parse_pakt(b, _ctx):
     fields.append(_f(0x14, 4, "remainder_frames", remainder,
                      "padding to discard at the end"))
     if packets < 0:
-        warns.append(f"packet count is negative ({packets:,})")
+        warns.append(defect("value.invalid", f"packet count is negative ({packets:,})"))
     return f"{packets:,} packets, {valid:,} valid frames", fields, warns
 
 def _parse_peak(b, ctx):
     """Per-channel peak amplitude and the frame it occurs on."""
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["peak payload is too short"]
+        return "truncated", fields, [defect("chunk.short", "peak payload is too short")]
     edits = struct.unpack_from(">I", b, 0)[0]
     fields.append(_f(0x00, 4, "edit_count", edits))
     chans = ctx.get("channels") or 0
@@ -202,8 +210,9 @@ def _parse_peak(b, ctx):
         pos += 12
         i += 1
     if chans and i != chans:
-        warns.append(f"{i} peak entr{'y' if i == 1 else 'ies'} for "
-                     f"{chans} channel(s)")
+        warns.append(defect("count.mismatch",
+                            f"{i} peak entr{'y' if i == 1 else 'ies'} for "
+                            f"{chans} channel(s)"))
     return f"{i} channel peak(s)", fields, warns
 
 
@@ -232,22 +241,24 @@ _KNOWN_OPAQUE = {
 
 def inspect_caf(filepath):
     """Walk a CAF file: an 8-byte header, then 4cc/s64 chunks."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     ctx = {"file_size": file_size}
     chunks, file_warns = [], []
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(_HEADER)
         if len(hdr) < _HEADER:
             # reachable through fmt_override, which promises to degrade like
             # any other walk
-            return chunks, [f"file is {len(hdr)} bytes; a CAF header needs "
-                            f"{_HEADER}"]
+            return chunks, [defect("header.truncated",
+                                   f"file is {len(hdr)} bytes; a CAF header needs "
+                                   f"{_HEADER}")]
         if hdr[:4] != MAGIC:
-            file_warns.append("missing the 'caff' magic")
+            file_warns.append(defect("magic.mismatch", "missing the 'caff' magic"))
         version, flags = struct.unpack_from(">HH", hdr, 4)
         if version != 1:
-            file_warns.append(f"file version is {version}, the spec defines 1")
+            file_warns.append(defect("value.invalid",
+                                     f"file version is {version}, the spec defines 1"))
 
         chunks.append({
             "id": "caff", "offset": 0, "size": _HEADER,
@@ -266,7 +277,8 @@ def inspect_caf(filepath):
         seen = []
         while pos + _CHUNK_HEADER <= file_size:
             if len(seen) >= _MAX_CHUNKS:
-                file_warns.append(coverage(
+                file_warns.append(hit(
+                    "work_steps", _MAX_CHUNKS, len(seen),
                     f"stopped after {_MAX_CHUNKS} chunks; the file may continue"))
                 break
             f.seek(pos)
@@ -283,19 +295,22 @@ def inspect_caf(filepath):
                 # not know the length says so rather than lying about it.
                 real = avail
                 file_warns.append(
-                    f"chunk {cid!r} declares the -1 'to end of file' size; "
-                    f"reading {real:,} bytes")
+                    info("convention.noted",
+                         f"chunk {cid!r} declares the -1 'to end of file' size; "
+                         f"reading {real:,} bytes"))
             elif size < 0:
                 file_warns.append(
-                    f"chunk {cid!r} at {pos} declares a negative size "
-                    f"({size:,}) that is not the -1 sentinel; stopping")
+                    defect("geometry.invalid",
+                           f"chunk {cid!r} at {pos} declares a negative size "
+                           f"({size:,}) that is not the -1 sentinel; stopping"))
                 break
             else:
                 real = min(size, avail)
                 if size > avail:
-                    file_warns.append(
+                    file_warns.append(defect(
+                        "size.overrun",
                         f"chunk {cid!r} claims {size:,} bytes but only "
-                        f"{avail:,} remain")
+                        f"{avail:,} remain"))
 
             payload = f.read(min(real, _PAYLOAD_CAP))
             entry = {
@@ -320,14 +335,16 @@ def inspect_caf(filepath):
                                         f"{payload[:16].hex(' ')}")
             except Exception as e:                      # noqa: BLE001
                 entry["warnings"].append(
-                    f"parse error: {e.__class__.__name__}: {e}")
+                    error("walker.error", f"parse error: {e.__class__.__name__}: {e}"))
             # "we stopped looking" is a fact about the WALK, not about this
             # chunk, so it belongs where a caller reads walk-level caveats too.
             # Promoted by the note's KIND, never by matching its text -- the
             # defect primitives.notes exists to prevent.
             file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
             if size != _TO_EOF and size > avail:
-                entry["warnings"].append("payload runs past the end of the file")
+                entry["warnings"].append(defect(
+                    "size.overrun",
+                    "payload runs past the end of the file"))
             chunks.append(entry)
             seen.append(cid)
 
@@ -335,15 +352,19 @@ def inspect_caf(filepath):
             nxt = body + real
             if nxt <= pos:
                 file_warns.append(
-                    f"chunk {cid!r} at {pos} does not advance the cursor; stopping")
+                    defect("geometry.invalid",
+                           f"chunk {cid!r} at {pos} does not advance the cursor; stopping"))
                 break
             pos = nxt
 
     if seen and seen[0] != "desc":
         file_warns.append(
-            f"first chunk is {seen[0]!r}; the spec requires desc to come first")
+            defect("chunk.order",
+                   f"first chunk is {seen[0]!r}; the spec requires desc to come first"))
     elif not seen:
-        file_warns.append("no chunks after the header; desc is mandatory")
+        file_warns.append(defect("required.missing",
+                                 "no chunks after the header; desc is mandatory"))
     if seen and "data" not in seen:
-        file_warns.append("no data chunk: the file describes audio it does not carry")
+        file_warns.append(defect("required.missing",
+                                 "no data chunk: the file describes audio it does not carry"))
     return chunks, file_warns

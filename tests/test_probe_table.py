@@ -152,3 +152,11 @@ def test_missing_count_is_a_usage_error(spec):
     r = _probe(p, "table", "0x0b", "--type", "u32", "--le")
     assert r.returncode == 2
     assert "--count" in r.stderr
+
+
+def test_table_without_a_byte_order_uses_the_formats_own(spec):
+    # the byte order is optional: leaving it off once crashed on args.be
+    p, _, _ = spec
+    r = _probe(p, "table", "0x0b", "--count-at", "0x07", "--type", "u32")
+    assert r.returncode == 0, r.stderr
+    assert "internal error" not in r.stderr

@@ -357,6 +357,88 @@ def test_bitwig_write_reenabled_cli(tmp_path):
     assert parse_meta(new_data)["creator"] == "new"
 
 
+def test_bitwig_field_the_file_lacks_is_a_bad_value(tmp_path):
+    """The Bitwig editor changes a field where it stands. A preset (or a
+    .bwproject) without `device_name` has nowhere to put a device, so that
+    --set is one the file cannot take: BadValue, exit 2 -- not a refused
+    edit, which is what `field not present` used to be."""
+    import argparse
+
+    from acidcat.commands import write as writecmd
+
+    def field(key, val):
+        return (struct.pack(">I", len(key)) + key + b"\x08"
+                + struct.pack(">I", len(val)) + val)
+    data = b"BtWg0003000200" + field(b"creator", b"old")
+    with pytest.raises(edits.BadValue, match="in place"):
+        edits.edit_bitwig(data, {"device": "x"})
+    p = tmp_path / "x.bwproject"
+    p.write_bytes(data)
+    args = argparse.Namespace(
+        inputs=[str(p)], sets=["device=x"], output=str(tmp_path / "o.bwproject"),
+        dry_run=False, overwrite=False, strip=False, output_format=None,
+        json=False, csv=False, tsv=False)
+    assert writecmd.run(args) == 2
+    assert not (tmp_path / "o.bwproject").exists()
+
+
+def test_formats_fields_says_bitwig_edits_in_place(capsys):
+    from acidcat.commands import formats
+    assert formats._print_fields("bitwig") == 0
+    assert "edited in place" in capsys.readouterr().out
+
+
+def test_ni_author_reaches_every_container():
+    """edit_metadata folds author and creator to the canonical `artist`
+    before dispatch, and none of the three NI editors knew that name: no
+    author edit could reach an NI preset at all."""
+    import seeds
+    from acidcat.core.formats import ni
+    for name, data, read in (
+            ("a.nmsv", seeds.ni_hsin(), ni.parse_hsin),
+            ("a.nksf", seeds.ni(), ni.parse_nksf),
+            ("a.ksd", seeds.ni_ksd(), ni.parse_ksd)):
+        for spelling in ("artist", "author", "creator"):
+            res = edits.edit_metadata_data(data, name, {spelling: "Me"})
+            assert res.applied[0][0] == spelling, name
+            assert read(res.data)["author"] == "Me", (name, spelling)
+
+
+def test_ni_field_a_container_lacks_is_a_bad_value():
+    import seeds
+    for name, data in (("a.nmsv", seeds.ni_hsin()), ("a.nksf", seeds.ni()),
+                       ("a.ksd", seeds.ni_ksd())):
+        with pytest.raises(edits.BadValue):
+            edits.edit_metadata_data(data, name, {"tags": "x"})
+    # .ksd edits a tag in place: one the XML does not have cannot be added
+    with pytest.raises(edits.BadValue, match="in place"):
+        edits.edit_metadata_data(seeds.ni_ksd(doc_name="Seed"), "a.ksd",
+                                 {"comment": "x"})
+
+
+def test_ni_hsin_massive_x_child_domain_edits():
+    """A Massive X .mxsnd references its first child under the domain tag
+    `2SAM` ('MAS2' reversed). The editor's frame walk knew three tags and
+    refused the file with "bad child prefix", though inspect read it."""
+    import seeds
+    from acidcat.core.formats import ni
+    data = seeds.ni_hsin(name="Snare", description="", domain=b"2SAM")
+    res = edits.edit_metadata_data(data, "a.mxsnd", {"description": "edited"})
+    assert ni.parse_hsin(res.data)["description"] == "edited"
+    assert ni.parse_hsin(res.data)["name"] == "Snare"
+    assert struct.unpack_from("<Q", res.data, 0)[0] == len(res.data)
+
+
+def test_ni_hsin_unmapped_layout_is_no_editor():
+    """A frame tree the editor cannot follow is no editor for this variant
+    (exit 2, the answer inspect gives a file it cannot walk), not a refused
+    edit of a good argument."""
+    import seeds
+    data = seeds.ni_hsin(domain=b"ZZZZ")
+    with pytest.raises(edits.EditUnmodelled, match="variant"):
+        edits.edit_metadata_data(data, "a.nmsv", {"description": "x"})
+
+
 def test_ni_write_routes_not_refused(tmp_path):
     # an NI hsin-magic file no longer hits the blanket refusal; it reaches edit_ni
     # (which will raise its own specific error on a stub, not the "not enabled" one)
@@ -368,3 +450,207 @@ def test_ni_write_routes_not_refused(tmp_path):
         _edit(str(p), {"name": "y"})
     except edits.EditError as e:
         assert "not enabled" not in str(e)      # the refusal is gone
+
+
+# ── bug hunt 2026-10-03, area A ────────────────────────────────────
+
+def _bck(cid, payload, pad=True):
+    return cid + struct.pack(">I", len(payload)) + payload + (
+        b"\x00" if pad and len(payload) & 1 else b"")
+
+
+def _aiff(*chunks):
+    rate80 = bytes.fromhex("400EAC44000000000000")
+    body = (b"AIFF" + _bck(b"COMM", struct.pack(">hIh", 1, 100, 16) + rate80)
+            + _bck(b"SSND", struct.pack(">II", 0, 0) + bytes(range(200)))
+            + b"".join(chunks))
+    return b"FORM" + struct.pack(">I", len(body)) + body
+
+
+def _verified(data, name, changes):
+    """The edit as `acidcat edit` makes it: planned, then verified (each value
+    reads back, the re-walk has no new defect)."""
+    from acidcat.core import edit as editmod
+    return editmod.plan(data, name, changes).verify()
+
+
+def test_aiff_edit_follows_unpadded_odd_chunks():
+    # A1: odd chunks whose writer left the pad out. The editor stepped over a
+    # pad that was not there, landed one byte into the next chunk and refused
+    # the file as overrunning; the walker follows it, so the editor must too
+    from acidcat.core.write import edit_aiff
+    src = _aiff(_bck(b"AUTH", b"TEKNIKS", False), _bck(b"(c) ", b"TEKNIKS", False),
+                _bck(b"ANNO", b"THE MIXTAPE TOOLKIT", False))
+    patch = _verified(src, "x.aif", {"title": "x"})
+    chunks, trailing = edit_aiff._iter_chunks(patch.data)
+    got = {c[0]: c[1] for c in chunks}
+    assert [c[0] for c in chunks] == [b"COMM", b"NAME", b"SSND", b"AUTH", b"(c) ", b"ANNO"]
+    assert got[b"ANNO"] == b"THE MIXTAPE TOOLKIT" and got[b"(c) "] == b"TEKNIKS"
+    assert got[b"SSND"] == next(c[1] for c in edit_aiff._iter_chunks(src)[0]
+                                if c[0] == b"SSND")
+    # the rewrite adds the missing pads: a repair, and the file stays whole
+    assert trailing == b"" and len(patch.data) % 2 == 0
+    assert struct.unpack_from(">I", patch.data, 4)[0] == len(patch.data) - 8
+    assert edit_aiff.strip_aiff(src)[1] == ["AUTH", "(c)", "ANNO"]
+
+
+def test_wav_edit_follows_an_unpadded_odd_chunk():
+    # A1, the RIFF editor's reader had the same blind step
+    odd = b"ISFT" + struct.pack("<I", 5) + b"tool!"           # no pad byte
+    src = _wav(_fmt(), odd, _data(16))
+    patch = _verified(src, "x.wav", {"title": "x"})
+    got = {c[0]: c[1] for c in _iter_chunks(patch.data)[0]}
+    assert got[b"ISFT"] == b"tool!" and got[b"data"] == _payload(src, b"data")
+    assert len(patch.data) % 2 == 0
+    # the audio fingerprint a tag rewrite is checked against walks it too
+    padded = _wav(_fmt(), _chunk(b"ISFT", b"tool!"), _data(16))
+    assert edits._audio_digest(src)[1] is not None
+    assert edits._audio_digest(src) == edits._audio_digest(padded)
+
+
+def _loop_wav(beats, tempo, frames=88200):
+    """Mono 16-bit 44.1 kHz, `frames` long (2.0 s by default), with an acid
+    chunk saying `beats` at `tempo`."""
+    fmt = _chunk(b"fmt ", struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16))
+    acid = struct.pack("<IHHfIHHf", 0, 0, 0x8000, 0.0, beats, 4, 4, tempo)
+    return _wav(fmt, _chunk(b"data", bytes(frames * 2)), _chunk(b"acid", acid))
+
+
+@pytest.mark.parametrize("bpm,beats", [
+    ("123", 4),        # 4 beats still fit 2.0 s at 123 (2.4% off): left alone
+    ("240", 8),        # double time: 8 beats is what 2.0 s holds
+    ("128", 0),        # 4.27 beats: no whole number fits, so not stated
+])
+def test_wav_bpm_keeps_the_acid_beats_in_step(bpm, beats):
+    # A2: a new tempo against the chunk's old beat count contradicted the
+    # audio length (a new field.inconsistent defect) and the edit was refused
+    notes = []
+    out, applied = edit_riff.edit_wav(_loop_wav(4, 120.0), {"bpm": bpm}, notes)
+    acid = _payload(out, b"acid")
+    assert struct.unpack_from("<I", acid, 12)[0] == beats
+    assert struct.unpack_from("<f", acid, 20)[0] == float(bpm)
+    assert applied == [("bpm", 120.0, bpm)]
+    assert bool(notes) == (beats != 4)
+    _verified(_loop_wav(4, 120.0), "x.wav", {"bpm": bpm})
+
+
+def test_wav_bpm_on_a_single_cycle_with_stale_beats_verifies():
+    # the field case: 600 frames whose acid chunk says 4 beats (17640 bpm)
+    src = _loop_wav(4, 4 / (600 / 44100) * 60, frames=600)
+    patch = _verified(src, "x.wav", {"bpm": "128"})
+    assert struct.unpack_from("<I", _payload(patch.data, b"acid"), 12)[0] == 0
+    assert any("not stated" in n for n in patch.notes)
+
+
+def test_wav_bpm_on_a_new_acid_chunk_had_no_old_tempo():
+    out, applied = edit_riff.edit_wav(_wav(_fmt(), _data()), {"bpm": "128"})
+    assert applied == [("bpm", None, "128")]
+
+
+_UNICODE = "Ünïcødé ✓ 日本"
+
+
+@pytest.mark.parametrize("field", ["album", "title", "comment", "engineer",
+                                   "originator", "originator_reference",
+                                   "description"])
+def test_wav_text_round_trips_as_utf8(field):
+    # A3: the editor wrote UTF-8 and read its own old value back as latin-1
+    # (INFO), or wrote bext as ascii with '?' for the rest
+    bext = bytes(602)
+    src = _wav(_fmt(), _chunk(b"bext", bext), _data())
+    patch = _verified(src, "x.wav", {field: _UNICODE})
+    assert patch.applied == [(field, None, _UNICODE)]
+    # and inspect shows it as written
+    from acidcat.core import edit as editmod
+
+    def values(nodes):
+        for n in nodes:
+            yield from (f.get("value") for f in n.get("fields", []))
+            yield from values(n.get("children", []))
+    assert _UNICODE in values(editmod._walk_bytes(patch.data, "x.wav")["nodes"])
+
+
+@pytest.mark.parametrize("field", ["title", "artist", "comment", "annotation"])
+def test_aiff_text_round_trips_as_utf8(field):
+    patch = _verified(_aiff(), "x.aif", {field: _UNICODE})
+    assert patch.applied == [(field, None, _UNICODE)]
+
+
+def test_text_that_is_not_utf8_still_reads_as_latin1():
+    # a cp1252 tag written by an older tool is reported as it reads
+    from acidcat.core.write import edit_aiff
+    info = b"INFO" + b"INAM" + struct.pack("<I", 5) + b"caf\xe9\x00" + b"\x00"
+    src = _wav(_fmt(), _chunk(b"LIST", info), _data())
+    assert edit_riff.edit_wav(src, {"title": "x"})[1] == [("title", "café", "x")]
+    src = _aiff(_bck(b"NAME", b"caf\xe9"))
+    assert edit_aiff.edit_aiff(src, {"title": "x"})[1] == [("title", "café", "x")]
+
+
+@pytest.mark.parametrize("field,width", [
+    ("description", 256), ("originator", 32), ("originator_reference", 32),
+    ("origination_date", 10), ("origination_time", 8)])
+def test_wav_bext_value_wider_than_its_field_is_a_bad_value(field, width):
+    # A4: an over-long value was cut to fit, failed the read-back late (exit 1)
+    # and the message held the value twice. Refused up front, by byte count
+    with pytest.raises(edits.BadValue) as e:
+        edit_riff.edit_wav(_wav(_fmt(), _data()), {field: "x" * 500})
+    assert str(e.value) == f"{field} holds at most {width} bytes; got 500"
+    # bytes, not characters: 17 'é' are 34 bytes
+    if width == 32:
+        with pytest.raises(edits.BadValue, match="got 34$"):
+            edit_riff.edit_wav(_wav(_fmt(), _data()), {field: "é" * 17})
+    # exactly full is fine, with no terminator
+    out, _ = edit_riff.edit_wav(_wav(_fmt(), _data()), {field: "y" * width})
+    assert b"y" * width in _payload(out, b"bext")
+
+
+def test_cli_refuses_a_too_wide_bext_value_with_exit_2(tmp_path, capsys):
+    from acidcat.cli import main
+    src = tmp_path / "in.wav"
+    src.write_bytes(_wav(_fmt(), _data()))
+    out = tmp_path / "out.wav"
+    assert main(["edit", str(src), "--set", "description=" + "x" * 500,
+                 "-o", str(out)]) == 2
+    err = capsys.readouterr().err
+    assert "description holds at most 256 bytes; got 500" in err
+    assert "x" * 50 not in err
+    assert not out.exists()
+
+
+def test_wav_key_am_round_trip_is_a_no_op():
+    # A5: key=Am stores the root A3 (the acid chunk holds no mode, and says
+    # so in a note); setting it again on the result changes nothing
+    notes = []
+    once, applied = edit_riff.edit_wav(_wav(_fmt(), _data()), {"key": "Am"}, notes)
+    assert applied == [("key", None, "A3")] and notes
+    acid = _payload(once, b"acid")
+    assert struct.unpack_from("<H", acid, 4)[0] == 69                 # A3
+    assert struct.unpack_from("<I", acid, 0)[0] & 0x02                # root set
+    twice, applied = edit_riff.edit_wav(once, {"key": "Am"})
+    assert twice == once and applied == [("key", "A3", "A3")]
+
+
+
+def test_no_cascade_leaves_the_beat_count_and_refuses(tmp_path):
+    # --no-cascade: a field tied to the edit is not changed for you; the edit
+    # that then contradicts the audio is refused, as the flag says
+    from acidcat.cli import main
+    p = tmp_path / "x.wav"
+    p.write_bytes(_loop_wav(4, 4 / (600 / 44100) * 60, frames=600))
+    out = tmp_path / "o.wav"
+    assert main(["edit", str(p), "--set", "bpm=128", "--no-cascade",
+                 "-o", str(out), "-q"]) == 1
+    assert not out.exists()
+    assert main(["edit", str(p), "--set", "bpm=128", "-o", str(out), "-q"]) == 0
+
+
+def test_a_file_the_tag_library_cannot_read_has_no_editor(tmp_path, capsys):
+    # mutagen reads no codec it knows: could not run (2), said plainly
+    from acidcat.cli import main
+    page = (b"OggS\x00\x02" + b"\x00" * 8 + b"\x01\x00\x00\x00" + b"\x00" * 8
+            + b"\x01\x10" + b"NOTACODEC" + b"\x00" * 7)
+    p = tmp_path / "u.ogg"
+    p.write_bytes(page)
+    assert main(["edit", str(p), "--set", "title=x", "-o", str(tmp_path / "o.ogg")]) == 2
+    err = capsys.readouterr().err
+    assert "tag library cannot read" in err

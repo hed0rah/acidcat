@@ -138,7 +138,7 @@ def test_command_single_format_and_miss(capsys):
         format = "sf2"; output_format = "table"
     assert formats.run(A) == 0
     A.format = "nope-not-real"
-    assert formats.run(A) == 1
+    assert formats.run(A) == 2          # a bad argument value (review R5)
 
 
 def test_edit_set_matches_live_dispatch(tmp_path):

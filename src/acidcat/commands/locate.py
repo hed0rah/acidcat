@@ -20,7 +20,7 @@ the bytes -- reported null, with common candidates).
 import sys
 
 from acidcat.core.forensics import audioscan
-from acidcat.commands._output import add_output_format_arg
+from acidcat.commands._output import add_output_format_arg, add_report_arg
 from acidcat.core.forensics import locate as locatemod
 from acidcat.core.infra.render import format_json
 from acidcat.util.stdin import is_stdin_target
@@ -34,7 +34,7 @@ def register(subparsers):
     p = subparsers.add_parser(
         "locate",
         help="Find audio regions in a blob or disk image (containers + raw PCM).")
-    p.add_argument("input", help="File to scan, or '-' to read the blob from stdin.")
+    p.add_argument("input", metavar="FILE", help="File to scan, or '-' to read the blob from stdin.")
     p.add_argument("--mode", choices=locatemod.MODES, default="normal",
                    help="Forensics level: strict (validated containers only), "
                         "normal (+ high-confidence blobs), aggressive (every "
@@ -48,6 +48,7 @@ def register(subparsers):
                         "obfuscation lens. The reported key is a candidate "
                         "(polarity/low-bits are ambiguous). Reads at most 16 MB.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"))
+    add_report_arg(p)
     p.add_argument("--min-confidence", type=float, default=0.0, metavar="C",
                    help="Only report regions at or above this confidence (0..1). "
                         "A signature-matched container is 0.90; a headerless "
@@ -78,9 +79,20 @@ def _analyze(data, recs):
                 data[r["offset"]:min(r["end"], r["offset"] + 16384)])
 
 
-def _public(rec, verbose=False):
+def _public(rec, verbose=False, path=None):
+    """A region as the machine rows name it (cli-2.0.md section 4.1): the
+    blob's `path` as given, `format` the registry id with `label` beside it
+    (review V8: locate's rows had neither)."""
+    from acidcat.core.walk import _WALKERS
     keys = _PUBLIC_KEYS + ("evidence",) if verbose else _PUBLIC_KEYS
-    return {k: rec[k] for k in keys if k in rec}
+    out = {"path": path} if path is not None else {}
+    for k in keys:
+        if k in rec:
+            out[k] = rec[k]
+            if k == "format":
+                fmt = rec[k]
+                out["label"] = _WALKERS[fmt][0] if fmt in _WALKERS else fmt
+    return out
 
 
 def _geo_str(g):
@@ -139,7 +151,8 @@ def run(args):
         print(f"acidcat locate: {args.input}: {e}", file=sys.stderr)
         return 2
     if not data:
-        print("acidcat locate: no input bytes", file=sys.stderr)
+        print("acidcat locate: " + ("no data on stdin" if is_stdin_target(args.input)
+                                    else "no input bytes"), file=sys.stderr)
         return 2
 
     # Only the signature sweep is unbounded. The statistical pass and the frame
@@ -184,13 +197,14 @@ def run(args):
             print(f"acidcat locate: {dropped} region(s) below confidence "
                   f"{floor:g} not reported", file=sys.stderr)
 
+    given = "<stdin>" if is_stdin_target(args.input) else args.input
     if args.output_format == "json":
-        format_json([_public(r, args.verbose) for r in recs], sys.stdout)
+        format_json([_public(r, args.verbose, given) for r in recs], sys.stdout)
     elif args.output_format == "tsv":
         _print_tsv(recs)                     # historical layout, no header
     elif args.output_format == "csv":
         from acidcat.core.infra.render import output as _render
-        _render([_public(r, args.verbose) for r in recs], fmt="csv")
+        _render([_public(r, args.verbose, given) for r in recs], fmt="csv")
     else:
         _print_table(recs, args.verbose)
 

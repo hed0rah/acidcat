@@ -92,7 +92,7 @@ def run(args):
     try:
         return _run(args)
     except QueryUsageError as e:
-        print(f"acidcat query: {e}", file=sys.stderr)
+        print(f"acidcat lib: {e}", file=sys.stderr)
         return 2
 
 
@@ -119,15 +119,15 @@ def _run(args):
     finally:
         rconn.close()
     if missing:
-        print(f"acidcat query: {len(missing)} registered librar"
+        print(f"acidcat lib: {len(missing)} registered librar"
               f"{'y' if len(missing) == 1 else 'ies'} not searched, DB missing: "
               f"{', '.join(sorted(missing))}", file=sys.stderr)
 
     if not libs:
         # 2: there is nothing to search, so the query could not run at all --
         # the same answer `validate` gives when nothing was checkable.
-        print("acidcat query: no libraries registered. "
-              "Run `acidcat index DIR --label NAME` first.", file=sys.stderr)
+        print("acidcat lib: no libraries registered. "
+              "Run `acidcat lib index DIR --label NAME` first.", file=sys.stderr)
         return 2
 
     scopes = None
@@ -135,7 +135,7 @@ def _run(args):
         scopes = [s.strip() for s in args.root.split(",") if s.strip()]
         libs = _scope_libraries(libs, scopes)
         if not libs:
-            print(f"acidcat query: no library matches --root {args.root!r}",
+            print(f"acidcat lib: no library matches --root {args.root!r}",
                   file=sys.stderr)
             return 1
 
@@ -148,7 +148,7 @@ def _run(args):
         # 2: a malformed --text is the same class of mistake as a malformed
         # --bpm, which already exits 2. It was 1 (ran fine, no answer), so a
         # script could not tell "your syntax is wrong" from "nothing matched".
-        print(f"acidcat query: {e}", file=sys.stderr)
+        print(f"acidcat lib: {e}", file=sys.stderr)
         return 2
     rows.sort(key=lambda r: r.get("path") or "")
     shown = len(rows)
@@ -181,11 +181,11 @@ def _run(args):
         if not truncated:
             return
         if total_matched is None:
-            print(f"acidcat query: showing {len(rows)}; the total could not be "
-                  f"counted (raise --limit to see more)", file=sys.stderr)
+            print(f"acidcat lib: showing {len(rows)}; the total could not be "
+                  f"counted (raise --top to see more)", file=sys.stderr)
         else:
-            print(f"acidcat query: showing {len(rows)} of {total_matched} "
-                  f"match(es) -- raise --limit to see more", file=sys.stderr)
+            print(f"acidcat lib: showing {len(rows)} of {total_matched} "
+                  f"match(es) -- raise --top to see more", file=sys.stderr)
 
     if args.paths_only:
         for r in rows:
@@ -229,17 +229,17 @@ def _run_compatible(args, libs):
     from acidcat.core.catalogue import search
     ref = args.compatible_with
     if not os.path.exists(ref):
-        print(f"acidcat query: --compatible-with file not found: {ref}",
+        print(f"acidcat lib: --compatible-with file not found: {ref}",
               file=sys.stderr)
         return 1
     row, source, _lib = search.resolve_reference(ref, libs)
     if row is None:
-        print(f"acidcat query: could not read {ref} (index it, or ensure it "
+        print(f"acidcat lib: could not read {ref} (index it, or ensure it "
               "carries key/tempo metadata).", file=sys.stderr)
         return 1
     key, bpm = row.get("key"), row.get("bpm")
     if key is None and bpm is None:
-        print(f"acidcat query: {ref} has no key or BPM to match on.",
+        print(f"acidcat lib: {ref} has no key or BPM to match on.",
               file=sys.stderr)
         return 1
     kind = (args.kind or "").lower() or search.infer_kind(row.get("duration"),
@@ -342,7 +342,7 @@ def _fan_out(libs, args):
             seen_paths.add(p)
             accumulated.append(_shape_row(d))
     for label, why in skipped_libs:
-        print(f"acidcat query: library {label!r} could not be searched: {why}",
+        print(f"acidcat lib: library {label!r} could not be searched: {why}",
               file=sys.stderr)
     return accumulated, (total_matched if counted_all else None)
 

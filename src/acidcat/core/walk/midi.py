@@ -2,13 +2,14 @@
 per-track stats and the optional --frames per-event listing. Mirrors
 the event grammar in core/midi.py."""
 
-import os
 import struct
 
 from acidcat.core.formats import midi as midimod
 from acidcat.core.formats.midi import _read_vlq
-from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f
+from acidcat.core.infra.findings import defect, info
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
+from acidcat.core.walk.base import _FRAME_LISTING_CAP, _dtext, _f, _open, _size
 from acidcat.util.midi import key_signature_name, midi_note_to_name
 
 _MIDI_FORMATS = {0: "single track", 1: "multi-track sync", 2: "independent patterns"}
@@ -33,6 +34,20 @@ _VOICE_NAMES = {
 }
 
 
+
+def _seconds(span, division, changes):
+    """Seconds from tick 0 to `span` at PPQ `division`, through `changes`
+    [(tick, microseconds per quarter)] sorted by tick; 120 bpm until the first.
+    A change past the span does not count."""
+    us, last, total = 500_000, 0, 0
+    for tick, new in changes:
+        if tick >= span:
+            break
+        total += (tick - last) * us
+        last, us = tick, new
+    total += (span - last) * us
+    return total / division / 1_000_000
+
 def _scan_track(trk, ctx, collect=False):
     """Collect display facts from one MTrk payload. Mirrors the event
     grammar in core/midi.py but keeps per-track stats. With ``collect``,
@@ -44,6 +59,7 @@ def _scan_track(trk, ctx, collect=False):
     nmin = nmax = None
     channels = set()
     tempos = []
+    tempo_map = []                     # (tick, microseconds per quarter)
     names = []
     copyright = None
     time_sig = key_sig = None
@@ -82,6 +98,7 @@ def _scan_track(trk, ctx, collect=False):
                 us = (edata[0] << 16) | (edata[1] << 8) | edata[2]
                 if us:
                     tempos.append(round(60_000_000 / us, 2))
+                    tempo_map.append((ticks, us))
                     detail = f"{round(60_000_000 / us, 2):g} bpm"
             elif etype == 0x58 and elen == 4:
                 time_sig = f"{edata[0]}/{2 ** edata[1]}"
@@ -178,7 +195,8 @@ def _scan_track(trk, ctx, collect=False):
             pos += 1
 
     return {"ticks": ticks, "notes": notes, "nmin": nmin, "nmax": nmax,
-            "channels": channels, "tempos": tempos, "names": names,
+            "channels": channels, "tempos": tempos, "tempo_map": tempo_map,
+            "names": names,
             "copyright": copyright, "time_sig": time_sig, "key_sig": key_sig,
             "has_eot": has_eot, "events": events, "n_events": n_events,
             "sysex": sysex, "unknown_meta": unknown_meta, "eot_end": eot_end}
@@ -225,24 +243,26 @@ def inspect_midi(filepath, deep=False, ctx=None):
     With ``deep``, each MTrk carries a per-event listing. A caller-supplied
     ``ctx`` dict is filled with the semantic values the scan path reads
     (duration, tempo_bpm, key_sig, first track name, copyright)."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     scan = ctx if ctx is not None else {}
     # clamped read: read(N) pre-allocates N bytes (see core/midi.py)
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         data = f.read(min(midimod.MAX_SMF_BYTES, file_size))
     chunks = []
     file_warns = []
     if file_size > len(data):
-        file_warns.append(
+        file_warns.append(hit(
+            "read_bytes", len(data), file_size,
             f"file is {file_size:,} bytes; parsed the first "
-            f"{len(data):,} (cap)")
+            f"{len(data):,} (cap)"))
         file_size = len(data)
 
     if len(data) < 14:
         # sniffing requires 14 bytes, but the RMID walker (or a direct caller)
         # can hand over a shorter payload; degrade to a warning, not a traceback
         file_warns.append(
-            f"file is {len(data)} bytes; a complete MThd header needs 14")
+            defect("header.truncated",
+                   f"file is {len(data)} bytes; a complete MThd header needs 14"))
         return chunks, file_warns
 
     hdr_len = struct.unpack(">I", data[4:8])[0]
@@ -271,7 +291,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
         # read(negative), i.e. the whole file. the six header bytes
         # were still decoded above (best effort).
         hdr_warns.append(
-            f"MThd declares {hdr_len} bytes, spec minimum is 6")
+            defect("chunk.short", f"MThd declares {hdr_len} bytes, spec minimum is 6"))
     summary = f"format {fmt}, {ntrks} track(s)"
     chunks.append({"id": "MThd", "offset": 0, "size": hdr_len,
                    "summary": summary, "fields": fields,
@@ -287,13 +307,15 @@ def inspect_midi(filepath, deep=False, ctx=None):
     found = 0
     first_tempo = None
     tempo_lists = []
+    tempo_maps = []
     max_ticks = 0
     track_ticks = []
     while offset + 8 <= file_size and found < ntrks:
         if data[offset:offset + 4] != b"MTrk":
             file_warns.append(
-                f"expected MTrk at 0x{offset:08x}, found "
-                f"{data[offset:offset + 4]!r}; stopping"
+                defect("magic.mismatch",
+                       f"expected MTrk at 0x{offset:08x}, found "
+                       f"{data[offset:offset + 4]!r}; stopping")
             )
             break
         trk_len = struct.unpack(">I", data[offset + 4:offset + 8])[0]
@@ -301,17 +323,18 @@ def inspect_midi(filepath, deep=False, ctx=None):
         entry = {"id": "MTrk", "offset": offset, "size": trk_len,
                  "summary": "", "fields": [], "warnings": []}
         if len(trk) < trk_len:
-            entry["warnings"].append(
-                f"declares {trk_len:,} bytes but only {len(trk):,} remain"
+            entry["warnings"].append(defect(
+                "size.overrun",
+                f"declares {trk_len:,} bytes but only {len(trk):,} remain")
             )
         st = _scan_track(trk, ctx, collect=deep)
         if deep:
             entry["rows"] = st["events"]         # already capped while collecting
             if st["n_events"] > _FRAME_LISTING_CAP:
-                entry["warnings"].append(
+                entry["warnings"].append(hit(
+                    "frame_rows", _FRAME_LISTING_CAP, st["n_events"],
                     f"event listing capped at {_FRAME_LISTING_CAP:,} "
-                    f"of {st['n_events']:,}"
-                )
+                    f"of {st['n_events']:,}"))
         flds = entry["fields"]
         if st["names"]:
             flds.append(_f(None, 0, "name", st["names"][0]))
@@ -347,7 +370,7 @@ def inspect_midi(filepath, deep=False, ctx=None):
                                 else max(scan["note_max"], st["nmax"]))
         _channels |= st["channels"]                  # 0-based, like legacy
         if not st["has_eot"]:
-            entry["warnings"].append("no end-of-track meta event")
+            entry["warnings"].append(defect("required.missing", "no end-of-track meta event"))
         for etype in sorted(st["unknown_meta"])[:_UNKNOWN_META_CAP]:
             count, head = st["unknown_meta"][etype]
             flds.append(_f(None, 0, f"meta 0x{etype:02x}",
@@ -355,7 +378,8 @@ def inspect_midi(filepath, deep=False, ctx=None):
                            "not a type the format defines; first payload "
                            f"{head.hex(' ') or '(empty)'}"))
         if len(st["unknown_meta"]) > _UNKNOWN_META_CAP:
-            entry["warnings"].append(coverage(
+            entry["warnings"].append(hit(
+                "list_rows", _UNKNOWN_META_CAP, len(st["unknown_meta"]),
                 f"listing the first {_UNKNOWN_META_CAP} of "
                 f"{len(st['unknown_meta'])} undefined meta types"))
         for mfr, slen, reserved in st["sysex"]:
@@ -363,10 +387,12 @@ def inspect_midi(filepath, deep=False, ctx=None):
                 flds.append(_f(None, 0, "sysex", f"{mfr}, {slen:,} bytes"))
                 why = ("uses the non-commercial manufacturer id, no synth acts "
                        "on it" if reserved else f"oversized ({slen:,} bytes)")
-                entry["warnings"].append(f"SysEx {why}: possible payload cavity")
+                entry["warnings"].append(defect("value.invalid",
+                                                f"SysEx {why}: possible payload cavity"))
         max_ticks = max(max_ticks, st["ticks"])
         track_ticks.append(st["ticks"])
         tempo_lists.append(st["tempos"])
+        tempo_maps.append(st["tempo_map"])
 
         bits = []
         if st["names"]:
@@ -381,9 +407,10 @@ def inspect_midi(filepath, deep=False, ctx=None):
         offset += 8 + trk_len
 
     if found < ntrks:
-        file_warns.append(f"MThd declares {ntrks} tracks, found {found}")
+        file_warns.append(defect("count.mismatch", f"MThd declares {ntrks} tracks, found {found}"))
     if not (division & 0x8000) and first_tempo is None and found:
-        file_warns.append("no tempo event in any track; players assume 120 bpm")
+        file_warns.append(info("value.assumed",
+                               "no tempo event in any track; players assume 120 bpm"))
 
     # How long the file is depends on what the format says its tracks ARE.
     #
@@ -413,20 +440,29 @@ def inspect_midi(filepath, deep=False, ctx=None):
             note = "SMPTE timing, tempo-independent"
     elif division and span:
         bpm = first_tempo or 120.0
-        dur = (span / division) * 60.0 / bpm
+        if fmt == 2:
+            # each pattern keeps its own tempo map and its own timeline
+            dur = sum(_seconds(t, division, m)
+                      for t, m in zip(track_ticks, tempo_maps))
+        else:
+            # format 0/1 tempos are global, whichever track holds them
+            dur = _seconds(span, division,
+                           sorted((c for m in tempo_maps for c in m),
+                                  key=lambda c: c[0]))
         note = f"at {bpm:g} bpm"
         if first_tempo is None:
             note = "at the SMF default 120 bpm (no tempo event)"
         elif n_tempos > 1:
-            note += f"; {n_tempos} tempo events make this approximate"
+            note = f"over {n_tempos} tempo events"
     if seq:
         note = ((note + "; ") if note else "") + (
             f"the {len(track_ticks)} patterns are independent, so this is "
             f"their total played end to end")
         file_warns.append(
-            f"format 2: {len(track_ticks)} sequentially independent patterns, "
-            f"which share no timeline. The duration is their sum, not a single "
-            f"performance")
+            info("convention.noted",
+                 f"format 2: {len(track_ticks)} sequentially independent patterns, "
+                 f"which share no timeline. The duration is their sum, not a single "
+                 f"performance"))
     if dur is not None:
         chunks[0]["fields"].append(
             _f(None, 0, "duration", f"{dur:.3f} s", note))

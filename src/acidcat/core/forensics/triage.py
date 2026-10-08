@@ -17,9 +17,11 @@ random or non-container data still falls through to "unrecognized." The chunk
 list it produces is also the starting point for writing the real walker.
 """
 
-import os
 import struct
 
+from acidcat.core.infra.findings import info
+from acidcat.core.infra.limits import hit
+from acidcat.core.infra.source import open_input, input_size
 from acidcat.core.primitives.signal import byte_entropy
 
 from acidcat.core.walk.base import _f
@@ -72,10 +74,10 @@ def _walk_grid(b, total, start, endian):
 def generic_walk(filepath):
     """Return walker-shaped (label, chunks, warnings) for an unknown chunked
     container, or None if the bytes are not a recognizable container."""
-    total = os.path.getsize(filepath)
+    total = input_size(filepath)
     if total < 12:
         return None
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         b = f.read(min(total, _READ_CAP))
     magic = b[:4]
     if not _printable4(magic):
@@ -152,15 +154,18 @@ def generic_walk(filepath):
                         else "chunk"),
             "fields": [], "warnings": [],
         })
-    warns = ["generic structural triage: no format-specific walker; "
-             "chunk names and sizes are decoded, payloads are not"]
+    warns = [info("triage.generic",
+                  "generic structural triage: no format-specific walker; "
+                  "chunk names and sizes are decoded, payloads are not")]
     if windowed:
-        warns.append(f"grid walked within the first {_READ_CAP:,} bytes of "
-                     f"{total:,}; any chunk whose header falls past that window "
-                     f"is neither counted nor listed")
+        warns.append(hit("read_bytes", _READ_CAP, total,
+                         f"grid walked within the first {_READ_CAP:,} bytes of "
+                         f"{total:,}; any chunk whose header falls past that window "
+                         f"is neither counted nor listed"))
     if found > len(chunks):
         # the count above is the real one; say plainly that the LIST below is
         # only a prefix, so "257 chunks" is never read as the whole grid
-        warns.append(f"{found:,} chunks found; listing the first "
-                     f"{_LIST_CAP:,}")
+        warns.append(hit("list_rows", _LIST_CAP, found,
+                         f"{found:,} chunks found; listing the first "
+                         f"{_LIST_CAP:,}"))
     return label, out, warns

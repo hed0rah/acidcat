@@ -103,10 +103,12 @@ def parse(raw, filesize):
          "inflated_size": None, "gsf": None, "save": None}
     if len(raw) < HEADER or raw[:3] != MAGIC:
         h["why"] = "no PSF magic"
+        h["code"] = "magic.mismatch"
         return h
     v = raw[3]
     if v not in VERSIONS:
         h["why"] = "version byte 0x%02X names no known machine" % v
+        h["code"] = "value.invalid"
         return h
     h["version"] = v
     h["platform"] = VERSIONS[v]
@@ -116,6 +118,7 @@ def parse(raw, filesize):
     if h["program_at"] + cs > filesize:
         h["why"] = ("reserved %d + program %d bytes run past the end of the "
                     "file" % (rs, cs))
+        h["code"] = "size.overrun"
         return h
 
     prog = raw[h["program_at"]:h["program_at"] + cs]

@@ -200,6 +200,50 @@ def test_it_detect_walk_and_xref(tmp_path):
     assert not warns
 
 
+def test_an_empty_sample_slots_pointer_is_not_followed(tmp_path):
+    """Trackers leave empty slots (length 0, no data flag) with any pointer --
+    often past the end, and the slot's name holds the credits. It points at
+    nothing, so it is neither an xref nor a dangling pointer."""
+    from acidcat.core.infra import contract
+    raw, imps_off, _data_off = _make_it()
+    raw = bytearray(raw)
+    raw[imps_off + 0x12] = 0                                   # no sample data
+    struct.pack_into("<I", raw, imps_off + 0x30, 0)            # length 0
+    struct.pack_into("<I", raw, imps_off + 0x48, len(raw) + 4096)
+    p = tmp_path / "empty.it"
+    p.write_bytes(bytes(raw))
+    chunks, warns = wtk.inspect_it(str(p))
+    smp = next(c for c in chunks if c["id"].startswith("smp["))
+    ptr = next(f for f in smp["fields"] if f["name"] == "sample_pointer")
+    assert ptr.get("xref") is None
+    assert not [w for w in warns if "past EOF" in w]
+    doc = contract.walk(str(p))
+    assert not [f for f in doc["findings"] if f.get("code") == "pointer.dangling"]
+
+
+def test_a_truncated_it_sample_is_a_defect(tmp_path):
+    """Only a pointer strictly past EOF was checked, so a module cut inside
+    its last sample, or exactly at its data pointer, walked and audited
+    clean. The sample_pointer note said "20 bytes of PCM PCM"."""
+    from acidcat.core.infra import contract
+    raw, _imps_off, data_off = _make_it()
+    for cut, code in ((len(raw) - 10, "size.overrun"),
+                      (data_off, "pointer.dangling")):
+        p = tmp_path / f"cut{cut}.it"
+        p.write_bytes(raw[:cut])
+        chunks, warns = wtk.inspect_it(str(p))
+        assert any("smp[0]" in w for w in warns), (cut, warns)
+        doc = contract.walk(str(p))
+        assert [f for f in doc["findings"] if f.get("code") == code], cut
+    p = tmp_path / "whole.it"
+    p.write_bytes(raw)
+    chunks, warns = wtk.inspect_it(str(p))
+    assert not warns
+    smp = next(c for c in chunks if c["id"].startswith("smp["))
+    ptr = next(f for f in smp["fields"] if f["name"] == "sample_pointer")
+    assert "PCM PCM" not in str(ptr) and "20 bytes of PCM" in str(ptr)
+
+
 def test_truncated_headers_degrade(tmp_path):
     """A valid magic followed by a header too short for the fixed struct must
     degrade with a warning, never raise -- the crash class the external audit

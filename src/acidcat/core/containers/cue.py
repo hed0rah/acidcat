@@ -17,7 +17,10 @@ track's start (or end of file).
         print(t["num"], t["type"], t["file"])
 """
 
+import io
 import os
+
+from acidcat.core.infra.source import input_name, open_input
 
 SECTOR = 2352                        # raw CD sector; a CD-DA sector is all samples
 CDDA_RATE = 44100
@@ -40,14 +43,17 @@ def _msf_to_lba(msf):
 
 
 def parse(cue_path):
-    """Parse a .cue sheet into a list of tracks, each
+    """Parse a .cue sheet (a path or a Source) into a list of tracks, each
     {num, type, file, start_lba} where start_lba is the track's INDEX 01 (its
     audio start, past any pregap) within its file, in sectors."""
     tracks = []
     cur_file = None
     cur = None
-    base = os.path.dirname(cue_path)
-    with open(cue_path, encoding="latin-1") as fh:
+    base = os.path.dirname(input_name(cue_path))
+    raw = open_input(cue_path)
+    if not isinstance(raw, io.BufferedIOBase):
+        raw = io.BufferedReader(raw)
+    with io.TextIOWrapper(raw, encoding="latin-1") as fh:
         for line in fh:
             line = line.strip()
             if line.startswith("FILE "):

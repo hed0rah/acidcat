@@ -31,6 +31,8 @@ import signal
 import sys
 import time
 
+from acidcat.core.primitives.notes import from_wire, to_wire
+
 DEFAULT_MEM_MB = 2048
 DEFAULT_TIMEOUT_S = 60
 _MAX_RESULT = 128 * 1024 * 1024        # cap the result payload read from the worker
@@ -184,7 +186,7 @@ def run_limited(target, mem_mb=DEFAULT_MEM_MB, timeout_s=DEFAULT_TIMEOUT_S):
             _apply_limits(mem_mb, timeout_s)
             label, chunks, warns = target()
             payload = json.dumps({"ok": True, "label": label,
-                                  "chunks": chunks, "warns": warns})
+                                  "chunks": to_wire(chunks), "warns": to_wire(warns)})
         except MemoryError:
             payload = json.dumps({"ok": False, "err": "memory limit exceeded"})
         except BaseException as e:
@@ -227,7 +229,7 @@ def run_limited(target, mem_mb=DEFAULT_MEM_MB, timeout_s=DEFAULT_TIMEOUT_S):
         raise SandboxError("worker produced no usable result (likely killed mid-write)")
     if not res.get("ok"):
         raise SandboxError(res.get("err", "unknown worker error"))
-    return res["label"], res["chunks"], res["warns"]
+    return res["label"], from_wire(res["chunks"]), from_wire(res["warns"])
 
 
 # ── the 'bwrap' profile (namespace isolation) ───────────────────────────────
@@ -274,7 +276,7 @@ def _run_bwrap(filepath, deep, mem_mb, timeout_s):
             + (f": {tail}" if tail else ""))
     if not res.get("ok"):
         raise SandboxError(res.get("err", "unknown worker error"))
-    return res["label"], res["chunks"], res["warns"]
+    return res["label"], from_wire(res["chunks"]), from_wire(res["warns"])
 
 
 def _bwrap_argv(bwrap, filepath, deep):

@@ -34,6 +34,48 @@ def same_file(a, b):
         return os.path.realpath(a) == os.path.realpath(b)
 
 
+def _is_output_flag(tok):
+    # argparse takes any unambiguous prefix, so --out and --outp are -o too
+    return tok == "-o" or (len(tok) > 3 and "--output".startswith(tok))
+
+
+def _inside(path, directory):
+    p = os.path.normcase(os.path.realpath(path))
+    d = os.path.normcase(os.path.realpath(directory))
+    return p.startswith(d.rstrip(os.sep) + os.sep)
+
+
+def input_named(out, argv):
+    """The input in `argv` that `out` would overwrite, else None.
+
+    A file named in argv is an input; so is a file a directory in argv walks,
+    when it is one the walk reads (its extension is in targets.KNOWN_EXTS):
+    `stats DIR -o DIR/x.wav` truncated x.wav before the walk read it. The
+    output's own value (after -o/--output, or a prefix of it) is skipped; so
+    are flags and stdin's "-". Only an existing output can be anyone's input.
+    """
+    if not out or not os.path.isfile(out):
+        return None
+    from acidcat.util.targets import KNOWN_EXTS
+    walked = os.path.splitext(out)[1].lower() in KNOWN_EXTS
+    skip = False
+    for tok in argv:
+        if skip:
+            skip = False
+            continue
+        if _is_output_flag(tok):
+            skip = True
+            continue
+        if tok.startswith("-"):
+            continue
+        if os.path.isfile(tok):
+            if same_file(tok, out):
+                return tok
+        elif walked and os.path.isdir(tok) and _inside(out, tok):
+            return out
+    return None
+
+
 def refuse_self_overwrite(verb, source, out):
     """An error string when `out` would clobber `source`, else None.
 

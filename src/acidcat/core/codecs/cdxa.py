@@ -18,9 +18,9 @@ essentially all PS1 streaming audio. The rare 8-bit XA coding raises
 NotImplementedError rather than emit an unverified guess.
 """
 
-import os
 import struct
 
+from acidcat.core.infra.source import open_input, input_size
 from acidcat.core.primitives.pcm import PS_ADPCM_FILTER, clip16, interleave_stereo, signed_nibble
 from acidcat.core.primitives.wavio import pcm_wav
 
@@ -42,8 +42,8 @@ def detect_cd_image(path):
     keys: sector_size, mode (1 or 2), sectors, xa (bool: Mode2 with a plausible
     XA subheader)."""
     try:
-        size = os.path.getsize(path)
-        with open(path, "rb") as f:
+        size = input_size(path)
+        with open_input(path) as f:
             s0 = f.read(SECTOR)
             f.seek(SECTOR)
             s1 = f.read(SECTOR)
@@ -76,7 +76,7 @@ def xa_streams(path):
     from collections import Counter
     sectors = {}
     codings = {}
-    with open(path, "rb") as f:
+    with open_input(path) as f:
         idx = 0
         while True:
             s = f.read(SECTOR)
@@ -158,7 +158,7 @@ def decode_sectors(payloads, stereo):
 
 
 def _payloads(path, sector_indices):
-    with open(path, "rb") as f:
+    with open_input(path) as f:
         for idx in sector_indices:
             f.seek(idx * SECTOR)
             yield f.read(SECTOR)[_XA_DATA:_XA_DATA + _XA_AUDIO_BYTES]
@@ -167,7 +167,7 @@ def _payloads(path, sector_indices):
 def audio_sectors_in_range(path, lba, count):
     """Yield the audio-submode sector indices within [lba, lba+count) -- the XA
     audio belonging to one ISO file (a .STR movie or .XA stream)."""
-    with open(path, "rb") as f:
+    with open_input(path) as f:
         f.seek(lba * SECTOR)
         for idx in range(lba, lba + count):
             s = f.read(SECTOR)
@@ -186,7 +186,7 @@ def decode_range(path, lba, count, max_audio=None):
     secs = list(itertools.islice(gen, max_audio)) if max_audio else list(gen)
     if not secs:
         return None
-    with open(path, "rb") as f:
+    with open_input(path) as f:
         f.seek(secs[0] * SECTOR)
         cod = coding_of(f.read(SECTOR)[19])
     if cod["bits"] != 4:

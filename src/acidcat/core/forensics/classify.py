@@ -167,6 +167,12 @@ def classify(path, *, deep=True):
     ev = {"size": size, "sniff": fmt}
 
     # 1. a format we walk. Disc images and sector dumps are containers by nature.
+    if fmt == "appledouble":
+        # walked, but metadata about another file rather than audio: nothing
+        # further to run on it
+        return _verdict(FOREIGN, fmt, "macOS AppleDouble metadata sidecar -- not "
+                                      "audio; inspect reads what it records",
+                        None, ev)
     if fmt:
         if fmt in _CONTAINER_FORMATS:
             return _verdict(CONTAINER, fmt,

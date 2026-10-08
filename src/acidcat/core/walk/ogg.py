@@ -1,11 +1,12 @@
 """Ogg structural walker: page census, codec identity, and the
 Vorbis/Opus comment header. Page primitives live in core/ogg.py."""
 
-import os
 
 from acidcat.core.formats import ogg as oggmod
-from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
+from acidcat.core.walk.base import _f, _open, _size
+from acidcat.core.infra.findings import coded, defect
 
 # A comment header is a handful of tags; 200 is far above any real one
 # and bounds a crafted header rather than a normal file.
@@ -14,8 +15,8 @@ _TAG_LIST_CAP = 200
 def inspect_ogg(filepath):
     """Structural view of an Ogg stream: page count/codec and the Vorbis/Opus
     comment header (vendor + tags). The audio packets are opaque."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 16 * 1024 * 1024))
     pages = list(oggmod.iter_pages(data))
     ch = oggmod.comment_header(data)
@@ -29,13 +30,17 @@ def inspect_ogg(filepath):
                  data[:4].decode("latin-1") if len(data) >= 4 else "",
                  "every Ogg page starts with it"),
               _f(None, 0, "codec", codec),
-              _f(None, 0, "pages", len(pages)),
+              # the first stream's pages, as the multistream note says
+              _f(None, 0, "pages", sum(1 for p in pages if p["serial"] == serial),
+                 "" if all(p["serial"] == serial for p in pages)
+                 else f"of {len(pages)} in the file"),
               _f(None, 0, "bitstream_serial", serial)]
     warns = []
     serials = {p["serial"] for p in pages}
     if len(serials) > 1:
-        warns.append(f"{len(serials)} logical bitstreams (chained/muxed); "
-                     "duration and pages describe the first stream only")
+        warns.append(coded("convention.noted",
+                           f"{len(serials)} logical bitstreams (chained/muxed); "
+                           "duration and pages describe the first stream only"))
     rate_txt = ""
     if ident and ident[1]:
         info = ident[1]
@@ -51,13 +56,15 @@ def inspect_ogg(filepath):
                              "impossible: the identification header declares no "
                              "channels, so this stream describes no audio"))
             if chn <= 0:
-                warns.append("the identification header declares 0 channels; "
-                             "nothing downstream can use this as a divisor")
+                warns.append(defect("value.invalid",
+                                    "the identification header declares 0 channels; "
+                                    "nothing downstream can use this as a divisor"))
         if sr is not None and sr <= 0:
             fields.append(_f(None, 0, "sample_rate", sr,
                              "impossible: a stream cannot run at 0 Hz"))
-            warns.append("the identification header declares a 0 Hz sample "
-                         "rate; duration cannot be derived from it")
+            warns.append(defect("value.invalid",
+                                "the identification header declares a 0 Hz sample "
+                                "rate; duration cannot be derived from it"))
         if sr:
             note = "Opus always decodes at 48 kHz" if "pre_skip" in info else ""
             fields.append(_f(None, 0, "sample_rate", sr, note))
@@ -99,8 +106,9 @@ def inspect_ogg(filepath):
             fields.append(_f(None, 0, k, str(v)[:200]))
         cwarns = []
         if len(tags) > _TAG_LIST_CAP:
-            cwarns.append(coverage(f"listing the first {_TAG_LIST_CAP} of "
-                                   f"{len(tags)} comments"))
+            cwarns.append(hit("list_rows", _TAG_LIST_CAP, len(tags),
+                              f"listing the first {_TAG_LIST_CAP} of "
+                              f"{len(tags)} comments"))
         summary = f"{len(tags)} Vorbis comment(s)" if tags else "no comments"
         if vendor:
             summary += f" -- {vendor[:80]}"

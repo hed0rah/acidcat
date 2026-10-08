@@ -21,6 +21,7 @@ rendering.
 
 import contextlib
 import json
+import argparse
 import os
 import sys
 from acidcat.util.color import add_color_arg, color_enabled
@@ -42,7 +43,7 @@ def register(subparsers):
         "inspect",
         help="readelf-style structural dump of an audio or synth/DAW preset file.",
     )
-    p.add_argument("targets", nargs="+", metavar="target",
+    p.add_argument("targets", nargs="+", metavar="FILE",
                    help="One or more audio, sampler or synth/DAW preset files. "
                         "Run `acidcat formats` for the full list of what has a "
                         "walker. With more than one target, each is printed "
@@ -50,38 +51,41 @@ def register(subparsers):
                         "(one record per line).")
     p.add_argument("--hex", action="store_true", dest="show_hex",
                    help="Show raw bytes next to each decoded field.")
-    add_output_format_arg(p, only=("table", "json"))
+    add_output_format_arg(p, only=("table", "json", "csv", "tsv"))
+    p.add_argument("--chunks", action="store_true",
+                   help="The chunk table only, no per-chunk field detail (as "
+                        "csv/tsv too: one row per chunk).")
     p.add_argument("-q", "--quiet", action="store_true",
-                   help="Chunk table only, no per-chunk field detail.")
-    p.add_argument("--pretty", action="store_true",
-                   help="Human-friendly view of the decoded tags and metadata "
-                        "(no byte offsets), ideal for presets and tagged files.")
+                   help="Nothing on stderr but errors (no hints, no notes).")
+    p.add_argument("--summary", action="store_true",
+                   help="The format-centred summary: format, duration, rate, "
+                        "tempo and key, one record per file (what `info` was).")
+    p.add_argument("--tags", action="store_true", dest="pretty",
+                   help="The tag-centred view: decoded tags and metadata with no "
+                        "byte offsets, for presets and tagged files.")
+    p.add_argument("-o", "--output", metavar="PATH",
+                   help="Write the report here instead of stdout.")
     p.add_argument("-F", "--frames", action="store_true",
-                   help="Per-element deep dump: every MPEG frame (MP3) or "
-                        "MIDI event. No effect on formats without per-element "
-                        "structure, e.g. WAV, AIFF or FLAC.")
-    p.add_argument("--only", metavar="IDS",
-                   help="Show only these chunk ids (comma-separated, e.g. "
-                        "'fmt,bext'). Case-insensitive, matched against the "
-                        "displayed id. Compose with --hex to hexdump one chunk.")
-    p.add_argument("--exclude", metavar="IDS",
-                   help="Hide these chunk ids (comma-separated). Applied after "
-                        "--only.")
-    p.add_argument("--full", action="store_true",
-                   help="Emit a self-contained structural dump (implies --json): "
-                        "each chunk with its raw region bytes and every field's "
-                        "absolute byte offset, so `acidcat explore` can render a "
-                        "standalone HTML explorer for the file.")
+                   help="List the per-element rows (every MPEG frame of an "
+                        "MP3, every MIDI event): --deep, plus a note when the "
+                        "format has no rows to list (WAV, AIFF, FLAC).")
+    p.add_argument("--only", metavar="NODES",
+                   help="Show only these nodes: comma-separated ids, globs or "
+                        "names as an ADDR names a node ('RIFF/fmt_', 'fmt,bext', "
+                        "'RIFF/LIST*'). A pattern that names no chunk is an "
+                        "error. Compose with --hex to hexdump one chunk.")
+    p.add_argument("--exclude", metavar="NODES",
+                   help="Hide these nodes (as --only). Applied after --only.")
     p.add_argument("--anomalies", action="store_true",
                    help="Forensic scan: flag trailing data past the container, "
                         "appended-format magic (polyglots), structural size "
                         "mismatches, and control bytes smuggled into text fields.")
     add_color_arg(p)
-    p.add_argument("-v", "--verbose", action="store_true",
-                   help="Synonym for --frames: request the walker's deep pass. "
-                        "What that adds is per-format -- every MPEG frame, "
-                        "every MIDI event, the Bitwig device tree, the Vital "
-                        "modulation matrix, the NI compressed subtree.")
+    p.add_argument("--deep", action="store_true", dest="verbose",
+                   help="The walkers' extra decoding work (Limits(decode=True)): "
+                        "per-element rows where a format has them, the Bitwig "
+                        "device tree, the Vital modulation matrix, the NI "
+                        "compressed subtree.")
     # experimental: parse untrusted input in a resource-limited worker so a
     # memory/CPU-bomb file takes down only the worker. Linux only; --sandbox
     # errors (never silently runs unsandboxed) where it cannot run.
@@ -99,23 +103,25 @@ def register(subparsers):
                    help="--sandbox CPU/wall-clock cap in seconds (default 60).")
     # reverse-engineering escapes: name the format yourself, scope to a region
     # inside a bigger image, or just tell it to try.
-    p.add_argument("--format", metavar="FMT", dest="fmt_override",
+    p.add_argument("--force-format", metavar="FMT", dest="fmt_override",
                    help="Parse as FMT regardless of the magic bytes (an odd or "
                         "old variant of a format we do model often walks fine "
                         "once dispatch stops depending on the header). "
                         "`acidcat formats` lists the ids.")
-    p.add_argument("--force", action="store_true",
+    p.add_argument("--try-all", action="store_true", dest="force",
                    help="On a file no walker claims, try every walker and report "
                         "what each made of it -- chunk/field counts, whether the "
                         "chunk ids are really at those offsets, and the walker's "
-                        "own complaint. Leads for --format, not identifications.")
+                        "own complaint. Leads for --force-format, not identifications.")
     p.add_argument("--resync", action="store_true",
                    help="Recover chunk structure from a damaged container by "
                         "scanning for plausible [id][size] records and keeping "
                         "the ones that chain end-to-start. Finds what a corrupt "
                         "size field or a smashed magic costs the normal walk.")
-    add_region_args(p)
-    p.set_defaults(func=run)
+    add_region_args(p, addr=True)
+    # --full is how `explore` asks for the positioned dump; 1.8's spelling of
+    # it on the command line is an alias for --json now (cli_aliases)
+    p.set_defaults(func=run, full=False)
 
 
 # ── rendering ──────────────────────────────────────────────────────
@@ -222,7 +228,11 @@ def _render_anomalies(findings, args):
         sev = f["severity"]
         tag = p(role.get(sev, "dim"), f"[{sev:6}]")
         off = p("dim", f"0x{f['offset']:08x}")
-        print(f"    {tag} {off}  {f['rule']:16} {f['message']}")
+        # a walker note shows its kind where it is not a defect, as when the
+        # kinds were rules (review V4 gave every row a kind, one rule)
+        rule = (f["kind"] if f["rule"] == "structure"
+                and f.get("kind") not in (None, "defect", "error") else f["rule"])
+        print(f"    {tag} {off}  {rule:16} {f['message']}")
 
 
 def _at(offset):
@@ -243,20 +253,22 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
     print(f"{name}: {p('id', fmt_label)}, {file_size:,} bytes, "
           f"{count}")
     print()
-    print(p("dim", f"  {'idx':<5} {'id':<5} {'offset':<11} {'size':<11} summary"))
+    # the id column is the node id an address takes (`od FILE RIFF/fmt_`)
+    w = max([5] + [len(_node_id(c)) for c in chunks])
+    print(p("dim", f"  {'idx':<5} {'id':<{w}} {'offset':<11} {'size':<11} summary"))
     for i, c in enumerate(chunks):
         idx = p("dim", f"[{c.get('_idx', i):>2}]")
-        cid = p("id", f"{c['id']:<5}")
+        cid = p("id", f"{_node_id(c):<{w}}")
         off = p("dim", _at(c["offset"]))
         size = "-" if c["size"] is None else f"{c['size']:,}"
         print(f"  {idx}  {cid} {off}  {size:<11} {c['summary']}")
 
-    if not args.quiet:
+    if not getattr(args, "chunks", False):
         for c in chunks:
             if not c["fields"] and not c.get("rows"):
                 continue
             print()
-            hdr_id = p("id", c["id"].strip())
+            hdr_id = p("id", _node_id(c))
             hdr_meta = p("dim", f"@ {_at(c['offset'])} ({c['size'] if c['size'] is not None else '-'} bytes)")
             print(f"{hdr_id} {hdr_meta}")
             for fl in c["fields"]:
@@ -291,7 +303,7 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
         print(p("dim", f"  (--frames: {fmt_label} has no per-element structure to dump)"))
 
     all_warns = list(file_warns)
-    all_warns += [f"{c['id'].strip()}: {w}" for c in chunks for w in c["warnings"]]
+    all_warns += [f"{_node_id(c)}: {w}" for c in chunks for w in c["warnings"]]
     if all_warns:
         print()
         print(p("warn", "warnings:"))
@@ -301,26 +313,94 @@ def _render_table(filepath, fmt_label, chunks, file_warns, args, total=None,
 
 
 def _parse_id_list(val):
-    """A comma-separated chunk-id list into a normalized set (or None)."""
+    """A comma-separated --only/--exclude list into its patterns (or None)."""
     if not val:
         return None
-    return {x.strip().casefold() for x in val.split(",") if x.strip()}
+    return [x.strip() for x in val.split(",") if x.strip()]
 
 
-def _select_chunks(chunks, only, exclude):
+def _node_id(c):
+    """The id an address takes for this walker chunk, else its display id."""
+    return c.get("_id") or str(c["id"]).strip()
+
+
+def _node_ids(filepath, fmt_label, chunks, file_warns, fmt_override=None,
+              deep=False):
+    """(the v1 Document, {chunk index: node id}) for one walk: what --json
+    prints, and the normaliser's ids, so the table prints what `od`, `carve`
+    and `--only` accept."""
+    from acidcat.core.infra import contract
+    from acidcat.core.infra.limits import Limits
+    ids = {}
+    try:
+        doc = contract.from_walk(filepath, fmt_label, chunks, file_warns,
+                                 fmt_override=fmt_override,
+                                 limits=Limits.for_deep(deep), chunk_ids=ids)
+    except Exception:                 # the table never fails over its ids
+        return None, {}
+    return doc, ids
+
+
+def _prune(nodes, keep):
+    """The node tree cut to the nodes in `keep` (each with its subtree) and
+    their ancestors, for --only/--exclude on the Document."""
+    out = []
+    for n in nodes:
+        if n["id"] in keep:
+            out.append(n)
+            continue
+        kids = _prune(n["children"], keep)
+        if kids:
+            out.append(dict(n, children=kids))
+    return out
+
+
+def _select_chunks(chunks, only, exclude, doc=None, ids=None):
     """Filter chunks by --only/--exclude, tagging each survivor with its
-    original index so the table keeps truthful [n] and file positions."""
+    original index (so the table keeps truthful [n] and file positions) and
+    its node id. A pattern is a NODE term of the ADDR grammar (an id, a glob
+    or a name, addr.find_nodes). Returns (chunks, patterns that name no
+    chunk here)."""
+    from acidcat.core.infra import addr
+    ids = ids or {}
+    by_id = {nid: i for i, nid in ids.items()}
+    missing = []
+
+    def subtree(n):
+        yield n
+        for k in n.get("children") or []:
+            yield from subtree(k)
+
+    def picked(patterns):
+        if patterns is None:
+            return None
+        got = set()
+        for pat in patterns:
+            # a node picks its subtree: `--only RIFF`, the root the table's
+            # ids start with, is every chunk (it was "names no chunk", the
+            # root being the normaliser's, not a walker chunk; review V13)
+            hits = ({by_id[k["id"]] for n in addr.find_nodes(doc, pat)
+                     for k in subtree(n) if k["id"] in by_id}
+                    if doc is not None else
+                    {i for i, c in enumerate(chunks)
+                     if str(c["id"]).strip() == pat})
+            if not hits:
+                missing.append(pat)
+            got |= hits
+        return got
+    keep, drop = picked(only), picked(exclude)
     out = []
     for i, c in enumerate(chunks):
-        cid = c["id"].strip().casefold()
-        if only is not None and cid not in only:
+        if keep is not None and i not in keep:
             continue
-        if exclude is not None and cid in exclude:
+        if drop is not None and i in drop:
             continue
         c = dict(c)
         c["_idx"] = i
+        if i in ids:
+            c["_id"] = ids[i]
         out.append(c)
-    return out
+    return out, missing
 
 
 # keys that exist on a field only to drive the interactive editor (encoding hint
@@ -336,7 +416,9 @@ def _full_chunk(chunk, filepath):
     """Enrich a chunk for --full into a self-contained record: its absolute
     payload base, the raw region bytes as hex (capped), and every field's
     absolute byte offset. `acidcat explore` needs nothing but this JSON."""
-    c = {k: v for k, v in chunk.items() if k != "_idx"}
+    c = {k: v for k, v in chunk.items() if k not in ("_idx", "_id")}
+    if chunk.get("_id"):
+        c["addr"] = chunk["_id"]
     pb = chunk.get("payload_base")
     if pb is None and chunk["offset"] is not None:
         pb = chunk["offset"] + 8
@@ -426,8 +508,8 @@ def _run_resync(filepath, paint, source_path=None, as_json=False):
                 "\n  found by scanning for [id][size] records and keeping the ones\n"
                 "  that link end-to-start. Corroborated hypotheses, not a validated\n"
                 "  parse -- carve one out to work on it:\n"
-                f"    acidcat carve {name} --offset 0x{chain[0]['offset']:x} "
-                f"--length {chain[0]['size'] + 8}"))
+                f"    acidcat carve {name} "
+                f"@0x{chain[0]['offset']:x}+{chain[0]['size'] + 8}"))
     return 0
 
 
@@ -484,6 +566,33 @@ def _print_forced_candidates(filepath, rows, paint):
 
 
 def run(args):
+    """inspect, with --summary handed to the summary view and -o as a plain
+    redirect of what would have gone to stdout."""
+    out = getattr(args, "output", None)
+    if out:
+        import contextlib
+        try:
+            fh = open(out, "w", encoding="utf-8", newline="")
+        except OSError as e:
+            print(f"acidcat inspect: {out}: {e}", file=sys.stderr)
+            return 2
+        with fh, contextlib.redirect_stdout(fh):
+            return _run_view(args)
+    return _run_view(args)
+
+
+def _run_view(args):
+    if getattr(args, "summary", False):
+        from acidcat.commands import info as _info
+        ns = argparse.Namespace(**vars(args))
+        ns.target = list(getattr(args, "targets", None) or [])
+        ns.output = None
+        ns.deep = False
+        return _info.run(ns)
+    return _run_inspect(args)
+
+
+def _run_inspect(args):
     # accept either the multi-file `targets` or the legacy single `target`
     targets = getattr(args, "targets", None)
     if not targets:
@@ -504,6 +613,21 @@ def run(args):
     deep = getattr(args, "frames", False) or getattr(args, "verbose", False)
     full = getattr(args, "full", False)
     as_json = args.output_format == "json" or full  # --full is a JSON dump
+    # csv/tsv are the chunk table as rows, one per chunk: only the --chunks
+    # view is a table of rows
+    delimited = args.output_format in ("csv", "tsv") and not full
+    if delimited and not getattr(args, "chunks", False):
+        print("acidcat inspect: --output-format %s gives the chunk table; add "
+              "--chunks (or use --summary)" % args.output_format, file=sys.stderr)
+        return 2
+    fmt_override = getattr(args, "fmt_override", None)
+    if fmt_override:
+        from acidcat.core.walk import _WALKERS
+        if fmt_override not in _WALKERS:
+            print(f"acidcat inspect: --force-format {fmt_override!r}: no walker by "
+                  f"that id (`acidcat formats` lists them)", file=sys.stderr)
+            return 2
+    table_rows = []
     multi = len(targets) > 1
     only = _parse_id_list(getattr(args, "only", None))
     exclude = _parse_id_list(getattr(args, "exclude", None))
@@ -557,15 +681,19 @@ def run(args):
                 # returned 1, so a script could not branch on it without
                 # knowing which verb it had called.
                 print(f"acidcat inspect: {source_path}: {e}", file=sys.stderr)
-                exit_code = 2
+                # except a search that finds nothing: the answer no
+                from acidcat.core.infra.bytefields import AnchorNotFound
+                exit_code = max(exit_code,
+                                1 if isinstance(e, AnchorNotFound) else 2)
                 continue
             if getattr(args, "resync", False):
                 # a damaged container is exactly the case where the walk fails,
                 # so recovery runs instead of it rather than after it
                 rc = _run_resync(filepath, _Paint(color_enabled(args)),
                                  source_path=source_path, as_json=as_json)
-                exit_code = exit_code or rc
+                exit_code = max(exit_code, rc)
                 continue
+            walked_label = None     # the walker's label, before a region note
             try:
                 if sandbox_profile:
                     from acidcat.core.infra import sandbox as _sb
@@ -577,12 +705,15 @@ def run(args):
                     except _sb.SandboxError as e:
                         print(f"acidcat inspect: {filepath}: sandbox: {e}",
                               file=sys.stderr)
-                        exit_code = 1
+                        # the walk could not run: 2, and never lower an
+                        # earlier file's 2 by assigning
+                        exit_code = max(exit_code, 2)
                         continue
                 else:
                     fmt_label, chunks, file_warns = walk_file(
                         filepath, deep,
                         fmt_override=getattr(args, "fmt_override", None))
+                    walked_label = fmt_label
                     if region_scope:
                         fmt_label = f"{fmt_label}  [region {region_scope}]"
             except Unsupported as e:
@@ -594,7 +725,7 @@ def run(args):
                         else:
                             _print_forced_candidates(
                                 filepath, rows, _Paint(color_enabled(args)))
-                        exit_code = 1     # still unidentified; these are leads
+                        exit_code = max(exit_code, 1)  # still unidentified; leads
                         continue
                 if True:
                     # "I have no walker for this" is the honest answer here --
@@ -607,22 +738,37 @@ def run(args):
                     scoped = f" (region {region_scope})" if region_scope else ""
                     print(f"acidcat inspect: {source_path}{scoped}: {e}",
                           file=sys.stderr)
-                    print(f"  no structural walker, but the bytes are still yours:\n"
-                          f"    acidcat od {arg}                hex dump, no format needed\n"
-                          f"    acidcat locate {arg}            find embedded audio regions\n"
-                          f"    acidcat inspect {arg} --force   try every walker anyway\n"
-                          f"    acidcat inspect {arg} --format wav   parse as a known type",
-                          file=sys.stderr)
-                    exit_code = 1
+                    if not getattr(args, "quiet", False):
+                        print(f"  no structural walker, but the bytes are still yours:\n"
+                              f"    acidcat od {arg}                hex dump, no format needed\n"
+                              f"    acidcat locate {arg}            find embedded audio regions\n"
+                              f"    acidcat inspect {arg} --try-all   try every walker anyway\n"
+                              f"    acidcat inspect {arg} --force-format wav   parse as a known type",
+                              file=sys.stderr)
+                    # no walker read it: inspect could not do its job, which
+                    # is 2, as audit and check say for the same file
+                    exit_code = max(exit_code, 2)
                     continue
             except Exception as e:  # a walker bug must not sink the whole run
                 print(f"acidcat inspect: {filepath}: {e.__class__.__name__}: {e}",
                       file=sys.stderr)
-                exit_code = 1
+                exit_code = max(exit_code, 2)   # a crash is could-not-run
                 continue
 
             total = len(chunks)
-            shown = _select_chunks(chunks, only, exclude)
+            doc, ids = _node_ids(filepath, walked_label or fmt_label,
+                                 chunks, file_warns,
+                                 fmt_override=getattr(args, "fmt_override", None),
+                                 deep=deep)
+            shown, missing = _select_chunks(chunks, only, exclude, doc, ids)
+            if missing:
+                # a filter that names nothing is a mistake, not an empty table
+                known = ", ".join(ids[i] for i in sorted(ids)) or "none"
+                print(f"acidcat inspect: {source_path}: "
+                      f"{', '.join(repr(m) for m in missing)} names no chunk "
+                      f"here; its ids: {known}", file=sys.stderr)
+                exit_code = max(exit_code, 1)
+                continue
             findings = (anomaliesmod.scan(filepath, fmt_label, chunks, file_warns)
                         if getattr(args, "anomalies", False) else None)
             lsb_info = None
@@ -634,7 +780,7 @@ def run(args):
             if findings is not None and lsb_info and lsb_info["uniform_high"]:
                 findings.append({
                     "severity": "notice", "offset": lsb_info["region"][0],
-                    "rule": "lsb_entropy",
+                    "rule": "lsb_entropy", "code": "anomaly.lsb_entropy",
                     "message": f"uniformly high LSB entropy (min {lsb_info['min']}, "
                                f"mean {lsb_info['mean']}): consistent with LSB "
                                f"steganography, but also with a noisy/dithered/"
@@ -643,47 +789,48 @@ def run(args):
                     -{"alert": 3, "warn": 2, "notice": 1}.get(x["severity"], 0),
                     x["offset"]))
 
-            if as_json:
-                # NDJSON: one compact record per file per line, so the stream
-                # pipes cleanly into jq -c and other line-oriented tools.
-                if full:
-                    out_chunks = [_full_chunk(c, filepath) for c in shown]
-                else:
-                    out_chunks = []
-                    for c in shown:
-                        oc = {k: v for k, v in c.items() if k != "_idx"}
-                        # `offset` is the chunk header, `field.off` is relative
-                        # to the payload, so `chunk.offset + field.off` read
-                        # eight bytes early -- format-dependent, because a
-                        # headerless model like MOD has no skew and a script
-                        # tuned on trackers broke silently on RIFF. --full has
-                        # always emitted the absolute offsets; plain --json now
-                        # does too, at no extra cost.
-                        pb = c.get("payload_base")
-                        if pb is None and c["offset"] is not None:
-                            pb = c["offset"] + 8
-                        oc["payload_base"] = pb
-                        fields = []
-                        for f in c.get("fields", []):
-                            f2 = _public_field(f)
-                            f2["abs"] = (pb + f["off"]
-                                         if f.get("off") is not None else None)
-                            fields.append(f2)
-                        oc["fields"] = fields
-                        out_chunks.append(oc)
+            if delimited:
+                table_rows.extend(
+                    {"path": source_path, "idx": c.get("_idx", i),
+                     "id": _node_id(c), "name": str(c["id"]).strip(),
+                     "offset": c["offset"], "size": c["size"],
+                     "summary": c["summary"]}
+                    for i, c in enumerate(shown))
+            elif full:
+                # the positioned legacy dump explore builds its page from
+                # (in process; `--full` on the command line is --json now)
                 sys.stdout.write(json.dumps({
-                    # source_path, not filepath: with `-` the latter is a temp
-                    # copy whose name means nothing to the caller and is gone
-                    # by the time they read the record
-                    "file": source_path,
-                    "format": fmt_label,
-                    "size": os.path.getsize(filepath),
-                    "full": full,
-                    "chunks": out_chunks,
+                    "file": source_path, "format": fmt_label,
+                    "size": os.path.getsize(filepath), "full": True,
+                    "chunks": [_full_chunk(c, filepath) for c in shown],
                     "warnings": file_warns,
                     **({"anomalies": findings} if findings is not None else {}),
                     **({"lsb": lsb_info} if lsb_info else {}),
                 }) + "\n")
+            elif as_json:
+                # the contract v1 Document (docs/contract/node-v1.md), one
+                # compact object per file per line, so many files are NDJSON
+                if doc is None:
+                    print(f"acidcat inspect: {source_path}: could not describe "
+                          f"the walk as a Document", file=sys.stderr)
+                    exit_code = max(exit_code, 2)   # our failure, not the file's
+                    continue
+                out = dict(doc)
+                # the caller named the file, so the path is theirs to see
+                # (node-v1.md section 2); never a stdin temp copy's name
+                out["file"] = dict(doc["file"], path=source_path)
+                if findings is not None:
+                    from acidcat.core.document import forensic_findings
+                    out["findings"] = doc["findings"] + forensic_findings(doc, findings)
+                if only is not None or exclude is not None:
+                    keep = {c["_id"] for c in shown if c.get("_id")}
+                    if only is not None and exclude is None:
+                        # a node --only names is kept whole, gaps included
+                        from acidcat.core.infra import addr as addrmod
+                        keep |= {n["id"] for pat in only
+                                 for n in addrmod.find_nodes(doc, pat)}
+                    out["nodes"] = _prune(doc["nodes"], keep)
+                sys.stdout.write(json.dumps(out) + "\n")
             else:
                 pretty = getattr(args, "pretty", False)
                 if multi and not pretty:
@@ -709,4 +856,7 @@ def run(args):
     finally:
         regions.close()
 
+    if table_rows:
+        from acidcat.core.infra.render import output as _render_rows
+        _render_rows(table_rows, fmt=args.output_format)
     return exit_code

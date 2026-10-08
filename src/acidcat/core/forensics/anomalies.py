@@ -4,8 +4,9 @@ Pure header math on what the walker already decoded, plus a bounded tail scan.
 Reports: the walker's own lint warnings, trailing data past the declared
 container end, an appended second-format magic (polyglot detection), and control
 bytes smuggled into text fields. No sample-data analysis (that is the deferred
-`deep` tier). Findings are {severity, offset, rule, message}; severity is one of
-alert > warn > notice.
+`deep` tier). Findings are {severity, offset, rule, code, message}; severity is
+one of alert > warn > notice > info, and `code` is the finding's registered id
+(core/infra/findings.py): the walker note's own code, or `anomaly.<rule>`.
 
 Framed as detection, not exploitation: acidcat says what looks off and where.
 """
@@ -14,8 +15,26 @@ import os
 import struct
 
 from acidcat.core.infra.fieldcodec import _field_abs
+from acidcat.core.infra.findings import REGISTRY, anomaly_code
+from acidcat.core.primitives.notes import (
+    COVERAGE, DEFECT, ENVIRONMENT, INFO, code_of, kind_of,
+)
 from acidcat.core.primitives.signal import byte_entropy
-from acidcat.core.primitives.notes import is_coverage
+
+# the severity a walker note of each kind is reported at; anything else (a
+# defect, a walker error, a plain string) is warn. Every walker note's rule is
+# "structure" and its kind says what it is: the kinds were pseudo-rules
+# ("coverage", "info") beside real ones, and a row had no kind (review V4).
+_NOTE_SEVERITY = {COVERAGE: "info", ENVIRONMENT: "notice", INFO: "info"}
+
+
+def _note_severity(w):
+    """The severity a walker note is reported at: its code's registered one,
+    else its kind's (a plain string or an unregistered code is warn)."""
+    code = code_of(w)
+    if code in REGISTRY:
+        return REGISTRY[code][1]
+    return _NOTE_SEVERITY.get(kind_of(w), "warn")
 
 # second-format magics worth flagging when appended after an audio container
 _MAGICS = [
@@ -38,8 +57,11 @@ _SEVERITY = {"alert": 3, "warn": 2, "notice": 1, "info": 0}
 # ID3 frames that legitimately repeat (so duplicates are not suspicious), plus
 # the synthetic header fields inspect emits for the tag itself.
 _ID3_REPEATABLE = {"TXXX", "WXXX", "APIC", "PIC", "PRIV", "GEOB", "COMM", "UFID",
-                   "USLT", "SYLT", "WCOM", "WOAR", "WXXX", "version", "flags",
-                   "tag_size"}
+                   "USLT", "SYLT", "WCOM", "WOAR", "POPM",
+                   # the same frames under their ID3v2.2 names
+                   "TXX", "WXX", "COM", "UFI", "ULT", "SLT", "GEO", "WCM", "WAR",
+                   "POP",
+                   "version", "flags", "tag_size"}
 
 # spec-ignorable regions: content there is a classic smuggling spot
 _CAVITY = {"PADDING": "FLAC PADDING", "FREE": "MP4 free box", "SKIP": "MP4 skip box",
@@ -79,6 +101,27 @@ def _entropy_note(blob):
     if h >= 7.2:
         return f"; entropy {h:.1f}/8 (encrypted or compressed payload)"
     return ""
+
+
+# bytes read past an ID3v2 tag so a frame that straddles its end can be
+# chained into the audio (no MPEG audio frame with a table bitrate reaches 2 KB)
+_MPEG_LOOKAHEAD = 4096
+
+
+def _mpeg_frame_in(pad, after=b""):
+    """Offset in ``pad`` of an MPEG audio frame header whose frame ends on a
+    second valid header (in ``pad`` or the bytes ``after`` it), else None.
+    The second header keeps a lone sync-shaped word in junk from counting."""
+    from acidcat.core.formats.mp3 import decode_frame_header
+    buf = bytes(pad) + bytes(after)
+    p = buf.find(b"\xff")
+    while 0 <= p < len(pad):
+        hdr = decode_frame_header(buf[p:p + 4])
+        nxt = p + hdr["frame_length"] if hdr else 0
+        if hdr and nxt > p and decode_frame_header(buf[nxt:nxt + 4]):
+            return p
+        p = buf.find(b"\xff", p + 1)
+    return None
 
 
 def _json_object_end(data):
@@ -343,16 +386,15 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
     # Note the classification happens BEFORE the chunk id is prefixed below:
     # string formatting returns a plain str and drops the kind.
     for w in warns or []:
-        cov = is_coverage(w)
-        findings.append({"severity": "info" if cov else "warn", "offset": 0,
-                         "rule": "coverage" if cov else "structure",
-                         "message": w})
+        findings.append({"severity": _note_severity(w),
+                         "offset": 0, "rule": "structure", "kind": kind_of(w),
+                         "code": code_of(w) or "legacy", "message": w})
     for c in chunks:
         for w in c.get("warnings") or []:
-            cov = is_coverage(w)
-            findings.append({"severity": "info" if cov else "warn",
+            findings.append({"severity": _note_severity(w),
                              "offset": c.get("offset", 0) or 0,
-                             "rule": "coverage" if cov else "structure",
+                             "rule": "structure", "kind": kind_of(w),
+                             "code": code_of(w) or "legacy",
                              "message": f"{str(c.get('id', '?')).strip()}: {w}"})
 
     # 2. trailing data past the DECLARED container end, and a tail magic scan.
@@ -389,6 +431,17 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
             elif isinstance(c.get("size"), int):
                 ends.append(c["offset"] + c["size"])
         end = max(ends, default=0)
+    if isinstance(end, int) and 0 < end < size:
+        # a chunk that starts inside the declared end and runs past it holds
+        # those bytes: the size undercounts it (the walker's count.mismatch),
+        # and its tail is not data hidden past the container
+        from acidcat.core.infra import geometry as _geom
+        for c in sorted((c for c in chunks if isinstance(c.get("offset"), int)),
+                        key=lambda c: c["offset"]):
+            eoff, elen = _geom.extent_of(c)
+            if (isinstance(eoff, int) and isinstance(elen, int)
+                    and eoff < end < eoff + elen):
+                end = min(eoff + elen, size)
     if isinstance(end, int) and 0 < end < size:
         findings.append({"severity": "notice", "offset": end, "rule": "trailing_data",
                          "message": f"{size - end:,} bytes past the declared "
@@ -509,14 +562,21 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 # clamped: read(N) pre-allocates N bytes (see core/midi.py)
                 ogg_data = f.read(min(16 * 1024 * 1024,
                                       os.path.getsize(filepath)))
-            serials = {pg["serial"] for pg in _ogg.iter_pages(ogg_data)
-                       if pg["header_type"] & 0x02}
+            # every serial counts, as the walker counts them: a stream whose
+            # beginning-of-stream page was cut off is still a stream
+            pages = list(_ogg.iter_pages(ogg_data))
+            serials = {pg["serial"] for pg in pages}
+            begun = {pg["serial"] for pg in pages if pg["header_type"] & 0x02}
             if len(serials) > 1:
+                cont = len(serials - begun)
                 findings.append({"severity": "notice", "offset": 0,
                                  "rule": "ogg_multistream",
                                  "message": f"{len(serials)} logical bitstreams in "
                                             f"one Ogg; a single-codec player surfaces "
-                                            f"only one (possible hidden stream)"})
+                                            f"only one (possible hidden stream)"
+                                            + (f"; {cont} start without a "
+                                               f"beginning-of-stream page (a "
+                                               f"continuation)" if cont else "")})
         except Exception as e:
             # a rule that crashed is not a rule that found nothing:
             # swallowing this made a malformed structure look clean
@@ -614,6 +674,8 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 tag_size = (((th[6] & 0x7F) << 21) | ((th[7] & 0x7F) << 14)
                             | ((th[8] & 0x7F) << 7) | (th[9] & 0x7F))
                 body = f.read(tag_size)
+                # the audio after the tag, to chain a frame across its end
+                after = f.read(_MPEG_LOOKAHEAD)
             # whole-tag unsynchronisation (v2.2/2.3) escapes $FF00; de-escape
             # before reading sizes.
             if flags & 0x80 and ver != 4:
@@ -642,7 +704,18 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 if pos > len(body):
                     break
             pad = body[pad_start:]
-            if any(pad):
+            hit = _mpeg_frame_in(pad, after) if any(pad) else None
+            if hit is not None:
+                # not filler: the tag size runs over audio frames, which every
+                # reader then skips as part of the tag
+                findings.append({"severity": "warn", "offset": 10 + pad_start + hit,
+                                 "rule": "id3_swallows_frames",
+                                 "message": f"the ID3v2 padding holds MPEG audio "
+                                            f"frames (a frame header {hit:,} bytes "
+                                            f"into its {len(pad):,} bytes): the tag "
+                                            f"size is too large and swallows audio "
+                                            f"every reader skips"})
+            elif any(pad):
                 findings.append({"severity": "notice", "offset": 10 + pad_start,
                                  "rule": "id3_padding_nonzero",
                                  "message": f"non-zero bytes in ID3v2 padding "
@@ -684,6 +757,9 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
     # every conformant reader (it lands in nobody's payload).
     if fmt_id in _CHUNKED_IDS:
         stego = []
+        # a writer that left the pad out puts the next chunk there; its first
+        # byte is an id, not a pad
+        starts = {c.get("offset") for c in chunks}
         with open(filepath, "rb") as f:
             for c in chunks:
                 csz = c.get("size")
@@ -691,13 +767,14 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 if not isinstance(csz, int) or not isinstance(coff, int) or csz % 2 == 0:
                     continue
                 pad_off = coff + 8 + csz
-                if pad_off >= size:
+                if pad_off >= size or pad_off in starts:
                     continue
                 f.seek(pad_off)
                 if f.read(1) not in (b"\x00", b""):
                     stego.append(pad_off)
         if stego:
-            findings.append({"severity": "warn", "offset": stego[0],
+            # notice, not warn: no reader sees it (decisions.md F1)
+            findings.append({"severity": "notice", "offset": stego[0],
                              "rule": "nonzero_pad",
                              "message": f"non-zero pad byte after {len(stego)} "
                                         f"odd-sized chunk(s); the alignment pad is "
@@ -792,7 +869,7 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
             end = _json_object_end(doc)
             if end is None:
                 findings.append({"severity": "warn", "offset": 0,
-                                 "rule": "structure",
+                                 "rule": "structure", "code": "parse.failed",
                                  "message": "the top-level JSON object never closes"})
             else:
                 tail = doc[end:].strip()
@@ -847,4 +924,8 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
 
     findings.sort(key=lambda x: (-_SEVERITY.get(x["severity"], 0),
                                  x["offset"] if x["offset"] is not None else -1))
+    for f in findings:
+        f.setdefault("code", anomaly_code(f["rule"]))
+        f.setdefault("kind", REGISTRY[f["code"]][0] if f["code"] in REGISTRY
+                     else DEFECT)
     return findings

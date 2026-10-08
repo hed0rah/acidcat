@@ -188,6 +188,7 @@ def _bare(findings, scan_note):
     a.findings = findings
     a.scan_note = scan_note
     a.query_one = None
+    a._idbox_width = lambda: 60       # the width it lays the panel out in
     return a
 
 

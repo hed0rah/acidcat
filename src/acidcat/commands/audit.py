@@ -29,13 +29,14 @@ import json
 import os
 import sys
 
-from acidcat.commands._output import (add_output_format_arg,
+from acidcat.commands._output import (add_output_format_arg, add_report_arg,
                                       chosen_format)
 from acidcat.core.forensics import anomalies, integrity, provenance
 from acidcat.core.write import constraints
 from acidcat.core.infra.mapped import map_file
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
+from acidcat.util.stdin import display_name
 
 # anomaly rules that mean concealed or appended data (vs structural lint) -- these
 # get their own HIDDEN section with a carve hint to extract the region
@@ -49,12 +50,15 @@ _HIDDEN_RULES = {"trailing_data", "polyglot", "cavity_content",
 
 
 def _carve_hint(path, finding):
-    base = os.path.basename(path)
+    base = display_name(path)
     if finding["rule"] == "trailing_data":
         return f"acidcat carve {base} --trailing -o out.bin"
     off = finding.get("offset")
     if off:
-        return f"acidcat carve {base} --offset 0x{off:x} -o out.bin"
+        # the 2.0 spelling: `--offset` is a 1.8 alias that prints a note,
+        # and a hint should be the command to run. An anchor runs to the
+        # end, as the bare --offset did.
+        return f"acidcat carve {base} --at 0x{off:x} -o out.bin"
     return ""
 
 
@@ -68,6 +72,10 @@ def register(subparsers):
     # was an error on the forensic one. table+json only: an audit verdict is
     # nested (violations, findings, provenance) with no honest csv shape.
     add_output_format_arg(p, only=("table", "json"))
+    add_report_arg(p)
+    p.add_argument("-q", "--quiet", action="store_true",
+                   help="Nothing on stderr but errors (no per-file banners, "
+                        "no skip note).")
     p.add_argument("--signal", action="store_true",
                    help="Also analyze the decoded audio: bandwidth (is a WAV "
                         "really a decoded MP3) and channel relationship (is "
@@ -159,8 +167,11 @@ def _signal_findings(path):
                                   f"file was NOT screened for it"})
             continue
         if check and check["verdict"] not in clean:
-            out.append({"check": check["check"], "verdict": check["verdict"],
-                        "detail": check["detail"]})
+            row = {"check": check["check"], "verdict": check["verdict"],
+                   "detail": check["detail"]}
+            if check["verdict"] in _CONTENT_FACTS:
+                row["kind"] = "info"
+            out.append(row)
     return out
 
 
@@ -225,13 +236,24 @@ def _gather(path, signal=False):
 # blaming the file for it.
 _NOT_A_FINDING = ("not-applicable", "check-failed")
 
+# Verdicts that are facts about the content rather than a header the audio
+# contradicts: a stereo file whose channels match is legal and plays as
+# written. Reported, as `info`, and never counted as a mismatch or an exit 1;
+# a suspicion is not damage, the line the contract draws for appended data.
+_CONTENT_FACTS = ("near-mono", "dual-mono")
+
 
 def _real_findings(integ):
-    return [i for i in integ if i.get("verdict") not in _NOT_A_FINDING]
+    return [i for i in integ if i.get("verdict") not in _NOT_A_FINDING
+            and i.get("kind") != "info"]
 
 
 def _skipped_notes(integ):
     return [i for i in integ if i.get("verdict") in _NOT_A_FINDING]
+
+
+def _content_notes(integ):
+    return [i for i in integ if i.get("kind") == "info"]
 
 
 def _blaming_the_file(findings):
@@ -242,9 +264,22 @@ def _blaming_the_file(findings):
     this release is named for -- but it must not drive the exit code, or a
     structurally perfect file exits 1 for being large and
     `audit f || quarantine f` quarantines it. That was live across eighteen
-    walker sites.
+    walker sites. An `environment` finding (a sibling not beside the file) and
+    an `info` one are about the surroundings or merely worth knowing, and do
+    not blame the file either.
     """
-    return [f for f in findings if f.get("rule") != "coverage"]
+    # every row carries its kind (review V4): a finding blames the file only
+    # when it is a defect (or acidcat's own error), so a suspicion (a
+    # polyglot, trailing bytes) is reported and exits 0. A row without one
+    # takes its code's.
+    from acidcat.core.infra.findings import REGISTRY
+
+    def kind(f):
+        if f.get("kind"):
+            return f["kind"]
+        code = f.get("code")
+        return REGISTRY[code][0] if code in REGISTRY else "defect"
+    return [f for f in findings if kind(f) in ("defect", "error")]
 
 
 def _code(scanned, vios, findings, integ):
@@ -266,7 +301,17 @@ def run(args):
     """One or many, files or directories -- audit is a per-file report,
     and it took a single file while `inspect` next to it took a list."""
     from acidcat.util import targets
-    return targets.each(args, "input", _run_one, verb="audit")
+    quiet = getattr(args, "quiet", False)
+    if chosen_format(args) != "json":
+        return targets.each(args, "input", _run_one, verb="audit",
+                            header=not quiet, quiet=quiet)
+    # one row per file in one array, the shape `check` gives (cli-2.0.md
+    # section 4.1); it was one pretty object per file, back to back
+    args._rows = []
+    rc = targets.each(args, "input", _run_one, verb="audit", header=False,
+                      quiet=quiet)
+    print(json.dumps(args._rows, indent=2, default=str))
+    return rc
 
 
 def _run_one(args):
@@ -291,11 +336,15 @@ def _run_one(args):
     todo = "extract" if extract_only else "locate"
 
     if chosen_format(args) == "json":
+        from acidcat.commands._output import format_of
+        fmt = format_of(path)
         out = {
-            "file": os.path.basename(path), "format": label, "size": size,
+            "path": getattr(args, "_given", path), "format": fmt["format"],
+            "label": label or fmt["label"], "size": size,
             "structure": [{"kind": v.kind, "path": v.path, "field": v.field,
                            "stored": v.stored, "computed": v.computed,
-                           "witness": v.witness, "repairable": v.repairable}
+                           "witness": v.witness, "repairable": v.repairable,
+                           "filler": v.filler}
                           for v in (report.violations if report else [])],
             "hidden": [f for f in findings if f["rule"] in _HIDDEN_RULES],
             "forensics": [f for f in findings if f["rule"] not in _HIDDEN_RULES],
@@ -304,23 +353,33 @@ def _run_one(args):
             # so a consumer can tell "scanned, nothing found" from "never ran"
             "scanned": scanned,
         }
-        print(json.dumps(out, indent=2, default=str))
-        return _code(scanned, out["structure"], findings, integ)
+        if getattr(args, "_rows", None) is not None:
+            args._rows.append(out)
+        else:
+            print(json.dumps([out], indent=2, default=str))
+        # a non-zero pad byte is filler: listed, never an exit 1
+        return _code(scanned, [v for v in out["structure"] if not v["filler"]],
+                     findings, integ)
 
-    print(f"{os.path.basename(path)}  [{label or 'unknown'}]  {size:,} bytes\n")
+    print(f"{display_name(path)}  [{label or 'unknown'}]  {size:,} bytes\n")
 
-    vios = report.violations if report else []
+    vios = report.defects if report else []
+    filler = [v for v in report.violations if v.filler] if report else []
     if report is None:
         print("  STRUCTURE   not a structurally-modeled container")
     elif not vios:
         print("  STRUCTURE   consistent")
+        for v in filler:
+            print(f"                note: {v.describe()} (filler; --fix zeroes it)")
     else:
-        n_fix = len(report.repairable)
-        tail = f" (repairable with: acidcat repair)" if n_fix else ""
+        n_fix = sum(1 for v in vios if v.repairable)
+        tail = f" (repairable with: acidcat check --fix)" if n_fix else ""
         print(f"  STRUCTURE   {len(vios)} issue(s){tail}")
         for v in vios:
             mark = f"  [{v.witness}]" if v.repairable else "  (no witness)"
             print(f"                {v.describe()}{mark}")
+        for v in filler:
+            print(f"                note: {v.describe()} (filler)")
 
     hidden = [f for f in findings if f["rule"] in _HIDDEN_RULES]
     other = [f for f in findings if f["rule"] not in _HIDDEN_RULES]
@@ -340,7 +399,7 @@ def _run_one(args):
 
     if not scanned:
         print("  FORENSICS   not scanned -- no walker for this format")
-        print(f"                try: acidcat {todo} " + os.path.basename(path)
+        print(f"                try: acidcat {todo} " + display_name(path)
               + ("   (recovers its samples)" if extract_only
                  else "   (finds embedded audio regardless)"))
     elif not other:
@@ -359,6 +418,9 @@ def _run_one(args):
         for it in real:
             print(f"                {it['verdict']}")
             print(f"                  {it['detail']}")
+    for it in _content_notes(integ):
+        # worth knowing, not a mismatch: the file says nothing untrue
+        print(f"  NOTE        {it['verdict']}: {it['detail']}")
     for it in skipped:
         # named separately from the mismatch count, because a check that did
         # not run is not evidence about the file
@@ -375,7 +437,7 @@ def _run_one(args):
         print("  PROVENANCE  no writer tells")
 
     # one-line verdict
-    n_fix = len(report.repairable) if report else 0
+    n_fix = sum(1 for v in vios if v.repairable)
     alerts = sum(1 for f in findings if f["severity"] == "alert")
     bits = []
     if _real_findings(integ):

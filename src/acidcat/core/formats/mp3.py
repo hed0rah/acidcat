@@ -9,8 +9,11 @@ walker in core/walk/mp3.py shapes these into the chunk model and decodes the
 Xing/LAME and ID3-frame detail for display.
 """
 
-import os
 import struct
+
+from acidcat.core.infra.source import open_input, input_size
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
 
 # bitrate (kbps) by (version, layer) -> 16-entry table. index 0 is the
 # "free" format, index 15 is the reserved/invalid marker.
@@ -73,7 +76,7 @@ ID3V1_GENRES = [
 def is_mp3(filepath):
     """Check for an ID3v2 tag or an MPEG frame sync in the first bytes."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             head = f.read(3)
             if head == b"ID3":
                 return True
@@ -99,7 +102,7 @@ def synchsafe(b4):
             | ((b4[2] & 0x7F) << 7) | (b4[3] & 0x7F))
 
 
-def id3v2_from_bytes(data):
+def id3v2_from_bytes(data, whole=None):
     """Decode a complete ID3v2 tag held in memory.
 
     Returns (header, frames, warnings): header is
@@ -111,10 +114,14 @@ def id3v2_from_bytes(data):
     a slice of an already-open file. The alternative in use was writing it to a
     temp file to read it back, which costs a file per tag and fails wherever the
     filesystem is read-only.
+
+    `whole` is how many bytes the container really holds for the tag when the
+    caller read only the first part (a chunk payload cap): the tag is judged
+    against that, and the cut is a coverage note, not an overrun.
     """
     warns = []
     if len(data) < 10 or data[:3] != b"ID3":
-        return None, [], ["not an ID3v2 tag"]
+        return None, [], [defect("magic.mismatch", "not an ID3v2 tag")]
     major, revision, flags = data[3], data[4], data[5]
     size = synchsafe(data[6:10])
     size_note = "synchsafe"
@@ -128,17 +135,24 @@ def id3v2_from_bytes(data):
     # Believed only when the spec reading does not fit the data and the
     # little-endian one fits exactly. Narrow on purpose: a guess that merely
     # looked plausible would silently re-interpret conformant tags.
-    if 10 + size > len(data):
+    have = len(data) if whole is None else max(whole, len(data))
+    if 10 + size > len(data) and 10 + size <= have:
+        warns.append(hit("chunk_payload", len(data), 10 + size,
+                         f"the tag is {10 + size:,} bytes; the first "
+                         f"{len(data):,} were read"))
+    elif 10 + size > len(data):
         le = int.from_bytes(data[6:10], "little")
-        if 10 + le == len(data):
+        if 10 + le == have:
             warns.append(
-                f"the tag size is written little-endian ({le}), not the "
-                f"synchsafe big-endian the format requires (which reads "
-                f"{size:,}). Using {le}, which matches the tag exactly.")
+                defect("value.invalid",
+                       f"the tag size is written little-endian ({le}), not the "
+                       f"synchsafe big-endian the format requires (which reads "
+                       f"{size:,}). Using {le}, which matches the tag exactly."))
             size, size_note = le, "little-endian, non-conformant"
         else:
-            warns.append(f"the tag declares {size:,} bytes but only "
-                         f"{len(data) - 10:,} follow its header")
+            warns.append(defect("size.overrun",
+                                f"the tag declares {size:,} bytes but only "
+                                f"{have - 10:,} follow its header"))
 
     header = {"major": major, "revision": revision, "flags": flags,
               "size": size, "size_note": size_note}
@@ -160,7 +174,15 @@ def id3v2_from_bytes(data):
             fsize = (synchsafe(raw) if major >= 4
                      else int.from_bytes(raw, "big"))
             head = 10
-        if fsize <= 0 or pos + head + fsize > end:
+        if fsize == 0:
+            # out of spec (a frame holds at least one byte) but its header is
+            # whole: step over it, or every later frame was silently lost
+            warns.append(defect("value.invalid",
+                                f"frame {fid.strip()!r} at 0x{pos:x} has size 0; "
+                                f"a frame holds at least one byte"))
+            pos += head
+            continue
+        if pos + head + fsize > end:
             break
         text = _id3_frame_text(fid, data[pos + head:pos + head + fsize])
         if text:
@@ -176,7 +198,7 @@ def read_id3v2(filepath):
     after the 10-byte header), total (header + payload + footer), and
     has_footer, or None if no ID3v2 tag is present.
     """
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         hdr = f.read(10)
     if len(hdr) < 10 or hdr[:3] != b"ID3":
         return None
@@ -189,6 +211,17 @@ def read_id3v2(filepath):
 
 
 _ID3_ENCODINGS = {0: "latin-1", 1: "utf-16", 2: "utf-16-be", 3: "utf-8"}
+
+# the text frames the ID3v2 spec defines as numeric strings (v2.3 and v2.2
+# ids); every other text frame is text, whatever its characters
+ID3_NUMERIC_FRAMES = frozenset((
+    "TBPM", "TDLY", "TLEN", "TSIZ", "TYER", "TORY", "TDAT", "TIME",
+    "TBP", "TDY", "TLE", "TSI", "TYE", "TOR", "TDA", "TIM"))
+
+
+def id3_is_text(fid):
+    """Whether an ID3v2 frame's decoded value is text, not a number."""
+    return fid not in ID3_NUMERIC_FRAMES
 
 
 def _id3_frame_text(fid, body):
@@ -224,7 +257,7 @@ def list_id3v2_frames(path, max_bytes=8 * 1024 * 1024):
     if not tag:
         return []
     major = tag["major"]
-    with open(path, "rb") as fh:
+    with open_input(path) as fh:
         data = fh.read(min(10 + tag["size"], max_bytes))
     pos, end = 10, min(len(data), 10 + tag["size"])
     idlen, hdrlen = (3, 6) if major == 2 else (4, 10)
@@ -384,7 +417,7 @@ def iter_frames(filepath, start, end, max_frames=None):
     count = 0
     free_len = None
     lost = 0                    # contiguous non-frame bytes since the last frame
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         pos = start
         buf = b""
         buf_start = start
@@ -429,10 +462,10 @@ def iter_frames(filepath, start, end, max_frames=None):
 
 def find_id3v1(filepath):
     """Return the offset of a trailing 128-byte ID3v1 tag, or None."""
-    size = os.path.getsize(filepath)
+    size = input_size(filepath)
     if size < 128:
         return None
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         f.seek(size - 128)
         if f.read(3) == b"TAG":
             return size - 128

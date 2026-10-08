@@ -93,14 +93,15 @@ def test_normal_nesting_is_unaffected(tmp_path):
 
 # --------------------------------------------- library calls that escaped
 
-@pytest.mark.parametrize("name,data", [
+@pytest.mark.parametrize("name,data,want", [
     ("nocomm.aiff", b"FORM" + struct.pack(">I", 16) + b"AIFF"
-                    + b"SSND" + struct.pack(">I", 8) + bytes(8)),
-    ("magic.flac", b"fLaC"),
-    ("allsync.mp3", b"\xff" * 200),
+                    + b"SSND" + struct.pack(">I", 8) + bytes(8), 0),
+    # a file the tag library cannot read has no editor that can run: 2
+    ("magic.flac", b"fLaC", 2),
+    ("allsync.mp3", b"\xff" * 200, 2),
 ])
 def test_write_reports_instead_of_leaking_a_mutagen_traceback(tmp_path, capsys,
-                                                              name, data):
+                                                              name, data, want):
     """15 malformed specimens reached the user as raw mutagen tracebacks. Every
     other verb handles the same files cleanly; only the write path did not."""
     p = tmp_path / name
@@ -108,7 +109,7 @@ def test_write_reports_instead_of_leaking_a_mutagen_traceback(tmp_path, capsys,
     rc = main(["write", "--set", "title=X", str(p)])
     captured = capsys.readouterr()
     assert "Traceback" not in (captured.out + captured.err)
-    assert rc in (0, 1)
+    assert rc == want
 
 
 def test_cover_reports_instead_of_leaking_a_mutagen_traceback(tmp_path, capsys):

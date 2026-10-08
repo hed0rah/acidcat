@@ -54,6 +54,8 @@ from the X68000 MDX Master Library.
 
 import struct
 
+from acidcat.core.infra.source import open_input, input_size
+
 TITLE_END = b"\x0d\x0a\x1a"
 
 # A title longer than this is not a title. The longest in 27,166 real tunes is
@@ -178,9 +180,11 @@ def parse_header(raw):
         if looks_like_pointer_table_module(raw):
             h["why"] = ("a nine-channel X68000 module with a 64-byte pointer "
                         "table and no MXDRV title; a different driver's file")
+            h["code"] = "magic.mismatch"
             h["pointer_table"] = True
             return h
         h["why"] = "no 0D 0A 1A title terminator in the first %d bytes" % MAX_TITLE
+        h["code"] = "text.invalid"
         return h
     h["title"] = decode_title(raw[:end])
     h["title_end"] = end
@@ -188,6 +192,7 @@ def parse_header(raw):
     nul = raw.find(b"\x00", end + 3, end + 3 + MAX_PDX_NAME)
     if nul < 0:
         h["why"] = "no NUL terminating the PDX file name"
+        h["code"] = "text.invalid"
         return h
     name = raw[end + 3:nul]
     h["pdx_name"] = decode_title(name) if name else ""
@@ -197,6 +202,7 @@ def parse_header(raw):
     h["base"] = base
     if base + 4 > len(raw):
         h["why"] = "file ends before the offset table"
+        h["code"] = "header.truncated"
         return h
 
     h["voice_offset"], first = struct.unpack_from(">HH", raw, base)
@@ -216,6 +222,7 @@ def parse_header(raw):
     # voice block is at the top of the table".
     if first < 2 or first % 2:
         h["why"] = "first MML offset %d cannot start an offset table" % first
+        h["code"] = "value.invalid"
         return h
     table_end = first
     if 2 <= h["voice_offset"] < first and h["voice_offset"] % 2 == 0:
@@ -232,15 +239,18 @@ def parse_header(raw):
             h["why"] = ("the MML and voice data are packed with %s; the "
                         "offset table belongs to the unpacked form"
                         % h["packer"])
+            h["code"] = "decode.partial"
             return h
         h["why"] = ("offset table resolves to %d channels, and only 9 or 16 "
                     "occur" % count)
+        h["code"] = "value.invalid"
         return h
     h["channels"] = count
 
     need = base + 2 + count * 2
     if need > len(raw):
         h["why"] = "file ends inside the offset table"
+        h["code"] = "header.truncated"
         return h
     h["mml_offsets"] = list(struct.unpack_from(">%dH" % count, raw, base + 2))
     h["voice_abs"] = base + h["voice_offset"]
@@ -304,10 +314,9 @@ SNIFF_READ = 4096
 
 def looks_like_mdx_file(path):
     """`looks_like_mdx` for a path, reading enough to see the offset table."""
-    import os
     try:
-        with open(path, "rb") as fh:
+        with open_input(path) as fh:
             head = fh.read(SNIFF_READ)
-        return looks_like_mdx(head, os.path.getsize(path))
+        return looks_like_mdx(head, input_size(path))
     except OSError:
         return False

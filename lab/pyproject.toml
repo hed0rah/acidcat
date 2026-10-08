@@ -12,7 +12,7 @@ description = "Construct files that test what acidcat can see: cavities, polyglo
 # the git URL the 1.5.0 CHANGELOG gives. `twine check` warns about the missing
 # long_description; that warning is expected and not a defect to fix.
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "hed0rah", email = "18272116+hed0rah@users.noreply.github.com"},
 ]
@@ -29,18 +29,18 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
 # A compatible range rather than a hard pin. `==` would force a lab release for
 # every engine patch; the lab only ever touches acidcat's public facade
-# (`sniff`, `walk_file`, `Unsupported`, `util.outpath`) and
-# `tests/test_lab_boundary.py` is the standing evidence for that, so a minor
-# engine release cannot move something the lab reaches.
+# (`sniff`, `open`, `util.outpath`) and `tests/test_lab_boundary.py` is the
+# standing evidence for that, so a minor engine release cannot move something
+# the lab reaches. 2.0 is the floor: the lab reads files through
+# `acidcat.open()`, which 1.x does not have.
 dependencies = [
-    "acidcat>=1.5.0,<2",
+    "acidcat>=2.0.0a1,<3",
 ]
 
 [project.urls]

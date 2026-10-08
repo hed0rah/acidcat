@@ -36,6 +36,19 @@ def display_name(path):
     return os.path.basename(path)
 
 
+def as_given(path):
+    """The path as the caller gave it: ``<stdin>`` for a stdin buffer, else the
+    path unchanged. For a record's `path` and a report's header, where the
+    temp copy's full path (home directory and all) must never appear."""
+    if path and path.endswith(_STDIN_SUFFIX):
+        return "<stdin>"
+    return path
+
+
+# `-` with nothing piped in: the input could not be read, as a missing file
+NO_STDIN = 2
+
+
 def is_stdin_target(target):
     """Check if target means 'read from stdin'."""
     return target == "-"

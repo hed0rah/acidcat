@@ -20,7 +20,7 @@ Turning them into real format tables is the next housekeeping step.
 import argparse
 import sys
 
-from acidcat.commands._output import add_output_format_arg
+from acidcat.commands._output import add_output_format_arg, add_report_arg
 from acidcat.core.infra.render import format_json
 
 # Convert and Repair have no format-keyed registry to read (they branch on magic
@@ -65,9 +65,7 @@ def register(subparsers):
                    help="Show which metadata fields the format can hold and "
                         "where each one lands. Needs a format.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"), deprecated_f=False)
-    p.add_argument("--format-out", dest="output_format",
-                   choices=("table", "json", "tsv"),
-                   help=argparse.SUPPRESS)          # deprecated: use --output-format
+    add_report_arg(p)
     p.set_defaults(func=run)
 
 
@@ -111,7 +109,7 @@ def _print_table(rows):
     print(f"\n{len(rows)} format{'' if len(rows) == 1 else 's'}  (x = supported, . = not)")
 
 
-def _print_fields(fid):
+def _print_fields(fid, fmt="table"):
     """What metadata a format can hold, and where it goes.
 
     The capability matrix answers yes-or-no. This answers which, and where --
@@ -124,6 +122,17 @@ def _print_fields(fid):
         print(f"acidcat formats: {fid} holds no editable metadata",
               file=sys.stderr)
         return 1
+    if fmt != "table":
+        # one row per field: the table's columns, machine-readable
+        rows = []
+        for f in fields:
+            bind = M.binding(fid, f)
+            rows.append({"field": f, "kind": M.kind_of(f),
+                         "access": {"rw": "read/write", "r": "read",
+                                    "w": "write"}[bind.access],
+                         "goes_to": bind.label})
+        _emit(rows, fmt, ["field", "kind", "access", "goes_to"])
+        return 0
     wid = max(len(f) for f in fields)
     print(f"{fid} holds {len(fields)} metadata field"
           f"{'' if len(fields) == 1 else 's'}\n")
@@ -142,6 +151,10 @@ def _print_fields(fid):
         print("\n  write-only -- set them, and the reader cannot show them "
               "back:")
         print("    " + ", ".join(wo))
+    if fid in M.IN_PLACE:
+        print("\n  edited in place -- set only where the file already has "
+              "the field:")
+        print("    " + M.IN_PLACE[fid])
     clashes = M.collisions(fid)
     if clashes:
         print("\n  sharing a destination -- setting one replaces the other:")
@@ -156,20 +169,32 @@ def _print_fields(fid):
     return 0
 
 
+def _emit(rows, fmt, cols):
+    if fmt == "json":
+        format_json(rows, sys.stdout)
+    elif fmt == "tsv":
+        print("	".join(cols))
+        for r in rows:
+            print("	".join(str(r[c]) for c in cols))
+    else:
+        from acidcat.core.infra.render import output as _render
+        _render(rows, fmt="csv")
+
+
 def run(args):
     if getattr(args, "fields", False):
         if not args.format:
             print("acidcat formats --fields: needs a format "
                   "(try `acidcat formats` for the list)", file=sys.stderr)
-            return 1
-        return _print_fields(args.format.lower())
+            return 2                        # a usage error, not an answer
+        return _print_fields(args.format.lower(), args.output_format)
     rows = _matrix()
     if args.format:
         rows = [r for r in rows if r["id"] == args.format.lower()]
         if not rows:
             print(f"acidcat formats: no format {args.format!r} "
                   f"(try `acidcat formats` for the list)", file=sys.stderr)
-            return 1
+            return 2                        # a bad argument value, not an answer
 
     if args.output_format == "json":
         format_json(rows, sys.stdout)

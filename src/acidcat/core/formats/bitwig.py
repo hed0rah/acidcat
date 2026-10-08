@@ -16,6 +16,8 @@ import re
 import struct
 import zipfile
 
+from acidcat.core.infra.source import open_input
+
 MAGIC = b"BtWg"
 _MAX_LEN = 1 << 20  # sanity cap on any declared length
 # bound byte-by-byte scans so a huge preset with no embedded zip cannot force a
@@ -43,7 +45,7 @@ _META_KEYS_BYTES = {k.encode(): k for k, _ in _META_FIELDS}
 
 def is_bitwig(filepath):
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             return f.read(4) == MAGIC
     except OSError:
         return False

@@ -62,10 +62,11 @@ class TestInfoWav:
         assert "wav" in out.lower() or "WAV" in out
 
     def test_json_output(self, minimal_wav):
-        code, out, err = run_cli(minimal_wav, "-f", "json")
+        code, out, err = run_cli(minimal_wav, "--json")
         assert code == 0 or code is None
-        data = json.loads(out)
-        assert "Format" in data or "format" in data or "File" in data
+        (data,) = json.loads(out)
+        assert data["format"] == "wav" and data["label"] == "RIFF/WAVE"
+        assert data["path"] == minimal_wav
 
     def test_not_riff_wav_says_so(self, not_riff):
         """Was `code in (0, 1, None)` -- an assertion that accepted the old
@@ -123,28 +124,36 @@ class TestChunksCommand:
         assert "data" in out
 
     def test_not_riff_file(self, not_riff):
+        """2.0: `chunks` is `inspect --chunks`, which reads every format there
+        is a walker for rather than refusing everything that is not RIFF."""
         code, out, err = run_cli("chunks", not_riff)
-        # 2: a format this verb does not model is could-not-run, the same answer
-        # validate gives, and the README states that rule
-        assert code == 2
-        assert "not a RIFF container" in err
-        # and it names the verb that CAN read the file, rather than leaving the
-        # user to already know which one to switch to
-        assert "acidcat inspect" in err
+        assert "is `acidcat inspect --chunks" in err
+        new_code, new_out, _ = run_cli("inspect", "--chunks", not_riff)
+        assert (code, out) == (new_code, new_out)
 
     def test_nonexistent_file(self, tmp_path):
         code, out, err = run_cli("chunks", str(tmp_path / "missing.wav"))
         assert code == 2
 
     def test_json_output(self, minimal_wav):
-        code, out, err = run_cli("chunks", minimal_wav, "-f", "json")
+        code, out, err = run_cli("inspect", "--chunks", minimal_wav, "--json")
         assert code == 0 or code is None
-        data = json.loads(out)
-        assert isinstance(data, list)
+        data = json.loads(out)                    # the contract v1 Document
+        assert data["contract"] == 1
+        assert {c["id"] for c in data["nodes"][0]["children"]} >= {
+            "RIFF/fmt_", "RIFF/data"}
+
+    def test_chunk_rows_as_csv(self, minimal_wav):
+        code, out, err = run_cli("inspect", "--chunks", minimal_wav, "--csv")
+        assert code == 0 or code is None
+        head, *rows = out.strip().splitlines()
+        assert head.split(",")[:5] == ["path", "idx", "id", "name", "offset"]
+        assert rows[0].split(",")[2:4] == ["RIFF/fmt_", "fmt"]
+        assert len(rows) >= 2
 
     def test_chunk_offsets_present(self, minimal_wav):
-        code, out, err = run_cli("chunks", minimal_wav)
-        assert "@" in out  # offset marker
+        code, out, err = run_cli("inspect", "--quiet", minimal_wav)
+        assert "0x0000000c" in out  # the first chunk's offset
 
 
 class TestDumpCommand:
@@ -161,9 +170,9 @@ class TestDumpCommand:
         assert "fmt" in out.lower()
 
     def test_missing_chunk(self, minimal_wav):
-        code, out, err = run_cli("dump", minimal_wav, "acid")
+        code, out, err = run_cli("od", minimal_wav, "acid")
         assert code == 1
-        assert "not found" in err.lower() or "acid" in err.lower()
+        assert "no node 'acid'" in err
 
     def test_nonexistent_file(self, tmp_path):
         code, out, err = run_cli("dump", str(tmp_path / "ghost.wav"), "fmt")
@@ -191,16 +200,19 @@ class TestScanCommand:
 
         assert not list(workdir.glob("*.csv")), (
             "scan invented a CSV in the working directory")
-        assert "filename" in out.splitlines()[0], "CSV has no header row"
+        assert "path" in out.splitlines()[0], "CSV has no header row"
         assert "test.wav" in out, "the scanned file is missing from the CSV"
 
     def test_scan_empty_directory(self, tmp_path):
         code, out, err = run_cli("scan", str(tmp_path), "-q")
-        assert code == 0 or code is None
+        # nothing to read is the answer no, in every stats mode (review V7);
+        # not a crash, not could-not-run
+        assert code == 1
 
-    def test_scan_not_a_directory(self, minimal_wav):
+    def test_scan_takes_a_file(self, minimal_wav):
+        """2.0: `stats FILE` works (review R9), so its scan alias does."""
         code, out, err = run_cli("scan", minimal_wav, "-q")
-        assert code == 2
+        assert code == 0 and minimal_wav in out
 
     def test_scan_csv_has_header(self, tmp_path, minimal_wav):
         import shutil
@@ -215,7 +227,7 @@ class TestScanCommand:
             reader = csv.DictReader(f)
             rows = list(reader)
         assert len(rows) == 1
-        assert "filename" in rows[0]
+        assert "path" in rows[0]
         assert "format" in rows[0]
 
     def test_scan_limit(self, tmp_path, minimal_wav):
@@ -285,9 +297,9 @@ class TestInfoSmplKeyDisplay:
         assert code == 0 or code is None
         assert "C-1" not in out
         # JSON form is unambiguous for the assertion
-        code_j, out_j, _ = run_cli(path, "-f", "json")
-        data = json.loads(out_j)
-        assert data["Key"] == "-"
+        code_j, out_j, _ = run_cli(path, "--json")
+        (data,) = json.loads(out_j)            # rows, one per file
+        assert data["key"] is None and data["key_source"] is None
 
     def test_smpl_root_60_renders_as_pitch_class(self, tmp_path):
         path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
@@ -299,11 +311,11 @@ class TestInfoSmplKeyDisplay:
 
     def test_smpl_root_60_json_has_pitch_class(self, tmp_path):
         path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
-        code, out, err = run_cli(path, "-f", "json")
+        code, out, err = run_cli(path, "--json")
         assert code == 0 or code is None
-        data = json.loads(out)
-        assert data["Key"].startswith("C ")
-        assert "C4" not in data["Key"]
+        (data,) = json.loads(out)
+        assert (data["key"], data["key_source"]) == ("C", "smpl")
+        assert data["smpl_root"] == "C3"
 
     def test_no_smpl_no_acid_renders_as_unset(self, tmp_path):
         path = _riff_wav_with_smpl(tmp_path / "nokey.wav", smpl_root_key=None)
@@ -312,60 +324,106 @@ class TestInfoSmplKeyDisplay:
         assert "C-1" not in out
 
 
+def _acid_loop_wav(path, beats=1, tempo=120.0, root=60, n=8192):
+    """A minimal PCM WAV with an acid chunk: a loop of `beats` at `tempo`."""
+    fmt = struct.pack("<HHIIHH", 1, 1, 44100, 88200, 2, 16)
+    data = b"\x00" * (n * 2)
+    acid = struct.pack("<IHHfIHHf", 0x02, root, 0x8000, 0.0, beats, 4, 4, tempo)
+    body = (b"WAVE" + b"fmt " + struct.pack("<I", 16) + fmt
+            + b"data" + struct.pack("<I", len(data)) + data
+            + b"acid" + struct.pack("<I", len(acid)) + acid)
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+    return str(path)
+
+
+class TestSummaryRowsAreTyped:
+    """The summary's json/csv rows carry values, not the card's display
+    strings: `Duration 0.19s` was `"duration": "0.19s"`, `BPM -` was `"-"`
+    and `ACID no` was `"no"`, while `stats --by meta` gave the same file's
+    duration as a number. The table keeps its words."""
+
+    def test_json_values_are_typed(self, tmp_path):
+        loop = _acid_loop_wav(tmp_path / "loop.wav")
+        plain = _riff_wav_with_smpl(tmp_path / "plain.wav", num_samples=8192)
+        code, out, _ = run_cli("inspect", "--summary", loop, plain, "--json")
+        assert code in (0, None)
+        a, b = json.loads(out)
+        assert a["duration_sec"] == 0.1858 and a["bpm"] == 120.0
+        assert (a["acid"], a["acid_beats"]) == (True, 1)
+        assert (a["expected_duration"], a["duration_diff"]) == (0.5, -0.3142)
+        assert (a["key"], a["key_source"], a["acid_root"]) == ("C", "acid", "C3")
+        assert b["duration_sec"] == 0.1858
+        assert (b["bpm"], b["key"], b["acid"]) == (None, None, False)
+        assert (b["smpl_root"], b["smpl_loop_start"]) == (None, None)
+        for row in (a, b):
+            assert "duration" not in row and "smpl" not in row
+
+    def test_json_matches_stats_meta_where_both_report(self, tmp_path):
+        loop = _acid_loop_wav(tmp_path / "loop.wav")
+        _c, out, _ = run_cli("inspect", "--summary", loop, "--json")
+        (summary,) = json.loads(out)
+        _c, out, _ = run_cli("stats", "--by", "meta", loop, "--json")
+        (meta,) = json.loads(out)
+        for k in ("duration_sec", "bpm", "acid_beats", "expected_duration",
+                  "duration_diff"):
+            assert summary[k] == meta[k] and type(summary[k]) is type(meta[k]), k
+
+    def test_csv_leaves_an_absent_value_empty(self, tmp_path):
+        plain = _riff_wav_with_smpl(tmp_path / "plain.wav", num_samples=8192)
+        _c, out, _ = run_cli("inspect", "--summary", plain, "--csv")
+        (row,) = list(csv.DictReader(out.splitlines()))
+        assert row["duration_sec"] == "0.1858"
+        assert row["bpm"] == "" and row["key"] == ""
+
+    def test_the_table_keeps_its_words(self, tmp_path):
+        plain = _riff_wav_with_smpl(tmp_path / "plain.wav", num_samples=8192)
+        _c, out, _ = run_cli("inspect", "--summary", plain)
+        for line in ("0.1858s", "BPM", "ACID", "SMPL"):
+            assert line in out
+        assert out.count(" -") >= 2 and " no" in out
+
+
 class TestVerboseStderr:
-    """-v should add stderr diagnostics without changing stdout."""
+    """2.0: -v adds stderr diagnostics and never changes stdout. (In 1.8
+    `info -v` and `inspect -v` changed stdout; those spellings are aliases for
+    the forms that do what they did.)"""
 
-    def test_info_verbose_stdout_unchanged(self, minimal_wav):
-        _, out_quiet, _ = run_cli(minimal_wav, "-f", "json")
-        _, out_verbose, err = run_cli(minimal_wav, "-f", "json", "-v")
-        assert out_quiet == out_verbose
-        assert "[detect]" in err
-
-    def test_info_quiet_overrides_verbose(self, minimal_wav):
-        _, out, err = run_cli(minimal_wav, "-f", "json", "-v", "-q")
-        # -q wins: no verbose lines on stderr
-        assert "[detect]" not in err
-
-    def test_chunks_verbose_stdout_unchanged(self, minimal_wav):
-        _, out_plain, _ = run_cli("chunks", minimal_wav, "-f", "json")
-        _, out_verbose, err = run_cli("chunks", minimal_wav, "-f", "json", "-v")
+    def test_stats_verbose_stdout_unchanged(self, tmp_path, minimal_wav):
+        import shutil
+        shutil.copy(minimal_wav, tmp_path / "a.wav")
+        _, out_plain, _ = run_cli("stats", str(tmp_path), "--json", "-q")
+        _, out_verbose, err = run_cli("stats", str(tmp_path), "--json", "-v")
         assert out_plain == out_verbose
-        assert "[chunks]" in err
 
-    def test_dump_verbose_stdout_unchanged(self, minimal_wav):
-        _, out_plain, _ = run_cli("dump", minimal_wav, "fmt", "-f", "json")
-        _, out_verbose, err = run_cli("dump", minimal_wav, "fmt", "-f", "json", "-v")
-        assert out_plain == out_verbose
-        assert "[dump]" in err
+    def test_the_old_verbose_spellings_say_what_they_are_now(self, minimal_wav):
+        _, _, err = run_cli("info", minimal_wav, "-v")
+        assert "is `acidcat inspect " in err and "--summary" not in err.split("is `")[1]
+        _, _, err = run_cli("inspect", minimal_wav, "-v")
+        assert "is `acidcat inspect " in err and "--deep" in err
 
 
 class TestDumpJson:
-    """dump -f json should emit a machine-readable list of chunks."""
+    """2.0: `dump --json` is `od --json`: each ADDR's bytes as JSON."""
 
     def test_json_structure(self, minimal_wav):
-        code, out, err = run_cli("dump", minimal_wav, "fmt", "-f", "json")
+        code, out, err = run_cli("od", minimal_wav, "fmt", "--json")
         assert code == 0 or code is None
         data = json.loads(out)
-        assert isinstance(data, list)
-        assert len(data) >= 1
+        assert isinstance(data, list) and len(data) == 1
         entry = data[0]
-        for k in ("chunk", "offset", "size", "hex"):
-            assert k in entry
-        assert entry["chunk"].upper().startswith("FMT")
+        assert set(entry) == {"addr", "offset", "length", "hex"}
+        assert entry["addr"] == "RIFF/fmt_"     # the id `fmt` resolved to
         assert isinstance(entry["offset"], int)
-        assert isinstance(entry["size"], int)
-        # full payload in hex, not a preview
-        assert len(entry["hex"]) == entry["size"] * 2
+        # the whole payload, not a preview
+        assert len(entry["hex"]) == entry["length"] * 2
 
     def test_json_multiple_chunks(self, minimal_wav):
-        code, out, err = run_cli("dump", minimal_wav, "fmt", "data", "-f", "json")
+        code, out, err = run_cli("od", minimal_wav, "fmt", "data", "--json")
         assert code == 0 or code is None
-        data = json.loads(out)
-        chunks_returned = {e["chunk"].upper().strip() for e in data}
-        assert {"FMT", "DATA"}.issubset(chunks_returned)
+        assert [e["addr"] for e in json.loads(out)] == ["RIFF/fmt_", "RIFF/data"]
 
     def test_json_missing_chunk_returns_error(self, minimal_wav):
-        code, out, err = run_cli("dump", minimal_wav, "acid", "-f", "json")
+        code, out, err = run_cli("od", minimal_wav, "acid", "--json")
         assert code == 1
         # no stdout emitted on error
         assert out.strip() == ""
@@ -386,9 +444,10 @@ class TestDumpJson:
         # tree it had found nothing in.
         assert code == 1
 
-    def test_survey_not_directory(self, minimal_wav):
+    def test_survey_takes_a_file(self, minimal_wav):
+        """2.0: `stats FILE --by chunks` reads the file it is named."""
         code, out, err = run_cli("survey", minimal_wav)
-        assert code == 2
+        assert code == 0 and "1 IFF-family" in out
 
 
 class TestInfoMidiDivision:
@@ -418,6 +477,30 @@ class TestInfoMidiDivision:
         code, out, _ = run_cli(self._smf(tmp_path, 0xE350))
         assert code == 0 or code is None
         assert "29.97 fps" in out
+
+
+class TestSummaryRoutesOnBytes:
+    """--summary trusted a .mid/.aif extension over the bytes: 'hello' named
+    t.mid was 'Format MIDI' and a RIFF/RMID read as 'MIDI type 21069'."""
+
+    def test_an_extension_alone_is_not_a_format(self, tmp_path):
+        for name, data in (("t.mid", b"hello"), ("t.aif", b"")):
+            p = tmp_path / name
+            p.write_bytes(data)
+            code, out, _err = run_cli("inspect", "--summary", str(p))
+            assert code == 2, name
+            assert "Format" not in out
+
+    def test_rmid_named_mid_gets_the_walker_summary(self, tmp_path):
+        track = b"\x00\xFF\x2F\x00"
+        smf = (b"MThd" + struct.pack(">IHHH", 6, 0, 1, 480)
+               + b"MTrk" + struct.pack(">I", len(track)) + track)
+        body = b"RMID" + b"data" + struct.pack("<I", len(smf)) + smf
+        p = tmp_path / "r.mid"
+        p.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+        code, out, _err = run_cli("inspect", "--summary", str(p))
+        assert code in (0, None)
+        assert "RMID" in out and "21069" not in out
 
 
 def test_main_reconfigures_stdout_to_utf8(monkeypatch):

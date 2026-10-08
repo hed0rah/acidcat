@@ -1,19 +1,19 @@
 """Vital preset structural walker (bare JSON): top-level metadata and,
 in deep mode, the synth structure and modulation matrix."""
 
-import os
 
 from acidcat.core.formats import vital as vitalmod
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect, info
 
 def inspect_vital(filepath, deep=False):
     """Structural view of a Vital preset (bare JSON): the top-level metadata,
     and with deep (--verbose or --frames) the full synth structure, active
     oscillators + wavetables, LFO inventory, effects chain, and the modulation
     matrix."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 32 * 1024 * 1024))
     # a fast bytes search for the marker before the full JSON parse: an
     # arbitrary large JSON file that merely starts with '{' is rejected without
@@ -29,13 +29,15 @@ def inspect_vital(filepath, deep=False):
     # bytes after the top-level JSON value are trailing data -- a tolerant loader
     # ignores them and the preset still loads, so warn instead of rejecting.
     if data[jend:].strip():
-        warns.append(f"{len(data) - jend:,} bytes of trailing data after the "
-                     "top-level JSON value (ignored by the parser; still loads)")
+        warns.append(defect("bytes.stray",
+                            f"{len(data) - jend:,} bytes of trailing data after the "
+                            "top-level JSON value (ignored by the parser; still loads)"))
     # top-level members outside the Vital schema are an unvalidated side-channel
     unknown = sorted(k for k in obj if k not in vitalmod.KNOWN_TOP_LEVEL)
     if unknown:
-        warns.append("unvalidated top-level key(s) outside the Vital schema: "
-                     + ", ".join(unknown))
+        warns.append(info("layout.unmeasured",
+                          "unvalidated top-level key(s) outside the Vital schema: "
+                            + ", ".join(unknown)))
     fields = []
     for k in vitalmod.META_KEYS:
         v = obj.get(k)

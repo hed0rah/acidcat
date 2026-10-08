@@ -157,3 +157,27 @@ def test_no_command_walks_directories_on_its_own():
     assert not gone, (
         f"{sorted(gone)} no longer walks directories -- remove it from the "
         "known set so the list keeps shrinking honestly.")
+
+
+# extensions that name far more files than ours: walked only when named
+_NOT_IN_A_WALK = {".m", ".cu8"}
+
+
+def test_a_directory_walk_takes_every_format_a_walker_reads():
+    """A folder of REX loops, Serum presets, EXS/SFZ and Live Packs walked as
+    empty: 49 of 99 walker formats had an extension the walk did not know,
+    while the same files named directly read fine."""
+    import seeds
+    missing = sorted({seeds.suffix(f).lower() for f in seeds.SEEDS}
+                     - T.KNOWN_EXTS - _NOT_IN_A_WALK)
+    assert missing == []
+
+
+def test_the_formats_a_sample_library_holds_are_walked(tmp_path):
+    names = ["loop.rx2", "loop.rex", "bass.SerumPreset", "kit.exs", "kit.sfz",
+             "pack.alp", "group.mxgrp", "inst.sxt", "bank.labx", "tune.sid"]
+    for n in names:
+        (tmp_path / n).write_bytes(b"x")
+    files, skipped = T.expand([str(tmp_path)])
+    assert sorted(os.path.basename(f) for f in files) == sorted(names)
+    assert skipped == 0

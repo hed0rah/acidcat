@@ -1,17 +1,18 @@
 """RIFF/WAVE structural walker: per-chunk field decoding for inspect."""
 
-import os
 import struct
 
 from acidcat.core.formats.riff import iter_chunks
+from acidcat.core.infra.findings import defect, error, info
 from acidcat.core.infra.vocab import (WAVE_FORMAT_TAGS as _FORMAT_TAGS,
                                 WAV_SPEAKER_POSITIONS as _SPEAKER_POSITIONS,
                                 KSDATAFORMAT_TAIL as _KSDATAFORMAT_TAIL)
-from acidcat.core.primitives.notes import coverage, is_coverage
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
 from acidcat.core.walk.apple import _parse_apple_meta, _parse_resu
 from acidcat.core.walk.base import (
     VENDOR_CHUNKS, _PAYLOAD_CAP, _dtext, _f, _u16, _u32, _cstr, _flag_names,
-    parse_opaque, parse_padding,
+    parse_opaque, parse_padding, _open, _size,
 )
 from acidcat.util.midi import midi_note_to_name
 
@@ -45,31 +46,37 @@ _INFO_TAGS = {
 def _parse_fmt(b, ctx):
     fields, warns = [], []
     if len(b) < 16:
-        return "truncated", fields, [f"fmt payload is {len(b)} bytes, spec minimum is 16"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"fmt payload is {len(b)} bytes, spec minimum is 16")]
     tag, ch, rate, avg, align, bits = struct.unpack_from("<HHIIHH", b, 0)
     tag_name = _FORMAT_TAGS.get(tag, f"unknown 0x{tag:04x}")
     fields.append(_f(0x00, 2, "format_tag", f"0x{tag:04x}", tag_name,
                      enc="<H", raw=tag))
-    fields.append(_f(0x02, 2, "channels", ch))
-    fields.append(_f(0x04, 4, "sample_rate", rate, "Hz"))
-    fields.append(_f(0x08, 4, "avg_bytes_per_sec", avg))
-    fields.append(_f(0x0C, 2, "block_align", align))
-    fields.append(_f(0x0E, 2, "bits_per_sample", bits))
+    fields.append(_f(0x02, 2, "channels", ch, enc="<H"))
+    fields.append(_f(0x04, 4, "sample_rate", rate, "Hz", enc="<I"))
+    fields.append(_f(0x08, 4, "avg_bytes_per_sec", avg, enc="<I"))
+    fields.append(_f(0x0C, 2, "block_align", align, enc="<H"))
+    fields.append(_f(0x0E, 2, "bits_per_sample", bits, enc="<H"))
     ctx.update({"format_tag": tag, "channels": ch, "sample_rate": rate,
                 "block_align": align, "bits": bits})
 
     if tag == 1 and ch and bits and align != ch * ((bits + 7) // 8):
-        warns.append(f"block_align {align} != channels*ceil(bits/8) = {ch * ((bits + 7) // 8)}")
+        warns.append(defect("field.inconsistent",
+                            f"block_align {align} != channels*ceil(bits/8) = "
+                            f"{ch * ((bits + 7) // 8)}"))
     if tag == 1 and rate and align and avg != rate * align:
-        warns.append(f"avg_bytes_per_sec {avg} != sample_rate*block_align = {rate * align}")
+        warns.append(defect("field.inconsistent",
+                            f"avg_bytes_per_sec {avg} != "
+                            f"sample_rate*block_align = {rate * align}"))
     # physically implausible but structurally valid values -- a crafted-file
     # tell. Bounds are deliberately generous (real audio never trips them):
     # 8-channel surround and 384 kHz masters are fine; 255 channels or a 1 Hz
     # rate are not.
     if rate and not (1000 <= rate <= 768000):
-        warns.append(f"sample_rate {rate} Hz is outside any plausible range")
+        warns.append(defect("value.invalid",
+                            f"sample_rate {rate} Hz is outside any plausible range"))
     if ch > 64:
-        warns.append(f"{ch} channels is implausibly high")
+        warns.append(defect("value.invalid", f"{ch} channels is implausibly high"))
 
     # a WAVEFORMATEX (extended, non-extensible) carries a cbSize at 0x10;
     # its extension bytes are format-specific and worth breaking out.
@@ -94,8 +101,9 @@ def _parse_fmt(b, ctx):
                                  "the standard predictor set" if std
                                  else "custom predictors"))
                 if ncoef > len(pairs):
-                    warns.append(f"declares {ncoef} coefficient pairs but the "
-                                 f"extension holds {len(pairs)}")
+                    warns.append(defect("size.overrun",
+                                        f"declares {ncoef} coefficient pairs but the "
+                                        f"extension holds {len(pairs)}"))
         elif tag == 0x0011 and len(ext) >= 2:      # IMA/DVI ADPCM
             fields.append(_f(0x12, 2, "samples_per_block", _u16(ext, 0)))
         elif tag == 0x0055 and len(ext) >= 12:     # MPEGLAYER3WAVEFORMAT
@@ -125,8 +133,9 @@ def _parse_fmt(b, ctx):
         fields.append(_f(0x18, 16, "sub_format", sub_name,
                          "KSDATAFORMAT_SUBTYPE" if tail_ok else "non-standard GUID"))
         if not tail_ok:
-            warns.append("sub_format GUID tail is not the standard "
-                         "KSDATAFORMAT_SUBTYPE suffix")
+            warns.append(info("layout.unmeasured",
+                              "sub_format GUID tail is not the standard "
+                                "KSDATAFORMAT_SUBTYPE suffix"))
         ctx["format_tag"] = sub_tag
 
     summary = f"{tag_name} {bits}-bit {ch}ch {rate} Hz"
@@ -177,9 +186,10 @@ def _parse_data(b, ctx, size, avail=None):
     if streaming:
         summary = (f"audio payload, {eff:,} bytes, size field is a streaming "
                    f"placeholder ({_STREAM_SENTINELS[size]})")
-        warns.append("the data size is a streaming placeholder, so the payload "
-                     "runs to the end of the file; this is how a writer records "
-                     "audio it cannot measure in advance, not damage")
+        warns.append(info("convention.noted",
+                          "the data size is a streaming placeholder, so the payload "
+                          "runs to the end of the file; this is how a writer records "
+                          "audio it cannot measure in advance, not damage"))
     elif overrun:
         summary = f"audio payload, {size:,} bytes declared, only {avail:,} present"
     else:
@@ -195,13 +205,13 @@ def _parse_data(b, ctx, size, avail=None):
         summary += f", {dur:.3f} s"
         fields.append(_f(0x00, eff, "frames", frames, note))
     if size == 0 and not streaming:
-        warns.append("data chunk is empty")
+        warns.append(defect("value.invalid", "data chunk is empty"))
     return summary, fields, warns
 
 
 def _parse_fact(b, ctx):
     if len(b) < 4:
-        return "truncated", [], ["fact payload under 4 bytes"]
+        return "truncated", [], [defect("chunk.short", "fact payload under 4 bytes")]
     n = _u32(b, 0)
     warns = []
     notes = []
@@ -212,8 +222,9 @@ def _parse_fact(b, ctx):
             n = ctx["ds64_samples"]
             notes.append("0xffffffff sentinel, resolved via ds64")
         else:
-            warns.append("sample_length is the 0xffffffff sentinel but "
-                         "no ds64 chunk provides the 64-bit count")
+            warns.append(defect("required.missing",
+                                "sample_length is the 0xffffffff sentinel but "
+                                "no ds64 chunk provides the 64-bit count"))
             return ("sample count deferred to ds64, which is absent",
                     [_f(0x00, 4, "sample_length", "0xffffffff", "sentinel")],
                     warns)
@@ -229,7 +240,8 @@ def _parse_fact(b, ctx):
 def _parse_acid(b, ctx):
     fields, warns = [], []
     if len(b) < 24:
-        return "truncated", fields, [f"acid payload is {len(b)} bytes, expected 24"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"acid payload is {len(b)} bytes, expected 24")]
     flags, root, q1, q2, beats, denom, numer, tempo = struct.unpack_from("<IHHfIHHf", b, 0)
     fields.append(_f(0x00, 4, "type_flags", f"0x{flags:08x}",
                      _flag_names(flags, _ACID_FLAGS), enc="<I", raw=flags))
@@ -246,16 +258,32 @@ def _parse_acid(b, ctx):
     ctx["acid_beats"] = beats
     ctx["acid_one_shot"] = bool(flags & 0x01)
     if tempo and not (40 <= tempo <= 300):
-        warns.append(f"acid tempo {tempo:.2f} outside sane range 40-300")
+        # a tempo too small for two places printed as "0.00", a zero it is not
+        shown = f"{tempo:.2f}" if abs(tempo) >= 0.01 else f"{tempo:.3g}"
+        if flags & 0x01:
+            # a one-shot plays at its own speed, so nothing reads its tempo:
+            # whatever the writer left in the field is not damage
+            warns.append(info("convention.noted",
+                              f"acid tempo {shown} is outside 40-300, but the "
+                              f"one-shot flag is set, so the tempo is not used"))
+        else:
+            warns.append(defect("value.invalid",
+                                f"acid tempo {shown} outside sane range 40-300"))
     dur = ctx.get("duration")
     if beats and tempo and dur:
         expected = beats / tempo * 60
         drift = abs(expected - dur) / dur if dur else 0
         if drift > 0.05:
-            warns.append(
-                f"acid says {beats} beats at {tempo:.2f} bpm = {expected:.3f} s "
-                f"but data holds {dur:.3f} s ({drift * 100:.0f}% drift)"
-            )
+            said = (f"acid says {beats} beats at {tempo:.2f} bpm = {expected:.3f} s "
+                    f"but data holds {dur:.3f} s ({drift * 100:.0f}% drift)")
+            if flags & 0x01:
+                # a one-shot is not stretched to its beat count, so exporters'
+                # defaults (8 beats at 120 on a 0.2 s clap) mislead nothing
+                warns.append(info("convention.noted",
+                                  said + "; the one-shot flag is set, so nothing "
+                                         "stretches it"))
+            else:
+                warns.append(defect("field.inconsistent", said))
     kind = "one-shot" if flags & 0x01 else "loop"
     summary = f"{kind}, {beats} beats, {numer}/{denom}, {tempo:.2f} bpm"
     if root:
@@ -266,7 +294,8 @@ def _parse_acid(b, ctx):
 def _parse_smpl(b, ctx):
     fields, warns = [], []
     if len(b) < 36:
-        return "truncated", fields, [f"smpl payload is {len(b)} bytes, header needs 36"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"smpl payload is {len(b)} bytes, header needs 36")]
     # all nine header fields are unsigned DWORDs (dwSMPTEFormat/dwSMPTEOffset
     # included); a signed read would show large offsets as negatives
     (manuf, product, period, unity, frac,
@@ -285,11 +314,13 @@ def _parse_smpl(b, ctx):
     ctx["smpl_root"] = unity
     rate = ctx.get("sample_rate")
     if rate and period and abs(period - round(1e9 / rate)) > 1:
-        warns.append(f"sample_period {period} disagrees with fmt rate {rate}")
+        warns.append(defect("field.inconsistent",
+                            f"sample_period {period} disagrees with fmt rate {rate}"))
 
     capacity = max(0, (len(b) - 36) // 24)
     if n_loops > capacity:
-        warns.append(f"declares {n_loops} loops but payload holds {capacity}")
+        warns.append(defect("size.overrun",
+                            f"declares {n_loops} loops but payload holds {capacity}"))
     frames = ctx.get("frames")
     for i in range(min(n_loops, capacity)):
         base = 36 + i * 24
@@ -304,9 +335,9 @@ def _parse_smpl(b, ctx):
             ctx["smpl_loop_start"] = start
             ctx["smpl_loop_end"] = end
         if end < start:
-            warns.append(f"loop[{i}] end {end} before start {start}")
+            warns.append(defect("geometry.invalid", f"loop[{i}] end {end} before start {start}"))
         elif frames and end > frames:
-            warns.append(f"loop[{i}] end {end} past last frame {frames}")
+            warns.append(defect("value.invalid", f"loop[{i}] end {end} past last frame {frames}"))
 
     summary = f"root {midi_note_to_name(unity)}" if unity else "root unset"
     summary += f", {n_loops} loop(s)"
@@ -315,7 +346,8 @@ def _parse_smpl(b, ctx):
 
 def _parse_inst(b, ctx):
     if len(b) < 7:
-        return "truncated", [], [f"inst payload is {len(b)} bytes, expected 7"]
+        return "truncated", [], [defect("chunk.short",
+                                        f"inst payload is {len(b)} bytes, expected 7")]
     # bUnshiftedNote is an unsigned BYTE (0-127); chFineTune and chGain are
     # signed CHARs
     base, detune, gain = struct.unpack_from("<Bbb", b, 0)
@@ -337,12 +369,13 @@ def _parse_inst(b, ctx):
 def _parse_cue(b, ctx):
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["cue payload under 4 bytes"]
+        return "truncated", fields, [defect("chunk.short", "cue payload under 4 bytes")]
     declared = _u32(b, 0)
     capacity = max(0, (len(b) - 4) // 24)
     fields.append(_f(0x00, 4, "num_cue_points", declared))
     if declared > capacity:
-        warns.append(f"declares {declared} cue points but payload holds {capacity}")
+        warns.append(defect("size.overrun",
+                            f"declares {declared} cue points but payload holds {capacity}"))
     for i in range(min(declared, capacity)):
         base = 4 + i * 24
         cid, pos, fcc, cstart, bstart, sample = struct.unpack_from("<II4sIII", b, base)
@@ -372,7 +405,7 @@ def _parse_cue(b, ctx):
 def _parse_list(b, ctx):
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["LIST payload under 4 bytes"]
+        return "truncated", fields, [defect("chunk.short", "LIST payload under 4 bytes")]
     list_type = b[:4].decode("ascii", errors="replace")
     pos = 4
     count = 0
@@ -381,16 +414,17 @@ def _parse_list(b, ctx):
         sub_size = _u32(b, pos + 4)
         start, end = pos + 8, pos + 8 + sub_size
         if end > len(b):
-            warns.append(f"sub-chunk {sub_id!r} overruns LIST payload")
+            warns.append(defect("size.overrun", f"sub-chunk {sub_id!r} overruns LIST payload"))
             break
         if list_type == "adtl" and sub_id in ("labl", "note") and sub_size >= 4:
             cue_id = _u32(b, start)
             text = _cstr(b, start + 4, sub_size - 4)
-            fields.append(_f(pos, 8 + sub_size, sub_id, text, f"cue id {cue_id}"))
+            fields.append(_f(start + 4, sub_size - 4, sub_id, text,
+                             f"cue id {cue_id}", text=True))
         else:
             text = _cstr(b, start, sub_size)
             note = _INFO_TAGS.get(sub_id, "")
-            fields.append(_f(pos, 8 + sub_size, sub_id, text, note))
+            fields.append(_f(start, sub_size, sub_id, text, note, text=True))
         count += 1
         pos = end + (sub_size & 1)
     return f"{list_type}, {count} entries", fields, warns
@@ -399,7 +433,8 @@ def _parse_list(b, ctx):
 def _parse_bext(b, ctx):
     fields, warns = [], []
     if len(b) < 348:
-        return "truncated", fields, [f"bext payload is {len(b)} bytes, v0 minimum is 348"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"bext payload is {len(b)} bytes, v0 minimum is 348")]
     fields.append(_f(0x000, 256, "description", _cstr(b, 0, 256)))
     fields.append(_f(0x100, 32, "originator", _cstr(b, 256, 32)))
     fields.append(_f(0x120, 32, "originator_reference", _cstr(b, 288, 32)))
@@ -448,7 +483,8 @@ def _parse_bwbm(b, ctx):
     Verified against a Bitwig Studio 6.0.6 bounce."""
     fields, warns = [], []
     if len(b) < 40:
-        return "truncated", fields, [f"BWBM payload is {len(b)} bytes, expected 40"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"BWBM payload is {len(b)} bytes, expected 40")]
     version = _u32(b, 0)
     beats = struct.unpack_from("<d", b, 0x18)[0]
     dur = struct.unpack_from("<d", b, 0x20)[0]
@@ -470,7 +506,8 @@ def _parse_cart(b, ctx):
     reference, 8 post-timers, url) followed by freeform tag text."""
     fields, warns = [], []
     if len(b) < 0x2AC:
-        return "truncated", fields, [f"cart payload is {len(b)} bytes, header needs 2048"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"cart payload is {len(b)} bytes, header needs 2048")]
 
     def s(off, n):
         return _cstr(b, off, n)
@@ -547,7 +584,7 @@ def _parse_clm(b, ctx):
     fields, warns = [], []
     text = _dtext(b).strip("\x00").strip()
     if not text:
-        return "empty", fields, ["clm chunk carries no text"]
+        return "empty", fields, [defect("chunk.short", "clm chunk carries no text")]
     fields.append(_f(0x00, len(b), "marker", text[:160]))
     frame = None
     if text.startswith("<!>"):
@@ -562,7 +599,7 @@ def _parse_clm(b, ctx):
             # decoded into flags nobody has verified.
             fields.append(_f(None, 0, "flags", parts[1], "undecoded"))
     else:
-        warns.append("clm text does not open with the '<!>' marker")
+        warns.append(defect("magic.mismatch", "clm text does not open with the '<!>' marker"))
 
     # the frame COUNT, which is what a reader actually wants, and only
     # derivable once the data chunk's length is known
@@ -574,8 +611,10 @@ def _parse_clm(b, ctx):
         fields.append(_f(None, 0, "frames", f"{n:,}",
                          "data length divided by the frame size"))
         if rem:
-            warns.append(f"{frames:,} sample frames is not a whole number of "
-                         f"{frame:,}-sample wavetable frames ({rem:,} trail)")
+            warns.append(defect(
+                "length.misaligned",
+                f"{frames:,} sample frames is not a whole number of "
+                f"{frame:,}-sample wavetable frames ({rem:,} trail)"))
     elif frame:
         summary = f"wavetable, {frame:,}-sample frames"
     if "xfer" in text.lower():
@@ -606,21 +645,24 @@ def _parse_strc(b, ctx):
     fields, warns = [], []
     if len(b) < _STRC_HEADER:
         return "truncated", fields, [
-            f"strc payload is {len(b)} bytes, the header alone is {_STRC_HEADER}"]
+            defect("chunk.short",
+                   f"strc payload is {len(b)} bytes, the header alone is {_STRC_HEADER}")]
     hdr_size, count = struct.unpack_from("<II", b, 0)
     fields.append(_f(0x00, 4, "header_size", hdr_size))
     fields.append(_f(0x04, 4, "slices", count))
     if hdr_size != _STRC_HEADER:
-        warns.append(f"strc header declares {hdr_size} bytes, not the "
-                     f"{_STRC_HEADER} every measured file uses")
+        warns.append(info("layout.unmeasured",
+                          f"strc header declares {hdr_size} bytes, not the "
+                          f"{_STRC_HEADER} every measured file uses"))
 
     body = len(b) - _STRC_HEADER
     if count <= 0:
         return "no slices", fields, warns
     stride, rem = divmod(body, count)
     if rem or stride < 12:
-        warns.append(f"{body:,} bytes of slice records does not divide into "
-                     f"{count} whole records; positions not read")
+        warns.append(defect("length.misaligned",
+                            f"{body:,} bytes of slice records does not divide into "
+                            f"{count} whole records; positions not read"))
         return f"{count} slice(s), record layout unreadable", fields, warns
     fields.append(_f(None, 0, "record_size", stride, "derived, not assumed"))
 
@@ -631,15 +673,17 @@ def _parse_strc(b, ctx):
             break
         positions.append(struct.unpack_from("<I", b, o + _STRC_POS_OFF)[0])
     if positions and positions != sorted(positions):
-        warns.append("slice positions are not ascending; the record layout "
-                     "may differ in this file and they are reported as read")
+        warns.append(info("layout.unmeasured",
+                          "slice positions are not ascending; the record layout "
+                          "may differ in this file and they are reported as read"))
 
     for i, pos in enumerate(positions[:_STRC_SLICE_CAP]):
         fields.append(_f(_STRC_HEADER + i * stride + _STRC_POS_OFF, 4,
                          f"slice[{i}]", f"{pos:,}", "sample position"))
     if len(positions) > _STRC_SLICE_CAP:
-        warns.append(coverage(f"listing the first {_STRC_SLICE_CAP} of "
-                     f"{len(positions):,} slice positions"))
+        warns.append(hit("list_rows", _STRC_SLICE_CAP, len(positions),
+                         f"listing the first {_STRC_SLICE_CAP} of "
+                         f"{len(positions):,} slice positions"))
 
     # the implied tempo, when the markers are evenly spaced. Stated only when
     # they ARE even: an uneven set is a transient map rather than a beat grid,
@@ -658,7 +702,7 @@ def _parse_strc(b, ctx):
     return summary, fields, warns
 
 
-def _parse_riff_id3(b, ctx):
+def _parse_riff_id3(b, ctx, whole=None):
     """An ID3v2 tag inside a RIFF chunk.
 
     The same tag acidcat reads at the front of an MP3 and inside an AIFF
@@ -673,9 +717,10 @@ def _parse_riff_id3(b, ctx):
     """
     from acidcat.core.formats import mp3 as mp3mod
     fields = []
-    header, frames, warns = mp3mod.id3v2_from_bytes(b)
+    header, frames, warns = mp3mod.id3v2_from_bytes(b, whole)
     if header is None:
-        return "not an ID3v2 tag", fields, ["id3 chunk does not open with 'ID3'"]
+        return "not an ID3v2 tag", fields, [defect("magic.mismatch",
+                                                   "id3 chunk does not open with 'ID3'")]
     fields.append(_f(0x00, 3, "magic", "ID3"))
     fields.append(_f(0x03, 2, "version",
                      f"2.{header['major']}.{header['revision']}"))
@@ -683,9 +728,11 @@ def _parse_riff_id3(b, ctx):
     fields.append(_f(0x06, 4, "tag_size", f"{header['size']:,}",
                      header["size_note"], enc="synchsafe", raw=header["size"]))
     for fid, text in frames[:_ID3_FRAME_CAP]:
-        fields.append(_f(None, 0, fid, str(text)[:160]))
+        fields.append(_f(None, 0, fid, str(text)[:160],
+                         text=mp3mod.id3_is_text(fid)))
     if len(frames) > _ID3_FRAME_CAP:
-        warns = list(warns) + [coverage(
+        warns = list(warns) + [hit(
+            "list_rows", _ID3_FRAME_CAP, len(frames),
             f"listing the first {_ID3_FRAME_CAP} of {len(frames)} ID3 frames")]
     n = len(frames)
     return (f"ID3v2.{header['major']} tag, {header['size']:,} bytes"
@@ -737,7 +784,8 @@ def _parse_disp(b, ctx):
     """
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["DISP payload is shorter than its format id"]
+        return "truncated", fields, [defect("chunk.short",
+                                            "DISP payload is shorter than its format id")]
     cf = _u32(b, 0)
     name = _CF.get(cf, f"clipboard format {cf}")
     fields.append(_f(0x00, 4, "clipboard_format", cf, name, enc="<I", raw=cf))
@@ -760,8 +808,9 @@ def _parse_disp(b, ctx):
                          "negative means the rows are top-down"))
         fields.append(_f(0x12, 2, "bits_per_pixel", bits))
         if planes != 1:
-            warns.append(f"DIB declares {planes} colour planes; the format "
-                         f"allows only 1")
+            warns.append(defect("value.invalid",
+                                f"DIB declares {planes} colour planes; the format "
+                                f"allows only 1"))
         return (f"{name}, {width}x{abs(height)} at {bits} bpp"), fields, warns
     return f"{name}, {len(body):,} bytes", fields, warns
 
@@ -807,14 +856,19 @@ def _parse_ds64_reservation(b, riff_size):
             return "RF64 reservation (ds64), filled in with this file's sizes", fields, []
         return (f"RF64 reservation (ds64), filled in when the file was "
                 f"{r64 + 8:,} bytes", fields,
-                [])
+                [info("convention.noted",
+                      f"the ds64 riff_size is {r64:,} and the RIFF header says "
+                      f"{riff_size:,}: chunks were added after the sizes were "
+                      f"written, so an RF64 conversion must rewrite them")])
     if len(b) != 28:
         return None
     if _printable(b):
         text = b.decode("ascii")
         return (f"RF64 reservation (ds64) holding text: {text.rstrip()!r}", [
             _f(0x00, 28, "text", text, "Ableton Live writes a quote here"),
-        ], [])
+        ], [info("convention.noted",
+                 "the RF64 reservation holds a text, not sizes; Ableton Live "
+                 "fills it this way")])
     if r64 == riff_size and _printable(b[8:]):
         text = b[8:].decode("ascii")
         return (f"RF64 reservation (ds64): the RIFF size written over a text "
@@ -822,7 +876,9 @@ def _parse_ds64_reservation(b, riff_size):
             _f(0x00, 8, "riff_size", r64, enc="<Q"),
             _f(0x08, 20, "text", text, "the tail of the text an earlier "
                                                 "writer left"),
-        ], [])
+        ], [info("convention.noted",
+                 "the RF64 reservation holds the RIFF size over the tail of a "
+                 "text; a second tool prepared the ds64 in a file another wrote")])
     return None
 
 def _parse_cset(b, ctx):
@@ -835,7 +891,7 @@ def _parse_cset(b, ctx):
     fields, warns = [], []
     if len(b) < 8:
         return "truncated", fields, [
-            f"CSET payload is {len(b)} bytes, the spec fixes it at 8"]
+            defect("chunk.short", f"CSET payload is {len(b)} bytes, the spec fixes it at 8")]
     page, country, lang, dialect = struct.unpack_from("<HHHH", b, 0)
     fields.append(_f(0x00, 2, "code_page", page,
                      "0 means the system default", enc="<H", raw=page))
@@ -855,7 +911,8 @@ def _parse_copyright(b, ctx):
 
 # Apple's typedstream: the archive format NSArchiver wrote before
 # NSKeyedArchiver, still emitted by Logic and Final Cut into AFAn/AFmd. It
-# opens with a version byte and the literal "streamtyped".
+# opens with a version byte and "streamtyped" (little-endian) or "typedstream"
+# (big-endian).
 
 def _parse_xmp(b, _ctx):
     """`_PMX`: an XMP packet, which is RDF/XML.
@@ -869,14 +926,15 @@ def _parse_xmp(b, _ctx):
     fields, warns = [], []
     if not xmpmod.is_xmp(b):
         return (f"unrecognized, {len(b):,} bytes"), fields, [
-            "_PMX does not open as an XMP packet"]
+            defect("parse.failed", "_PMX does not open as an XMP packet")]
     props, pw = xmpmod.parse_xmp(b)
     warns.extend(pw)
     for name, value in props[:_XMP_PROPERTY_CAP]:
         fields.append(_f(None, 0, name, value))
     if len(props) > _XMP_PROPERTY_CAP:
-        warns.append(coverage(f"listing the first {_XMP_PROPERTY_CAP} of "
-                              f"{len(props)} XMP properties"))
+        warns.append(hit("list_rows", _XMP_PROPERTY_CAP, len(props),
+                         f"listing the first {_XMP_PROPERTY_CAP} of "
+                         f"{len(props)} XMP properties"))
     named = dict(props)
     bits = [named[k] for k in ("xmp:CreatorTool", "dc:publisher", "xmpDM:artist")
             if named.get(k)]
@@ -897,7 +955,7 @@ def _parse_minf(b, _ctx):
     fields, warns = [], []
     if len(b) < 16:
         return "truncated", fields, [
-            f"minf payload is {len(b)} bytes, the structure is 16"]
+            defect("chunk.short", f"minf payload is {len(b)} bytes, the structure is 16")]
     stamp, flag = struct.unpack_from("<QI", b, 0)
     fields.append(_f(0x00, 8, "timestamp", f"0x{stamp:016x}",
                      _filetime(stamp), enc="<Q", raw=stamp))
@@ -977,7 +1035,7 @@ def _parse_peak(b, ctx):
     fields, warns = [], []
     if len(b) < 8:
         return "truncated", fields, [
-            f"PEAK payload is {len(b)} bytes, the header alone is 8"]
+            defect("chunk.short", f"PEAK payload is {len(b)} bytes, the header alone is 8")]
     version, stamp = struct.unpack_from("<II", b, 0)
     fields.append(_f(0x00, 4, "version", version,
                      "" if version == 1 else "only version 1 is defined"))
@@ -987,12 +1045,13 @@ def _parse_peak(b, ctx):
     fields.append(_f(0x04, 4, "timestamp", stamp, _peak_date(stamp),
                      enc="<I", raw=stamp))
     if version != 1:
-        warns.append(f"PEAK declares version {version}; only 1 is defined")
+        warns.append(defect("value.invalid",
+                            f"PEAK declares version {version}; only 1 is defined"))
 
     chans = ctx.get("channels") or 0
     have = (len(b) - 8) // 8
     if chans and have != chans:
-        warns.append(f"{have} peak record(s) for {chans} channel(s)")
+        warns.append(defect("count.mismatch", f"{have} peak record(s) for {chans} channel(s)"))
     loudest = 0.0
     for i in range(min(have, _PEAK_CHANNEL_CAP)):
         value, frame = struct.unpack_from("<fI", b, 8 + i * 8)
@@ -1001,8 +1060,9 @@ def _parse_peak(b, ctx):
         fields.append(_f(8 + i * 8, 8, f"peak[{i}]",
                          f"{value:.6f} at frame {frame:,}", note))
     if have > _PEAK_CHANNEL_CAP:
-        warns.append(coverage(f"listing the first {_PEAK_CHANNEL_CAP} of "
-                              f"{have} peak records"))
+        warns.append(hit("list_rows", _PEAK_CHANNEL_CAP, have,
+                         f"listing the first {_PEAK_CHANNEL_CAP} of "
+                         f"{have} peak records"))
     # a peak past unit scale is not damage: float WAV is allowed past 0 dBFS,
     # and a file normalised to 2^23 rather than 1.0 shows up here as a huge
     # number rather than as a clipped one. Stated, never corrected.
@@ -1041,8 +1101,9 @@ def _parse_chrp(b, _ctx):
     blank = not b.strip(b"\x00")
     warns = []
     if len(b) != _CHRP_SIZE:
-        warns.append("chrp is %d bytes; every specimen measured is %d"
-                     % (len(b), _CHRP_SIZE))
+        warns.append(info("layout.unmeasured",
+                          "chrp is %d bytes; every specimen measured is %d"
+                          % (len(b), _CHRP_SIZE)))
     return ("%d zero byte(s)" % len(b) if blank
             else "%d byte(s), not zero" % len(b)),         [_f(0x00, len(b), "bytes", b[:12].hex(" ") or "(empty)",
             "zero in every specimen measured" if blank
@@ -1057,12 +1118,13 @@ def _parse_saur(b, _ctx):
     about the file it is in.
     """
     if not b:
-        return "empty", [], ["SAUR payload is empty"]
+        return "empty", [], [defect("chunk.short", "SAUR payload is empty")]
     text = b.split(b"\x00", 1)[0].decode("latin-1", "replace")
     warns = []
     if len(b) != _SAUR_SIZE:
-        warns.append("SAUR is %d bytes; every specimen measured is %d"
-                     % (len(b), _SAUR_SIZE))
+        warns.append(info("layout.unmeasured",
+                          "SAUR is %d bytes; every specimen measured is %d"
+                          % (len(b), _SAUR_SIZE)))
     return ("version %s" % text if text else "no version string"), \
         [_f(0x00, len(text), "version", text,
             "a writer's stamp; the same in every specimen measured")], warns
@@ -1078,14 +1140,15 @@ def _parse_cdif(b, _ctx):
     """
     fields, warns = [], []
     if len(b) < 8:
-        return "truncated", fields, ["CDif payload is under 8 bytes"]
+        return "truncated", fields, [defect("chunk.short", "CDif payload is under 8 bytes")]
     declared, kind = _u32(b, 0), _u32(b, 4)
     fields.append(_f(0x00, 4, "size", declared,
                      "the chunk's own size, repeated"))
     fields.append(_f(0x04, 4, "value", kind))
     if declared != len(b):
-        warns.append("CDif declares %d bytes and its payload is %d"
-                     % (declared, len(b)))
+        warns.append(defect("count.mismatch",
+                            "CDif declares %d bytes and its payload is %d"
+                            % (declared, len(b))))
     rest = b[8:]
     if rest.strip(b"\x00"):
         # worth saying: it would be the first specimen carrying anything
@@ -1122,13 +1185,14 @@ def _parse_tlst(b, ctx):
     """
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["tlst payload is under 4 bytes"]
+        return "truncated", fields, [defect("chunk.short", "tlst payload is under 4 bytes")]
     count = _u32(b, 0)
     capacity = (len(b) - 4) // _TLST_RECORD
     fields.append(_f(0x00, 4, "triggers", count))
     if count != capacity:
-        warns.append("tlst declares %d trigger(s) and its payload holds %d"
-                     % (count, capacity))
+        warns.append(defect("count.mismatch",
+                            "tlst declares %d trigger(s) and its payload holds %d"
+                            % (count, capacity)))
     for i in range(min(count, capacity, _TLST_RECORD_CAP)):
         at = 4 + i * _TLST_RECORD
         target = b[at:at + 4].decode("latin-1", "replace")
@@ -1143,14 +1207,17 @@ def _parse_tlst(b, ctx):
                          (note + ", " if note else "")
                          + "raw %s" % trigger.hex(" ")))
         if kind != 1:
-            warns.append("trigger[%d] has kind %d; every specimen measured "
-                         "has 1" % (i, kind))
+            warns.append(info("layout.unmeasured",
+                              "trigger[%d] has kind %d; every specimen measured "
+                              "has 1" % (i, kind)))
         if target.strip() != "cue":
-            warns.append("trigger[%d] targets %r; every specimen measured "
-                         "targets 'cue '" % (i, target))
+            warns.append(info("layout.unmeasured",
+                              "trigger[%d] targets %r; every specimen measured "
+                              "targets 'cue '" % (i, target)))
     if count > _TLST_RECORD_CAP:
-        warns.append(coverage("listing the first %d of %d triggers"
-                              % (_TLST_RECORD_CAP, count)))
+        warns.append(hit("list_rows", _TLST_RECORD_CAP, count,
+                         "listing the first %d of %d triggers"
+                         % (_TLST_RECORD_CAP, count)))
     return ("%d trigger(s)" % count if count else "no triggers"), fields, warns
 
 
@@ -1168,13 +1235,14 @@ def _parse_plst(b, ctx):
     """
     fields, warns = [], []
     if len(b) < 4:
-        return "truncated", fields, ["plst payload is under 4 bytes"]
+        return "truncated", fields, [defect("chunk.short", "plst payload is under 4 bytes")]
     declared = _u32(b, 0)
     capacity = max(0, (len(b) - 4) // 12)
     fields.append(_f(0x00, 4, "segments", declared))
     if declared > capacity:
-        warns.append(f"declares {declared} segments but the payload holds "
-                     f"{capacity}")
+        warns.append(defect("size.overrun",
+                            f"declares {declared} segments but the payload holds "
+                            f"{capacity}"))
     rate = ctx.get("sample_rate")
     wanted = []
     for i in range(min(declared, capacity, _PLST_SEGMENT_CAP)):
@@ -1189,11 +1257,13 @@ def _parse_plst(b, ctx):
         fields.append(_f(base, 12, f"segment[{i}]",
                          f"{length:,} frames", note))
         if loops == 0:
-            warns.append(f"segment[{i}] plays {loops} times, which plays it "
-                         f"not at all")
+            warns.append(defect("value.invalid",
+                                f"segment[{i}] plays {loops} times, which plays it "
+                                f"not at all"))
     if declared > _PLST_SEGMENT_CAP:
-        warns.append(coverage(f"listing the first {_PLST_SEGMENT_CAP} of "
-                              f"{declared} segments"))
+        warns.append(hit("list_rows", _PLST_SEGMENT_CAP, declared,
+                         f"listing the first {_PLST_SEGMENT_CAP} of "
+                         f"{declared} segments"))
     # the cue ids this playlist needs, for the cross-check after the walk --
     # plst is written BEFORE cue in the files measured, so the check cannot
     # happen here
@@ -1278,40 +1348,63 @@ def inspect_wav(filepath, ctx=None):
     smpl_root, ...) -- the scan/index path reads those instead of running
     a second decoder over the same bytes.
     """
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     if ctx is None:
         ctx = {}
     chunks = []
     file_warns = []
     seen = []
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12:
             # a sub-header file (empty/truncated) reaches here via the info
             # command's bare-path routing; degrade to a warning, not struct.error
-            return chunks, [f"file is {len(hdr)} bytes; a RIFF header needs 12"]
+            return chunks, [defect("header.truncated",
+                                   f"file is {len(hdr)} bytes; a RIFF header needs 12")]
         riff_size = struct.unpack("<I", hdr[4:8])[0]
-        if riff_size + 8 != file_size:
-            file_warns.append(
-                f"riff_size says {riff_size + 8:,} bytes, file is {file_size:,} "
-                f"({file_size - riff_size - 8:+,})"
-            )
+        declared_end = riff_size + 8
+        size_note = (f"riff_size says {declared_end:,} bytes, file is {file_size:,} "
+                     f"({file_size - declared_end:+,})")
+        # what lies past the declared end decides what a short riff_size is:
+        # a real chunk there means the size undercounts the RIFF (damage); no
+        # chunk, just bytes, means something was appended (a suspicion, which
+        # the forensic scan names: trailing data, a polyglot)
+        chunk_past_end = None
+        # a chunk that starts inside the declared end and runs past it:
+        # the size undercounts the chunk it holds, which is damage, not
+        # appended bytes (the commonest stale size)
+        straddle = None
 
-        for cid, offset, size in iter_chunks(filepath):
+        unpadded = []
+        for cid, offset, size in iter_chunks(filepath, unpadded):
             seen.append(cid)
             avail = max(0, file_size - offset - 8)
-            if (riff_size + 8 < file_size and offset >= riff_size + 8
-                    and str(cid).startswith("hex:")):
+            overruns = size > avail and not (cid == "data" and size in _STREAM_SENTINELS)
+            past = declared_end < file_size and offset >= declared_end
+            if past and str(cid).startswith("hex:"):
                 # appended bytes, not chunks: a chunk id is four ASCII
                 # characters. Reading on turned 2 MB of appended zeros into
                 # 262,144 empty "chunks"; they stay past the container end,
                 # where the forensic scan reports them as trailing data.
                 break
-            if size > avail and not (cid == "data" and size in _STREAM_SENTINELS):
-                file_warns.append(
+            if past and not overruns and not str(cid).startswith("hex:"):
+                chunk_past_end = chunk_past_end or (cid, offset)
+            if (offset < declared_end < offset + 8 + size and declared_end < file_size
+                    and not str(cid).startswith("hex:")):
+                straddle = straddle or (cid, offset)
+            if overruns and past:
+                # appended bytes read as a chunk header: not a chunk of this
+                # RIFF, so not its overrun
+                file_warns.append(info(
+                    "container.trailing",
+                    f"bytes at 0x{offset:08x}, past the declared end, read as "
+                    f"chunk {cid!r} claiming {size:,} bytes; not a chunk of the RIFF"))
+            elif overruns:
+                file_warns.append(defect(
+                    "size.overrun",
                     f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
-                    f"but only {avail:,} remain"
+                    f"but only {avail:,} remain")
                 )
             parser = _PARSERS.get(cid)
             # _parse_data derives frames/duration from size + ctx and never reads
@@ -1337,10 +1430,15 @@ def inspect_wav(filepath, ctx=None):
                     _parse_ds64_reservation(payload, riff_size)
             elif parser:
                 try:
+                    # the tag reader is told what the chunk really holds,
+                    # so the payload cap is a cap and not a short tag
+                    extra = ({"whole": min(size, avail)}
+                             if parser is _parse_riff_id3 else {})
                     entry["summary"], entry["fields"], entry["warnings"] = \
-                        parser(payload, ctx)
+                        parser(payload, ctx, **extra)
                 except Exception as e:
-                    entry["warnings"] = [f"parse error: {e.__class__.__name__}: {e}"]
+                    entry["warnings"] = [error("walker.error",
+                                               f"parse error: {e.__class__.__name__}: {e}")]
             else:
                 preview = payload[:16].hex(" ")
                 entry["summary"] = f"unparsed, first bytes: {preview}"
@@ -1352,12 +1450,28 @@ def inspect_wav(filepath, ctx=None):
             file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
             chunks.append(entry)
 
+    for ucid, uoff in unpadded:
+        file_warns.append(defect(
+            "length.misaligned",
+            f"chunk {ucid!r} at 0x{uoff:08x} has an odd size and no pad byte "
+            f"after it; the next chunk starts right after its payload"))
+
+    if declared_end > file_size or chunk_past_end is not None or straddle is not None:
+        where = (f"; chunk {chunk_past_end[0]!r} at 0x{chunk_past_end[1]:08x} lies "
+                 f"past it" if chunk_past_end else
+                 f"; chunk {straddle[0]!r} at 0x{straddle[1]:08x} runs past it"
+                 if straddle else "")
+        file_warns.insert(0, defect("count.mismatch", size_note + where))
+    elif declared_end < file_size:
+        file_warns.insert(0, info("container.trailing", size_note
+                                  + "; the bytes past it are not RIFF chunks"))
     if "fmt " not in seen:
-        file_warns.append("no fmt chunk: not decodable as audio")
+        file_warns.append(defect("required.missing", "no fmt chunk: not decodable as audio"))
     if "data" not in seen:
-        file_warns.append("no data chunk: no audio payload")
+        file_warns.append(defect("required.missing", "no data chunk: no audio payload"))
     if "fmt " in seen and "data" in seen and seen.index("fmt ") > seen.index("data"):
-        file_warns.append("fmt appears after data, violating the one RIFF ordering rule")
+        file_warns.append(defect("chunk.order",
+                                 "fmt appears after data, violating the one RIFF ordering rule"))
 
     # A playlist segment names a cue point by id, and `cue ` is what defines
     # those ids. plst is written BEFORE cue in the files measured, so the
@@ -1378,10 +1492,12 @@ def inspect_wav(filepath, ctx=None):
         missing = sorted({c for c in wanted if c not in defined})
         if missing and defined:
             file_warns.append(
-                f"plst names cue point(s) {missing} that cue does not define")
+                defect("reference.unresolved",
+                       f"plst names cue point(s) {missing} that cue does not define"))
         elif missing and not defined:
             file_warns.append(
-                f"plst names cue point(s) {missing} and there is no cue chunk")
+                defect("reference.unresolved",
+                       f"plst names cue point(s) {missing} and there is no cue chunk"))
 
     # The wavetable FRAME COUNT needs both the frame size and the data length,
     # and clm is written before data in every file measured -- so at the moment
@@ -1405,8 +1521,9 @@ def inspect_wav(filepath, ctx=None):
                                       "data length divided by the frame size"))
             entry["summary"] = f"wavetable, {n:,} frames of {size:,} samples"
             if rem:
-                entry["warnings"].append(
+                entry["warnings"].append(defect(
+                    "length.misaligned",
                     f"{frames:,} sample frames is not a whole number of "
-                    f"{size:,}-sample wavetable frames ({rem:,} trail)")
+                    f"{size:,}-sample wavetable frames ({rem:,} trail)"))
 
     return chunks, file_warns

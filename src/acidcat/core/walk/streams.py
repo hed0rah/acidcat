@@ -22,12 +22,12 @@ Every decoder these call was already here, used by `extract` to pull audio out.
 The structure was being parsed and then thrown away; this reports it.
 """
 
-import os
 
 import struct
 
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import _f, _open, _size
 
 # Each of these reads its whole header from a bounded prefix. The audio is not
 # read at all, so the cap is a bound on the header search rather than on the
@@ -55,8 +55,8 @@ def _stream(codec, channels, rate, frames, extra=None):
 
 
 def _read(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         return fh.read(min(size, _HEAD_CAP)), size
 
 
@@ -92,7 +92,7 @@ def inspect_adx(filepath, deep=False):
         _f(0x12, 1, "version", "0x%02X" % h["version"]),
     ])
     if h["data_offset"] > size:
-        warns.append("the header declares data beyond the end of the file")
+        warns.append(defect("size.overrun", "the header declares data beyond the end of the file"))
     return [
         {"id": "header", "offset": 0, "size": min(h["data_offset"], size),
          "summary": "CRI ADX, %s, %d ch at %s Hz"
@@ -135,11 +135,14 @@ def inspect_brstm(filepath, deep=False):
            "one DSP-ADPCM predictor table per channel, carried in HEAD"),
     ])
     if audio > size:
-        warns.append("the header points at audio beyond the end of the file")
+        warns.append(defect(
+            "pointer.dangling",
+            "the header points at audio beyond the end of the file"))
     elif declared > size:
-        warns.append(
+        warns.append(defect(
+            "size.overrun",
             "the header declares %s bytes and the file holds %s; the stream "
-            "is cut" % (format(declared, ","), format(size, ",")))
+            "is cut" % (format(declared, ","), format(size, ","))))
     return [
         {"id": "header", "offset": 0, "size": min(audio, size),
          "summary": "Nintendo BRSTM, DSP-ADPCM, %d ch at %s Hz"
@@ -169,7 +172,8 @@ def inspect_hps(filepath, deep=False):
     raw, size = _read(filepath)
     warns = []
     if raw[:8] != hps.MAGIC:
-        return [_broken(size, "not a HAL PCM Stream")], ["missing ' HALPST\\0' magic"]
+        return [_broken(size, "not a HAL PCM Stream")], [defect("magic.mismatch",
+                                                                "missing ' HALPST\\0' magic")]
 
     if len(raw) < 0x10:
         # The magic is eight bytes and the rate and channel count are the
@@ -177,12 +181,13 @@ def inspect_hps(filepath, deep=False):
         # truncated rather than malformed, and unpacking past the end
         # would raise out of a walk instead of describing what is there.
         return ([_broken(size, "HAL PCM Stream header is truncated")],
-                ["file ends after the magic, before the rate and channel count"])
+                [defect("header.truncated",
+                        "file ends after the magic, before the rate and channel count")])
 
     rate, channels = struct.unpack_from(">II", raw, 8)
     if not 1 <= channels <= 8:
         return [_broken(size, "implausible channel count %d" % channels)], \
-               ["channel count %d is outside 1-8" % channels]
+               [defect("value.invalid", "channel count %d is outside 1-8" % channels)]
     head_end = 0x10 + channels * _HPS_CTX
 
     first = head_end
@@ -218,10 +223,12 @@ def inspect_hps(filepath, deep=False):
     # frames is unknown without decoding, so it is not claimed
     fields = [x for x in fields if x["name"] not in ("frames", "duration")]
     if guard >= 100000:
-        warns.append("block chain did not terminate; stopped after %d blocks" % guard)
+        warns.append(defect("required.missing",
+                            "block chain did not terminate; stopped after %d blocks" % guard))
     if capped:
-        warns.append(coverage("file is %d bytes; parsed the first %d, so the "
-                              "block count is a lower bound" % (size, len(raw))))
+        warns.append(hit("read_bytes", _HEAD_CAP, size,
+                         "file is %d bytes; parsed the first %d, so the "
+                         "block count is a lower bound" % (size, len(raw))))
 
     body = max(0, size - head_end)
     return [
@@ -269,8 +276,9 @@ def inspect_vag(filepath, deep=False):
            "a name field, which none of the others carry"),
     ])
     if declared > present:
-        warns.append("dataSize claims %s bytes but only %s follow the header"
-                     % (format(declared, ","), format(present, ",")))
+        warns.append(defect("size.overrun",
+                            "dataSize claims %s bytes but only %s follow the header"
+                            % (format(declared, ","), format(present, ","))))
     return [
         {"id": "header", "offset": 0, "size": min(_VAG_HEADER, size),
          "summary": "Sony VAG, SPU-ADPCM at %s Hz%s"

@@ -1,18 +1,20 @@
 """FLAC structural walker: field decoding for every metadata block type
 plus the audio-frame region. Block iteration lives in core/flac.py."""
 
-import os
-from acidcat.core.primitives.notes import coverage
 import struct
 
 from acidcat.core.formats import flac as flacmod
+from acidcat.core.infra.findings import defect, error
+from acidcat.core.infra.limits import hit
 from acidcat.core.walk.base import parse_padding  # noqa: F401
+from acidcat.core.walk.base import _open, _size
 from acidcat.core.walk.base import _PAYLOAD_CAP, _bu16, _bu32, _f
 
 def _flac_streaminfo(b):
     fields, warns = [], []
     if len(b) < 34:
-        return "truncated", fields, [f"STREAMINFO is {len(b)} bytes, spec says 34"]
+        return "truncated", fields, [defect(
+            "chunk.short", f"STREAMINFO is {len(b)} bytes, spec says 34")]
     min_block, max_block = _bu16(b, 0), _bu16(b, 2)
     min_frame = struct.unpack(">I", b"\x00" + b[4:7])[0]
     max_frame = struct.unpack(">I", b"\x00" + b[7:10])[0]
@@ -44,9 +46,10 @@ def _flac_streaminfo(b):
     fields.append(_f(0x12, 16, "md5_signature",
                      md5 if md5 != "0" * 32 else "0 (unset)"))
     if rate == 0:
-        warns.append("sample rate is 0")
+        warns.append(defect("value.invalid", "sample rate is 0"))
     if min_block > max_block:
-        warns.append(f"min_block_size {min_block} > max_block_size {max_block}")
+        warns.append(defect("field.inconsistent",
+                            f"min_block_size {min_block} > max_block_size {max_block}"))
     summary = f"{bits}-bit {channels}ch {rate} Hz, {total:,} samples, {dur:.3f} s"
     return summary, fields, warns
 
@@ -54,12 +57,12 @@ def _flac_streaminfo(b):
 def _flac_vorbis_comment(b):
     fields, warns = [], []
     if len(b) < 8:
-        return "truncated", fields, ["VORBIS_COMMENT under 8 bytes"]
+        return "truncated", fields, [defect("chunk.short", "VORBIS_COMMENT under 8 bytes")]
     # vorbis comment lengths are little-endian, unlike the rest of FLAC
     vlen = struct.unpack_from("<I", b, 0)[0]
     pos = 4 + vlen
     if pos + 4 > len(b):
-        return "truncated", fields, ["vendor string overruns block"]
+        return "truncated", fields, [defect("size.overrun", "vendor string overruns block")]
     vendor = b[4:4 + vlen].decode("utf-8", errors="replace")
     fields.append(_f(0x00, vlen, "vendor", vendor[:80]))
     count = struct.unpack_from("<I", b, pos)[0]
@@ -67,12 +70,13 @@ def _flac_vorbis_comment(b):
     shown = 0
     for i in range(count):
         if pos + 4 > len(b):
-            warns.append(f"declares {count} comments but block ends at {i}")
+            warns.append(defect("size.overrun",
+                                f"declares {count} comments but block ends at {i}"))
             break
         clen = struct.unpack_from("<I", b, pos)[0]
         start = pos + 4
         if start + clen > len(b):
-            warns.append(f"comment[{i}] overruns block")
+            warns.append(defect("size.overrun", f"comment[{i}] overruns block"))
             break
         text = b[start:start + clen].decode("utf-8", errors="replace")
         key, _, val = text.partition("=")
@@ -85,7 +89,7 @@ def _flac_vorbis_comment(b):
 def _flac_picture(b):
     fields, warns = [], []
     if len(b) < 32:
-        return "truncated", fields, ["PICTURE under 32 bytes"]
+        return "truncated", fields, [defect("chunk.short", "PICTURE under 32 bytes")]
     ptype = _bu32(b, 0)
     pos = 4
     # validate the declared string lengths before slicing: a forged
@@ -94,19 +98,20 @@ def _flac_picture(b):
     mlen = _bu32(b, pos)
     if pos + 4 + mlen > len(b):
         return "truncated", fields, [
-            f"mime_type length {mlen:,} overruns block"]
+            defect("size.overrun", f"mime_type length {mlen:,} overruns block")]
     mime = b[pos + 4:pos + 4 + mlen].decode("ascii", errors="replace")
     pos += 4 + mlen
     if pos + 4 > len(b):
-        return "truncated", fields, ["PICTURE ends before description length"]
+        return "truncated", fields, [defect("chunk.short",
+                                            "PICTURE ends before description length")]
     dlen = _bu32(b, pos)
     if pos + 4 + dlen > len(b):
         return "truncated", fields, [
-            f"description length {dlen:,} overruns block"]
+            defect("size.overrun", f"description length {dlen:,} overruns block")]
     desc = b[pos + 4:pos + 4 + dlen].decode("utf-8", errors="replace")
     pos += 4 + dlen
     if pos + 20 > len(b):
-        return "truncated", fields, ["PICTURE header overruns block"]
+        return "truncated", fields, [defect("size.overrun", "PICTURE header overruns block")]
     width, height, depth, colors, datalen = struct.unpack_from(">IIIII", b, pos)
     types = {0: "other", 3: "front cover", 4: "back cover"}
     fields.append(_f(0x00, 4, "picture_type", ptype, types.get(ptype, "")))
@@ -150,8 +155,9 @@ def _flac_seektable(b, block_length=None):
         fields.append(_f(None, 0, "...",
                          f"{avail - _SEEKPOINT_ROW_CAP} more points"))
     if n > avail:
-        warns.append(coverage(f"table declares {n} points; listing the {avail} within "
-                     "the read cap"))
+        warns.append(hit("chunk_payload", len(b), block_length,
+                         f"table declares {n} points; listing the {avail} within "
+                         "the read cap"))
     note = f"{placeholders} placeholder" if placeholders else ""
     fields.insert(0, _f(None, 0, "num_points", n, note))
     return f"{n} seek point(s)", fields, warns
@@ -159,7 +165,7 @@ def _flac_seektable(b, block_length=None):
 
 def _flac_application(b):
     if len(b) < 4:
-        return "truncated", [], ["APPLICATION under 4 bytes"]
+        return "truncated", [], [defect("chunk.short", "APPLICATION under 4 bytes")]
     app_id = b[:4].decode("ascii", errors="replace")
     return (f"app '{app_id}', {len(b) - 4:,} bytes",
             [_f(0x00, 4, "application_id", app_id),
@@ -171,7 +177,8 @@ def _flac_cuesheet(b):
     396-byte prefix, then per-track 36 bytes + 12 bytes per index point."""
     fields, warns = [], []
     if len(b) < 396:
-        return "truncated", fields, [f"CUESHEET is {len(b)} bytes, needs 396"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"CUESHEET is {len(b)} bytes, needs 396")]
     catalog = b[0:128].split(b"\x00")[0].decode("ascii", errors="replace").strip()
     lead_in = struct.unpack_from(">Q", b, 128)[0]
     is_cd = bool(b[136] & 0x80)
@@ -183,7 +190,8 @@ def _flac_cuesheet(b):
     pos = 396
     for i in range(n_tracks):
         if pos + 36 > len(b):
-            warns.append(f"declares {n_tracks} tracks but payload ends at track {i}")
+            warns.append(defect("size.overrun",
+                                f"declares {n_tracks} tracks but payload ends at track {i}"))
             break
         offset = struct.unpack_from(">Q", b, pos)[0]
         tnum = b[pos + 8]
@@ -205,7 +213,7 @@ def _flac_cuesheet(b):
 
 def inspect_flac(filepath):
     """Walk a FLAC file: metadata blocks then the audio-frame region."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     chunks = []
     file_warns = []
     seen = []
@@ -220,7 +228,7 @@ def inspect_flac(filepath):
     for btype, name, off, length, is_last in flacmod.iter_metadata_blocks(filepath):
         seen.append(name)
         last_end = off + 4 + length
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(off + 4)
             payload = f.read(min(length, _PAYLOAD_CAP))
         entry = {"id": name, "offset": off, "size": length,
@@ -232,9 +240,10 @@ def inspect_flac(filepath):
         # PADDING block claiming 8,192 bytes inside a 200-byte file said
         # nothing, while RIFF reports the same damage in the file's own numbers.
         if off + 4 + length > file_size:
-            file_warns.append(
+            file_warns.append(defect(
+                "size.overrun",
                 f"block {name} at 0x{off:08x} claims {length:,} bytes but only "
-                f"{max(0, file_size - off - 4):,} remain (file is truncated)")
+                f"{max(0, file_size - off - 4):,} remain (file is truncated)"))
         try:
             if btype == 0:
                 entry["summary"], entry["fields"], entry["warnings"] = \
@@ -264,36 +273,42 @@ def inspect_flac(filepath):
             else:
                 entry["summary"] = f"reserved block type {btype}, {length:,} bytes"
         except Exception as e:
-            entry["warnings"] = [f"parse error: {e.__class__.__name__}: {e}"]
+            entry["warnings"] = [error("walker.error",
+                                       f"parse error: {e.__class__.__name__}: {e}")]
         if last_end > file_size:
-            entry["warnings"].append(
+            entry["warnings"].append(defect(
+                "size.overrun",
                 f"declared length {length:,} overruns the file by "
                 f"{last_end - file_size:,} bytes "
-                f"(only {max(0, file_size - off - 4):,} present)")
+                f"(only {max(0, file_size - off - 4):,} present)"))
         chunks.append(entry)
         if is_last:
             saw_last = True
             break
 
     if not saw_last and seen:
-        file_warns.append("no block had the last-metadata-block flag set")
+        file_warns.append(defect("required.missing",
+                                 "no block had the last-metadata-block flag set"))
     if seen and seen[0] != "STREAMINFO":
-        file_warns.append("first metadata block is not STREAMINFO, violating the FLAC spec")
+        file_warns.append(defect("chunk.order",
+                                 "first metadata block is not STREAMINFO, "
+                                 "violating the FLAC spec"))
     # data hidden past the terminator: real audio frames begin with the sync
     # code 0xFFF8, so a byte at last_end that instead parses as a metadata-block
     # header (known type, in-bounds length) is a block smuggled after the
     # last-metadata-block flag, which no conformant decoder reads.
     if saw_last and last_end + 4 <= file_size:
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(last_end)
             h = f.read(4)
         btype = h[0] & 0x7F
         blen = (h[1] << 16) | (h[2] << 8) | h[3]
         if h[0] != 0xFF and btype <= 6 and 0 < last_end + 4 + blen <= file_size:
             file_warns.append(
-                f"a metadata-like block (type {btype}, {blen:,} bytes) follows "
-                f"the last-metadata-block flag at 0x{last_end:08x}; conformant "
-                f"decoders never read it (data hidden past the block table)")
+                defect("bytes.stray",
+                       f"a metadata-like block (type {btype}, {blen:,} bytes) follows "
+                       f"the last-metadata-block flag at 0x{last_end:08x}; conformant "
+                       f"decoders never read it (data hidden past the block table)"))
     # resolve SEEKTABLE point offsets (relative to the first frame) into absolute
     # xref pointers now that last_end -- the first frame -- is known
     for c in chunks:
@@ -304,9 +319,10 @@ def inspect_flac(filepath):
                 target = last_end + fl.pop("_xref_rel")
                 fl["xref"] = target
                 if not (0 <= target < file_size):
-                    file_warns.append(
+                    file_warns.append(defect(
+                        "pointer.dangling",
                         f"SEEKTABLE {fl['name']} points to 0x{target:08x}, "
-                        f"outside the file (a dangling seek pointer)")
+                        f"outside the file (a dangling seek pointer)"))
     audio_bytes = file_size - last_end
     if audio_bytes > 0:
         chunks.append({"id": "frames", "offset": last_end, "size": audio_bytes,

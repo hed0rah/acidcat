@@ -135,6 +135,136 @@ def test_a_bound_field_really_writes(tmp_path):
             assert res.applied, f"{fmt} accepted {field!r} and changed nothing"
 
 
+# ── every editable container, against the ledger ────────────────────
+#
+# The pins above check a writer's field MAP. That is a proxy, and it missed
+# three containers sharing one row: `ni` borrowed Bitwig's row, so `formats
+# --fields ni` offered tags, device and category to three editors that take
+# none of them, and the tagged row offered `key` to an mp4 whose easy
+# interface had no key at all. The map said yes; the file said no.
+#
+# This is the real check: one specimen per container kind behind every
+# format `formats` lists as editable, every field the ledger calls writable
+# set through the one front door, and every canonical field it does not
+# call writable refused as a bad --set.
+
+def _bitwig_full():
+    """A Bitwig preset holding every field the editor can change: it edits a
+    field in place, so a specimen without one cannot take it at all."""
+    def field(key, val):
+        return (struct.pack(">I", len(key)) + key + b"\x08"
+                + struct.pack(">I", len(val)) + val)
+    return b"BtWg0003000200" + b"".join(
+        field(k, b"seed") for k in (b"creator", b"comment", b"tags",
+                                    b"device_name", b"device_category",
+                                    b"preset_category"))
+
+
+def _fixture(name):
+    from conftest import SMALL_FIXTURES
+    import os
+    with open(os.path.join(SMALL_FIXTURES, name), "rb") as fh:
+        return fh.read()
+
+
+def _specimens():
+    import seeds
+    return {
+        "wav": [("a.wav", lambda: _minimal("wav"))],
+        "aiff": [("a.aif", lambda: _minimal("aiff"))],
+        "aifc": [("a.aifc", seeds.aifc)],
+        "flac": [("a.flac", seeds.flac)],
+        "mp3": [("a.mp3", seeds.mp3)],
+        # the ogg and mp4 seeds are walker seeds mutagen will not open; the
+        # committed fixtures are real files it does
+        "ogg": [("a.ogg", lambda: _fixture("tone.ogg")),
+                ("a.opus", lambda: _fixture("tone.opus"))],
+        "mp4": [("a.m4a", lambda: _fixture("tone.m4a"))],
+        "vital": [("a.vital", seeds.vital)],
+        "bitwig": [("a.bwpreset", _bitwig_full)],
+        "ni": [("a.nksf", seeds.ni), ("a.nmsv", seeds.ni_hsin),
+               ("a.ksd", seeds.ni_ksd)],
+    }
+
+
+def _specimen_cases():
+    return [(fmt, name) for fmt, specs in sorted(_specimens().items())
+            for name, _build in specs]
+
+
+def _build(fmt, name):
+    return dict(_specimens()[fmt])[name]()
+
+
+def test_every_editable_format_has_a_specimen():
+    """A format `formats` calls editable with no specimen here is a format
+    whose ledger row nothing holds to its editor."""
+    from acidcat.commands import formats
+    assert set(_specimens()) == formats._EDIT
+
+
+@pytest.mark.parametrize("fmt,name", _specimen_cases())
+def test_every_writable_field_is_taken_by_every_container(fmt, name):
+    pytest.importorskip("mutagen")
+    data = _build(fmt, name)
+    refused = {}
+    for field in M.fields_for(fmt, "w"):
+        try:
+            res = edits.edit_metadata_data(data, name,
+                                           {field: _PROBE[M.kind_of(field)]})
+        except EditError as e:
+            refused[field] = str(e)
+            continue
+        assert res.applied, f"{name} took {field!r} and changed nothing"
+    assert not refused, (
+        f"`formats --fields {fmt}` calls these writable and the {name} "
+        f"editor refuses them: {refused}")
+
+
+@pytest.mark.parametrize("fmt,name", _specimen_cases())
+def test_a_field_the_format_cannot_hold_is_a_bad_value(fmt, name):
+    """The other half of agreeing: a canonical field the ledger does not
+    offer is a --set the file cannot take (exit 2), not an edit refused
+    (exit 1)."""
+    pytest.importorskip("mutagen")
+    data = _build(fmt, name)
+    wrong = {}
+    for field in sorted(set(M.CANONICAL) - set(M.fields_for(fmt, "w"))):
+        try:
+            edits.edit_metadata_data(data, name,
+                                     {field: _PROBE[M.kind_of(field)]})
+        except edits.BadValue:
+            continue
+        except EditError as e:
+            wrong[field] = f"{type(e).__name__}: {e}"
+            continue
+        wrong[field] = "accepted"
+    assert not wrong, (
+        f"{name}: fields the ledger does not offer for {fmt}, and not "
+        f"refused as a bad --set: {wrong}")
+
+
+def test_ni_has_its_own_row():
+    """NI's name is the preset's, so it binds title, which Bitwig's row
+    (whose name is the device's) deliberately does not."""
+    assert M.fields_for("ni", "w") == ("artist", "comment", "description",
+                                       "title")
+    assert "title" not in M.fields_for("bitwig")
+
+
+def test_mp4_key_is_the_freeform_atom_the_reader_reads(tmp_path):
+    """iTunes has no key atom. The writer uses the freeform one the MP4 tag
+    reader already looks in first, so a key set is a key shown."""
+    pytest.importorskip("mutagen")
+    from acidcat.core.tagged import read_tags
+    res = edits.edit_metadata_data(_fixture("tone.m4a"), "a.m4a",
+                                   {"key": "Am"})
+    p = tmp_path / "k.m4a"
+    p.write_bytes(res.data)
+    assert read_tags(str(p)).get("key") == "Am"
+    assert b"initialkey" in res.data
+
+
 # ── what the table buys ─────────────────────────────────────────────
 
 def test_aiff_collisions_are_declared():

@@ -9,11 +9,12 @@ header only on platforms where that header is documented and verified.
 See core/formats/psf.py for the layout and where it came from.
 """
 
-import os
 
 from acidcat.core.formats import psf as psfmod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.findings import coded, defect, environment, info
+from acidcat.core.infra.limits import hit
+from acidcat.core.infra.source import as_source
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # A GSF library carrying a whole 16 MB GBA ROM compresses to a few MB. The
@@ -24,25 +25,27 @@ _PSF_TAG_LIST_CAP = 64
 
 
 def inspect_psf(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _PSF_READ_CAP))
     if not psfmod.is_psf(raw):
         raise _Unsupported("not a PSF (no PSF magic with a known version)")
 
     warns = []
     if size > _PSF_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(raw))))
+        warns.append(hit("read_bytes", _PSF_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(raw))))
     h = psfmod.parse(raw, len(raw))
     if not h["ok"]:
         return [{"id": "header", "offset": 0, "size": min(size, psfmod.HEADER),
                  "summary": "not a resolvable PSF: %s" % h["why"],
                  "fields": [], "warnings": [], "payload_base": 0}], \
-            warns + ["header did not resolve: %s" % h["why"]]
+            warns + [coded(h["code"], "header did not resolve: %s" % h["why"])]
 
     short, machine = h["platform"]
-    is_lib = os.path.splitext(filepath)[1].lower().endswith("lib")
+    src = as_source(filepath)
+    is_lib = src.ext.endswith("lib")
     chunks = [_header_chunk(h, short, machine)]
 
     if h["reserved_size"]:
@@ -50,25 +53,31 @@ def inspect_psf(filepath, deep=False):
         sv = h["save"]
         if sv and sv["ok"]:
             if sv["crc_ok"] is False:
-                warns.append("the SAVE block's CRC32 does not match its header")
+                warns.append(defect(
+                    "checksum.mismatch",
+                    "the SAVE block's CRC32 does not match its header"))
             if sv["inflated_size"] is None:
-                warns.append("the SAVE block does not inflate as zlib")
+                warns.append(defect("parse.failed", "the SAVE block does not inflate as zlib"))
             elif sv["consistent"] is False:
-                warns.append("the SAVE block declares %d bytes and %d follow"
-                             % (sv["length"], sv["inflated_size"] - 8))
+                warns.append(defect("count.mismatch",
+                                    "the SAVE block declares %d bytes and %d follow"
+                                    % (sv["length"], sv["inflated_size"] - 8)))
 
     prog = _program_chunk(h, short, is_lib)
     chunks.append(prog)
     if h["crc_ok"] is False:
-        warns.append("the program's CRC32 does not match the header: the "
-                     "compressed program has been altered or damaged")
+        warns.append(defect(
+            "checksum.mismatch",
+            "the program's CRC32 does not match the header: the "
+            "compressed program has been altered or damaged"))
     if h["program_size"] == 0:
         pass                    # nothing to inflate; the program chunk says so
     elif h["inflated_size"] is None:
-        warns.append("the program does not inflate as zlib")
+        warns.append(defect("parse.failed", "the program does not inflate as zlib"))
     if h["gsf"] and not h["gsf"]["consistent"]:
-        warns.append("the program header declares %d bytes of ROM and %d follow"
-                     % (h["gsf"]["length"], h["gsf"]["rom_bytes"]))
+        warns.append(defect("count.mismatch",
+                            "the program header declares %d bytes of ROM and %d follow"
+                            % (h["gsf"]["length"], h["gsf"]["rom_bytes"])))
 
     tags_at = h["tags_at"]
     if tags_at < len(raw):
@@ -85,17 +94,28 @@ def inspect_psf(filepath, deep=False):
             chunks.append(_region("trailing", tags_at, n,
                                   "%d bytes after the program, not a [TAG] "
                                   "block" % n))
-            warns.append("%d bytes after the program are not a tag block" % n)
+            warns.append(defect("bytes.stray",
+                                "%d bytes after the program are not a tag block" % n))
     elif not is_lib:
         # a library carries no tags by design; a mini without them is odd
-        warns.append("no [TAG] block, so no title, length or library reference")
+        warns.append(info("value.assumed",
+                          "no [TAG] block, so no title, length or library reference"))
 
-    if h["libs"] and not is_lib:
+    if h["libs"] and not is_lib and src.path is None:
+        warns.append(environment(
+            "sibling.unchecked",
+            "names library %s; not looked for, the file was read from memory"
+            % ", ".join(repr(lib) for lib in h["libs"])))
+    elif h["libs"] and not is_lib:
         for lib in h["libs"]:
-            beside = os.path.join(os.path.dirname(filepath), lib)
-            if not os.path.exists(beside):
-                warns.append("names library %r and it is not beside this file, "
-                             "so the tune cannot play" % lib)
+            beside = src.sibling(lib)
+            if beside is not None:
+                beside.close()
+            else:
+                warns.append(environment(
+                    "sibling.missing",
+                    "names library %r and it is not beside this file, "
+                    "so the tune cannot play" % lib))
     return chunks, warns
 
 
@@ -184,9 +204,51 @@ def _program_chunk(h, short, is_lib):
             summary = "%s: a {:,}-byte GBA ROM".format(g["length"]) % short
     elif is_lib:
         summary = "%s library, {:,} bytes compressed".format(n) % short
-    return {"id": "program", "offset": at, "size": n, "summary": summary,
-            "fields": fields, "warnings": [], "payload_base": at,
-            "payload_len": n, "extent_len": n}
+    chunk = {"id": "program", "offset": at, "size": n, "summary": summary,
+             "fields": fields, "warnings": [], "payload_base": at,
+             "payload_len": n, "extent_len": n}
+    size = h["inflated_size"]
+    if size is not None:
+        # the inflated program is layer 1 (node-v1.md section 3)
+        chunk["layer"] = {
+            "name": "%s program" % short, "decoder": "zlib",
+            "params": {"size": size}, "length": size, "length_known": True,
+            "verdict": {"result": "verified", "method": "adler32",
+                        "detail": "zlib's own check; the header CRC32 %s" % (
+                            "matches" if h["crc_ok"] else
+                            "does not match" if h["crc_ok"] is False else
+                            "was not checked")}}
+        chunk["layer_chunks"] = _program_layer(g, size, short)
+    return chunk
+
+
+def _program_layer(g, size, short):
+    """The inflated program, positioned in itself. The GBA and DS program
+    header is decoded; any other machine's program is one region."""
+    if not g:
+        return [{"id": "image", "offset": 0, "size": size, "payload_base": 0,
+                 "payload_len": size, "extent_len": size,
+                 "summary": "the %s program image; its layout is not decoded" % short,
+                 "fields": [], "warnings": []}]
+    head = 12 if g["entry"] is not None else 8
+    fields = []
+    if g["entry"] is not None:
+        fields.append(_f(0, 4, "entry_point", g["entry"], "where the GBA starts executing",
+                         enc="<I", raw=g["entry"]))
+    fields += [_f(head - 8, 4, "load_offset", g["offset"], "where the ROM bytes are placed",
+                  enc="<I", raw=g["offset"]),
+               _f(head - 4, 4, "rom_bytes", g["length"], "the program header's own count",
+                  enc="<I", raw=g["length"])]
+    out = [{"id": "program_header", "offset": 0, "size": head, "payload_base": 0,
+            "payload_len": head, "extent_len": head,
+            "summary": "%s program header" % short, "fields": fields, "warnings": []}]
+    if size > head:
+        out.append({"id": "rom", "offset": head, "size": size - head,
+                    "payload_base": head, "payload_len": size - head,
+                    "extent_len": size - head,
+                    "summary": "{:,} ROM bytes".format(size - head),
+                    "fields": [], "warnings": []})
+    return out
 
 
 def _tag_chunk(h, raw, at, length):
@@ -211,8 +273,9 @@ def _tag_chunk(h, raw, at, length):
         fields.append(_f(None, 0, key, val[:120]))
     warnings = []
     if len(t) - 10 > _PSF_TAG_LIST_CAP:
-        warnings.append(coverage("listing the first %d of %d other tags"
-                                 % (_PSF_TAG_LIST_CAP, len(t))))
+        warnings.append(hit("list_rows", _PSF_TAG_LIST_CAP, len(t) - 10,
+                            "listing the first %d of %d other tags"
+                            % (_PSF_TAG_LIST_CAP, len(t))))
     title = t.get("title") or ("library" if h["libs"] == [] and not t else "(untitled)")
     by = t.get("artist")
     return {"id": "tags", "offset": at, "size": length,

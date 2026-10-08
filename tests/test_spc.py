@@ -84,16 +84,19 @@ def test_the_text_tag_reads_title_game_artist_and_length():
     assert h["emulator"] == 2
 
 
-def test_the_specs_tag_flag_is_recorded_and_not_obeyed():
-    """The spec says byte 0x23 is 0x26 for "tag follows" and 0x27 for "no
-    tag". 328 of 328 real files have 0x1A there -- a DOS EOF marker -- and
-    every one carries a full tag. So the flag is reported for what it is and
-    the slots are read regardless; a file with the spec's "no tag" value and
-    a title in the slot still gives up its title."""
+def test_the_tag_flag_reads_as_the_spec_says():
+    """The spec's 26 and 27 at byte 0x23 are decimal: 0x1A means a tag
+    follows, 0x1B that none does. Real files carry 0x1A and a tag, as the
+    spec says (they were once read as hex 0x26/0x27 and reported as breaking
+    it). The slots are still read regardless: a file marked 27 with a title
+    in the slot gives up its title."""
+    blob = bytearray(_spc(title="TAGGED"))
+    blob[0x23] = 0x1A
+    assert spcmod.parse_header(bytes(blob))["has_tag"]
     blob = bytearray(_spc(title="STILL HERE"))
     blob[0x23] = spcmod.NO_TAG
     h = spcmod.parse_header(bytes(blob))
-    assert h["ok"] and not h["has_tag"]
+    assert h["ok"] and not h["has_tag"] and spcmod.NO_TAG == 0x1B
     assert h["tag"]["title"] == "STILL HERE"
 
 
@@ -235,7 +238,9 @@ def test_only_the_samples_the_voices_play_become_chunks(tmp_path):
 
 def test_two_voices_reading_overlapping_ram_is_said_not_hidden(tmp_path):
     """14 of 332 real files: a voice starts inside another voice's sample.
-    Both chunks are emitted and the second says so."""
+    Both chunks are emitted and the second says so -- as a note, not damage:
+    a snapshot holds whatever the driver left in RAM, so audit must not call
+    one in twenty real files broken for it."""
     blob = bytearray(_spc(samples=2))
     page = blob[spcmod.DSP_AT + spcmod.DSP_DIR]
     base = spcmod.RAM_AT + page * 0x100
@@ -243,7 +248,8 @@ def test_two_voices_reading_overlapping_ram_is_said_not_hidden(tmp_path):
     p = _write(tmp_path, bytes(blob))
     chunks, _w = walker.inspect_spc(str(p))
     s1 = next(c for c in chunks if c["id"] == "sample[1]")
-    assert any("overlaps sample[0]" in w for w in s1["warnings"])
+    notes = [w for w in s1["warnings"] if "overlaps sample[0]" in w]
+    assert [w.kind for w in notes] == ["info"]
 
 
 # ── the walk ────────────────────────────────────────────────────────
@@ -284,6 +290,24 @@ def test_an_xid6_extension_is_read(tmp_path):
     size = next(f for f in x["fields"] if f["name"] == "size")
     assert size["off"] == -4 and "xref" not in size
     assert x["payload_base"] + size["off"] == x["offset"] + 4
+
+
+def test_packed_xid6_sub_chunks_are_read_as_packed(tmp_path):
+    """About one real xid6 in fifty packs its sub-chunks with no 4-byte
+    padding. Walked padded, the second header lands mid-text and the block
+    reads as damaged; walked packed, every id is known and it ends exactly."""
+    sub = (bytes([0x01, 0x01]) + struct.pack("<H", 14) + b"In game music\x00"
+           + bytes([0x02, 0x01]) + struct.pack("<H", 8) + b"FrogNes\x00"
+           + bytes([0x14, 0x00]) + struct.pack("<H", 1994))
+    ext = b"xid6" + struct.pack("<I", len(sub)) + sub
+    p = _write(tmp_path, _spc() + ext)
+    chunks, warns = walker.inspect_spc(str(p))
+    x = next(c for c in chunks if c["id"] == "xid6")
+    vals = {f["name"]: f["value"] for f in x["fields"]}
+    assert vals["sub[0x01]"] == "In game music"
+    assert vals["sub[0x02]"] == "FrogNes"
+    assert vals["sub[0x14]"] == 1994
+    assert [w.kind for w in x["warnings"]] == ["info"]
 
 
 def test_an_xid6_sub_chunk_that_declares_more_than_the_block_holds_is_clamped(tmp_path):

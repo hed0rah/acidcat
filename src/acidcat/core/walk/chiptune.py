@@ -30,12 +30,12 @@ effectively single-source outside its binary blocks, so the tag semantics below
 rest on one document rather than two.
 """
 
-import os
 import re
 import struct
 
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect, info
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import _f, _open, _size
 
 # An NSF is a NES ROM image: the mapper windows 4 KB banks into 32 KB of address
 # space, so past about 1 MB the data cannot be reached by any bank value. The cap
@@ -122,13 +122,14 @@ def inspect_nsf(filepath, deep=False):
     the original spec that were later given meaning, so in a version-1 file $7C
     must be ignored while $7D-$7F may still legitimately carry a trailer length.
     """
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     if size > _NSF_READ_CAP:
-        warns.append(coverage("read the first %s of %s bytes"
-                              % (format(_NSF_READ_CAP, ","), format(size, ","))))
+        warns.append(hit("read_bytes", _NSF_READ_CAP, size,
+                         "read the first %s of %s bytes"
+                         % (format(_NSF_READ_CAP, ","), format(size, ","))))
     if raw[:5] != b"NESM\x1a":
         # The siblings both check their magic and this did not, so anything at
         # least 128 bytes long parsed as an NSF and produced a confident title,
@@ -138,12 +139,12 @@ def inspect_nsf(filepath, deep=False):
         return [{"id": "header", "offset": 0, "size": size,
                  "summary": "not an NSF (magic is not NESM 1A)",
                  "fields": [], "warnings": [], "payload_base": 0}], \
-               warns + ["the first five bytes are not 4E 45 53 4D 1A"]
+               warns + [defect("magic.mismatch", "the first five bytes are not 4E 45 53 4D 1A")]
     if len(raw) < _NSF_HEADER:
         return [{"id": "header", "offset": 0, "size": size,
                  "summary": "NSF header is truncated (%d of 128 bytes)" % len(raw),
                  "fields": [], "warnings": [], "payload_base": 0}], \
-               warns + ["file ends inside the 128-byte header"]
+               warns + [defect("header.truncated", "file ends inside the 128-byte header")]
 
     ver = raw[5]
     total, start = raw[6], raw[7]
@@ -166,8 +167,9 @@ def inspect_nsf(filepath, deep=False):
         note = "32-byte slot, NUL-terminated inside it"
         if unterminated:
             note = "no NUL anywhere in the 32-byte slot"
-            warns.append("the %s slot has no terminator; text may run past it"
-                         % label)
+            warns.append(defect("text.invalid",
+                                "the %s slot has no terminator; text may run past it"
+                                % label))
         elif dirty:
             note = "non-zero bytes after the terminator (ripper remnants)"
         elif hi:
@@ -234,39 +236,47 @@ def inspect_nsf(filepath, deep=False):
 
     # ── validity, weighted rather than absolute ──────────────────────
     if ver not in (1, 2):
-        warns.append("version byte is %d; only 1 and 2 have ever been defined, so "
-                     "this is corruption rather than a newer file" % ver)
+        warns.append(defect("value.invalid",
+                            "version byte is %d; only 1 and 2 have ever been defined, so "
+                            "this is corruption rather than a newer file" % ver))
     if total == 0:
-        warns.append("song count is zero, and the count is 1-based")
+        warns.append(defect("value.invalid", "song count is zero, and the count is 1-based"))
     if start == 0 or start > max(total, 1):
-        warns.append("start song %d is outside 1..%d" % (start, total))
+        warns.append(defect("value.invalid", "start song %d is outside 1..%d" % (start, total)))
     if region & 0xFC:
-        warns.append("region byte has reserved bits set (0x%02X)" % region)
+        warns.append(defect(
+            "reserved.nonzero",
+            "region byte has reserved bits set (0x%02X)" % region))
     if chips & 0x80:
-        warns.append("expansion byte bit 7 is reserved and set")
+        warns.append(defect("reserved.nonzero", "expansion byte bit 7 is reserved and set"))
     for label, a in (("init", init), ("play", play)):
         if a and a < 0x6000:
-            warns.append("%s address %s is below $6000, which no NSF maps"
-                         % (label, _addr(a)))
+            warns.append(defect("address.outside",
+                                "%s address %s is below $6000, which no NSF maps"
+                                % (label, _addr(a))))
     if load < 0x8000 and not (chips & 0x04):
-        warns.append("load address %s is below $8000 without the FDS bit; FDS rips "
-                     "do this legitimately, other files do not" % _addr(load))
+        warns.append(defect("address.outside",
+                            "load address %s is below $8000 without the FDS bit; FDS rips "
+                            "do this legitimately, other files do not" % _addr(load)))
     if (pal or dual) and not pal_speed:
-        warns.append("declared PAL but the PAL speed word is zero")
+        warns.append(defect("field.inconsistent", "declared PAL but the PAL speed word is zero"))
     if (not pal or dual) and not ntsc_speed:
-        warns.append("declared NTSC but the NTSC speed word is zero")
+        warns.append(defect("field.inconsistent", "declared NTSC but the NTSC speed word is zero"))
     if is_nsf2 and nsf2flags & 0x0F:
-        warns.append("NSF2 feature bits 0-3 are reserved and set")
+        warns.append(defect("reserved.nonzero", "NSF2 feature bits 0-3 are reserved and set"))
     if is_nsf2 and (nsf2flags & 0x80) and not data_len:
-        warns.append("claims mandatory appended metadata but declares no data "
-                     "length, so the trailer has no stated boundary")
+        warns.append(defect("required.missing",
+                            "claims mandatory appended metadata but declares no data "
+                            "length, so the trailer has no stated boundary"))
     if data_len and _NSF_HEADER + data_len > size:
-        warns.append("declared data length runs %s bytes past the end of the file"
-                     % format(_NSF_HEADER + data_len - size, ","))
+        warns.append(defect("size.overrun",
+                            "declared data length runs %s bytes past the end of the file"
+                            % format(_NSF_HEADER + data_len - size, ",")))
         data_len = 0
     if all(n == "<?>" for n in names):
-        warns.append("title, artist and copyright are all <?>: a bare rip, "
-                     "which is a convention rather than damage")
+        warns.append(info("convention.noted",
+                          "title, artist and copyright are all <?>: a bare rip, "
+                          "which is a convention rather than damage"))
 
     # bit 7 has no name, so a file with only bit 7 set joins to the empty string
     # and the summary reads "NTSC, " with nothing after it
@@ -318,8 +328,10 @@ def _nsfe_chunks(raw, start, end, bare=False, base=0):
         fourcc = raw[pos + 4:pos + 8]
         name = fourcc.decode("latin-1", "replace")
         if pos + 8 + length > end:
-            warns.append("chunk %r at 0x%X declares %s bytes, which runs past the "
-                         "end of the file" % (name, pos, format(length, ",")))
+            warns.append(defect(
+                "size.overrun",
+                "chunk %r at 0x%X declares %s bytes, which runs past the "
+                "end of the file" % (name, pos, format(length, ","))))
             break
         mandatory = 0x41 <= fourcc[0] <= 0x5A
         fields.append(_f(pos - base, 8, name, "%s bytes" % format(length, ","),
@@ -328,13 +340,15 @@ def _nsfe_chunks(raw, start, end, bare=False, base=0):
         pos += 8 + length
         if fourcc == b"NEND":
             if pos < end:
-                warns.append("%s bytes follow NEND, which ends the file"
-                             % format(end - pos, ","))
+                warns.append(defect("bytes.stray",
+                                    "%s bytes follow NEND, which ends the file"
+                                    % format(end - pos, ",")))
             break
     if n >= _NSFE_CHUNK_MAX:
-        warns.append(coverage("stopped after %d chunks" % _NSFE_CHUNK_MAX))
+        warns.append(hit("work_steps", _NSFE_CHUNK_MAX, n,
+                         "stopped after %d chunks" % _NSFE_CHUNK_MAX))
     if bare and not fields:
-        warns.append("the appended metadata carries no readable chunk")
+        warns.append(defect("parse.failed", "the appended metadata carries no readable chunk"))
     return fields, warns
 
 
@@ -347,41 +361,44 @@ def inspect_nsfe(filepath, deep=False):
     number by design; new revisions arrive as new mandatory chunk types, and the
     capitalisation rule is what makes that safe.
     """
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     warns = []
     if size > _NSF_READ_CAP:
-        warns.append(coverage("read the first %s of %s bytes"
-                              % (format(_NSF_READ_CAP, ","), format(size, ","))))
+        warns.append(hit("read_bytes", _NSF_READ_CAP, size,
+                         "read the first %s of %s bytes"
+                         % (format(_NSF_READ_CAP, ","), format(size, ","))))
     if len(raw) < 4 or raw[:4] != b"NSFE":
         return [{"id": "chunks", "offset": 0, "size": size,
                  "summary": "not an NSFe (magic is not NSFE)",
                  "fields": [], "warnings": [], "payload_base": 0}], \
-               ["magic is not NSFE"]
+               [defect("magic.mismatch", "magic is not NSFE")]
 
     fields, warns2 = _nsfe_chunks(raw, 4, len(raw))
     warns.extend(warns2)
     seen = {f["name"] for f in fields}
     for need in ("INFO", "DATA", "NEND"):
         if need not in seen:
-            warns.append("no %s chunk; the spec requires it" % need)
+            warns.append(defect("required.missing", "no %s chunk; the spec requires it" % need))
     if "INFO" in seen and "DATA" in seen:
         order = [f["name"] for f in fields]
         if order.index("DATA") < order.index("INFO"):
-            warns.append("DATA appears before INFO, which the spec forbids")
+            warns.append(defect("chunk.order", "DATA appears before INFO, which the spec forbids"))
     dupes = sorted({f["name"] for f in fields}
                    & {n for n in seen if [f["name"] for f in fields].count(n) > 1})
     for d in dupes:
-        warns.append("chunk %r appears more than once, which the spec disallows" % d)
+        warns.append(defect("chunk.order",
+                            "chunk %r appears more than once, which the spec disallows" % d))
     unknown = [f["name"] for f in fields
                if f["name"] not in ("INFO", "DATA", "NEND", "BANK", "RATE", "NSF2",
                                     "VRC7", "plst", "psfx", "time", "fade", "tlbl",
                                     "taut", "auth", "text", "mixe", "regn")]
     for u in unknown:
         if u and 0x41 <= ord(u[0]) <= 0x5A:
-            warns.append("unknown MANDATORY chunk %r: the file says it cannot be "
-                         "played by anything that does not understand it" % u)
+            warns.append(defect("id.unknown",
+                                "unknown MANDATORY chunk %r: the file says it cannot be "
+                                "played by anything that does not understand it" % u))
 
     head = [_f(0, 4, "magic", "NSFE"),
             _f(None, 0, "chunks", len(fields),
@@ -412,15 +429,15 @@ def inspect_sap(filepath, deep=False):
     build one with `cat`. So the walk is two chunks, and the interesting question
     is where one stops, which the format never says.
     """
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     warns = []
     if raw[:5] != b"SAP\r\n":
         return [{"id": "header", "offset": 0, "size": size,
                  "summary": "not a SAP (signature is not 'SAP' CR LF)",
                  "fields": [], "warnings": [], "payload_base": 0}], \
-               ["the first five bytes are not 53 41 50 0D 0A"]
+               [defect("magic.mismatch", "the first five bytes are not 53 41 50 0D 0A")]
 
     cut = _sap_boundary(raw)
     text = raw[:cut if cut > 0 else len(raw)]
@@ -433,7 +450,8 @@ def inspect_sap(filepath, deep=False):
         s = line.decode("latin-1")
         m = re.match(r"^([A-Z0-9]+)(?: (.*))?$", s)
         if not m:
-            warns.append("header line %r is not TAG or TAG<space>ARG" % s[:40])
+            warns.append(defect("text.invalid",
+                                "header line %r is not TAG or TAG<space>ARG" % s[:40]))
             continue
         tag, arg = m.group(1), (m.group(2) or "")
         if tag == "TIME":
@@ -441,14 +459,16 @@ def inspect_sap(filepath, deep=False):
         else:
             tags[tag] = arg
         if tag not in _SAP_TAGS:
-            warns.append("unknown tag %r" % tag)
+            warns.append(defect("id.unknown", "unknown tag %r" % tag))
 
     bad = [b for b in text if b not in _SAP_TEXT_OK]
     if bad:
-        warns.append("the text header holds %d byte(s) outside the character set "
-                     "shared by ASCII and ATASCII" % len(bad))
+        warns.append(defect("text.invalid",
+                            "the text header holds %d byte(s) outside the character set "
+                            "shared by ASCII and ATASCII" % len(bad)))
     if b"\r\n" not in raw[:cut if cut > 0 else len(raw)][5:] and len(text) > 5:
-        warns.append("header lines are not CR LF terminated, which the spec asks for")
+        warns.append(defect("text.invalid",
+                            "header lines are not CR LF terminated, which the spec asks for"))
 
     typ = tags.get("TYPE", "").strip()
     fields.append(_f(0, 5, "magic", "SAP CR LF", "five bytes, and that is all of it"))
@@ -478,27 +498,29 @@ def inspect_sap(filepath, deep=False):
         fields.append(_f(None, 0, "times", len(times), "one TIME line per subsong"))
 
     if not typ:
-        warns.append("no TYPE tag, and there is no documented default")
+        warns.append(defect("required.missing", "no TYPE tag, and there is no documented default"))
     elif typ not in _SAP_TYPES:
-        warns.append("TYPE %r is not one of B, C, D, S, R" % typ)
+        warns.append(defect("value.invalid", "TYPE %r is not one of B, C, D, S, R" % typ))
     if typ in ("B", "D", "S") and "INIT" not in tags:
-        warns.append("TYPE %s requires INIT" % typ)
+        warns.append(defect("required.missing", "TYPE %s requires INIT" % typ))
     if typ == "C" and "INIT" in tags:
-        warns.append("TYPE C must not carry INIT")
+        warns.append(defect("field.inconsistent", "TYPE C must not carry INIT"))
     if typ == "C" and "MUSIC" not in tags:
-        warns.append("TYPE C requires MUSIC")
+        warns.append(defect("required.missing", "TYPE C requires MUSIC"))
     if typ and typ != "C" and "MUSIC" in tags:
-        warns.append("MUSIC is only valid for TYPE C")
+        warns.append(defect("field.inconsistent", "MUSIC is only valid for TYPE C"))
     if songs == 0:
-        warns.append("SONGS is zero")
+        warns.append(defect("value.invalid", "SONGS is zero"))
     if songs > 32:
-        warns.append("SONGS is %d; ASAP caps subsongs at 32" % songs)
+        warns.append(defect("value.invalid", "SONGS is %d; ASAP caps subsongs at 32" % songs))
     if "DEFSONG" in tags and _int(tags["DEFSONG"]) >= max(songs, 1):
-        warns.append("DEFSONG is not below SONGS")
+        warns.append(defect("value.invalid", "DEFSONG is not below SONGS"))
     if times and len(times) != songs:
-        warns.append("%d TIME line(s) for %d song(s)" % (len(times), songs))
+        warns.append(defect("count.mismatch",
+                            "%d TIME line(s) for %d song(s)" % (len(times), songs)))
     if "COVOX" in tags and tags["COVOX"].strip().upper() != "D600":
-        warns.append("COVOX address is not D600, the only one ASAP supports")
+        warns.append(defect("value.invalid",
+                            "COVOX address is not D600, the only one ASAP supports"))
 
     chunks = [{"id": "header", "offset": 0, "size": max(cut, 0) if cut > 0 else size,
                "summary": "SAP text header, TYPE %s, %d song(s)"
@@ -506,7 +528,8 @@ def inspect_sap(filepath, deep=False):
                "fields": fields, "warnings": [], "payload_base": 0}]
     if cut < 0:
         if typ != "R":
-            warns.append("no FF FF anywhere, so the Atari executable never begins")
+            warns.append(defect("magic.mismatch",
+                                "no FF FF anywhere, so the Atari executable never begins"))
         return chunks, warns
 
     blocks, bw = _sap_blocks(raw, cut, len(raw), deep, base=cut)
@@ -538,15 +561,18 @@ def _sap_blocks(raw, pos, end, deep, base=0):
                 break
         start, last = struct.unpack_from("<HH", raw, pos)
         if last < start:
-            warns.append("block %d ends at %s before it starts at %s"
-                         % (n, _addr(last), _addr(start)))
+            warns.append(defect("geometry.invalid",
+                                "block %d ends at %s before it starts at %s"
+                                % (n, _addr(last), _addr(start))))
             break
         length = last - start + 1
         n += 1
         if pos + 4 + length > end:
-            warns.append("block %d claims %s bytes but only %s remain; the file "
-                         "ends mid-block, which players tolerate"
-                         % (n, format(length, ","), format(end - pos - 4, ",")))
+            warns.append(defect(
+                "size.overrun",
+                "block %d claims %s bytes but only %s remain; the file "
+                "ends mid-block, which players tolerate"
+                % (n, format(length, ","), format(end - pos - 4, ","))))
             fields.append(_f(pos - base, 4, "block %d" % n,
                              "%s-%s" % (_addr(start), _addr(last)),
                              "truncated"))
@@ -557,8 +583,9 @@ def _sap_blocks(raw, pos, end, deep, base=0):
                              "%s bytes, end address is inclusive"
                              % format(length, ",")))
         if 0xD000 <= start <= 0xD7FF:
-            warns.append("block %d loads into $%04X, which is hardware register "
-                         "space rather than RAM" % (n, start))
+            warns.append(defect("address.outside",
+                                "block %d loads into $%04X, which is hardware register "
+                                "space rather than RAM" % (n, start)))
         pos += 4 + length
     if n > 16 and not deep:
         fields.append(_f(None, 0, "more", "%d further block(s)" % (n - 16),
@@ -606,22 +633,25 @@ def inspect_gbs(filepath, deep=False):
     addresses, a stack pointer and two timer bytes, and that is the whole
     header. Spec: gbsplay's gbsformat.txt, the format's own reference.
     """
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _NSF_READ_CAP))
     if size > _NSF_READ_CAP:
-        warns.append(coverage("read the first %s of %s bytes"
-                              % (format(_NSF_READ_CAP, ","), format(size, ","))))
+        warns.append(hit("read_bytes", _NSF_READ_CAP, size,
+                         "read the first %s of %s bytes"
+                         % (format(_NSF_READ_CAP, ","), format(size, ","))))
     if raw[:3] != b"GBS":
         return [{"id": "header", "offset": 0, "size": size,
                  "summary": "not a GBS (signature is not 'GBS')",
-                 "fields": [], "warnings": [], "payload_base": 0}],                ["the first three bytes are not 47 42 53"]
+                 "fields": [], "warnings": [], "payload_base": 0}], \
+            [defect("magic.mismatch", "the first three bytes are not 47 42 53")]
     if len(raw) < _GBS_HEADER:
         return [{"id": "header", "offset": 0, "size": size,
                  "summary": "GBS header truncated at %d of %d bytes"
                             % (len(raw), _GBS_HEADER),
-                 "fields": [], "warnings": [], "payload_base": 0}],                ["file ends inside the 112-byte header"]
+                 "fields": [], "warnings": [], "payload_base": 0}], \
+            [defect("header.truncated", "file ends inside the 112-byte header")]
 
     version, songs, first = raw[3], raw[4], raw[5]
     load, init, play, sp = struct.unpack_from("<HHHH", raw, 6)
@@ -646,23 +676,26 @@ def inspect_gbs(filepath, deep=False):
             note = "not plain ASCII; shown as latin-1"
         fields.append(_f(off, _STR_SLOT, name, text or "(empty)", note))
         if unterminated:
-            warns.append("%s fills all 32 bytes with no NUL" % name)
+            warns.append(defect("text.invalid", "%s fills all 32 bytes with no NUL" % name))
         if dirty:
-            warns.append("%s has non-NUL bytes after its terminator" % name)
+            warns.append(defect("reserved.nonzero",
+                                "%s has non-NUL bytes after its terminator" % name))
 
     if version != 1:
-        warns.append("version %d; only 1 is defined" % version)
+        warns.append(defect("value.invalid", "version %d; only 1 is defined" % version))
     if songs == 0:
-        warns.append("song count is 0")
+        warns.append(defect("value.invalid", "song count is 0"))
     if first == 0 or first > songs:
-        warns.append("first song %d is outside 1..%d" % (first, songs))
+        warns.append(defect("value.invalid", "first song %d is outside 1..%d" % (first, songs)))
     for name, a in (("load", load), ("init", init), ("play", play)):
         if not _GBS_LOAD_LO <= a <= _GBS_LOAD_HI:
-            warns.append("%s address %s is outside the cartridge window "
-                         "$0400-$7FFF" % (name, _addr(a)))
+            warns.append(defect("address.outside",
+                                "%s address %s is outside the cartridge window "
+                                "$0400-$7FFF" % (name, _addr(a))))
     if init < load or play < load:
-        warns.append("init or play sits below the load address, so it is not "
-                     "in the code this file carries")
+        warns.append(defect("address.outside",
+                            "init or play sits below the load address, so it is not "
+                            "in the code this file carries"))
 
     code = size - _GBS_HEADER
     chunks = [{"id": "header", "offset": 0, "size": _GBS_HEADER,
@@ -720,12 +753,13 @@ def inspect_hes(filepath, deep=False):
     own hes.txt and game_music_emu's reader.
     """
     from acidcat.core.walk.base import Unsupported
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _HES_READ_CAP))
     if size > _HES_READ_CAP:
-        warns.append(coverage("file is %d bytes; read the first %d" % (size, _HES_READ_CAP)))
+        warns.append(hit("read_bytes", _HES_READ_CAP, size,
+                         "file is %d bytes; read the first %d" % (size, _HES_READ_CAP)))
     if raw[:4] != b"HESM" or len(raw) < _HES_HEADER:
         raise Unsupported("no HESM header")
     version, first = raw[4], raw[5]
@@ -746,7 +780,8 @@ def inspect_hes(filepath, deep=False):
     n = 0
     while pos + _HES_BLOCK_HEADER <= len(raw) and raw[pos:pos + 4] == _HES_DATA:
         if n >= _HES_BLOCK_LIST_CAP:
-            warns.append(coverage("listing the first %d data blocks" % _HES_BLOCK_LIST_CAP))
+            warns.append(hit("list_rows", _HES_BLOCK_LIST_CAP, n,
+                             "listing the first %d data blocks" % _HES_BLOCK_LIST_CAP))
             break
         bsize, baddr = struct.unpack_from("<II", raw, pos + 4)
         have = max(min(bsize, size - pos - _HES_BLOCK_HEADER), 0)
@@ -762,16 +797,18 @@ def inspect_hes(filepath, deep=False):
                            raw[pos + 12:pos + 16].hex(), "")],
              "warnings": [], "payload_base": pos + _HES_BLOCK_HEADER, "payload_len": have}
         if have < bsize:
-            c["warnings"].append("declares %s bytes and the file holds %s"
-                                 % (format(bsize, ","), format(have, ",")))
-            warns.append("the data block declares more than the file holds")
+            c["warnings"].append(defect("size.overrun",
+                                        "declares %s bytes and the file holds %s"
+                                        % (format(bsize, ","), format(have, ","))))
+            warns.append(defect("size.overrun",
+                                "the data block declares more than the file holds"))
         chunks.append(c)
         pos += _HES_BLOCK_HEADER + have
         n += 1
         if have < bsize:
             break
     if n == 0:
-        warns.append("no DATA block follows the header")
+        warns.append(defect("required.missing", "no DATA block follows the header"))
     if pos < size:
         chunks.append({"id": "trailing", "offset": pos, "size": size - pos,
                        "summary": "%d bytes after the last data block" % (size - pos),
@@ -809,12 +846,13 @@ def inspect_kss(filepath, deep=False):
     fact on the bank and not a warning. Spec: libkss's reader.
     """
     from acidcat.core.walk.base import Unsupported
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     warns = []
-    with open(filepath, "rb") as fh:
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _KSS_READ_CAP))
     if size > _KSS_READ_CAP:
-        warns.append(coverage("file is %d bytes; read the first %d" % (size, _KSS_READ_CAP)))
+        warns.append(hit("read_bytes", _KSS_READ_CAP, size,
+                         "file is %d bytes; read the first %d" % (size, _KSS_READ_CAP)))
     if raw[:4] not in _KSS_MAGICS or len(raw) < _KSS_HEADER:
         raise Unsupported("no KSCC/KSSX header")
     extended = raw[:4] == b"KSSX"
@@ -866,7 +904,8 @@ def inspect_kss(filepath, deep=False):
         if pos >= size:
             break
         if listed >= _KSS_BANK_LIST_CAP:
-            warns.append(coverage("listing the first %d of %d banks" % (_KSS_BANK_LIST_CAP, banks)))
+            warns.append(hit("list_rows", _KSS_BANK_LIST_CAP, banks,
+                             "listing the first %d of %d banks" % (_KSS_BANK_LIST_CAP, banks)))
             break
         n = min(bank_size, size - pos)
         chunks.append({"id": "bank[%d]" % (start_bank + i), "offset": pos, "size": n,

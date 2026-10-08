@@ -199,6 +199,29 @@ def test_convert_batch_bad_ncw_counted_not_fatal(tmp_path):
     (tmp_path / "ok.ncw").write_bytes(make_ncw(1, 16, 44100, [[5, 6, 7]], bits=0))
     (tmp_path / "bad.ncw").write_bytes(b"NOTNCW" + b"\x00" * 200)   # unparseable
     rc = convert.run(_CArgs(input=str(tmp_path)))
-    assert rc == 0                                       # one good file -> success
+    # counted and skipped, the run goes on -- but a run with a failure is not
+    # a success. One good file used to excuse it (exit 0).
+    assert rc == 1
     assert (tmp_path / "ok.wav").exists()
     assert not (tmp_path / "bad.wav").exists()
+
+
+def test_convert_batch_refusal_beside_a_success_is_1(tmp_path):
+    from acidcat.commands import convert
+    good = make_ncw(1, 16, 44100, [[5, 6, 7]], bits=0)
+    (tmp_path / "ok.ncw").write_bytes(good)
+    (tmp_path / "kept.ncw").write_bytes(good)
+    (tmp_path / "kept.wav").write_bytes(b"an unrelated file")
+    assert convert.run(_CArgs(input=str(tmp_path), force=False)) == 1
+    assert (tmp_path / "kept.wav").read_bytes() == b"an unrelated file"
+
+
+def test_convert_batch_unwritable_output_is_2(tmp_path):
+    """A wav that could not be written is could-not-run, not a bad file."""
+    from acidcat.commands import convert
+    good = make_ncw(1, 16, 44100, [[5, 6, 7]], bits=0)
+    (tmp_path / "ok.ncw").write_bytes(good)
+    (tmp_path / "y.ncw").write_bytes(good)
+    (tmp_path / "y.wav").mkdir()                   # a folder where the wav goes
+    assert convert.run(_CArgs(input=str(tmp_path))) == 2
+    assert (tmp_path / "ok.wav").exists()

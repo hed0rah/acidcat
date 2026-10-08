@@ -7,8 +7,9 @@ frames. This module just walks the block boundaries; per-block field
 decoding lives in the core/walk/flac.py walker, like the other formats.
 """
 
-import os
 import struct
+
+from acidcat.core.infra.source import open_input, input_size
 
 # block type -> name (FLAC spec 6.1)
 BLOCK_TYPES = {
@@ -25,7 +26,7 @@ BLOCK_TYPES = {
 def is_flac(filepath):
     """Check if file begins with the fLaC magic."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             return f.read(4) == b"fLaC"
     except Exception:
         return False
@@ -39,8 +40,8 @@ def iter_metadata_blocks(filepath):
     payload size that follows it. Stops after the block whose last-block
     flag is set (the audio frames begin immediately after).
     """
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = input_size(filepath)
+    with open_input(filepath) as f:
         if f.read(4) != b"fLaC":
             return
         pos = 4

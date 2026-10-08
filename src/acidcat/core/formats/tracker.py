@@ -16,6 +16,8 @@ not here -- this maps structure, it does not render audio yet.
 
 import struct
 
+from acidcat.core.infra.findings import defect, info
+
 # MOD magics -> channel count. The 4-channel variants have no digit to read.
 _MOD_MAGIC_4CH = {b"M.K.", b"M!K!", b"M&K!", b"FLT4", b"EXO4", b"4CHN"}
 
@@ -157,7 +159,8 @@ def parse_mod(data, instruments=None):
         s["offset"] = cur if s["length"] else None
         cur += s["length"]
     if cur > len(data):
-        warns.append(f"sample data runs to {cur:,} but file is {len(data):,} bytes")
+        warns.append(defect("size.overrun",
+                            f"sample data runs to {cur:,} but file is {len(data):,} bytes"))
     return {
         "kind": "mod", "title": title, "channels": channels,
         "magic": magic.decode("latin-1", errors="replace"),
@@ -192,7 +195,7 @@ def parse_xm(data):
     patterns = []
     for _ in range(num_patterns):
         if pos + 9 > len(data):
-            warns.append("pattern table truncated")
+            warns.append(defect("size.overrun", "pattern table truncated"))
             break
         plen = struct.unpack_from("<I", data, pos)[0]
         rows = struct.unpack_from("<H", data, pos + 5)[0]
@@ -204,7 +207,7 @@ def parse_xm(data):
     instruments = []
     for _ in range(num_instruments):
         if pos + 29 > len(data):
-            warns.append("instrument table truncated")
+            warns.append(defect("size.overrun", "instrument table truncated"))
             break
         isize = struct.unpack_from("<I", data, pos)[0]
         iname = _c(data[pos + 4:pos + 26])
@@ -216,7 +219,7 @@ def parse_xm(data):
             for s in range(nsamp):
                 so = pos + s * 40
                 if so + 40 > len(data):
-                    warns.append("sample header table truncated")
+                    warns.append(defect("size.overrun", "sample header table truncated"))
                     nsamp = s
                     break
                 slen = struct.unpack_from("<I", data, so)[0]
@@ -231,7 +234,8 @@ def parse_xm(data):
         instruments.append({"name": iname, "num_samples": nsamp,
                             "offset": ihdr, "size": isize, "samples": smps})
     if pos > len(data):
-        warns.append(f"instrument/sample data overruns file by {pos - len(data):,} bytes")
+        warns.append(defect("size.overrun",
+                            f"instrument/sample data overruns file by {pos - len(data):,} bytes"))
     return {
         "kind": "xm", "modname": modname, "tracker": tracker, "version": version,
         "song_length": song_length, "restart": restart, "channels": channels,
@@ -289,7 +293,7 @@ def parse_s3m(data):
     warns = []
     song_name = _c(data[0:28])
     if len(data) <= 0x1C or data[0x1C] != 0x1A:
-        warns.append("missing 0x1A DOS-EOF marker at offset 0x1C")
+        warns.append(defect("magic.mismatch", "missing 0x1A DOS-EOF marker at offset 0x1C"))
     ordnum = struct.unpack_from("<H", data, 0x20)[0]
     insnum = struct.unpack_from("<H", data, 0x22)[0]
     patnum = struct.unpack_from("<H", data, 0x24)[0]
@@ -306,9 +310,10 @@ def parse_s3m(data):
         # So this is a fingerprint rather than a defect, and it says so.
         who = ("Impulse Tracker exporting S3M does this"
                if (cwt >> 12) == 3 else "Scream Tracker never writes one")
-        warns.append(f"order count {ordnum} is odd; {who}")
+        warns.append(defect("value.invalid", f"order count {ordnum} is odd; {who}"))
     if ffi not in (1, 2):
-        warns.append(f"sample format ffi={ffi} is not 1 (signed) or 2 (unsigned)")
+        warns.append(defect("value.invalid",
+                            f"sample format ffi={ffi} is not 1 (signed) or 2 (unsigned)"))
 
     op = 0x60
     order = list(data[op:op + ordnum])
@@ -319,7 +324,7 @@ def parse_s3m(data):
         for i in range(count):
             o = base + i * 2
             if o + 2 > len(data):
-                warns.append("parapointer table truncated")
+                warns.append(defect("size.overrun", "parapointer table truncated"))
                 break
             out.append(struct.unpack_from("<H", data, o)[0])
         return out, base
@@ -365,20 +370,25 @@ def parse_s3m(data):
             # a real archive as damage. Only a slot that claims a type and
             # then has no tag is worth saying anything about.
             if s.get("type", 0) == -1:
-                warns.append(f"instrument {i} header lies past the end of "
-                             f"the file")
+                warns.append(defect("pointer.dangling",
+                                    f"instrument {i} header lies past the end of "
+                                    f"the file"))
             elif s.get("type", 0) != 0:
-                warns.append(f"instrument {i} claims type {s['type']} but "
-                             f"its header lacks an SCRS/SCRI tag")
+                warns.append(defect("magic.mismatch",
+                                    f"instrument {i} claims type {s['type']} but "
+                                    f"its header lacks an SCRS/SCRI tag"))
         elif s["is_pcm"]:
             if s["packing"] == 1:
-                warns.append(f"smp[{i}] packing=1 (ADPCM): not raw PCM, carve "
-                             "will not yield playable data")
+                warns.append(info("decode.partial",
+                                  f"smp[{i}] packing=1 (ADPCM): not raw PCM, carve "
+                                  "will not yield playable data"))
             if s["length"] >> 16:
-                warns.append(f"smp[{i}] length high word 0x{s['length'] >> 16:04x} "
-                             "set; ST3 reads only the low 16 bits")
+                warns.append(defect("value.invalid",
+                                    f"smp[{i}] length high word 0x{s['length'] >> 16:04x} "
+                                    "set; ST3 reads only the low 16 bits"))
             if s["pcm_off"] and s["pcm_off"] + s["byte_len"] > len(data):
-                warns.append(f"smp[{i}] sample data @ 0x{s['pcm_off']:08x} runs past EOF")
+                warns.append(defect("size.overrun",
+                                    f"smp[{i}] sample data @ 0x{s['pcm_off']:08x} runs past EOF"))
 
     return {
         "kind": "s3m", "song_name": song_name, "ordnum": ordnum, "insnum": insnum,
@@ -399,10 +409,11 @@ _IT_FLAGS = [
 ]
 
 
-def parse_it(data):
+def parse_it(data, file_size=None):
     """Parse an Impulse Tracker IT. Reads the on-disk offset tables
     (instrument/sample/pattern pointers) and each IMPS sample header, whose
-    SamplePointer is an absolute file offset to the PCM."""
+    SamplePointer is an absolute file offset to the PCM. ``file_size`` is the
+    real end of the file when ``data`` is a capped read of it."""
     warns = []
     # parse_it was the one tracker parser with no length guard. The fields at
     # 32..47 are read with unpack_from, which raises the struct.error every
@@ -437,7 +448,7 @@ def parse_it(data):
         for i in range(count):
             o = base + i * 4
             if o + 4 > len(data):
-                warns.append("offset table truncated")
+                warns.append(defect("size.overrun", "offset table truncated"))
                 break
             out.append(struct.unpack_from("<I", data, o)[0])
         return out, base
@@ -467,9 +478,29 @@ def parse_it(data):
             "data_off": dataptr, "bits16": bits16, "stereo": stereo,
             "compressed": compressed, "has_sample": bool(sflags & 0x01),
         })
-    for s in samples:
-        if s.get("valid") and s.get("data_off", 0) and s["data_off"] > len(data):
-            warns.append(f"sample data pointer 0x{s['data_off']:08x} is past EOF")
+    end = len(data) if file_size is None else file_size
+    for i, s in enumerate(samples):
+        # an empty slot (no data flag, or length 0) keeps any pointer, often
+        # past the end, and its name holds the credits: it points at nothing
+        if not (s.get("valid") and s.get("has_sample") and s.get("length")
+                and s.get("data_off", 0)):
+            continue
+        off = s["data_off"]
+        if off >= end:
+            # >=, not >: a non-empty sample whose data starts AT the end has
+            # none of it. several samples of a cut file can share one
+            # pointer: say which
+            warns.append(defect("pointer.dangling",
+                                f"smp[{i}] sample data pointer 0x{off:08x} "
+                                f"is at or past EOF"))
+        elif not s["compressed"] and off + s["byte_len"] > end:
+            # a cut file whose last sample is short walked clean: only the
+            # pointer was checked. compressed data has no length up front
+            # (it is read block by block), so only raw PCM is measured
+            warns.append(defect("size.overrun",
+                                f"smp[{i}] sample data @ 0x{off:08x} needs "
+                                f"{s['byte_len']:,} bytes, {end - off:,} remain: "
+                                f"runs past EOF"))
     return {
         "kind": "it", "songname": songname, "ordnum": ordnum, "insnum": insnum,
         "smpnum": smpnum, "patnum": patnum, "cwt": cwt, "cmwt": cmwt,
@@ -554,11 +585,13 @@ def parse_stm(data):
         ins["offset"] = cur if ins["length"] else None
         cur += ins["length"]
     if cur > len(data):
-        warns.append(f"sample data runs to {cur:,} but the file is "
-                     f"{len(data):,} bytes")
+        warns.append(defect("size.overrun",
+                            f"sample data runs to {cur:,} but the file is "
+                            f"{len(data):,} bytes"))
     if used and max(used) >= num_patterns:
-        warns.append(f"the order list plays pattern {max(used)} and the "
-                     f"header declares {num_patterns}")
+        warns.append(defect("reference.unresolved",
+                            f"the order list plays pattern {max(used)} and the "
+                            f"header declares {num_patterns}"))
     return {
         "kind": "stm", "song_name": song_name, "tracker": tracker,
         "file_type": file_type, "version": f"{ver_major}.{ver_minor:02d}",

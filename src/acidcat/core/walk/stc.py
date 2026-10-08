@@ -5,12 +5,12 @@ so the file tiles from the header to the pattern table by arithmetic, and
 from there the channel streams tile by their pointers, as in PT3.
 """
 
-import os
 
 from acidcat.core.formats import stc as stcmod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect
 
 # A 16-bit address space: nothing past 64 KB can be pointed at.
 _STC_READ_CAP = 64 * 1024
@@ -19,18 +19,20 @@ _STC_LIST_CAP = 512
 
 
 def inspect_stc(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _STC_READ_CAP))
     warns = []
     if size > _STC_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d, which is "
-                              "all a 16-bit pointer can reach" % (size, _STC_READ_CAP)))
+        warns.append(hit("read_bytes", _STC_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d, which is "
+                         "all a 16-bit pointer can reach" % (size, _STC_READ_CAP)))
     h = stcmod.parse(raw, len(raw))
     if not h["ok"]:
         raise _Unsupported("not an STC by arithmetic: " + h["why"])
     if h["size"] != size:
-        warns.append("the header says %d bytes and the file is %d" % (h["size"], size))
+        warns.append(defect("count.mismatch",
+                            "the header says %d bytes and the file is %d" % (h["size"], size)))
     fields = [
         _f(stcmod.DELAY_AT, 1, "delay", h["delay"], "ticks per row"),
         _f(stcmod.POSITIONS_PTR_AT, 2, "positions_at", "0x%04X" % h["positions_at"]),
@@ -130,5 +132,6 @@ def inspect_stc(filepath, deep=False):
                        "warnings": [], "payload_base": at})
     if capped:
         total = len(h["samples"]) + len(h["ornaments"]) + len(regs)
-        warns.append(coverage("listing the first %d of %d records" % (_STC_LIST_CAP, total)))
+        warns.append(hit("list_rows", _STC_LIST_CAP, total,
+                         "listing the first %d of %d records" % (_STC_LIST_CAP, total)))
     return chunks, warns

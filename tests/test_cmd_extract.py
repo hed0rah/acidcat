@@ -65,7 +65,7 @@ def test_extract_unsupported(tmp_path, capsys):
     p = tmp_path / "x.wav"
     p.write_bytes(b"RIFF" + struct.pack("<I", 4) + b"WAVE")
     rc = extract.run(_args(input=str(p)))
-    assert rc == 1
+    assert rc == 2              # no extractor for it: could not run (review V7)
     assert "no sample extractor" in capsys.readouterr().err
 
 

@@ -41,6 +41,11 @@ class SampleError(Exception):
     """Raised when a format has no extractable samples."""
 
 
+class SampleUnmodelled(SampleError):
+    """No extractor for this kind of file: could not run (exit 2), the answer
+    `inspect` and `check` give the same file (review V7)."""
+
+
 def _wav(frames, rate, channels=1, sampwidth=2):
     return pcm_wav(frames, rate or _TRACKER_RATE, channels, sampwidth)
 
@@ -478,6 +483,30 @@ def _multisample_samples(filepath):
                        "wav": z.read(n), "note": f"{z.getinfo(n).file_size:,} B"}
 
 
+_ALP_AUDIO = (".wav", ".aif", ".aiff", ".flac", ".mp3", ".ogg")
+_ALP_INDEX_MAX = 64 * 1024 * 1024
+
+
+def _alp_samples(filepath):
+    """An Ableton Live Pack's audio files, written as stored (Live packs keep
+    samples as FLAC). Two streamed passes over the gzip: one to read the index
+    at its end, one to collect each file, so a pack of hundreds of megabytes is
+    never held whole. macOS '._' sidecars packed in by accident are skipped."""
+    from acidcat.core.formats import alp as alpmod
+    with open(filepath, "rb") as fh:
+        _idx, _total, index = alpmod.read_index(fh, _ALP_INDEX_MAX)
+    tree = alpmod.parse_tree(index, 1 << 20)
+    wanted = [(it["offset"], it["size"], path) for path, it in alpmod.walk(tree)
+              if not it["is_dir"] and it["size"]
+              and path.lower().endswith(_ALP_AUDIO)
+              and not path.rsplit("/", 1)[-1].startswith("._")]
+    with open(filepath, "rb") as fh:
+        for path, blob in alpmod.ranges(fh, wanted):
+            stem, _dot, ext = path.rpartition(".")
+            yield {"name": stem.replace("/", "_"), "wav": blob, "ext": ext.lower(),
+                   "note": f"{len(blob):,} B, {path}"}
+
+
 def _wav_note(ch, rate):
     return f"{'stereo' if ch == 2 else 'mono'} @ {rate} Hz"
 
@@ -780,7 +809,8 @@ _EXTRACTORS = {
     "brstm": _brstm_samples,
 }
 # formats whose extractor reads the path itself (walk/stream), not a bytes buffer
-_PATH_EXTRACTORS = {"multisample": _multisample_samples, "krz": _krz_samples,
+_PATH_EXTRACTORS = {"alp": _alp_samples,
+                    "multisample": _multisample_samples, "krz": _krz_samples,
                     "e4b": _emu_samples, "e5b": _emu5_samples, "snd": _snd_samples,
                     "cdxa": _cdxa_samples, "gcm": _gcm_samples, "cue": _cue_samples,
                     "wii": _wiidisc_samples, "n64rom": _n64rom_samples,
@@ -800,9 +830,11 @@ EXTRACTABLE = frozenset(_EXTRACTORS) | frozenset(_PATH_EXTRACTORS)
 # Imported lazily-but-eagerly here (the module is cheap and has no heavy deps)
 # so the tuple stays a tuple.
 from acidcat.core.containers import cue as _cuemod
+from acidcat.core.formats import alp as _alpmod
 
 _MALFORMED = (sf2mod.Sf2Error, ncwmod.NcwError, svxmod.SvxError, struct.error,
-              _cuemod.CueError, AdxError, BrstmError, HpsError, VagError)
+              _cuemod.CueError, AdxError, BrstmError, HpsError, VagError,
+              _alpmod.AlpError)
 
 
 def iter_samples(filepath, fmt=None):
@@ -816,12 +848,12 @@ def iter_samples(filepath, fmt=None):
             return
         fn = _EXTRACTORS.get(fmt)
         if fn is None:
-            raise SampleError(f"no sample extractor for {fmt or 'unrecognized'} "
+            raise SampleUnmodelled(f"no sample extractor for {fmt or 'unrecognized'} "
                               f"(extractable: {', '.join(sorted(EXTRACTABLE))})")
         with open(filepath, "rb") as f:
             data = f.read()
         yield from fn(data)
     except Unsupported as e:
-        raise SampleError(str(e))
+        raise SampleUnmodelled(str(e))
     except _MALFORMED as e:
         raise SampleError(f"{fmt or 'file'}: {e}")

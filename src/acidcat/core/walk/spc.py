@@ -10,14 +10,14 @@ the RAM, one chunk per sample the directory reaches.
 See core/formats/spc.py for the layout and where it came from.
 """
 
-import os
 import struct
 
 from acidcat.core.formats import spc as spcmod
 from acidcat.core.formats.spc import NUL
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import coded, defect, info
 
 # An SPC is 66,048 bytes plus an optional xid6 chunk, which real files keep
 # under a kilobyte. The cap is for a forged one.
@@ -30,28 +30,30 @@ _SPC_XID6_CAP = 64
 
 
 def inspect_spc(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _SPC_READ_CAP))
     if not spcmod.is_spc(raw):
         raise _Unsupported("not an SPC (no SNES-SPC700 magic)")
 
     warns = []
     if size > _SPC_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(raw))))
+        warns.append(hit("read_bytes", _SPC_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(raw))))
     h = spcmod.parse_header(raw)
     if not h["ok"]:
         return [{"id": "header", "offset": 0, "size": min(size, spcmod.HEADER),
                  "summary": "not a resolvable SPC: %s" % h["why"],
                  "fields": [], "warnings": [], "payload_base": 0}], \
-            ["header did not resolve: %s" % h["why"]]
+            [coded(h["code"], "header did not resolve: %s" % h["why"])]
 
     chunks = [_header_chunk(h)]
     if size < spcmod.BASE_SIZE:
-        warns.append("file is %d bytes; a complete SPC is %d before any "
-                     "extension, so the RAM image is truncated"
-                     % (size, spcmod.BASE_SIZE))
+        warns.append(defect("header.truncated",
+                            "file is %d bytes; a complete SPC is %d before any "
+                            "extension, so the RAM image is truncated"
+                            % (size, spcmod.BASE_SIZE)))
         return chunks + [_region("ram", spcmod.RAM_AT, min(size, spcmod.RAM_AT
                                                              + spcmod.RAM)
                                  - spcmod.RAM_AT, "SPC700 RAM, truncated")], \
@@ -116,15 +118,19 @@ def inspect_spc(filepath, deep=False):
             "payload_len": length, "extent_len": length}
         for o_start, o_len, o_idx in placed:
             if start < o_start + o_len and o_start < start + length:
+                # a snapshot holds whatever the driver left in RAM, so this
+                # is how one in twenty real files looks, not damage
                 chunk["warnings"].append(
-                    "overlaps sample[%d]: two voices reading the same RAM "
-                    "from different points, or a stale entry" % o_idx)
+                    info("convention.noted",
+                         "overlaps sample[%d]: two voices reading the same RAM "
+                         "from different points, or a stale entry" % o_idx))
                 break
         placed.append((start, length, idx))
         chunks.append(chunk)
     if len(wanted) > _SPC_SAMPLE_LIST_CAP:
-        note = coverage("listing the first %d of %d voice samples"
-                        % (_SPC_SAMPLE_LIST_CAP, len(wanted)))
+        note = hit("list_rows", _SPC_SAMPLE_LIST_CAP, len(wanted),
+                   "listing the first %d of %d voice samples"
+                   % (_SPC_SAMPLE_LIST_CAP, len(wanted)))
         ram["warnings"].append(note)
         warns.append(note)
 
@@ -152,9 +158,9 @@ def _header_chunk(h):
         _f(0x00, 33, "magic", "SNES-SPC700 Sound File Data " + h["magic_version"],
            "" if h["magic_version"] == "v0.30"
            else "an older dumper; the spec documents only v0.30"),
-        _f(0x23, 1, "tag_flag", "0x%02X" % (0x26 if h["has_tag"] else 0x1A),
-           "the spec says 0x26 means a tag follows; real files carry 0x1A "
-           "and a tag anyway, so the slots are read regardless"),
+        _f(0x23, 1, "tag_flag", "0x%02X" % h["tag_flag"],
+           "26 (0x1A): a tag follows; 27 (0x1B): none. The slots are read "
+           "either way, since a few early dumpers wrote a title with 27"),
         _f(0x24, 1, "version_minor", h["version"]),
         _f(0x25, 2, "pc", "$%04X" % h["pc"], "where the SPC700 was stopped"),
         _f(0x27, 1, "a", "$%02X" % h["a"]),
@@ -163,8 +169,8 @@ def _header_chunk(h):
         _f(0x2A, 1, "psw", "$%02X" % h["psw"]),
         _f(0x2B, 1, "sp", "$%02X" % h["sp"], "low byte; the stack is page 1"),
     ]
-    # the spec's flag byte is reported above and not obeyed: every real file
-    # has 0x1A there and a full tag. If the slots held text, show it.
+    # the flag is reported above and the slots are read regardless; if they
+    # held text, show it
     if h["tag"]:
         fields.append(_f(None, 0, "tag_style", h["tag_style"],
                          "the date, length and fade are text in one spelling "
@@ -229,12 +235,26 @@ def _dsp_fields(raw):
     return out
 
 
+def _xid6_fits(raw, pos, end, aligned):
+    """Every sub-chunk id is a defined one and the walk ends at `end` (within
+    the last sub-chunk's padding when aligned)."""
+    while pos + 4 <= end:
+        sid, stype, data = raw[pos], raw[pos + 1], struct.unpack_from("<H", raw, pos + 2)[0]
+        if sid not in _XID6_IDS:
+            return False
+        pos += 4
+        if stype:
+            pos += (data + 3) & ~3 if aligned else data
+    return pos == end or (aligned and end < pos < end + 4)
+
+
 def _xid6(raw, size, warns):
     """The extended tag, if one follows the base image."""
     at = spcmod.XID6_AT
     if raw[at:at + 4] != b"xid6":
         n = size - at
-        warns.append("%d bytes after the base image are not an xid6 chunk" % n)
+        warns.append(defect("bytes.stray",
+                            "%d bytes after the base image are not an xid6 chunk" % n))
         return [_region("trailing", at, n, "%d bytes, not xid6" % n)]
     declared = struct.unpack_from("<I", raw, at + 4)[0]
     length = min(8 + declared, size - at)
@@ -249,6 +269,18 @@ def _xid6(raw, size, warns):
     # in 36,872 declares four bytes more than it has, and reading the last
     # sub-chunk header off the end of the buffer raised.
     avail = min(end, len(raw))
+    # the spec pads each sub-chunk's data to 4 bytes; some writers pack them.
+    # Packed is taken only when the padded walk fails and the packed one
+    # lands exactly on the end with every id a defined one.
+    packed = (not _xid6_fits(raw, pos, avail, True)
+              and _xid6_fits(raw, pos, avail, False))
+    if packed:
+        xw.append(info("convention.noted",
+                       "the sub-chunks are packed, not padded to 4 bytes as the "
+                       "spec writes them; read as packed"))
+
+    def step(data):
+        return data if packed else (data + 3) & ~3
     while pos + 4 <= avail and n < _SPC_XID6_CAP:
         sid, stype, data = raw[pos], raw[pos + 1], struct.unpack_from("<H", raw, pos + 2)[0]
         n += 1
@@ -260,8 +292,9 @@ def _xid6(raw, size, warns):
         else:
             body = raw[pos + 4:min(pos + 4 + data, avail)]
             if len(body) < data:
-                xw.append("sub-chunk 0x%02X declares %d bytes and %d remain"
-                          % (sid, data, len(body)))
+                xw.append(defect("size.overrun",
+                                 "sub-chunk 0x%02X declares %d bytes and %d remain"
+                                 % (sid, data, len(body))))
             if stype == 1:
                 value = body.split(NUL, 1)[0].decode("latin-1")
             elif stype == 4 and len(body) >= 4:
@@ -269,7 +302,7 @@ def _xid6(raw, size, warns):
                 # an integer sub-chunk: the field is the value, after the header
                 fields.append(_f(pos - at - 8 + 4, 4, "sub[0x%02X]" % sid, value,
                                  _XID6_IDS.get(sid, ""), enc="<I", raw=value))
-                pos += 4 + ((data + 3) & ~3)
+                pos += 4 + step(data)
                 continue
             elif stype == 4:
                 value = data
@@ -278,12 +311,14 @@ def _xid6(raw, size, warns):
             # the field spans what is there, not what the sub-chunk declares
             fields.append(_f(pos - at - 8, 4 + len(body), "sub[0x%02X]" % sid, value,
                              _XID6_IDS.get(sid, "")))
-            pos += 4 + ((data + 3) & ~3)
+            pos += 4 + step(data)
     if n >= _SPC_XID6_CAP:
-        xw.append(coverage("listing the first %d xid6 sub-chunks" % n))
+        xw.append(hit("list_rows", _SPC_XID6_CAP, n,
+                      "listing the first %d xid6 sub-chunks" % n))
         warns.extend(xw)
     if 8 + declared > size - at:
-        xw.append("xid6 declares %d bytes and %d remain" % (declared, size - at - 8))
+        xw.append(defect("size.overrun",
+                         "xid6 declares %d bytes and %d remain" % (declared, size - at - 8)))
     return [{"id": "xid6", "offset": at, "size": length,
              "summary": "extended ID666, %d sub-chunk%s" % (n, "" if n == 1 else "s"),
              "fields": fields, "warnings": xw, "payload_base": at + 8,

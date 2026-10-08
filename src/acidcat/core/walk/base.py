@@ -18,12 +18,16 @@ position"; xref is only ever a pointer, never "this field lives there". The help
 underscore names from commands/inspect.py so the move stays mechanical.
 """
 
+import os
 import struct
 
-# single source for the per-chunk payload read cap: the walkers and the grammar
-# strategy share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
+# single source for the per-chunk payload read cap: the walkers and riff's
+# traversal share riff.PAYLOAD_CAP so a bump cannot diverge their payload lengths.
 from acidcat.core.formats.riff import PAYLOAD_CAP as _PAYLOAD_CAP
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.formats.riff import decode_text as _decode_text
+from acidcat.core.infra.limits import hit
+from acidcat.core.infra.source import input_name, input_size, open_input
+from acidcat.core.infra.findings import defect, info
 
 
 class Unsupported(Exception):
@@ -46,8 +50,15 @@ _ID3_READ_CAP = 16 * 1024 * 1024
 
 
 def _f(off, length, name, value, note="", enc=None, raw=None, xref=None,
-       remote=False):
+       remote=False, derived_from=None, text=False):
     d = {"off": off, "len": length, "name": name, "value": value, "note": note}
+    if text:
+        # the value is text even when it reads as a number: a title "05"
+        d["text"] = True
+    if derived_from:
+        # an unpositioned value's sources: field names on this chunk, or
+        # `node_id#key` elsewhere (node-v1.md section 6)
+        d["derived_from"] = list(derived_from)
     if remote:
         # stored outside this chunk's extent; off still locates the bytes
         d["remote"] = True
@@ -62,6 +73,23 @@ def _f(off, length, name, value, note="", enc=None, raw=None, xref=None,
     return d
 
 
+def _open(x):
+    """A walker's input opened for reading: a path or a Source. Walkers call
+    this and `_size` instead of open() and os.path.getsize(), so the same walker
+    runs over a file on disk or bytes in memory (a decoded layer, stdin)."""
+    return open_input(x)
+
+
+def _size(x):
+    """Bytes in a walker's input: a path or a Source."""
+    return input_size(x)
+
+
+def _name(x):
+    """The file name of a walker's input (its extension is a format hint)."""
+    return os.path.basename(input_name(x))
+
+
 def _u16(b, off):
     return struct.unpack_from("<H", b, off)[0]
 
@@ -74,15 +102,9 @@ def _f32(b, off):
     return struct.unpack_from("<f", b, off)[0]
 
 
-def _dtext(raw):
-    """Decode metadata text: UTF-8, falling back to latin-1. Modern DAWs (and
-    bandcamp) write RIFF/AIFF text as UTF-8; ascii/errors='replace' silently
-    destroyed non-Latin tags (Korean, CJK, the whole non-ASCII world) into
-    U+FFFD. latin-1 never raises, so a real cp1252 tag still round-trips."""
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return raw.decode("latin-1")
+# metadata text: UTF-8, falling back to latin-1. One definition, in
+# formats/riff.py, because the editors read old values through it too
+_dtext = _decode_text
 
 
 def _cstr(b, off, length):
@@ -134,11 +156,29 @@ def parse_padding(payload):
     readable = "".join(c for c in text if c.isprintable())
     if len(readable) >= 8:
         fields.append(_f(None, 0, "readable", readable[:120]))
-    warns.append(f"{nonzero:,} of {len(payload):,} padding bytes are not zero; "
-                 f"this block may hold the tail of something overwritten in "
-                 f"place")
+    former = _former_chunk(payload)
+    # info, not a defect: the spec makes padding filler whatever it holds, and
+    # a writer that deletes a chunk in place by renaming it leaves a healthy
+    # file. Worth a look (it can hide things), not damage.
+    warns.append(info("padding.nonzero",
+                      f"{nonzero:,} of {len(payload):,} padding bytes are not zero"
+                      + (f"; it looks like {former}, left in place"
+                         if former else
+                         "; this block may hold the tail of something "
+                         "overwritten in place")))
     return (f"padding, {len(payload):,} bytes, {nonzero:,} NOT zero",
             fields, warns)
+
+
+def _former_chunk(payload):
+    """What a padding block's bytes look like they used to be, or None. Only
+    the two shapes measured in the wild: a LIST body and an Apple typedstream
+    (AFAn), each left behind when a writer renamed the chunk to JUNK."""
+    if payload[:4] in (b"INFO", b"adtl"):
+        return f"a former LIST/{payload[:4].decode()} body"
+    if b"streamtyped" in payload[:32] or b"typedstream" in payload[:32]:
+        return "a former Apple typedstream (AFAn)"
+    return None
 
 
 # How far into a vendor chunk to scan for readable text, and how many runs to
@@ -241,6 +281,7 @@ def parse_opaque(payload, what):
         fields.append(_f(None, 0, "text", text[:80]))
     warns = []
     if len(runs) > _OPAQUE_RUN_CAP:
-        warns.append(coverage(f"listing the first {_OPAQUE_RUN_CAP} of "
-                              f"{len(runs)} readable runs"))
+        warns.append(hit("list_rows", _OPAQUE_RUN_CAP, len(runs),
+                         f"listing the first {_OPAQUE_RUN_CAP} of "
+                         f"{len(runs)} readable runs"))
     return f"{what}, {len(payload):,} bytes", fields, warns

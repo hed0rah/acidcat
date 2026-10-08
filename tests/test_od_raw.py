@@ -155,9 +155,9 @@ def test_inspect_points_at_the_raw_workflow(tmp_path, capsys):
     p.write_bytes(b"\x03\x13\xa0\xe0" + b"\x00" * 512)
     rc = main(["inspect", str(p)])
     err = capsys.readouterr().err
-    assert rc == 1, "an unwalkable file is still a failure for inspect"
+    assert rc == 2, "an unwalkable file is could-not-run for inspect"
     # the raw-byte verbs, plus the two escapes on inspect itself
-    for hint in ("acidcat od", "acidcat locate", "--force", "--format"):
+    for hint in ("acidcat od", "acidcat locate", "--try-all", "--force-format"):
         assert hint in err, f"no signpost to {hint}"
 
 
@@ -183,3 +183,34 @@ def test_od_on_a_directory_says_so_instead_of_crashing(tmp_path):
     assert "Traceback" not in r.stderr, r.stderr
     assert "Is a directory" in r.stderr
     assert r.returncode == 2
+
+
+
+def test_a_closed_pipe_met_at_the_final_flush_is_handled(tmp_path):
+    """The whole dump fit in stdout's buffer, so nothing met the closed pipe
+    until the flush -- which was the interpreter's own at exit, reported as
+    exit 120. 3.14 buffers more, so CI's 3.14 job hit it; a 16 MB buffer
+    makes any version take that path."""
+    src = tmp_path / "blob.bin"
+    src.write_bytes(bytes(range(256)) * 1600)                 # ~400 KB
+    script = (
+        "import io, sys\n"
+        "sys.stdout = io.TextIOWrapper(io.BufferedWriter(\n"
+        "    io.FileIO(1, 'w', closefd=False), buffer_size=1 << 24))\n"
+        "from acidcat.cli import main\n"
+        "raise SystemExit(main(sys.argv[1:]))\n")
+    env = dict(os.environ, PYTHONPATH=os.path.join(os.getcwd(), "src"))
+    producer = subprocess.Popen(
+        [sys.executable, "-c", script, "od", str(src), "@0+409600"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    try:
+        producer.stdout.readline()
+        producer.stdout.close()
+        producer.wait(timeout=60)
+        err = producer.stderr.read().decode(errors="replace")
+    finally:
+        producer.stderr.close()
+        if producer.poll() is None:
+            producer.kill()
+    assert "Traceback" not in err and "Exception ignored" not in err, err[:400]
+    assert producer.returncode == 0, f"exit {producer.returncode}: {err[:200]}"

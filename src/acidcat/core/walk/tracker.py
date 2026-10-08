@@ -6,12 +6,13 @@ carrying its real byte offset (so the hex pane shows the PCM and `carve
 are annotated as xref fields -- follow one in the TUI to jump to its target
 and see a dangling (past-EOF) pointer flagged. Parsing lives in core/tracker."""
 
-import os
 import struct
 
 from acidcat.core.formats import tracker as tk
-from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import Unsupported, _f
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
+from acidcat.core.walk.base import Unsupported, _f, _open, _size
 
 _SAMPLE_CAP = 400        # samples to list
 _ORDER_CAP = 64          # order-table entries to list individually
@@ -41,9 +42,9 @@ _STM_INSTRUMENT_CAP = 31
 
 
 def inspect_mod(filepath):
-    with open(filepath, "rb") as f:
-        data = f.read(min(os.path.getsize(filepath), 64 * 1024 * 1024))
-    size = os.path.getsize(filepath)
+    with _open(filepath) as f:
+        data = f.read(min(_size(filepath), 64 * 1024 * 1024))
+    size = _size(filepath)
     if not tk.is_mod(data) and not tk.is_mod15(data, size):
         raise Unsupported("no MOD magic at offset 1080, and the 15-instrument "
                           "arithmetic does not hold")
@@ -84,8 +85,9 @@ def inspect_mod(filepath):
     if old and size > m["sample_data_off"] + sum(s["length"] for s in m["samples"]):
         end = m["sample_data_off"] + sum(s["length"] for s in m["samples"])
         chunks[0]["warnings"].append(
-            f"{size - end} bytes after the last sample; the header accounts "
-            f"for {end:,} of {size:,}")
+            defect("bytes.stray",
+                   f"{size - end} bytes after the last sample; the header accounts "
+                   f"for {end:,} of {size:,}"))
     for i, s in enumerate(m["samples"]):
         if not s["length"]:
             continue
@@ -119,8 +121,8 @@ def inspect_mod(filepath):
 
 
 def inspect_xm(filepath):
-    with open(filepath, "rb") as f:
-        data = f.read(min(os.path.getsize(filepath), 64 * 1024 * 1024))
+    with _open(filepath) as f:
+        data = f.read(min(_size(filepath), 64 * 1024 * 1024))
     if data[:17] != b"Extended Module: ":
         raise Unsupported("not an Extended Module")
     try:
@@ -186,13 +188,14 @@ def inspect_xm(filepath):
             })
     warns = list(x["warnings"])
     if idx > _SAMPLE_CAP:
-        warns.append(f"listing the first {_SAMPLE_CAP} of {idx} samples")
+        warns.append(hit("list_rows", _SAMPLE_CAP, idx,
+                         f"listing the first {_SAMPLE_CAP} of {idx} samples"))
     return chunks, warns
 
 
 def inspect_s3m(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 64 * 1024 * 1024))
     if not tk.is_s3m(data):
         raise Unsupported("no SCRM magic at offset 0x2C")
@@ -293,13 +296,13 @@ def inspect_s3m(filepath):
 
 
 def inspect_it(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 64 * 1024 * 1024))
     if data[:4] != b"IMPM":
         raise Unsupported("not an Impulse Tracker module")
     try:
-        it = tk.parse_it(data)
+        it = tk.parse_it(data, file_size)
     except (struct.error, IndexError):
         return _truncated("IMPM", file_size, "IT header is truncated (need 52 bytes)")
     flag_names = ", ".join(n for b, n in tk._IT_FLAGS if it["flags"] & b) or "none"
@@ -356,8 +359,9 @@ def inspect_it(filepath):
             continue
         bits = "16-bit" if s["bits16"] else "8-bit"
         chan = "stereo" if s["stereo"] else "mono"
-        codec = "IT-compressed" if s["compressed"] else "PCM"
+        codec = "IT-compressed PCM" if s["compressed"] else "PCM"
         name = s["name"] or s["dos_name"] or "(unnamed)"
+        empty = not (s["has_sample"] and s["length"])
         # the IMPS header at s['offset'], its data pointer at +72 xrefs the PCM
         chunks.append({
             "id": f"smp[{i + 1}]", "offset": s["offset"], "size": 80,
@@ -369,7 +373,9 @@ def inspect_it(filepath):
                 _f(0x30, 4, "length", f"{s['length']:,}", "sample points"),
                 _f(0x3C, 4, "c5_speed", s["c5_speed"], "Hz"),
                 _f(0x48, 4, "sample_pointer", f"0x{s['data_off']:08x}",
-                   f"{s['byte_len']:,} bytes of {codec} PCM", xref=s["data_off"]),
+                   f"{s['byte_len']:,} bytes of {codec}" if not empty
+                   else "an empty slot; the pointer is unused",
+                   xref=None if empty else s["data_off"]),
             ],
             "warnings": [], "payload_base": s["offset"],
         })
@@ -378,8 +384,8 @@ def inspect_it(filepath):
 
 def inspect_stm(filepath):
     """Scream Tracker 2, the format S3M grew out of."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, 64 * 1024 * 1024))
     if not tk.is_stm(data):
         raise Unsupported("no Scream Tracker 2 header at offset 0")
@@ -416,8 +422,9 @@ def inspect_stm(filepath):
     }]
     if s["file_type"] == 1 and used:
         chunks[0]["warnings"].append(
-            "file_type says song (no samples) and the instrument table "
-            "declares sample lengths")
+            defect("field.inconsistent",
+                   "file_type says song (no samples) and the instrument table "
+                   "declares sample lengths"))
 
     for i, ins in enumerate(s["instruments"][:_STM_INSTRUMENT_CAP]):
         if not (ins["name"] or ins["length"]):
@@ -442,13 +449,15 @@ def inspect_stm(filepath):
         }
         if ins["volume"] > 64:
             entry["warnings"].append(
-                f"volume {ins['volume']} is outside the 0-64 range")
+                defect("value.invalid", f"volume {ins['volume']} is outside the 0-64 range"))
         if ins["offset"] is not None and ins["offset"] + ins["length"] > file_size:
-            entry["warnings"].append(
-                f"sample data runs past the end of the file")
+            entry["warnings"].append(defect(
+                "size.overrun",
+                f"sample data runs past the end of the file"))
         chunks.append(entry)
     if len(s["instruments"]) > _STM_INSTRUMENT_CAP:
-        chunks[0]["warnings"].append(coverage(
+        chunks[0]["warnings"].append(hit(
+            "list_rows", _STM_INSTRUMENT_CAP, len(s["instruments"]),
             f"listing the first {_STM_INSTRUMENT_CAP} of "
             f"{len(s['instruments'])} instruments"))
 

@@ -6,13 +6,13 @@ part MIDI does not have, sixteen bytes of OPL2 registers each, and each
 is a chunk of its own so a patch can be carved.
 """
 
-import os
 
 from acidcat.core.formats import cmf as cmfmod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 from acidcat.core.walk.midi import _scan_track
+from acidcat.core.infra.findings import defect
 
 # The offsets are 16-bit; nothing past 64 KB is reachable by the header.
 _CMF_READ_CAP = 64 * 1024
@@ -22,13 +22,14 @@ _CMF_INSTRUMENT_LIST_CAP = 128
 
 
 def inspect_cmf(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _CMF_READ_CAP))
     warns = []
     if size > _CMF_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d, which is all "
-                              "a 16-bit offset can reach" % (size, _CMF_READ_CAP)))
+        warns.append(hit("read_bytes", _CMF_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d, which is all "
+                         "a 16-bit offset can reach" % (size, _CMF_READ_CAP)))
     h = cmfmod.parse_header(raw, len(raw))
     if not h["ok"]:
         raise _Unsupported(h["why"])
@@ -36,7 +37,7 @@ def inspect_cmf(filepath, deep=False):
     scan = _scan_track(raw[h["music_at"]:], {"division": h["ticks_per_quarter"]})
     music_end = h["music_at"] + scan["eot_end"] if scan["eot_end"] is not None else len(raw)
     if not scan["has_eot"]:
-        warns.append("the event stream has no End of Track")
+        warns.append(defect("required.missing", "the event stream has no End of Track"))
 
     fields = [
         _f(0x00, 4, "magic", "CTMF"),
@@ -66,8 +67,10 @@ def inspect_cmf(filepath, deep=False):
         if at >= len(raw) or h["music_at"] <= at < music_end:
             # one real file points its title and composer into the event
             # stream; a string read from there is not a string
-            warns.append("the %s offset 0x%X lands %s" % (
-                key, at, "past the end of the file" if at >= len(raw) else "inside the music"))
+            warns.append(defect("pointer.dangling",
+                                "the %s offset 0x%X lands %s" % (
+                                key, at, "past the end of the file" if at >= len(raw)
+                                else "inside the music")))
             continue
         text, n = cmfmod.cstring(raw, at)
         texts[key] = (at, n, text)
@@ -91,11 +94,13 @@ def inspect_cmf(filepath, deep=False):
     for i in range(h["instrument_count"]):
         at = h["instruments_at"] + i * cmfmod.INSTRUMENT
         if at + cmfmod.INSTRUMENT > h["music_at"]:
-            warns.append("instrument %d would overlap the music; %d fit" % (i, i))
+            warns.append(defect("geometry.invalid",
+                                "instrument %d would overlap the music; %d fit" % (i, i)))
             break
         if listed >= _CMF_INSTRUMENT_LIST_CAP:
-            warns.append(coverage("listing the first %d of %d instruments"
-                                  % (_CMF_INSTRUMENT_LIST_CAP, h["instrument_count"])))
+            warns.append(hit("list_rows", _CMF_INSTRUMENT_LIST_CAP, h['instrument_count'],
+                             "listing the first %d of %d instruments"
+                             % (_CMF_INSTRUMENT_LIST_CAP, h["instrument_count"])))
             break
         listed += 1
         ins = cmfmod.instrument(raw, at)
@@ -134,7 +139,7 @@ def inspect_cmf(filepath, deep=False):
         if r["offset"] > pos:
             chunks.append(_gap(raw, pos, r["offset"] - pos))
         if r["offset"] < pos:
-            r["warnings"].append("overlaps the region before it")
+            r["warnings"].append(defect("geometry.invalid", "overlaps the region before it"))
         chunks.append(r)
         pos = max(pos, r["offset"] + r["size"])
     if pos < len(raw):

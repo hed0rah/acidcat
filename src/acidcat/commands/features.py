@@ -36,9 +36,9 @@ def run(args):
     if os.path.isfile(target):
         feats = extract_audio_features(target)
         if feats is None:
-            print(f"acidcat features: Could not extract features from {target}", file=sys.stderr)
+            print(f"acidcat analyze: Could not extract features from {target}", file=sys.stderr)
             return 1
-        feats["filename"] = os.path.basename(target)
+        feats["path"] = target
         stream = sys.stdout
         if getattr(args, 'output', None):
             stream = open(args.output, 'w', encoding='utf-8')
@@ -49,7 +49,7 @@ def run(args):
 
     # Directory
     if not os.path.isdir(target):
-        print(f"acidcat features: {target}: No such file or directory", file=sys.stderr)
+        print(f"acidcat analyze: {target}: No such file or directory", file=sys.stderr)
         return 2
 
     num = getattr(args, 'num', 500)
@@ -63,7 +63,7 @@ def run(args):
             print(f"  [features] {os.path.basename(filepath)}...", file=sys.stderr)
         feats = extract_audio_features(filepath)
         if feats:
-            feats["filename"] = filepath
+            feats["path"] = filepath
             rows.append(feats)
     if not quiet:
         note = targets.skip_note(skipped)
@@ -74,7 +74,7 @@ def run(args):
                   f"(raise with --num)", file=sys.stderr)
 
     if not rows:
-        print("acidcat features: No features extracted.", file=sys.stderr)
+        print("acidcat analyze: No features extracted.", file=sys.stderr)
         return 0
 
     # An explicitly requested rendering goes to stdout (or -o), like the

@@ -15,11 +15,11 @@ soundset banks. Unknown object types and effects payloads are surfaced by
 type/id/name without guessing at their bodies.
 """
 
-import os
-from acidcat.core.primitives.notes import coverage
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect, error
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import _f, _open, _size
 from acidcat.util.midi import midi_note_to_name
 
 # read cap: a forged blocksize/osize cannot force an unbounded allocation. Real
@@ -58,16 +58,17 @@ def _seg_len(tag):
 
 def inspect_krz(filepath):
     """Walk a Kurzweil .KRZ file, returning (chunks, file_warnings)."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         b = f.read(min(file_size, _READ_CAP))
     chunks, warns = [], []
     if b[:4] == b"SROM":
         return _inspect_srom(b, file_size)
     if b[:4] != b"PRAM":
-        return chunks, ["not a Kurzweil PRAM/SROM file"]
+        return chunks, [defect("magic.mismatch", "not a Kurzweil PRAM/SROM file")]
     if len(b) < 32:
-        return chunks, [f"file is {len(b)} bytes; a PRAM header needs 32"]
+        return chunks, [defect("header.truncated",
+                               f"file is {len(b)} bytes; a PRAM header needs 32")]
 
     osize = struct.unpack_from(">i", b, 4)[0]
     version = struct.unpack_from(">i", b, 16)[0]
@@ -81,8 +82,9 @@ def inspect_krz(filepath):
                   f"K2000 OS v{version / 100:.2f}", enc=">i", raw=version),
            ], "warnings": []}
     if not 0 < osize <= len(b):
-        hdr["warnings"].append(
-            f"pcm_offset {osize:,} is outside the file ({len(b):,} bytes)")
+        hdr["warnings"].append(defect(
+            "pointer.dangling",
+            f"pcm_offset {osize:,} is outside the file ({len(b):,} bytes)"))
     chunks.append(hdr)
 
     # walk the object blocks: blocksize is a NEGATIVE i32 (block bytes), advance
@@ -95,8 +97,9 @@ def inspect_krz(filepath):
         if blocksize == 0:
             break                                   # object-section end marker
         if blocksize > 0 or pos - blocksize > len(b) + 4:
-            warns.append(f"object at 0x{pos:08x} has a bad blocksize "
-                         f"{blocksize}; stopping the walk")
+            warns.append(defect("geometry.invalid",
+                                f"object at 0x{pos:08x} has a bad blocksize "
+                                f"{blocksize}; stopping the walk"))
             break
         block_len = -blocksize
         try:
@@ -105,13 +108,15 @@ def inspect_krz(filepath):
             chunk = {"id": "obj", "offset": pos, "size": block_len,
                      "summary": "unparsed object",
                      "fields": [], "warnings": [
-                         f"object decode error: {e.__class__.__name__}: {e}"]}
+                         error("walker.error",
+                               f"object decode error: {e.__class__.__name__}: {e}")]}
         kinds[chunk["id"]] += 1
         chunks.append(chunk)
         pos += block_len
         n += 1
     if n >= _OBJECT_CAP:
-        warns.append(coverage(f"object walk stopped at the {_OBJECT_CAP}-object cap"))
+        warns.append(hit("work_steps", _OBJECT_CAP, n,
+                         f"object walk stopped at the {_OBJECT_CAP}-object cap"))
 
     # the PCM sample region after the end marker
     if 0 < osize < len(b):
@@ -192,7 +197,7 @@ def _sample_body(b, off):
     """KSample (12) + Soundfilehead (32): rootkey, loop flag, PCM word refs,
     sample rate from samplePeriod."""
     if off + 44 > len(b):
-        return "truncated", [], ["sample body under 44 bytes"]
+        return "truncated", [], [defect("chunk.short", "sample body under 44 bytes")]
     # Soundfilehead starts right after the 12-byte KSample header
     sf = off + 12
     rootkey = b[sf]
@@ -231,7 +236,7 @@ def _keymap_body(b, off, block_end):
     2-byte tuning prefix, so the sampleID sits at offset 2 with it and offset
     0 without; `entry_size` is the authoritative stride."""
     if off + 28 > len(b):
-        return "truncated", [], ["keymap body under 28 bytes"]
+        return "truncated", [], [defect("chunk.short", "keymap body under 28 bytes")]
     method = struct.unpack_from(">H", b, off + 2)[0]
     cents = struct.unpack_from(">H", b, off + 6)[0]
     entry_size = struct.unpack_from(">H", b, off + 10)[0] or 5
@@ -254,9 +259,12 @@ def _keymap_body(b, off, block_end):
     fields = [
         _f(2, 2, "method", f"0x{method:04x}", layout, enc=">H", raw=method),
         _f(6, 2, "cents_per_entry", cents),
+        # raw is the list: the display's bare commas read as a thousands
+        # separator ("1,234" was the int 1234, review V6)
         _f(None, 0, "sample_refs",
            ",".join(str(s) for s in sorted(sample_ids)) or "(none)",
-           f"{len(sample_ids)} unique sample(s) across {keys} keys"),
+           f"{len(sample_ids)} unique sample(s) across {keys} keys",
+           raw=sorted(sample_ids)),
     ]
     return f"{len(sample_ids)} sample(s), {keys} keys", fields, []
 

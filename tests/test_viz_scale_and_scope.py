@@ -510,8 +510,9 @@ class TestArrowsOnAFocusedGraph:
         _run(scenario)
 
     def test_the_hex_dump_keeps_its_arrows(self, wav):
-        """The byte pane holds far more than a screen in hex mode, and
-        scrolling it is the only way to read it."""
+        """The file holds far more than a screen, and the arrows are how you
+        read on. 2.0: the pane is drawn to its height and does not scroll, so
+        the arrows move its window a row at a time."""
         async def scenario():
             app = AcidcatTUI(wav)
             async with app.run_test(size=(140, 40)) as pilot:
@@ -520,12 +521,15 @@ class TestArrowsOnAFocusedGraph:
                 await pilot.press("tab")
                 await pilot.pause()
                 assert app._focused_pane() == "hexwrap"
-                hw = app.query_one("#hexwrap")
-                assert hw.max_scroll_y > 0, "precondition: it should overflow"
+
+                def first():
+                    return int(app.query_one("#hex").render().plain.split()[0], 16)
+                at = first()
                 for _ in range(6):
                     await pilot.press("down")
                 await pilot.pause()
-                assert hw.scroll_offset.y > 0, "arrows stopped scrolling the dump"
+                assert first() == at + 6 * app._hex_width(), (
+                    "arrows stopped moving the dump")
         _run(scenario)
 
     def test_arrows_are_dormant_until_the_graph_has_focus(self, wav):

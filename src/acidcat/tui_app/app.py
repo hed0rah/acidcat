@@ -6,6 +6,7 @@ modal screens live in screens.py; byte/field rendering and the edit profiles in
 render.py.
 """
 import os
+import textwrap
 import re
 import shutil
 import struct
@@ -18,16 +19,18 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Input, Static, Tree
 
-from acidcat.core.infra import geometry
+from acidcat.core.infra import capabilities, geometry
 from acidcat.core.infra.sniff import sniff_bytes
 from acidcat.core.walk import walk_file, Unsupported
+from acidcat.core.edit import plan as edit_plan
+from acidcat.core.infra.findings import coded
+from acidcat.core.primitives.notes import code_of
 from acidcat.core.forensics import anomalies as ac_anom
 from acidcat.core.forensics import explore
 from acidcat.core.forensics import locate as locatemod
 from acidcat.core.forensics import transforms as transformsmod
-from acidcat.core.codecs import cdxa as cdxamod
-from acidcat.core.codecs import vag as vagmod
-from acidcat.core.containers import iso9660 as isomod
+from acidcat.core.codecs import engines
+from acidcat.core.containers import psxdisc
 from acidcat.core.forensics import audioscan as audioscanmod
 from acidcat.core.write import writer
 from acidcat.core.forensics import viz
@@ -40,7 +43,7 @@ from acidcat.commands.write import _edit as _write_edit, _strip as _write_strip
 # bit-field encodings) lives in core/infra/fieldcodec.py so the CLI and tests
 # share it without a textual dependency.
 from acidcat.core.infra.fieldcodec import (
-    _BE_FMTS, _BITMAPS, _DYNMAPS, _field_abs, _resolve_in_map,
+    _BITMAPS, _DYNMAPS, _field_abs, _resolve_in_map,
     bitfield_apply, bitfield_extract, decode_value, enc_size, encode_value,
     infer_enc, parse_bitfield, parse_bitsdyn, parse_bitsmap, resolve_bitsmap,
 )
@@ -57,10 +60,12 @@ from acidcat.tui_theme import (
 from acidcat.tui_app.render import (
     edit_profile, hex_text, text_field_for, _read, _fuzzy, _hex_rows,
     row_width_for, trim_size_echo,
-    _SPIN, _BAR_W, _HEX_CAP, _ROW_CAP, _CHUNK_CAP, _HEXEDIT_CAP, _UNDO_CAP, _VIZ_READ,
-    _SEARCH_CAP,
-    _UNDO_BYTES_CAP, _DIFF_CAP, _LARGE_FILE, _SCAN_SEG,
+    _SPIN, _BAR_W, _HEX_CAP, _ROW_CAP, _CHUNK_CAP, _HEXEDIT_CAP, _VIZ_READ,
+    _SEARCH_CAP, _DIFF_CAP, _LARGE_FILE, _SCAN_SEG, context_hex,
+    byte_strip, data_inspector, field_inspector, pack,
 )
+from acidcat.tui_app.model import DocumentModel
+from acidcat.tui_app import state as tui_state
 from acidcat.tui_app.screens import (
     BrowseScreen, ConfirmScreen, DiffScreen, DiscScreen, EditScreen, HelpScreen,
     YesNoScreen,
@@ -150,26 +155,47 @@ class NodeInfo:
 class AcidcatTUI(App):
     CSS = th.css("""
     Screen { background: $BG; }
-    #left { width: 50%; }
-    #right { width: 50%; }
+    /* 35/65: the tree needs a name column, the bytes need 76 columns for 16
+       a row, and at 120 columns 65% is 78. Half and half left the tree pane
+       mostly empty and folded the hex to 8 a row below 156 columns. */
+    #left { width: 35%; }
+    #right { width: 65%; }
     /* The left column's top box, deliberately the same fixed height as
        #detail on the right so the tree and the hex pane start on the same
        row. Four content lines: what the file is, what forensics found, and
        room for whatever else belongs in a quick readout. It scrolls, so a
        genuinely damaged file's longer list stays reachable without the box
        resizing and shifting everything below it. */
-    #idbox { height: 6; border: round $GUTTER; }
+    #idbox { height: 8; border: round $GUTTER; }
     #idbox.findings { border: round $ORANGE; }
     #title { height: auto; padding: 0 1; }
     #anom { height: auto; padding: 0 1; }
     #tree { border: round $TEAL; padding: 0 1; }
-    /* Fixed, not auto, and the same height as #idbox opposite it. On auto it
-       grew when a summary was long enough to wrap, stealing rows from the hex
-       pane and making the layout jump as you moved through the tree. Four
-       content rows always, and a long line clips. */
-    #detail { height: 6; border: round $GUTTER; padding: 0 1; color: $FG; }
+    /* The field inspector. Fixed, not auto, and the same height as #idbox
+       opposite it: on auto it grew when a summary wrapped, stealing rows from
+       the hex pane and making the layout jump as you moved through the tree.
+       Six content rows always, and a long line clips. */
+    #inspect { height: 8; border: round $GUTTER; padding: 0 1; color: $FG; }
+    /* The data inspector: the bytes at the cursor read every common way.
+       No padding: little- and big-endian side by side need all 40 columns a
+       35% column has at 120. */
+    #data { height: 8; border: round $GUTTER; padding: 0; color: $FG; }
+    #data.full { height: 14; }
     #hexwrap { border: round $TEAL; }
-    #hex { padding: 0 1; }
+    /* No padding: the offset gutter is the margin, and the two columns it
+       would cost are what 16 bytes a row needs at 120. The context view is
+       drawn to exactly the rows the pane has, so it never scrolls and never
+       shows a scrollbar that would take two more. */
+    #hex { padding: 0; }
+    #hexwrap.context { overflow-y: hidden; }
+    /* in the flow under the panes, not docked: the footer docks to the
+       bottom too, and two bottom docks sit on top of each other */
+    #main { height: 1fr; }
+    #strip { height: 1; background: $BG; padding: 0 1; }
+    #status { height: 1; background: $INSET; color: $SOFT; padding: 0 1; }
+    /* Too narrow or too short for the data inspector: little- and big-endian
+       need 40 columns, and on a short screen the tree needs the rows more. */
+    Screen.no-data #data { display: none; }
     #editbar { dock: bottom; height: 3; border: round $ORANGE; background: $BG; }
     #editbar.hidden { display: none; }
 
@@ -179,7 +205,7 @@ class AcidcatTUI(App):
        read-only `allow_maximize` is true, which excludes these containers, and
        it postdates the `textual>=0.60` floor in pyproject. Classes work on
        every version and need no feature test. */
-    Screen.zoom-hex #left, Screen.zoom-hex #detail { display: none; }
+    Screen.zoom-hex #left, Screen.zoom-hex #inspect { display: none; }
     Screen.zoom-hex #right { width: 100%; }
     Screen.zoom-tree #right { display: none; }
     Screen.zoom-tree #left { width: 100%; }
@@ -252,6 +278,7 @@ class AcidcatTUI(App):
         Binding("tab", "focus_pane", "focus pane", show=False, priority=True),
         Binding("shift+tab", "focus_pane_back", "focus pane back",
                 show=False, priority=True),
+        Binding("i", "data_rows", "data rows", show=False),
         Binding("a", "expand_all", "expand", show=False),
         Binding("c", "collapse_all", "collapse", show=False),
         ("question_mark", "help", "help"),
@@ -280,23 +307,171 @@ class AcidcatTUI(App):
     _VIZ_ARROWS = ("viz_scale_next", "viz_scale_prev",
                    "viz_prev_node", "viz_next_node")
 
+    # The help, generated: (area, actions, what they do). The keys it shows are
+    # read from BINDINGS (and the tree's own from Tree.BINDINGS), so a rebound
+    # key cannot leave the help wrong; tests/test_tui_help.py fails on a
+    # binding with no row here or a row with no binding.
+    HELP_AREAS = ("move", "bytes", "play", "edit", "regions", "file")
+    HELP = [
+        ("move", ("goto",), "goto an offset (0x.. or decimal)"),
+        ("move", ("search",), 'search: text=fuzzy name/value, 0x..=hex, ".."=ascii'),
+        ("move", ("search_next", "search_prev"), "next / previous search match"),
+        ("move", ("next_finding",), "jump to the next forensics finding"),
+        ("move", ("follow_xref",), "follow a pointer field to where it points "
+                                   "(flags dangling); enter does too"),
+        ("move", ("nav_back", "nav_forward"), "back and forward through the views "
+                                              "you opened (regions, layers)"),
+        ("move", ("tree_pan(-8)", "tree_pan(8)"), "pan the tree sideways when a "
+                                                  "deep branch runs off the pane"),
+        ("move", ("focus_pane", "focus_pane_back"), "move focus between the panes"),
+        ("move", ("zoom",), "give the focused pane the whole screen (again to "
+                            "restore)"),
+        ("move", ("expand_all", "collapse_all"), "expand all / collapse all"),
+        ("bytes", ("hex_page_down", "hex_page_up"), "page the hex view through "
+                                                    "the file"),
+        ("bytes", ("viz_scale_next", "viz_scale_prev", "viz_prev_node",
+                   "viz_next_node"), "on the focused bytes pane: up/down move "
+                                     "the hex a row, or change a graph's scale; "
+                                     "left/right move a graph's selection"),
+        ("bytes", ("cycle_view",), "byte view: cycle hex / entropy / hilbert / "
+                                   "histogram"),
+        ("bytes", ("viz_scope",), "byte view: whole file or just the selected "
+                                  "region"),
+        ("bytes", ("viz_scale",), "byte view: vertical scale (entropy 0-8 or "
+                                  "auto; histogram linear, log, clipped)"),
+        ("bytes", ("map",), "byte map: where the file's bytes go, biggest "
+                            "regions first"),
+        ("bytes", ("data_rows",), "data inspector: the four common readings, "
+                                  "or all ten"),
+        ("bytes", ("yank",), "yank the selected bytes as hex to the clipboard"),
+        ("play", ("play",), "play what the node offers: a tune on its engine, a "
+                            "compressed file through a decoder, else its bytes "
+                            "as PCM (asks first); needs ffplay"),
+        ("play", ("stop_play",), "stop playing"),
+        ("edit", ("edit_field",), "edit the selected field (value, text or hex); "
+                                  "on the file itself, its tags"),
+        ("edit", ("toggle_mode",), "toggle the edit between value and raw hex"),
+        ("edit", ("hex_focus",), "hex-edit the field in the pane (arrows move, "
+                                 "0-9a-f type)"),
+        ("edit", ("edit",), "edit tags (metadata form)"),
+        ("edit", ("strip",), "strip identifying metadata (asks first)"),
+        ("edit", ("save",), "save to the original (writes a _original backup)"),
+        ("edit", ("undo", "redo"), "undo / redo the last edit"),
+        ("edit", ("diff",), "review all pending changes (offset old->new) before "
+                            "save"),
+        ("edit", ("validate",), "validate structure: constraint violations, r to "
+                                "repair them"),
+        ("edit", ("cancel_edit",), "cancel the current edit / prompt"),
+        ("regions", ("locate_regions",), "the region list: the same regions as a "
+                                         "table, with bulk actions"),
+        ("regions", ("force_parse",), "force a walker onto a file nothing "
+                                      "recognises (finds the NAMES in an "
+                                      "archive), or scan forensics on a file "
+                                      "too big to have been scanned on open"),
+        ("regions", ("space_key",), "mark the region under the cursor; during a "
+                                    "scan, pause it"),
+        ("regions", ("select_all_regions",), "mark every region, or none if they "
+                                             "all already are"),
+        ("regions", ("extract_selected",), "extract the marked regions; with "
+                                           "none, write out a node that offers "
+                                           "carve"),
+        ("regions", ("extract_all_regions",), "extract every region, marked or "
+                                              "not"),
+        ("regions", ("keep_scan",), "during a scan, keep what it found so far; on "
+                                    "a pointer, follow it; on a packed body, "
+                                    "open its layer (u comes back)"),
+        ("regions", ("more_rows",), "on a '... more rows' line, list more of "
+                                    "that chunk's rows"),
+        ("file", ("open",), "open another file (starts where you last opened one; "
+                            "recent files on top)"),
+        ("file", ("help",), "this help"),
+        ("file", ("request_quit",), "quit"),
+    ]
+    # the tree's own keys (Textual's Tree.BINDINGS), where it owns them: not
+    # its space (toggle_node), which the app's priority space_key takes
+    TREE_HELP = [
+        ("move", ("cursor_up", "cursor_down", "select_cursor"),
+         "move + expand the tree"),
+        ("move", ("cursor_parent", "cursor_parent_next_sibling"),
+         "jump to a node's parent / to the next branch past it"),
+    ]
+
+    # how a key is written in the help
+    _KEY_NAMES = {"question_mark": "?", "full_stop": ".", "slash": "/",
+                  "plus": "+", "equals_sign": "=", "pagedown": "pgdn",
+                  "pageup": "pgup", "escape": "esc"}
+
+    @staticmethod
+    def _key_text(keys):
+        """How a row's keys read: `ctrl+left/right` when they share a
+        modifier, else `n / N`."""
+        mods = {k.rpartition("+")[0] for k in keys}
+        if len(keys) > 1 and len(mods) == 1 and "" not in mods:
+            mod = mods.pop()
+            return mod + "+" + "/".join(k.rpartition("+")[2] for k in keys)
+        return " / ".join(keys)
+
+    @classmethod
+    def _help_sections(cls):
+        """[(area, [(keys, text), ...]), ...] for HelpScreen, from the
+        bindings."""
+        from textual.widgets import Tree as _Tree
+
+        def keys_of(bindings):
+            out = {}
+            for b in bindings:
+                key, action = ((b[0], b[1]) if isinstance(b, tuple)
+                               else (b.key, b.action))
+                for k in key.split(","):
+                    out.setdefault(action, []).append(
+                        cls._KEY_NAMES.get(k.strip(), k.strip()))
+            return out
+        app_keys, tree_keys = keys_of(cls.BINDINGS), keys_of(_Tree.BINDINGS)
+        sections = {a: [] for a in cls.HELP_AREAS}
+        for rows, keys in ((cls.TREE_HELP, tree_keys), (cls.HELP, app_keys)):
+            for area, actions, text in rows:
+                ks = []
+                for act in actions:
+                    for k in keys.get(act, []):
+                        if k not in ks:
+                            ks.append(k)
+                if ks:
+                    sections[area].append((cls._key_text(ks), text))
+        return [(a, sections[a]) for a in cls.HELP_AREAS if sections[a]]
+
     def check_action(self, action, parameters):
-        if action in ("pause_scan", "keep_scan"):
+        if action == "keep_scan":
+            # a scan's enter, or enter on a pointer field; otherwise the
+            # tree keeps enter for opening nodes
+            return self._scanning or (len(self.screen_stack) <= 1
+                                      and (self._on_pointer() or self._on_descend()))
+        if action == "pause_scan":
             return self._scanning        # only live during a scan
         # The region actions are only real once there are regions, and a footer
         # advertising four keys that decline is a footer that teaches nothing.
+        if action == "extract_selected":
+            # the marked regions, or what the selected node's `carve` cap
+            # says to write out
+            return bool(self._regions) or "carve" in self._node_caps()
         if action in ("select_region", "select_all_regions",
-                      "extract_selected", "extract_all_regions"):
+                      "extract_all_regions"):
             return bool(self._regions)
         if action == "space_key":
             # live during a scan (to pause it) and once there is something to
             # mark; dormant in between, where it would do neither
             return bool(self._scanning or self._regions)
         if action in self._VIZ_ARROWS:
-            # `_view != "hex"` is checked first and on purpose: it is a plain
-            # attribute, so this stays cheap and cannot touch the DOM before
-            # mount, which is when check_action first runs.
-            return self._view != "hex" and self._focused_pane() == "hexwrap"
+            # Up and down also move the hex view a row: it is drawn to the
+            # pane's height and does not scroll, so the arrows that scrolled
+            # it now move its window. The hex editor keeps its own arrows.
+            # The plain attributes are checked first, and on purpose: this
+            # stays cheap and cannot touch the DOM before mount, which is when
+            # check_action first runs.
+            if self._view == "hex":
+                if self._hexedit or action not in ("viz_scale_next",
+                                                   "viz_scale_prev"):
+                    return False
+            return self._focused_pane() == "hexwrap"
         # while a modal (edit form / file browser / help / diff / map / confirm)
         # is open, the app-global single-letter bindings must not fire under it
         # -- so typing in the browser or a form does not trigger edit/strip/etc.
@@ -306,6 +481,10 @@ class AcidcatTUI(App):
 
     def __init__(self, path=None):
         super().__init__()
+        # the view's state that is not widgets: the Document, the selection,
+        # the window onto the layer, undo (tui_app/model.py)
+        self.model = DocumentModel()
+        self._data_full = False   # the data inspector shows all ten readings
         self.src = path           # the file being edited (save target + display name)
         self.work = None          # temp working copy: edits land here until save
         self.dirty = False        # unsaved edits present
@@ -330,8 +509,6 @@ class AcidcatTUI(App):
         self._cur_node = None     # last highlighted tree node
         self._edit_target = None  # active inline edit: dict(off,length,name,mode,fmt,accent)
         self._hexedit = None      # active in-pane hex edit: dict(off,length,buf,cur,nib)
-        self._undo = []           # working-copy byte snapshots for undo
-        self._redo = []           # snapshots popped by undo, for redo
         self._prompt = None       # active editbar prompt: dict(kind, ...)
         self._allnodes = []       # (node, off, length) for offset/fuzzy navigation
         self._search = None       # active search: dict(desc, hits, idx)
@@ -368,8 +545,8 @@ class AcidcatTUI(App):
         self._region_header = False       # header bar has focus (tab)
         self._region_header_col = None    # which column the arrows point at
         self._region_cursor = 0   # row the region list should reopen on
-        self._hex_from = 0    # byte offset into the selection the hex starts at
         self._region_view = None  # (idx, region) when viewing a descended region
+        self._layer_view = None   # {"id", "name"} when viewing a decoded layer
         self._region_tmps = []    # carved-region temp files, cleaned on exit
         self._disc_src = None     # path of an opened CD-XA disc image
         self._disc_list = []      # its audio catalog (.STR/.VB/.VAG entries)
@@ -386,8 +563,36 @@ class AcidcatTUI(App):
         self._scan_last = None    # (done, total, n) for the spinner re-render
         self._scan_timer = None   # set_interval handle animating the spinner
 
+    # Undo, redo and the bytes window live on the model; these keep the names
+    # the navigation frames snapshot and restore.
+    @property
+    def _undo(self):
+        return self.model.undo
+
+    @_undo.setter
+    def _undo(self, v):
+        self.model.undo = list(v or [])
+
+    @property
+    def _redo(self):
+        return self.model.redo
+
+    @_redo.setter
+    def _redo(self, v):
+        self.model.redo = list(v or [])
+
+    @property
+    def _hex_top(self):
+        """The first row of the layer the bytes pane shows; None follows the
+        selection."""
+        return self.model.top
+
+    @_hex_top.setter
+    def _hex_top(self, v):
+        self.model.top = v
+
     def compose(self) -> ComposeResult:
-        with Horizontal():
+        with Horizontal(id="main"):
             with Vertical(id="left"):
                 with VerticalScroll(id="idbox"):
                     yield Static(id="title")
@@ -406,14 +611,18 @@ class AcidcatTUI(App):
                 # drawn, just narrower.
                 tree.guide_depth = 2
                 yield tree
+                yield Static(id="data")
             with Vertical(id="right"):
-                yield Static(id="detail")
+                yield Static(id="inspect")
                 with VerticalScroll(id="hexwrap"):
                     yield HexPane(id="hex")
         yield Input(id="editbar", classes="hidden")
+        yield Static(id="strip")
+        yield Static(id="status")
         yield Footer()
 
     def on_mount(self):
+        self._fit_data()
         if self.src:
             self._open_path(self.src)
         else:
@@ -455,9 +664,11 @@ class AcidcatTUI(App):
         self._clean_region_tmps()
 
         self.src = path
+        tui_state.remember(path)
         self._regions = None
         self._blob_src = None
         self._region_view = None
+        self._layer_view = None
         self._make_work()
         self._load()
         # the hidden #editbar is still focusable, so without this every single-key
@@ -477,9 +688,9 @@ class AcidcatTUI(App):
         "_work_is_temp", "_readonly", "dirty",
         "_backed_up",
         "_undo", "_redo", "_src_stat", "_force_stale",
-        "_regions", "_blob_src", "_region_view", "_scan_partial",
+        "_regions", "_blob_src", "_region_view", "_layer_view", "_scan_partial",
         "_locate_mode", "_locate_transforms",
-        "_view", "_viz_scope", "_viz_scale", "_viz_drawn", "_hex_from",
+        "_view", "_viz_scope", "_viz_scale", "_viz_drawn", "_hex_top",
         "_region_sel",
         "_region_cursor",
     )
@@ -581,7 +792,10 @@ class AcidcatTUI(App):
     def _frame_label(self, fr):
         """One breadcrumb piece for a frame (None means the current view)."""
         rv = fr.get("_region_view") if fr else self._region_view
+        lv = fr.get("_layer_view") if fr else self._layer_view
         src = (fr.get("src") if fr else self.src) or "?"
+        if lv:
+            return lv["name"]
         if not rv:
             return os.path.basename(src)
         label, region = rv
@@ -722,6 +936,36 @@ class AcidcatTUI(App):
         """
         info = self._info(node)
         return None if info is None else info.range
+
+    def _node_caps(self, node=None):
+        """What the selected (or given) tree node offers: a top-level chunk's
+        own caps, the file's for the root. Nested and field nodes have none of
+        their own yet."""
+        node = self._cur_node if node is None else node
+        if node is None:
+            return {}
+        info = self._info(node)
+        # the root is the file; so is a parentless node from before the last
+        # rebuild, which a late highlight event can still hand back
+        if node.parent is None or (info is not None and info.kind == "root"):
+            return self.model.file_caps()
+        if info is None:
+            return {}
+        if info.kind == "chunk" and info.chunk is not None:
+            for i, c in enumerate(self.chunks):
+                if c is info.chunk:
+                    # the file's own caps ride on its first chunk; they are
+                    # the root's to offer, not that chunk's
+                    caps = dict(self.model.caps_of(i))
+                    # and what the Document adds, such as the layer it opens
+                    eoff, elen = geometry.extent_of(c)
+                    dnode = self.model.node_for(eoff, elen)
+                    if dnode is not None and dnode.get("extent", {}).get("off") == eoff \
+                            and dnode["extent"]["len"] == elen:
+                        caps.update(dnode["caps"])
+                    return {k: v for k, v in caps.items()
+                            if k not in self.model.FILE_CAPS}
+        return {}
 
     def _act_range(self):
         """The bytes an ACTION should touch: play, yank, carve, decode.
@@ -1037,7 +1281,7 @@ class AcidcatTUI(App):
             # container, so at depth it repeats once per level and buries the
             # warnings that are about THIS file. The summary on the node
             # already says "contents unknown".
-            if w.startswith("generic structural triage:"):
+            if code_of(w) == "triage.generic":
                 continue
             node.add_leaf(Text(f"  {w}", style=AMBER))
         if not n and not node.children:
@@ -1070,7 +1314,8 @@ class AcidcatTUI(App):
         refusal is a resource decision, not a verdict, and the person looking at
         the file is better placed to make it than a constant is.
         """
-        if self._readonly and not self._force_scan and not self._unparsed():
+        if (self._readonly and not self._force_scan and not self._unparsed()
+                and not self._layer_view):
             self._force_scan = True
             self.notify("scanning forensics anyway; this reads the whole file")
             self._load()
@@ -1111,7 +1356,7 @@ class AcidcatTUI(App):
             self.notify("no walker produced anything from this file "
                         "(l locates embedded audio instead)", severity="warning")
             return
-        self.push_screen(ForcedScreen(rows, os.path.basename(self.src)),
+        self.push_screen(ForcedScreen(rows, self._display_name()),
                          self._on_forced)
 
     def _offer_toc(self):
@@ -1207,57 +1452,18 @@ class AcidcatTUI(App):
     def _maybe_disc(self):
         """If the file is a CD-XA disc image with named audio, open the disc
         audio browser instead of the generic region browser. Returns True if so."""
-        try:
-            info = cdxamod.detect_cd_image(self.src)
-        except Exception:
-            return False
-        if not info or not info.get("xa"):
-            return False
-        entries = self._disc_entries(self.src)
+        entries = psxdisc.catalog(self.src)
         if not entries:
             return False
         self._disc_src = self.src
         self._disc_list = entries
-        self.push_screen(DiscScreen(entries, os.path.basename(self.src)))
+        self.push_screen(DiscScreen(entries, self._display_name()))
         return True
-
-    @staticmethod
-    def _disc_entries(path):
-        """The disc's audio catalog from its ISO 9660 tree: .STR/.XA soundtrack
-        and .VB/.VAG SPU sound banks."""
-        entries = []
-        try:
-            for ent in isomod.walk(path):
-                up = ent["path"].upper()
-                kind = ("XA" if up.endswith((".STR", ".XA"))
-                        else "VB" if up.endswith(".VB")
-                        else "VAG" if up.endswith(".VAG") else None)
-                if kind:
-                    entries.append({**ent, "kind": kind})
-        except Exception:
-            return []
-        return entries
 
     def _decode_entry(self, ent, preview=False):
         """Decode a disc audio entry to (pcm_bytes, info). `preview` caps the
         length for a fast audition. Runs off the UI thread. None on failure."""
-        path = self._disc_src
-        try:
-            if ent["kind"] == "XA":
-                count = (ent["size"] + 2047) // 2048
-                return cdxamod.decode_range(path, ent["lba"], count,
-                                            max_audio=180 if preview else None)
-            raw = isomod.read_file(path, ent)
-            if ent["kind"] == "VB":
-                if preview:
-                    raw = raw[:24 * 1024]
-                pcm = vagmod.decode_spu(raw, stop_on_end=False)
-                return pcm, {"channels": 1, "rate": 22050, "bits": 16}
-            info = vagmod.parse_vag(raw)                  # VAG
-            data = info["data"][:24 * 1024] if preview else info["data"]
-            return vagmod.decode_spu(data), {"channels": 1, "rate": info["rate"], "bits": 16}
-        except Exception:
-            return None
+        return psxdisc.decode_entry(self._disc_src, ent, preview)
 
     def _audition_disc(self, ent):
         if not play.have_audio():
@@ -1282,17 +1488,15 @@ class AcidcatTUI(App):
         secs = len(pcm) / max(1, info["rate"] * info["channels"] * 2)
         self.notify(f"playing {label}  ~{secs:.0f}s (preview) -- . to stop")
 
-    _SID_PREVIEW_SECONDS = 45.0
+    def _play_render(self, engine):
+        """Run the open tune on the engine its `render` cap names, and play
+        what it makes (core/codecs/engines.py).
 
-    def _play_sid(self):
-        """Render the open tune and play it.
-
-        Rendering runs the tune's own machine code, so it costs real time --
-        roughly a tenth of the audio's duration, more for a multi-chip tune.
+        Rendering runs the tune's own code, so it costs real time -- roughly a
+        tenth of the audio's duration for a SID, a little under it for an SPC.
         That is far too long to hold the UI thread, so it goes to a worker and
         the notification comes back when there is something to hear.
         """
-        from acidcat.core.codecs import sid_render
         if not play.have_audio():
             self.notify("no audio player found (install ffmpeg for ffplay)",
                         severity="warning")
@@ -1301,85 +1505,31 @@ class AcidcatTUI(App):
             with open(self.work, "rb") as fh:
                 raw = fh.read()
         except OSError as e:
-            self.notify(f"could not read the tune: {e}", severity="warning")
+            self.notify(f"could not read the {engine.what}: {e}", severity="warning")
             return
-        can, why = sid_render.can_render(raw)
+        can, why = engine.can_render(raw)
         if not can:
-            self.notify(f"this tune cannot be driven here: {why}",
+            self.notify(f"this {engine.what} cannot be run here: {why}",
                         severity="warning")
             return
-        self.notify("running the tune's 6510 player and synthesising the SID ...")
-        self.run_worker(lambda: self._sid_work(raw), thread=True)
+        self.notify(engine.busy)
+        self.run_worker(lambda: self._render_work(engine, raw), thread=True)
 
-    def _sid_work(self, raw):
-        from acidcat.core.codecs import sid_render
+    def _render_work(self, engine, raw):
         try:
-            pcm, info = sid_render.render(
-                raw, seconds=self._SID_PREVIEW_SECONDS)
-        except sid_render.CannotRender as e:
-            self.call_from_thread(self.notify, f"cannot play this tune: {e}",
+            pcm, info = engine.render(raw)
+        except engine.module().CannotRender as e:
+            self.call_from_thread(self.notify, f"cannot play this {engine.what}: {e}",
                                   severity="warning")
             return
         except Exception as e:                       # noqa: BLE001
             self.call_from_thread(self.notify, f"render failed: {e}",
                                   severity="error")
             return
-        label = info["name"] or "SID tune"
-        if info["songs"] > 1:
-            label += f" (subtune {info['subtune']} of {info['songs']})"
-        if info["sid_chips"] > 1:
-            label += f", {info['sid_chips']} SID chips"
         self.call_from_thread(self._play_pcm, pcm,
-                              {"rate": info["sample_rate"], "channels": 1},
-                              label)
+                              {"rate": info["rate"], "channels": info["channels"]},
+                              info["label"])
 
-    _SPC_PREVIEW_SECONDS = 30.0
-
-    def _play_spc(self):
-        """Run the snapshot's music driver and play what the DSP makes.
-
-        Like a SID, an .spc holds no audio: it is the sound CPU frozen with
-        its driver and samples in RAM. Rendering costs a little under the
-        audio's duration, so it runs in a worker, like the SID path.
-        """
-        from acidcat.core.codecs import spc_render
-        if not play.have_audio():
-            self.notify("no audio player found (install ffmpeg for ffplay)",
-                        severity="warning")
-            return
-        try:
-            with open(self.work, "rb") as fh:
-                raw = fh.read()
-        except OSError as e:
-            self.notify(f"could not read the snapshot: {e}", severity="warning")
-            return
-        can, why = spc_render.can_render(raw)
-        if not can:
-            self.notify(f"this snapshot cannot be run here: {why}",
-                        severity="warning")
-            return
-        self.notify("running the SPC700 driver and the S-DSP ...")
-        self.run_worker(lambda: self._spc_work(raw), thread=True)
-
-    def _spc_work(self, raw):
-        from acidcat.core.codecs import spc_render
-        try:
-            pcm, info = spc_render.render(
-                raw, seconds=self._SPC_PREVIEW_SECONDS, fade_ms=0)
-        except spc_render.CannotRender as e:
-            self.call_from_thread(self.notify, f"cannot play this snapshot: {e}",
-                                  severity="warning")
-            return
-        except Exception as e:                       # noqa: BLE001
-            self.call_from_thread(self.notify, f"render failed: {e}",
-                                  severity="error")
-            return
-        label = info["title"] or "SPC tune"
-        if info["game"]:
-            label += f" ({info['game']})"
-        self.call_from_thread(self._play_pcm, pcm,
-                              {"rate": info["sample_rate"], "channels": 2},
-                              label)
 
     def _extract_disc(self, entries):
         default = os.path.join(os.path.dirname(os.path.abspath(self._disc_src)),
@@ -1622,8 +1772,25 @@ class AcidcatTUI(App):
         self._scan_paused = not self._scan_paused
         self._render_scan_title()
 
+    def _on_descend(self):
+        """The highlighted node opens a layer."""
+        return (self._cur_node is not None
+                and "descend" in self._node_caps())
+
+    def _on_pointer(self):
+        """The highlighted node is a field that points somewhere."""
+        info = self._info(self._cur_node) if self._cur_node is not None else None
+        return info is not None and info.kind == "field" and info.xref is not None
+
     def action_keep_scan(self):
-        """enter: stop the scan now and browse whatever was found so far."""
+        """enter: stop the scan now and browse whatever was found so far; on
+        a pointer field (and no scan), follow the pointer."""
+        if not self._scanning and self._on_pointer():
+            self.action_follow_xref()
+            return
+        if not self._scanning and self._on_descend():
+            self._descend_layer()
+            return
         if self._scanning:
             self._scan_paused = False
             self._scan_discard = False
@@ -1704,7 +1871,7 @@ class AcidcatTUI(App):
         self._load()                                   # tree now holds them
         if not regions:
             self.query_one("#title", Static).update(
-                Text(f" {os.path.basename(self.src)}  --  no audio regions located "
+                Text(f" {self._display_name()}  --  no audio regions located "
                      f"[mode:{self._locate_mode}"
                      f"{'  lens:ON' if self._locate_transforms else ''}]  "
                      "(m mode  t lens  c carve  / search  l rescan)",
@@ -1816,6 +1983,47 @@ class AcidcatTUI(App):
         self._load()
         self.notify(f"in: {self._breadcrumb()}")
 
+    def _descend_layer(self):
+        """enter on a node that opens a layer: show the layer.
+
+        The layer's bytes come from the model, decoded by the decoder the walk
+        named and checked the same way (core/infra/layers.py). The view is a
+        frame like a region's, so `u` comes back to the file exactly as it
+        was, and it is read-only: the layer is the walk's decoding, and there
+        is no writing an edit back through a compressor.
+        """
+        cap = self._node_caps().get("descend") or {}
+        lid = cap.get("layer")
+        if lid is None:
+            return
+        try:
+            lay = self.model.layer_info(lid)
+            raw = self.model.read(0, lay["length"], lid)
+        except Exception as e:                        # noqa: BLE001
+            self.notify(f"the layer does not decode: {e}", severity="error")
+            return
+        ext = os.path.splitext(self.src or "")[1] or ".bin"
+        fd, tmp = tempfile.mkstemp(suffix=ext, prefix="acidcat_layer_")
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+        name = lay.get("name") or f"layer {lid}"
+        self._push_frame()
+        self.src = tmp
+        self.carved = True            # this frame owns the decoded file too
+        self._layer_view = {"id": lid, "name": name}
+        self._region_view = None
+        self._regions = None
+        self._blob_src = None
+        self._scan_partial = False
+        self._fmt_override = None
+        self._force_scan = False
+        self._make_work()
+        self._readonly = True
+        self._load()
+        v = lay.get("verdict") or {}
+        self.notify(f"in: {self._breadcrumb()}   ({lay['length']:,} bytes, "
+                    f"{v.get('result', 'unverified')} {v.get('method', '')})".rstrip())
+
     def action_ascend(self):
         """Kept as an alias so `u` means one thing: go back."""
         self.action_nav_back()
@@ -1832,6 +2040,30 @@ class AcidcatTUI(App):
             self._on_region_action)
 
     # ── RE tools inside the browser: manual carve + raw-byte search ───────────
+
+    def _carve_node(self, cap):
+        """Write the selected node's payload to a file named for what its
+        `carve` cap says it is."""
+        off, length = self._act_range()
+        if off is None or not length:
+            self.notify("this node has no bytes to write out", severity="warning")
+            return
+        stem = os.path.splitext(os.path.basename(self.src or "out"))[0]
+        name = self._node_name(self._cur_node).split()[0] if self._cur_node else "node"
+        default = f"{stem}_{name}{cap.get('ext', '.bin')}"
+
+        def write(path):
+            if not path:
+                return
+            try:
+                with open(path, "wb") as f:
+                    f.write(_read(self.work, off, length))
+            except OSError as e:
+                self.notify(f"could not write {path}: {e}", severity="error")
+                return
+            what = cap.get("what") or "bytes"
+            self.notify(f"wrote {length:,} bytes ({what}) -> {path}")
+        self.push_screen(PromptScreen("write this node to:", default), write)
 
     def _carve_prompt(self):
         self.push_screen(
@@ -2013,10 +2245,17 @@ class AcidcatTUI(App):
         _apply_to_work is the enforcement point; these entry-point guards exist
         so the refusal arrives before the user fills in an edit form, not after.
         """
-        self.notify("read-only: too large for a working copy, so an edit would "
-                    "rewrite the original in place. Descend into a region (l) "
-                    "to edit it.", severity="warning")
+        self.notify(self._readonly_reason(), severity="warning")
         return True
+
+    def _readonly_reason(self):
+        if self._layer_view:
+            return ("read-only: this layer is the walk's decoding of the file, "
+                    "not bytes the file holds, so there is nowhere to write an "
+                    "edit. u goes back to the file.")
+        return ("read-only: too large for a working copy, so an edit would "
+                "rewrite the original in place. Descend into a region (l) "
+                "to edit it.")
 
     def _apply_to_work(self, new_bytes):
         """Write edited bytes to the working copy (no disk write to the original
@@ -2032,24 +2271,14 @@ class AcidcatTUI(App):
         read-only. One choke point means a future caller cannot reintroduce it.
         """
         if self._readonly:
-            self.notify("read-only: this file is too large for a working copy, "
-                        "so an edit would rewrite the original in place. "
-                        "Descend into a region (l) to edit it.",
-                        severity="warning")
+            self.notify(self._readonly_reason(), severity="warning")
             return False
         with open(self.work, "rb") as f:
             old = f.read()
         start, old_seg, new_seg = self._minimal_delta(old, new_bytes)
         if old_seg == new_seg:                # nothing actually changed
             return
-        self._undo.append((start, old_seg, new_seg))
-        self._redo = []           # a fresh edit invalidates the redo history
-        self._undo = self._undo[-_UNDO_CAP:]
-        # cap by total delta bytes so history cannot pin gigabytes; the most
-        # recent delta always survives.
-        while (len(self._undo) > 1
-               and sum(len(o) + len(n) for _s, o, n in self._undo) > _UNDO_BYTES_CAP):
-            self._undo.pop(0)
+        self.model.record(start, old_seg, new_seg)
         with open(self.work, "wb") as f:
             f.write(new_bytes)
         self.dirty = True         # cheap: no whole-file compare on the hot path
@@ -2077,25 +2306,23 @@ class AcidcatTUI(App):
             f.write(data[:start] + seg_in + data[start + len(seg_out):])
 
     def action_undo(self):
-        if not self._undo:
+        d = self.model.take_undo()
+        if d is None:
             self.notify("nothing to undo")
             return
-        start, old_seg, new_seg = self._undo.pop()
+        start, old_seg, new_seg = d
         self._apply_delta(start, new_seg, old_seg)      # revert new -> old
-        self._redo.append((start, old_seg, new_seg))
-        self._redo = self._redo[-_UNDO_CAP:]
         self._recompute_dirty()
         self._load()
         self.notify("undid last edit")
 
     def action_redo(self):
-        if not self._redo:
+        d = self.model.take_redo()
+        if d is None:
             self.notify("nothing to redo")
             return
-        start, old_seg, new_seg = self._redo.pop()
+        start, old_seg, new_seg = d
         self._apply_delta(start, old_seg, new_seg)      # re-apply old -> new
-        self._undo.append((start, old_seg, new_seg))
-        self._undo = self._undo[-_UNDO_CAP:]
         self._recompute_dirty()
         self._load()
         self.notify("redid last edit")
@@ -2175,20 +2402,26 @@ class AcidcatTUI(App):
             self.fmt, self.chunks, self.warns = walk_file(
                 self.work, deep=True, fmt_override=self._fmt_override)
         except Unsupported as e:
-            self.fmt, self.chunks, self.warns = "unsupported", [], [str(e)]
+            self.fmt, self.chunks, self.warns = (
+                "unsupported", [], [coded("format.unrecognized", str(e))])
         except Exception as e:
             # a crafted/corrupt file may make a walker raise something other
             # than Unsupported; the TUI opens files on mount, so this must not
             # crash the session (the DoS threat model is degrade-not-die)
             self.fmt, self.chunks, self.warns = (
-                "walk failed", [], [f"{e.__class__.__name__}: {e}"])
-        self._prefer_be = self.fmt in _BE_FMTS
+                "walk failed", [], [coded("walker.error",
+                                          f"{e.__class__.__name__}: {e}")])
+        self.model.path = self.work
+        self.model.view = self._layer_view
+        self.model.load(self._fmt_id(), self.fmt, self.chunks, self.warns,
+                        forced=bool(self._fmt_override))
+        self._prefer_be = self.model.prefer_be
         # Three states, not two. An empty finding list meant BOTH "scanned it,
         # nothing there" and "never scanned it", and the panel rendered both as
         # "clean: no findings" -- a check that did not run reading as a pass,
         # one panel over from the test file written to prevent exactly that.
         self.scan_note = None
-        if self._readonly and not self._force_scan:
+        if self._readonly and not self._force_scan and not self._layer_view:
             self.findings = []
             self.scan_note = ("not scanned: the file is too large to scan "
                               "whole, so nothing here is a verdict "
@@ -2201,22 +2434,24 @@ class AcidcatTUI(App):
                 self.scan_note = (f"scan failed ({e.__class__.__name__}); this "
                                   f"file was NOT screened")
 
-        head = Text()
-        head.append(f" {self._display_name()} ", style=f"bold {ACCENT}")
-        head.append(f" {self.fmt}  {self.fsize:,} bytes  "
-                    f"{len(self.chunks)} chunks", style=SOFT)
+        # whole phrases, laid out to the box's width by _paint_title
+        pieces = [Text(self._display_name(), style=f"bold {ACCENT}"),
+                  Text(self.fmt, style=SOFT),
+                  Text(f"{self.fsize:,} bytes", style=SOFT),
+                  Text(f"{len(self.chunks)} chunks", style=SOFT)]
         if self._fmt_override:
             # a forced walker parses at fixed offsets whether or not the header
             # is really its format, so the view must never read as an identity
-            head.append(f"   [forced as {self._fmt_override}]", style=PEND)
+            pieces.append(Text(f"[forced as {self._fmt_override}]", style=PEND))
         if self._stack or self._forward:
             back = f"u back ({len(self._stack)})" if self._stack else ""
             fwd = f"U forward ({len(self._forward)})" if self._forward else ""
-            head.append("   [" + "  ".join(x for x in (back, fwd) if x) + "]",
-                        style=DIM)
+            pieces.append(Text("[" + "  ".join(x for x in (back, fwd) if x) + "]",
+                               style=DIM))
         if self.dirty:
-            head.append("   ● UNSAVED", style=f"bold {SEV['alert']}")
-        self.query_one("#title", Static).update(head)
+            pieces.append(Text("● UNSAVED", style=f"bold {SEV['alert']}"))
+        self._title_pieces = pieces
+        self._paint_title()
 
         prof = edit_profile(self.work)
         self._profile = prof[0] if prof else None
@@ -2245,7 +2480,6 @@ class AcidcatTUI(App):
         # left it.
         self._bind_node(tree.root, 0, self.fsize, ACCENT, kind="root",
                         index=False)
-        from acidcat.core.infra.sniff import AUDIO_SAMPLE_IDS
         cbudget = getattr(self, "_chunkbudget", _CHUNK_CAP)
         idw = self._id_width(self.chunks[:cbudget])
         for i, c in enumerate(self.chunks[:cbudget]):
@@ -2255,7 +2489,7 @@ class AcidcatTUI(App):
             # this tree is a selectable, playable region and almost none of them
             # are audio, so without a mark the only way to find out which is
             # which was to press play and get a burst of noise.
-            is_audio = cid in AUDIO_SAMPLE_IDS
+            is_audio = "audio" in self.model.caps_of(i)
             # The same formatter the lazy path uses. Two builders drifted apart
             # here: this one padded ids to 6 and that one to 8, this one trimmed
             # the summary and that one sliced it raw, and both had the pad/
@@ -2357,31 +2591,63 @@ class AcidcatTUI(App):
             self._show(off, length, accent, self._node_name(target),
                        self._edit_hint(target, off, length))
         else:
-            self._show(0, self.fsize, ACCENT, os.path.basename(self.src), "")
+            # nothing was highlighted: the file itself is, so the inspector
+            # and the status line describe the root rather than nothing
+            self._cur_node = tree.root
+            self._show(0, self.fsize, ACCENT, self._display_name(), "")
+
+    def _idbox_width(self):
+        """The width #title and #anom have to lay out in: measured once the
+        box is laid out, estimated from the screen before that."""
+        w = self.query_one("#title", Static).content_region.width
+        if w:
+            return w
+        return max(10, int(self.size.width * 0.35) - 6)
+
+    def _paint_title(self):
+        pieces = getattr(self, "_title_pieces", None)
+        if pieces is None:
+            return
+        title = self.query_one("#title", Static)
+        title.update(pack(pieces, self._idbox_width()))
+        if not title.content_region.width:
+            # laid out against an estimate: again, and the findings with it,
+            # once the box has its real width
+            self.call_after_refresh(self._relayout_idbox)
+
+    def _relayout_idbox(self):
+        if self.query_one("#title", Static).content_region.width:
+            self._paint_title()
+            self._render_anomalies()
 
     def _render_anomalies(self):
         panel = self.query_one("#anom", Static)
         # the box it shares with the filename goes orange only when there is
         # something to see -- a permanently alarmed border says nothing
         self.query_one("#idbox").set_class(bool(self.findings), "findings")
-        t = Text()
-        t.append("forensics  ", style=f"bold {ACCENT}")
+        width = self._idbox_width()
+        head = Text("forensics", style=f"bold {ACCENT}")
         if not self.findings:
             note = getattr(self, "scan_note", None)
             # amber is the tool being honest about its limits, kept distinct
             # from orange, which means a finding or an unsaved edit
-            t.append(note or "clean: no findings", style=AMBER if note else SOFT)
-            panel.update(t)
+            panel.update(pack([head, Text(note or "clean: no findings",
+                                          style=AMBER if note else SOFT)], width))
             return
         # severity legend so the colors are readable, then every finding
         # numbered (press f to jump the tree/hex to the next one).
-        t.append(f"{len(self.findings)} finding(s)   ", style=SOFT)
-        t.append("alert", style=f"bold {SEV['alert']}")
-        t.append(" / ", style=DIM)
-        t.append("warn", style=f"bold {SEV['warn']}")
-        t.append(" / ", style=DIM)
-        t.append("notice", style=f"bold {SEV['notice']}")
-        t.append("   (f = jump)\n", style=DIM)
+        legend = Text()
+        legend.append("alert", style=f"bold {SEV['alert']}")
+        legend.append(" / ", style=DIM)
+        legend.append("warn", style=f"bold {SEV['warn']}")
+        legend.append(" / ", style=DIM)
+        legend.append("notice", style=f"bold {SEV['notice']}")
+        t = pack([head, Text(f"{len(self.findings)} finding(s)", style=SOFT),
+                  legend, Text("(f = jump)", style=DIM)], width)
+        t.append("\n")
+        # a message starts after the number, severity and offset, and wraps
+        # under the number: the box is too narrow to indent under itself
+        lead, indent = 5 + 7 + 11, 5
         for i, f in enumerate(self.findings):
             sev = f.get("severity", "notice")
             marker = ">" if i == self._finding_idx else " "
@@ -2392,7 +2658,13 @@ class AcidcatTUI(App):
             # run) has no offset; it used to crash this panel on 08x
             off = f.get("offset")
             t.append(f"0x{off:08x} " if isinstance(off, int) else "  --      ", style=DIM)
-            t.append(f"{f.get('message', '')}\n", style=FG)
+            words = str(f.get("message", "")).split()
+            first = []
+            while words and len(" ".join(first + words[:1])) <= width - lead:
+                first.append(words.pop(0))
+            t.append(" ".join(first) + "\n", style=FG)
+            for more in textwrap.wrap(" ".join(words), max(12, width - indent)):
+                t.append(" " * indent + more + "\n", style=FG)
         panel.update(t)
         self._scroll_finding_into_view()
 
@@ -2425,36 +2697,170 @@ class AcidcatTUI(App):
         return (lbl.plain if isinstance(lbl, Text) else str(lbl)).strip()
 
     def _show(self, off, length, accent, name, note, spans=None):
-        detail = self.query_one("#detail", Static)
-        d = Text()
-        d.append(name, style=f"bold {accent}")
-        if off is None:
-            d.append("   (derived, no byte range)", style=DIM)
-        elif f"0x{off:08x}" not in name:
-            d.append(f"   @ 0x{off:08x}   {length:,} bytes", style=SOFT)
-        # else: the tree label already carries this offset. Repeating it put
-        # the same two facts on the line twice and pushed it to 110 columns
-        # against a 66-column pane, which is most of the wrapping in the
-        # multi-pane view -- the pane was not too small, the line was too long.
-        if note:
-            d.append(f"\n{note}", style=SOFT)
-        # A status line, so it clips rather than reflows. Wrapped, one long
-        # summary silently stole a row from the pane below and the layout
-        # jumped as you moved through the tree -- the detail is a glance, and
-        # the full text is a keypress away in the pane that has room for it.
-        d.no_wrap = True
-        d.overflow = "ellipsis"
-        detail.update(d)
-        if (off, length) != self._cur_region[:2]:
-            self._hex_from = 0        # a new selection starts at its own start
+        # the node the inspector describes is the highlighted one only when
+        # these are its bytes: goto can show an offset no node covers while
+        # the cursor still sits on the last one
+        node = self._cur_node
+        meta = self._meta(node) if node is not None else None
+        if not meta or tuple(meta[:2]) != (off, length):
+            node = None
+        facts = self._inspect_facts(node, off, length, accent, name, note)
+        self._no_range_note = facts.get("where")
+        self._inspect_now = facts
+        self._paint_inspect()
+        self._paint_data(off)
+        self._paint_strip()
+        # a new selection brings the window with it (the model forgets where
+        # an old one was paged to)
+        self.model.select(off, length)
         self._cur_region = (off, length, accent)
         self._cur_spans = spans
         if self._view == "hex":
-            self.query_one("#hex", Static).update(
-                hex_text(self.work, off, length, accent, spans,
-                         self._hex_width(), start=self._hex_from))
+            self._paint_context()
+        self._render_status()
         # a graph scoped to the file is unaffected by which node is selected;
         # one scoped to the region follows it, from on_tree_node_highlighted
+
+    def _paint_inspect(self):
+        """The field inspector, fitted to the width the pane has now. Before
+        the first layout it has none, so it paints again once it does."""
+        facts = getattr(self, "_inspect_now", None)
+        if facts is None:
+            return
+        box = self.query_one("#inspect", Static)
+        width = box.content_region.width
+        box.update(field_inspector(facts, width or None))
+        if not width:
+            self.call_after_refresh(self._paint_inspect_once_sized)
+
+    def _paint_inspect_once_sized(self):
+        if self.query_one("#inspect", Static).content_region.width:
+            self._paint_inspect()
+
+    def _inspect_facts(self, node, off, length, accent, name, note):
+        """What the field inspector says about the selected node: from the
+        Document where the node is in it, else from the walk."""
+        info = self._info(node) if node is not None else None
+        kind = info.kind if info is not None else "note"
+        d = {"name": name, "accent": accent, "kind": kind, "off": off,
+             "len": length or 0,
+             "raw": _read(self.work, off, min(length or 0, 16)) if off is not None else b""}
+        if info is None or kind not in ("field", "chunk", "root"):
+            d["note"] = note
+            return d
+        chunk = info.chunk
+        dnode = None
+        if chunk is not None:
+            eoff, elen = geometry.extent_of(chunk)
+            dnode = self.model.node_for(eoff, elen)
+        if kind == "field":
+            j = info.path[-1][2] if info.path else None
+            fl = (chunk.get("fields") or [])[j] if chunk is not None and j is not None \
+                and j < len(chunk.get("fields") or []) else {}
+            f = (dnode["fields"][j] if dnode is not None and j is not None
+                 and j < len(dnode["fields"]) else None)
+            if f is not None:
+                d.update(type=f.get("type"), type_source=f.get("type_source"),
+                         value=f.get("value"), display=f.get("display"),
+                         meaning=f.get("enum"))
+            else:
+                d["value"] = fl.get("value")
+            d["note"] = fl.get("note") or ""
+            if off is None and node is not None and node.parent is not None:
+                # a field of a packed body: its bytes are in the layer the
+                # body opens, not in the file
+                below = self._node_caps(node.parent).get("descend")
+                if below is not None:
+                    lay = self.model.layer_info(below["layer"])
+                    d["where"] = (f"its bytes are in layer {below['layer']} "
+                                  f"({lay.get('name')}): enter on "
+                                  f"{self._node_name(node.parent).split()[0]} opens it")
+            if info.xref is not None:
+                d["ptr"] = (info.xref, 0 <= info.xref < self.fsize)
+            d["hint"] = self._edit_hint(node, off, length)
+        else:
+            d["summary"] = (str(chunk.get("summary") or "") if chunk is not None
+                            else f"{self.fmt}  {self.fsize:,} bytes")
+            if info.payload is not None:
+                d["payload"] = tuple(info.payload)
+            d["caps"] = [self._cap_words(k, v) for k, v in
+                         sorted(self._node_caps(node).items())]
+            if dnode is not None and kind == "chunk":
+                d["findings"] = sum(1 for f in self.model.findings()
+                                    if f.get("node", "").startswith(dnode["id"]))
+            elif kind == "root":
+                d["findings"] = len(self.findings)
+        return d
+
+    @staticmethod
+    def _cap_words(name, cap):
+        """A cap as the inspector says it: its name and what it carries."""
+        if name == "audio":
+            return (f"audio {cap.get('codec', '')} {cap.get('rate', '?')} Hz "
+                    f"{cap.get('channels', '?')}ch")
+        if name == "render":
+            return f"render ({cap.get('engine')})"
+        if name == "decode":
+            return f"decode ({cap.get('format')})"
+        if name == "edit":
+            return f"edit tags ({cap.get('profile')})"
+        if name == "descend":
+            return f"descend (layer {cap.get('layer')})"
+        if name == "carve":
+            return f"carve ({cap.get('ext')})"
+        return name
+
+    # the data inspector needs this many columns inside its border, and the
+    # screen this many rows before it is worth the tree's
+    # The data inspector shows where it fits unwrapped and still leaves the
+    # tree its rows: 40 columns on the left, and a screen of 30 rows (the
+    # tree keeps about 10 beside the compact inspector).
+    _DATA_COLS = 40
+    _DATA_ROWS = 30
+
+    def _fit_data(self):
+        """Show the data inspector only where it fits without wrapping."""
+        try:
+            cols, rows = self.size.width, self.size.height
+        except Exception:
+            return
+        left = int(cols * 0.35) - 2          # the column, inside its border
+        self.screen.set_class(left < self._DATA_COLS or rows < self._DATA_ROWS,
+                              "no-data")
+
+    def _paint_strip(self):
+        """The byte strip: the whole layer across the screen, as the nodes
+        that hold its bytes, the selection lit."""
+        try:
+            strip = self.query_one("#strip", Static)
+            width = strip.content_size.width or (self.size.width - 2)
+        except Exception:
+            return
+        off, length = self._cur_region[:2]
+        strip.update(byte_strip(self.model.top_nodes(), self.model.layer_length(),
+                                width, (off, length) if off is not None else None))
+
+    def _paint_data(self, off):
+        """The data inspector: the bytes at the cursor (the selection's first
+        byte) read every common way."""
+        try:
+            pane = self.query_one("#data", Static)
+        except Exception:
+            return
+        raw = self.model.read(off, 8) if off is not None else b""
+        self._data_off = off
+        pane.update(data_inspector(off, raw, full=self._data_full))
+
+    def action_data_rows(self):
+        """i: the data inspector's four common readings, or all ten."""
+        self._data_full = not self._data_full
+        self.query_one("#data").set_class(self._data_full, "full")
+        self._fit_data()
+        self._paint_data(getattr(self, "_data_off", None))
+        shown = "all ten readings" if self._data_full else "u16 u32 i32 f32"
+        if not self.query_one("#data").display:
+            shown += " (hidden: the terminal is too small for it)"
+        self.notify(f"data inspector: {shown}", timeout=2)
 
     # pane id -> the class that gives it the screen. Not every pane has one:
     # #idbox is six rows by design, so filling the screen with it would be a
@@ -2607,13 +3013,28 @@ class AcidcatTUI(App):
         self._step_scale(1)
 
     def action_viz_scale_next(self):
-        """up, with the byte pane focused on a graph."""
+        """up, with the byte pane focused: a graph's scale, or the hex
+        window one row up."""
+        if self._view == "hex":
+            self._scroll_hex(-1)
+            return
         self._step_scale(1)
 
     def action_viz_scale_prev(self):
         """down. The reverse of up, not another forward step -- an axis you can
         only cycle one way makes you walk the whole list to undo a keypress."""
+        if self._view == "hex":
+            self._scroll_hex(1)
+            return
         self._step_scale(-1)
+
+    def _scroll_hex(self, step):
+        """Move the hex window `step` rows through the layer."""
+        width, rows = self._hex_width(), self._hex_rows_visible()
+        cur = (self.model.top if self.model.top is not None
+               else self.model.default_top(width, rows))
+        self.model.top = self.model.clamp(cur + step, width, rows)
+        self._paint_bytes()
 
     def _step_scale(self, step):
         opts = self._VIZ_SCALES.get(self._view)
@@ -2762,22 +3183,91 @@ class AcidcatTUI(App):
         """
         pane = self.query_one("#hex", Static)
         if self._view == "hex":
-            off, length, accent = self._cur_region
-            pane.update(hex_text(self.work, off, length, accent,
-                                 self._cur_spans, self._hex_width(),
-                                 start=self._hex_from))
+            self._paint_context()
             self._viz_drawn = None
         else:
+            self.query_one("#hexwrap").set_class(False, "context")
             pane.update(self._viz_render(self._view))
             # what the pane is actually showing, recorded HERE rather than at
             # the one call site that skips work, so the record cannot drift
             # from the drawing it claims to describe.
             self._viz_drawn = self._viz_range()[:2]
 
+    def _hex_rows_visible(self):
+        """Rows the bytes pane has inside its border (`size` excludes it)."""
+        try:
+            return max(1, self.query_one("#hexwrap").size.height)
+        except Exception:
+            return 16
+
+    def _paint_context(self):
+        """The hex view: the current layer around the selection, the selected
+        bytes lit and their fields tinted (render.context_hex)."""
+        pane = self.query_one("#hex", Static)
+        self.query_one("#hexwrap").set_class(True, "context")
+        off, length, accent = self._cur_region
+        if off is None:
+            t = Text("  (" + (getattr(self, "_no_range_note", None)
+                              or "no byte range for this node") + ")", style=DIM)
+            pane.update(t)
+            return
+        width, rows = self._hex_width(), self._hex_rows_visible()
+        start, raw = self.model.window(width, rows)
+        # the whole layer selected (the root) is no selection to light: every
+        # byte would be, and nothing would stand out
+        whole = off == 0 and length >= self.model.layer_length()
+        pane.update(context_hex(start, raw, width,
+                                None if whole else (off, length),
+                                self._cur_spans, accent or ACCENT))
+
+    def _render_status(self):
+        """One line under the panes: the layer, where the selection is, how
+        many findings, and what the selected node offers."""
+        try:
+            bar = self.query_one("#status", Static)
+        except Exception:
+            return
+        st = self.model.status()
+        # what the highlighted tree node offers, as p/X/e will act on it
+        st["actions"] = sorted(self._node_caps())
+        t = Text(no_wrap=True, overflow="ellipsis")
+        if st["layer_id"]:
+            t.append(f"layer {st['layer_id']}  ", style=DIM)
+        t.append(st["layer"], style=f"bold {ACCENT}")
+        t.append(f"  {st['length']:,} bytes", style=DIM)
+        if st["offset"] is not None:
+            t.append("   @ ", style=DIM)
+            t.append(f"0x{st['offset']:08x}", style=FG)
+            t.append(f"  {st['selected']:,} selected", style=SOFT)
+        n = len(self.findings)
+        t.append("   ")
+        t.append(f"{n} finding{'s' if n != 1 else ''}",
+                 style=SEV["warn"] if n else DIM)
+        if st["actions"]:
+            t.append("   " + "  ".join(st["actions"]), style=TEAL)
+        if self.dirty:
+            t.append("   unsaved", style=f"bold {SEV['alert']}")
+        bar.update(t)
+
+    def _fmt_id(self):
+        """The sniff id the Document is stamped with."""
+        if self._fmt_override:
+            return self._fmt_override
+        try:
+            from acidcat.core.infra.sniff import sniff
+            return sniff(self.work)
+        except Exception:
+            return None
+
     def on_resize(self, event=None):
         """Repaint on a terminal resize, for the same reason zoom does."""
+        self._fit_data()
         if self.work:
             self.call_after_refresh(self._paint_bytes)
+            self.call_after_refresh(self._paint_strip)
+            self.call_after_refresh(self._paint_inspect)
+            self.call_after_refresh(self._paint_title)
+            self.call_after_refresh(self._render_anomalies)
 
     # of #hexwrap's outer width, the row never gets: its own border (2),
     # #hex's padding (2), and the vertical scrollbar (2).
@@ -2801,8 +3291,12 @@ class AcidcatTUI(App):
         at a borderline size, and never wraps.
         """
         try:
-            return row_width_for(self.query_one("#hexwrap").size.width
-                                 - self._HEX_CHROME)
+            # the context view never scrolls (it is drawn to the pane's
+            # height) and has no padding, so it has the pane's whole inner
+            # width (`size` is inside the border). The hex editor still
+            # scrolls and keeps its reservation.
+            chrome = self._HEX_CHROME if self._hexedit else 0
+            return row_width_for(self.query_one("#hexwrap").size.width - chrome)
         except Exception:
             return 16
 
@@ -3044,12 +3538,12 @@ class AcidcatTUI(App):
         Structural, not statistical: inside a walked container the chunk id IS
         the answer, and no heuristic beats it.
         """
-        from acidcat.core.infra.sniff import AUDIO_SAMPLE_IDS
-        for c in self.chunks:
-            if str(c.get("id", "")).strip() in AUDIO_SAMPLE_IDS:
-                base = c.get("payload_base", (c.get("offset") or 0) + 8)
-                return base, base + (c.get("size") or 0)
-        return None
+        i = self.model.audio_index()
+        if i is None or i >= len(self.chunks):
+            return None
+        c = self.chunks[i]
+        base = c.get("payload_base", (c.get("offset") or 0) + 8)
+        return base, base + (c.get("size") or 0)
 
     def _region_is_audio(self, off, length):
         """True only when playing this region would actually produce sound.
@@ -3076,44 +3570,35 @@ class AcidcatTUI(App):
         return overlap >= 0.5 * max(1, length)
 
     def action_hex_page_down(self):
-        """PgDn: the next _HEX_CAP bytes of this region."""
+        """PgDn: the next screenful of the layer."""
         self._page_hex(1)
 
     def action_hex_page_up(self):
         self._page_hex(-1)
 
     def _page_hex(self, step):
-        """Move the hex window through a region bigger than one screenful.
+        """Move the window a screenful through the layer.
 
-        The dump has always been capped at _HEX_CAP bytes per node and has
-        always said so, but there was no way to reach the rest -- on a 3 MB
-        region the hex view could only ever show its first kilobyte.
+        The window shows the whole layer around the selection, so paging goes
+        past the selection's ends into its neighbours; it stops at the layer's.
         """
         if self._view != "hex":
             self.notify("paging is for the hex view (b cycles back to it)",
                         severity="warning")
             return
-        off, length, _accent = self._cur_region
-        if off is None or not length:
-            self.notify("no byte range selected", severity="warning")
+        width, rows = self._hex_width(), self._hex_rows_visible()
+        if self.model.layer_length() <= width * rows:
+            self.notify(f"all {self.model.layer_length():,} bytes are already "
+                        f"shown", severity="warning")
             return
-        if length <= _HEX_CAP:
-            self.notify(f"all {length:,} bytes are already shown",
-                        severity="warning")
-            return
-        top = length - 1
-        want = self._hex_from + step * _HEX_CAP
-        if want < 0:
-            want = 0
-        elif want > top:
-            want = (top // _HEX_CAP) * _HEX_CAP
-        if want == self._hex_from:
+        first = self.model.page(step, width, rows)
+        if first is None:
             self.notify("at the " + ("end" if step > 0 else "start")
-                        + " of this region", severity="warning")
+                        + " of the " + ("file" if self.model.layer == 0
+                                        else "layer"), severity="warning")
             return
-        self._hex_from = want
         self._paint_bytes()
-        self.notify(f"hex: byte {want:,} of {length:,}")
+        self.notify(f"hex: from 0x{first:08x} of {self.model.layer_length():,}")
 
     def action_play(self):
         """Audition the selected region's bytes as raw PCM (p); '.' stops."""
@@ -3121,16 +3606,19 @@ class AcidcatTUI(App):
             self.notify("no audio player found (install ffmpeg for ffplay)",
                         severity="warning")
             return
-        # A SID is a program, not a payload. There is no audio anywhere in the
-        # file and no decoder can find any -- the only way to hear it is to run
-        # its 6510 player and synthesise what it writes to the chip. So this
-        # branch comes before every "find the audio chunk" path below, all of
-        # which would be looking for something that is not there.
-        if "sid tune" in (self.fmt or "").lower():
-            self._play_sid()
-            return
-        if "spc700 sound snapshot" in (self.fmt or "").lower():
-            self._play_spc()
+        # A tune that is a program, not a payload (a SID, an SPC snapshot)
+        # has no audio anywhere in the file and no decoder can find any: the
+        # only way to hear it is to run its player. The file's `render` cap
+        # says which engine, so this comes before every "find the audio
+        # chunk" path below, all of which would look for what is not there.
+        render = self.model.file_caps().get("render")
+        if render is not None:
+            engine = engines.get(render.get("engine"))
+            if engine is None:
+                self.notify(f"no player for {render.get('engine')} tunes yet",
+                            severity="warning")
+                return
+            self._play_render(engine)
             return
         # A compressed container has no raw PCM anywhere in it, so the whole
         # "which chunk is the audio" question does not apply -- there is no
@@ -3156,7 +3644,7 @@ class AcidcatTUI(App):
         # noise -- while the identical bytes decoded correctly one keypress
         # later, after descending made them "the file". Sniffing the range
         # works at any depth and for anything a decoder handles.
-        fmt = self._decodable_at(off, length)
+        fmt = capabilities.decodable(_read(self.work, off, 64))
         if fmt:
             path = self._play_temp(off, length)
             if path:
@@ -3187,27 +3675,6 @@ class AcidcatTUI(App):
                              lambda ok: ok and self._do_play(off, length))
             return
         self._do_play(off, length)
-
-    def _decodable_at(self, off, length):
-        """The format these bytes are, if a decoder can take them whole.
-
-        `_decodable` asks about the OPEN FILE and is right for that question --
-        "hand the player this file". This asks about a RANGE, which is the
-        question `p` actually has when the thing you selected is a song inside
-        an archive.
-        """
-        if not self.work or off is None or not length:
-            return None
-        head = _read(self.work, off, 64)
-        if not head:
-            return None
-        try:
-            fmt = sniff_bytes(head)
-        except Exception:
-            return None
-        if fmt and any(k in str(fmt).lower() for k in self._DECODABLE):
-            return str(fmt)
-        return None
 
     def _play_temp(self, off, length):
         """Carve a range to a file the player can open, owned by this view."""
@@ -3288,8 +3755,13 @@ class AcidcatTUI(App):
         self.notify(f"{len(self._region_sel)} region(s) selected")
 
     def action_extract_selected(self):
-        """X: extract exactly what is marked."""
+        """X: extract exactly what is marked, or, with no regions, the
+        selected node as its `carve` cap says."""
         if not self._regions:
+            cap = self._node_caps().get("carve")
+            if cap is not None:
+                self._carve_node(cap)
+                return
             self.notify("no regions located yet", severity="warning")
             return
         if not self._region_sel:
@@ -3329,13 +3801,11 @@ class AcidcatTUI(App):
                 return f"'{str(c.get('id', '?')).strip()}'"
         return "this region"
 
-    # Formats whose bytes are not PCM and which ffplay decodes on its own. The
-    # PCM-reinterpreting path is right for a WAV chunk or a raw blob and wrong
-    # for all of these: there is nothing in the file to point `p` at.
-    _DECODABLE = ("ogg", "opus", "mp3", "flac", "m4a", "mp4", "vorbis", "oga")
-
     def _decodable(self):
-        """True when the open file is one the player can decode whole."""
+        """True when the open file is one the player can decode whole: its
+        `decode` cap. The PCM-reinterpreting path is right for a WAV chunk or
+        a raw blob and wrong for these: there is nothing in the file to point
+        `p` at."""
         off, length = self._cur_region[:2]
         if not self.work:
             return False
@@ -3344,8 +3814,7 @@ class AcidcatTUI(App):
         # decodable file should still be playable.
         if off is not None and length and self._region_is_audio(off, length) is True:
             return False
-        fmt = (self.fmt or "").lower()
-        return any(k in fmt for k in self._DECODABLE)
+        return "decode" in self.model.file_caps()
 
     def _do_play(self, off, length):
         data = _read(self.work, off, min(length, 4 * 1024 * 1024))
@@ -3363,66 +3832,11 @@ class AcidcatTUI(App):
         elif not quiet:
             self.notify("nothing is playing (p plays the selected region)")
 
-    # bounds for a fmt/COMM chunk we are willing to believe. a corrupt header
-    # yields arbitrary integers, and they end up in a WAV header whose byte_rate
-    # field is a u32 -- so an unclamped rate overflows struct.pack and takes the
-    # player down. anything outside these ranges is garbage, not exotic audio.
-    _RATE_RANGE = (1000, 768000)          # 768 kHz covers the most extreme hi-res
-    _CH_RANGE = (1, 64)
-    _BITS_VALID = (8, 16, 24, 32, 64)
-
-    def _params_from(self, chunk, rate, ch, bits, floating):
-        """Fold one chunk's geometry fields into the playback parameters."""
-        for f in chunk.get("fields", []):
-            n, v = f.get("name", ""), f.get("value")
-            try:
-                if n == "sample_rate":
-                    lo, hi = self._RATE_RANGE
-                    rate = int(v) if lo <= int(v) <= hi else rate
-                elif n in ("channels", "num_channels"):
-                    lo, hi = self._CH_RANGE
-                    ch = int(v) if lo <= int(v) <= hi else ch
-                elif n == "bits_per_sample":
-                    bits = int(v) if int(v) in self._BITS_VALID else bits
-                elif n == "format_tag" and "float" in str(f.get("note", "")).lower():
-                    floating = True
-            except (ValueError, TypeError):
-                pass
-        return rate, ch, bits, floating
-
     def _audio_params(self):
-        """(rate, channels, bits, floating) for reinterpreting bytes as PCM.
-
-        A RIFF or AIFF states its geometry in `fmt`/`COMM`, and that is checked
-        first because those two are unambiguous. Everything else that carries
-        audio states the same three things under the same field names --
-        `sample_rate`, `channels`, `bits_per_sample` are the house convention,
-        used by fourteen walkers -- and reading only the RIFF pair meant every
-        other format silently fell back to 44100 Hz 16-bit.
-
-        That default is not a neutral guess, it is a wrong answer that sounds
-        like a broken decoder. A Creative Voice File is usually 8-bit at 11025:
-        played as 16-bit each pair of samples becomes one, and played at 44100
-        it runs four times fast. Both at once is the noise that prompted this.
-
-        Values a corrupt header cannot be telling the truth about fall back to
-        the default rather than propagating into the playback WAV header, where
-        an unclamped rate overflows the u32 byte-rate field and takes the player
-        down with it.
-        """
-        rate, ch, bits, floating = 44100, 1, 16, False
-        chunks = list(self.chunks or [])
-        named = [c for c in chunks
-                 if str(c.get("id", "")).strip() in ("fmt", "COMM")]
-        if named:
-            return self._params_from(named[0], rate, ch, bits, floating)
-        # Otherwise the first chunk that states a rate. Ordered, so a file with
-        # several streams is played with the geometry of its first one rather
-        # than of whichever happens to be scanned last.
-        for c in chunks:
-            if any(f.get("name") == "sample_rate" for f in c.get("fields", [])):
-                return self._params_from(c, rate, ch, bits, floating)
-        return rate, ch, bits, floating
+        """(rate, channels, bits, floating) for reinterpreting bytes as PCM:
+        the geometry the file states, clamped to what a real header can say
+        (core/infra/capabilities.py audio_params)."""
+        return capabilities.audio_params(list(self.chunks or []))
 
     def action_more_rows(self):
         """Raise this chunk's row budget and reload (+).
@@ -3453,7 +3867,7 @@ class AcidcatTUI(App):
         self.notify(f"showing {shown:,} of {total:,} rows")
 
     def action_help(self):
-        self.push_screen(HelpScreen())
+        self.push_screen(HelpScreen(self._help_sections()))
 
     # ── navigation: goto-offset, search, jump-to-finding ──────────────
 
@@ -3498,9 +3912,8 @@ class AcidcatTUI(App):
             if meta and meta[0] is not None and meta[1]:
                 within = offset - meta[0]
                 if 0 <= within < meta[1]:
-                    self._hex_from = max(0, (within // 16) * 16
-                                         - (_HEX_CAP // 4 if within > _HEX_CAP
-                                            else 0))
+                    self.model.show_offset(offset, self._hex_width(),
+                                           self._hex_rows_visible())
                     self._paint_bytes()
                     return
         acc = PEND
@@ -3821,6 +4234,8 @@ class AcidcatTUI(App):
         field can be edited (value / enum / hex / text), so it's discoverable."""
         if off is None or not length:
             return ""
+        if self._layer_view:
+            return "read-only: a decoded layer (u goes back to the file)"
         info = self._info(node)
         if info is not None and info.textfield is not None:
             return f"text-editable ({info.textfield}) -- press e"
@@ -3891,6 +4306,12 @@ class AcidcatTUI(App):
 
     def action_edit_field(self):
         if self._readonly and self._decline_readonly():
+            return
+        # e does what the node offers: on the file itself, its metadata
+        # editor (the `edit` cap); on a field, its value, text or bytes
+        if (self._cur_node is not None and self._cur_node.parent is None
+                and "edit" in self._node_caps()):
+            self.action_edit()
             return
         self._view = "hex"
         node = self._cur_node
@@ -4056,14 +4477,14 @@ class AcidcatTUI(App):
             d.append(f"editing {tgt['name']} ", style=f"bold {PEND}")
             d.append(f"as text -> {tgt['metafield']}; re-serialized on write "
                      f"(length may change)", style=SOFT)
-            self.query_one("#detail", Static).update(d)
+            self.query_one("#inspect", Static).update(d)
             self.query_one("#hex", Static).update(
                 hex_text(self.work, tgt["off"], tgt["length"], PEND,
                          width=self._hex_width()))
             return
         text = self.query_one("#editbar", Input).value
         patch = self._patch_from_input(text)
-        detail = self.query_one("#detail", Static)
+        detail = self.query_one("#inspect", Static)
         d = Text()
         d.append(f"editing {tgt['name']}", style=f"bold {PEND}")
         d.append("   ", style=SOFT)
@@ -4112,11 +4533,17 @@ class AcidcatTUI(App):
             self.notify(f"invalid value for a {tgt['length']}-byte field",
                         severity="error")
             return
+        # through the edit front door: a byte-range Patch on the working copy.
+        # Not verified: this is a hex editor, and a size a user sets on purpose
+        # is exactly what verify() would call a new defect; the findings panel
+        # shows the consequence as soon as the edit lands.
         try:
             with open(self.work, "rb") as f:
                 data = f.read()
-            new = data[:tgt["off"]] + patch + data[tgt["off"] + tgt["length"]:]
-        except OSError as e:
+            new = edit_plan(data, self.work,
+                            {"@%d+%d" % (tgt["off"], tgt["length"]): patch},
+                            raw_doc=self.model.document).data
+        except (OSError, EditError) as e:
             self.notify(f"error: {e}", severity="error")
             return
         self._end_edit()
@@ -4267,13 +4694,16 @@ class AcidcatTUI(App):
             self._browse()
 
     def _browse(self):
-        start = os.path.dirname(os.path.abspath(self.src)) if self.src else os.getcwd()
+        # where a file was last opened, else beside this one, else here
+        st = tui_state.load()
+        start = st["last_dir"] or (os.path.dirname(os.path.abspath(self.src))
+                                   if self.src else os.getcwd())
 
         def after(path):
             if path and os.path.isfile(path):
                 self._open_path(path)
 
-        self.push_screen(BrowseScreen(start), after)
+        self.push_screen(BrowseScreen(start, st["recent"]), after)
 
     def action_edit(self):
         if self._readonly and self._decline_readonly():
@@ -4281,7 +4711,8 @@ class AcidcatTUI(App):
         if not self.work:
             self.notify("open a file first (o)", severity="warning")
             return
-        prof = edit_profile(self.work)
+        prof = (edit_profile(self.work) if "edit" in self.model.file_caps()
+                else None)
         if prof is None:
             self.notify(f"no metadata editor for this format ({self.fmt})",
                         severity="warning")

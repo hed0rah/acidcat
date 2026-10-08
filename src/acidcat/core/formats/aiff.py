@@ -7,9 +7,10 @@ shared value tables the AIFF walker (core/walk/aiff.py) consumes.
 """
 
 import math
-import os
 import struct
-from acidcat.core.formats.riff import safe_fourcc
+
+from acidcat.core.formats.riff import pad_step, safe_fourcc
+from acidcat.core.infra.source import open_input, input_size
 
 
 # AIFC compression types in common circulation. Apple's spec defines
@@ -67,7 +68,7 @@ def _parse_ieee_extended(data):
 def is_aiff(filepath):
     """Check if file is AIFF/AIFC format."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             header = f.read(12)
             if len(header) < 12:
                 return False
@@ -77,10 +78,11 @@ def is_aiff(filepath):
         return False
 
 
-def iter_chunks(filepath):
-    """Yield (chunk_id_str, offset, size) for each chunk in an AIFF file."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+def iter_chunks(filepath, unpadded=None):
+    """Yield (chunk_id_str, offset, size) for each chunk in an AIFF file. An
+    odd chunk left unpadded is handled as in riff.iter_chunks."""
+    file_size = input_size(filepath)
+    with open_input(filepath) as f:
         header = f.read(12)
         if len(header) < 12 or header[0:4] != b"FORM":
             return
@@ -101,4 +103,7 @@ def iter_chunks(filepath):
             yield (cid, pos, csz)
             pos += 8 + csz
             if csz % 2 == 1:
-                pos += 1  # word alignment
+                step = pad_step(f, pos, file_size, "big")    # word alignment
+                if not step and unpadded is not None:
+                    unpadded.append((cid, pos - 8 - csz))
+                pos += step

@@ -8,11 +8,11 @@ Samples and ornaments declare their own length inside the region, and the
 walker checks that it fits.
 """
 
-import os
 
 from acidcat.core.formats import pt3 as pt3mod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.findings import defect, info
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # A PT3 is a 16-bit address space: nothing past 64 KB can be pointed at.
@@ -23,13 +23,14 @@ _PT3_REGION_LIST_CAP = 512
 
 
 def inspect_pt3(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _PT3_READ_CAP))
     warns = []
     if size > _PT3_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d, which is "
-                              "all a 16-bit pointer can reach" % (size, _PT3_READ_CAP)))
+        warns.append(hit("read_bytes", _PT3_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d, which is "
+                         "all a 16-bit pointer can reach" % (size, _PT3_READ_CAP)))
     if pt3mod.is_pt3(raw):
         h = pt3mod.parse(raw, len(raw))
     else:
@@ -62,7 +63,8 @@ def inspect_pt3(filepath, deep=False):
                "pattern numbers, stored times three, 0xFF-ended"),
         ]
         if h["tone_table"] not in pt3mod.TONE_TABLES:
-            warns.append("tone table %d is not one of the four defined" % h["tone_table"])
+            warns.append(defect("value.invalid",
+                                "tone table %d is not one of the four defined" % h["tone_table"]))
     else:
         fields = [
             _f(None, 0, "layout", "Pro Tracker 2",
@@ -84,12 +86,16 @@ def inspect_pt3(filepath, deep=False):
                "pattern numbers, 0xFF-ended"),
         ]
     for kind, i, ptr in h["bad_pointers"][:8]:
-        warns.append("%s %d points at %d, past the end of the file; the module "
-                     "is truncated" % (kind, i, ptr))
+        warns.append(defect(
+            "pointer.dangling",
+            "%s %d points at %d, past the end of the file; the module "
+            "is truncated" % (kind, i, ptr)))
     if len(h["bad_pointers"]) > 8:
-        warns.append("%d more pointers past the end" % (len(h["bad_pointers"]) - 8))
+        warns.append(defect("pointer.dangling",
+                            "%d more pointers past the end" % (len(h["bad_pointers"]) - 8)))
     if h["loop"] >= h["positions"]:
-        warns.append("loop position %d is past the last position" % h["loop"])
+        warns.append(defect("value.invalid",
+                            "loop position %d is past the last position" % h["loop"]))
     title = h["name"] + (" -- " + h["author"] if h["author"] else "")
     chunks = [{"id": "header", "offset": 0, "size": h["header_size"],
                "summary": "%s, %d patterns, %d positions, %d samples%s"
@@ -107,14 +113,16 @@ def inspect_pt3(filepath, deep=False):
     listed = 0
     for at, n, names in regs:
         if listed >= _PT3_REGION_LIST_CAP:
-            warns.append(coverage("listing the first %d of %d regions"
-                                  % (_PT3_REGION_LIST_CAP, len(regs))))
+            warns.append(hit("list_rows", _PT3_REGION_LIST_CAP, len(regs),
+                             "listing the first %d of %d regions"
+                             % (_PT3_REGION_LIST_CAP, len(regs))))
             break
         listed += 1
         chunks.append(_region(raw, h, at, n, names, warns))
     if h["ts_footer"]:
         # the last region absorbed the footer; say so on the file
-        warns.append("a Turbo Sound footer names two modules; only the first is walked")
+        warns.append(info("decode.partial",
+                          "a Turbo Sound footer names two modules; only the first is walked"))
     return chunks, warns
 
 
@@ -141,7 +149,8 @@ def _region(raw, h, at, n, names, warns):
              "offset": at, "size": n, "fields": [], "warnings": [], "payload_base": at}
         if s is None:
             c["summary"] = "sample %s: record runs past the end" % idx
-            warns.append("sample %s has no room for its two-byte head" % idx)
+            warns.append(defect("chunk.short",
+                                "sample %s has no room for its two-byte head" % idx))
             return c
         loop, length, want = s
         row = h["sample_row"]
@@ -151,8 +160,10 @@ def _region(raw, h, at, n, names, warns):
                        _f(2, min(length * row, n - 2), "rows",
                           "%d x (flags, volume, tone offset)" % length)]
         if want > n:
-            c["warnings"].append("declares %d bytes and %d fit before the next region" % (want, n))
-            warns.append("sample %s runs into the next region" % idx)
+            c["warnings"].append(defect("size.overrun",
+                                        "declares %d bytes and %d fit before the next region"
+                                        % (want, n)))
+            warns.append(defect("geometry.invalid", "sample %s runs into the next region" % idx))
         elif want < n:
             c["fields"].append(_f(want, n - want, "after_record", "%d bytes" % (n - want)))
         return c
@@ -163,7 +174,8 @@ def _region(raw, h, at, n, names, warns):
              "offset": at, "size": n, "fields": [], "warnings": [], "payload_base": at}
         if s is None:
             c["summary"] = "ornament %s: record runs past the end" % idx
-            warns.append("ornament %s has no room for its two-byte head" % idx)
+            warns.append(defect("chunk.short",
+                                "ornament %s has no room for its two-byte head" % idx))
             return c
         loop, length, want = s
         c["summary"] = "ornament, %d semitone offsets%s" % (
@@ -171,8 +183,10 @@ def _region(raw, h, at, n, names, warns):
         c["fields"] = [_f(0, 1, "loop", loop), _f(1, 1, "length", length),
                        _f(2, min(length, n - 2), "offsets", "%d signed bytes" % length)]
         if want > n:
-            c["warnings"].append("declares %d bytes and %d fit before the next region" % (want, n))
-            warns.append("ornament %s runs into the next region" % idx)
+            c["warnings"].append(defect("size.overrun",
+                                        "declares %d bytes and %d fit before the next region"
+                                        % (want, n)))
+            warns.append(defect("geometry.invalid", "ornament %s runs into the next region" % idx))
         elif want < n:
             c["fields"].append(_f(want, n - want, "after_record", "%d bytes" % (n - want)))
         return c

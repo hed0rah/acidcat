@@ -10,10 +10,10 @@ format-agnostic.
 
 from dataclasses import replace
 
-from acidcat.core.write import countrepair, flacrepair
+from acidcat.core.write import countrepair, flacrepair, raterepair
 from acidcat.core.formats import mp4 as mp4mod
 from acidcat.core.write import mp4repair, structure
-from acidcat.core.write.constraints import (COUNT, OFFSET, SIZE, ZERO, Report, Repairer,
+from acidcat.core.write.constraints import (COUNT, OFFSET, RATE, SIZE, ZERO, Report, Repairer,
                                       Violation)
 
 
@@ -87,17 +87,145 @@ def _lost_audio_violation(node):
                 f"cut the audio off."))
 
 
-def _iff_violation(change):
+def _desynced_pad(node, data, path=""):
+    """(path, offset, id) of a non-zero "pad byte" that is really part of a
+    chunk id the walk stepped over, or None.
+
+    A size one too large (prg 6 -> 7) swallows the first byte of the next id,
+    and the parse then calls the id's second byte a pad: --fix zeroed it and
+    wrote new damage. On WAV/AIFF the audio guard refuses once the walk loses
+    the audio chunk; nothing refused on a non-audio form such as APRG. Two
+    tells, both required, so a real pad before appended junk is still fixed:
+      - the walk broke right after the pad (it was the container's last child
+        and the rest of the container went to its tail), and
+      - a printable 4-char id containing the pad byte starts within the 3
+        bytes before it, with a size that fits in the file -- a chunk header
+        the parse misaligned on.
+    """
+    if not node.is_container:
+        return None
+    here = path + node.id.decode("latin-1", "replace").strip()
+    for c in node.children:
+        hit = _desynced_pad(c, data, here + "/")
+        if hit:
+            return hit
+    if not node.children or not node.tail:
+        return None
+    last = node.children[-1]
+    if not last.pad or last.pad_byte == 0:
+        return None
+    p = last.offset + 8 + last.computed_size()          # the pad byte
+    for q in range(max(0, p - 3), p + 1):
+        if (structure._id_ok(data, q) and q + 8 <= len(data)
+                and q + 8 + int.from_bytes(bytes(data[q + 4:q + 8]),
+                                           "little" if node.endian == "<"
+                                           else "big") <= len(data)):
+            return (here + "/" + last.id.decode("latin-1", "replace").strip(),
+                    p, bytes(data[q:q + 4]).decode("latin-1"))
+    return None
+
+
+def _desync_violation(hit):
+    path, off, cid = hit
+    return Violation(
+        SIZE, path, "size", None, None, witness="",
+        detail=(f"the byte read as this chunk's pad (offset {off:,}) is part "
+                f"of what looks like the chunk id '{cid}', and the walk breaks "
+                f"right after it: a size here is wrong and the chunks after it "
+                f"are misread. Rewriting from this parse would damage them."))
+
+
+# AIFC compression types whose SSND bytes are whole PCM frames
+_AIFC_PCM = {b"NONE", b"sowt", b"twos", b"raw ", b"in24", b"in32", b"fl32",
+             b"FL32", b"fl64", b"FL64"}
+
+
+def _frame_bytes(node):
+    """Bytes per audio frame from fmt (WAVE) or COMM (AIFF/AIFC), or None."""
+    kids = {c.id: c for c in node.children or () if not c.is_container}
+    if node.form_type == b"WAVE" and b"fmt " in kids:
+        p = bytes(kids[b"fmt "].payload[:16])
+        if len(p) < 16:
+            return None
+        ch, align, bits = (int.from_bytes(p[2:4], "little"),
+                           int.from_bytes(p[12:14], "little"),
+                           int.from_bytes(p[14:16], "little"))
+        return align or ch * ((bits + 7) // 8) or None
+    if node.form_type in (b"AIFF", b"AIFC") and b"COMM" in kids:
+        p = bytes(kids[b"COMM"].payload[:22])
+        if len(p) < 8:
+            return None
+        if node.form_type == b"AIFC" and p[18:22] not in _AIFC_PCM:
+            return None                   # compressed: no fixed frame
+        ch, bits = int.from_bytes(p[0:2], "big"), int.from_bytes(p[6:8], "big")
+        return ch * ((bits + 7) // 8) or None
+    return None
+
+
+def _cut_audio_pad(node):
+    """The audio chunk (data/SSND) when its non-zero "pad byte" is really its
+    own last byte, else None.
+
+    A data size one short of a whole frame leaves the last audio byte where a
+    pad byte would sit. Real filler follows a chunk that ends on a frame
+    boundary; a size that ends mid-frame is the size that is wrong, and
+    zeroing the byte after it destroys audio for good."""
+    want = _IFF_AUDIO.get(node.form_type)
+    if not want or not node.children:
+        return None
+    audio = next((c for c in node.children
+                  if c.id == want and not c.is_container), None)
+    if audio is None or not audio.pad or audio.pad_byte == 0:
+        return None
+    frame = _frame_bytes(node)
+    if not frame:
+        return None
+    n = len(audio.payload)
+    if want == b"SSND":
+        # SSND opens with offset + blockSize before the sample frames
+        if n < 8:
+            return None
+        n -= 8 + int.from_bytes(bytes(audio.payload[:4]), "big")
+        if n < 0:
+            return None
+    return audio if n % frame else None
+
+
+def _cut_audio_violation(path, audio):
+    return Violation(
+        SIZE, path, "size", audio.declared_size, None, witness="",
+        detail=(f"the {audio.id.decode('latin-1').strip()} chunk declares "
+                f"{audio.declared_size:,} bytes, which ends mid-frame, and "
+                f"the byte after it (0x{audio.pad_byte:02x}) is not zero: it "
+                f"is most likely the last audio byte behind a size one short, "
+                f"not a pad byte. Zeroing it would destroy audio"))
+
+
+def _iff_violation(change, file_len):
     """Map a structure.recompute change to a Violation. A top-level (master)
-    size is witnessed by end-of-file; a nested size by its container's parsed
-    contents; a pad byte by the spec."""
+    size is witnessed by end-of-file, but only when the recomputed size IS
+    end-of-file; a nested size by its container's parsed contents; a pad byte
+    by the spec."""
     if change["field"] == "pad_byte":
         return Violation(ZERO, change["path"], "pad_byte", change["old"],
                          change["new"], witness="spec (pad = 0x00)")
-    top = "/" not in change["path"]
-    witness = "end-of-file" if top else "container contents"
-    return Violation(SIZE, change["path"], "size", change["old"], change["new"],
-                     witness=witness)
+    if "/" in change["path"]:
+        return Violation(SIZE, change["path"], "size", change["old"],
+                         change["new"], witness="container contents")
+    if change["new"] == file_len - 8:
+        return Violation(SIZE, change["path"], "size", change["old"],
+                         change["new"], witness="end-of-file")
+    # the walk stopped short of the end: a wrong chunk size before that point
+    # misaligned it, and writing the walk's end as the master size would
+    # leave every chunk after it outside the container
+    gap = file_len - 8 - change["new"]
+    return Violation(
+        SIZE, change["path"], "size", change["old"], change["new"], witness="",
+        detail=(f"the size is {change['old']:,}, but the chunk walk ends "
+                f"{gap:,} byte(s) short of the end of the file: a chunk size "
+                f"before that point is wrong, or bytes follow the last chunk. "
+                f"Setting the size to where the walk ends ({change['new']:,}) "
+                f"would leave those bytes outside the container"))
 
 
 class IffRepairer(Repairer):
@@ -109,18 +237,66 @@ class IffRepairer(Repairer):
     _DS64_NOTE = ("RF64 keeps its sizes in the ds64 chunk; the 32-bit size "
                   "fields are placeholders, and checking them is not modelled")
 
+    # the Akai S5000/S6000 writes 0 in an .akp's RIFF size and reads the
+    # program to the end of the file; most .akp files in the wild carry it
+    _AKAI_NOTE = ("the RIFF size is 0, as the Akai S5000/S6000 writes it; "
+                  "the program runs to the end of the file")
+
     def applies(self, data):
         return structure.is_iff(data)
 
     def _is_rf64(self, data):
         return bytes(data[:4]) == b"RF64"
 
+    def _akai_zero(self, data):
+        return bytes(data[8:12]) == b"APRG" and bytes(data[4:8]) == bytes(4)
+
     def _report(self, data, opts):
         node = structure.parse(data)
         orphan = _orphaned_audio(node)
+        # before recompute, which zeroes the pad bytes it reports
+        desync = _desynced_pad(node, data)
+        cut = _cut_audio_pad(node)
+        cut_byte = cut.pad_byte if cut else 0
         changes = structure.recompute(node, normalize_pad=not (opts or {}).get("keep_pad"))
+        if cut:
+            # not filler: keep the byte, and report the size, not the pad
+            cut.pad_byte = cut_byte
+            cut_path = "/".join(x.id.decode("latin-1", "replace").strip()
+                                for x in (node, cut))
+            changes = [c for c in changes if not (c["path"] == cut_path
+                                                  and c["field"] == "pad_byte")]
         label = node.form_type.decode("latin-1", "replace")
-        violations = [_iff_violation(c) for c in changes]
+        akai_short = None
+        if self._akai_zero(data):
+            # the stored 0 is the convention, so the size change itself is
+            # dropped. what the 0 stands for -- the program runs to the end of
+            # the file -- must still hold: the top-level parse reads to EOF, so
+            # a recomputed size short of len-8 means a chunk overruns the file
+            # (the parse leaves it as tail) or bytes follow the last chunk.
+            # dropping that too blinded check to a truncated program.
+            for c in changes:
+                if (c["path"] == "RIFF" and c["field"] == "size"
+                        and c["new"] != len(data) - 8):
+                    akai_short = c["new"]
+            changes = [c for c in changes if not (c["path"] == "RIFF"
+                                                  and c["field"] == "size")]
+        for c in changes:
+            if ("/" not in c["path"] and c["field"] == "size"
+                    and c["new"] != len(data) - 8):
+                node.declared_size = c["old"]     # no witness: emit keeps it
+        violations = [_iff_violation(c, len(data)) for c in changes]
+        if cut:
+            violations.insert(0, _cut_audio_violation(cut_path, cut))
+        if akai_short is not None:
+            gap = len(data) - 8 - akai_short
+            violations.insert(0, Violation(
+                SIZE, "RIFF", "size", 0, akai_short, witness="",
+                detail=(f"the RIFF size is 0 (Akai's run-to-end-of-file "
+                        f"convention), but the chunk walk stops {gap:,} "
+                        f"byte(s) short of the end of the file: a chunk "
+                        f"overruns the file, a size before it is wrong, or "
+                        f"bytes follow the last chunk")))
         want = _IFF_AUDIO.get(node.form_type)
         if orphan:
             # The master-size change is the destructive one, so it must stop
@@ -137,18 +313,23 @@ class IffRepairer(Repairer):
             # the tree and has the more specific explanation.
             violations = [replace(v, witness="") for v in violations]
             violations.insert(0, _lost_audio_violation(node))
-        return node, violations, label, orphan
+        elif desync:
+            # apply() refuses this file; analyze must not advertise a fix
+            violations = [replace(v, witness="") for v in violations]
+            violations.insert(0, _desync_violation(desync))
+        return node, violations, label, orphan, desync
 
     def analyze(self, data, opts=None):
         if self._is_rf64(data):
             return Report("WAVE", note=self._DS64_NOTE)
-        _node, violations, label, _orphan = self._report(data, opts)
-        return Report(label, violations)
+        _node, violations, label, _orphan, _desync = self._report(data, opts)
+        return Report(label, violations,
+                      note=self._AKAI_NOTE if self._akai_zero(data) else "")
 
     def apply(self, data, opts=None):
         if self._is_rf64(data):
             return data, Report("WAVE", note=self._DS64_NOTE)
-        node, violations, label, orphan = self._report(data, opts)
+        node, violations, label, orphan, desync = self._report(data, opts)
         if orphan:
             want = _IFF_AUDIO.get(node.form_type, b"data").decode("latin-1")
             raise AudioGuardError(
@@ -167,7 +348,19 @@ class IffRepairer(Repairer):
                 f"cannot locate the {want.decode('latin-1')} chunk in the "
                 f"parsed structure, so audio preservation cannot be verified. "
                 f"Nothing written")
+        if desync:
+            raise AudioGuardError(
+                f"{desync[0]}: the byte read as its pad (offset {desync[1]:,}) "
+                f"is part of the chunk id '{desync[2]}', so the chunk walk is "
+                f"misaligned and zeroing it would damage that chunk. Nothing "
+                f"written")
+        if self._akai_zero(data) and not violations:
+            return data, Report(label, [], note=self._AKAI_NOTE)
         new_data = structure.emit(node)
+        if self._akai_zero(data):
+            new_data = bytearray(new_data)
+            new_data[4:8] = bytes(4)          # keep the writer's convention
+            new_data = bytes(new_data)
         after = _iff_audio(structure.parse(new_data))
         if before != after:
             raise AudioGuardError("audio payload would change")
@@ -227,7 +420,8 @@ class FlacRepairer(Repairer):
         out = []
         for c in changes:
             out.append(Violation(c["kind"], c["path"], c["field"], c["old"],
-                                 c["new"], witness=c["witness"]))
+                                 c["new"], witness=c["witness"],
+                                 detail=c.get("detail", "")))
         return out
 
     def _audio(self, data):
@@ -263,4 +457,26 @@ class CountRepairer(Repairer):
 
     def apply(self, data, opts=None):
         new_data, changes = countrepair.repair(data)
+        return new_data, Report(self.label, self._violations(changes))
+
+
+class RateRepairer(Repairer):
+    """RATE-kind: a WAV's block_align, avg_bytes_per_sec and smpl
+    sample_period made to follow the sample format they are functions of
+    (raterepair). Size-stable; never touches audio."""
+
+    label = "WAVE"
+
+    def applies(self, data):
+        return raterepair.is_target(data)
+
+    def _violations(self, changes):
+        return [Violation(RATE, c["path"], c["field"], c["old"], c["new"],
+                          witness=c["witness"]) for c in changes]
+
+    def analyze(self, data, opts=None):
+        return Report(self.label, self._violations(raterepair.analyze(data)))
+
+    def apply(self, data, opts=None):
+        new_data, changes = raterepair.repair(data)
         return new_data, Report(self.label, self._violations(changes))

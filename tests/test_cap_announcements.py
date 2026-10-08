@@ -30,11 +30,14 @@ separately and once, not re-tested at every site.
 import ast
 import enum
 import importlib
+import json
 import pathlib
 import re
 import struct
 
 import pytest
+
+from acidcat.core.primitives.notes import is_coverage
 
 SRC = pathlib.Path(__file__).parent.parent / "src" / "acidcat"
 ROOTS = ("core", "tui_app", "commands", "util")
@@ -121,6 +124,12 @@ class Reason(enum.Enum):
 # covered, if anywhere. An exemption pointing at another test is a redirect; one
 # pointing at nothing is a hole.
 EXEMPT = {
+    ("acidcat.core.infra.contract", "_INFER_CAP"):
+        (Reason.SEARCH_WINDOW, "how many of a field's bytes the normaliser reads "
+                               "to infer its type (an integer needs at most 8); a "
+                               "longer field keeps type display, type_source none, "
+                               "which the Document's typing counts show. Pinned by "
+                               "test_command_memory's probe read on a 48 MB WAV."),
     ("acidcat.core.formats.sndh", "_TEXT_MAX"):
         (Reason.FIELD_SANITY, "how far an SNDH text tag may run before its "
                               "NUL. A tag longer than that is reported as "
@@ -128,6 +137,46 @@ EXEMPT = {
                               "there, which is the announcement; real tags are "
                               "a few dozen bytes. Covered by the corpus walk in "
                               "tests/test_sndh.py"),
+    ("acidcat.core.walk.alp", "_ALP_RECORD_CAP"):
+        (Reason.RUNAWAY_BACKSTOP, "records parsed from a Live Pack's file "
+                                  "tree; a million against real packs of a "
+                                  "few hundred. Reaching it means the index "
+                                  "is not a file tree, which the parse "
+                                  "reports as such"),
+    ("acidcat.core.extract.samples", "_ALP_INDEX_MAX"):
+        (Reason.RUNAWAY_BACKSTOP, "the index bytes extract reads from a Live "
+                                  "Pack: 64 MB against real indexes of tens of "
+                                  "kilobytes. inspect announces the same bound "
+                                  "as _ALP_INDEX_CAP, swept below"),
+    ("acidcat.core.walk.appledouble", "_AD_PLIST_MAX"):
+        (Reason.FIELD_SANITY, "the largest extended-attribute value decoded as "
+                              "a property list. A larger one is not cut short: "
+                              "it is shown as its byte count and first bytes, "
+                              "whole. Real WhereFroms and tag plists are a few "
+                              "hundred bytes"),
+    ("acidcat.core.formats.ni", "_SUBTREE_TOTAL_CAP"):
+        (Reason.RUNAWAY_BACKSTOP, "the output all failed FastLZ candidates in "
+                                  "an hsin preset may inflate to, together. A "
+                                  "real preset's first candidate is the right "
+                                  "one; reaching this means many crafted "
+                                  "candidates, and the deep walk then shows no "
+                                  "payload. Pinned in tests/test_ni.py"),
+    ("acidcat.core.formats.ni", "_HSIN_STR_MAX"):
+        (Reason.FIELD_SANITY, "the largest SoundInfoItem string count an hsin "
+                              "preset is read with. A larger count is not a "
+                              "string cut short: the item is not the mapped "
+                              "layout, parse_hsin falls back to its scan and "
+                              "the editor refuses the file; a value past it "
+                              "is refused before it is written. Pinned in "
+                              "tests/test_ni.py"),
+    ("acidcat.core.walk.ni", "_KONTAKT_FASTLZ_CAP"):
+        (Reason.RESOURCE_LIMIT, "a decompression bound on a Kontakt 4.2 patch "
+                                "body, so a crafted stream cannot expand "
+                                "without limit. Crossing it DOES announce -- "
+                                "the walker emits a coverage note naming the "
+                                "cap -- but only under --verbose, where the "
+                                "body is decompressed at all, and a real body "
+                                "stays under 4 MB against this 64 MB"),
     ("acidcat.core.walk.apple", "_RESU_INFLATE_CAP"):
         (Reason.RESOURCE_LIMIT, "an inflate bound on a zlib payload, so a "
                                 "crafted ResU cannot expand without limit. "
@@ -400,7 +449,6 @@ PENDING_1_0_1 = {
     ("acidcat.core.forensics.lsb", "_DE_CAP"),
     ("acidcat.core.forensics.lsb", "_MAX_PCM"),
     ("acidcat.core.forensics.transforms", "_READ_CAP"),
-    ("acidcat.core.forensics.triage", "_LIST_CAP"),
     ("acidcat.core.forensics.triage", "_READ_CAP"),
     ("acidcat.core.formats.bitwig", "_SCAN_CAP"),
     ("acidcat.core.formats.mp3", "_RESYNC_LIMIT"),
@@ -441,7 +489,6 @@ PENDING_1_0_1 = {
     ("acidcat.core.walk.svx", "_READ_CAP"),
     ("acidcat.core.walk.tracker", "_SAMPLE_CAP"),
     ("acidcat.core.walk.sf2", "_SF2_CAP"),
-    ("acidcat.core.walk.sigmf", "_ANNOTATION_CAP"),
     ("acidcat.core.walk.sigmf", "_EXT_KEY_CAP"),
     ("acidcat.core.walk.sigmf", "_META_CAP"),
     ("acidcat.core.walk.tracker", "_ORDER_CAP"),
@@ -556,6 +603,124 @@ def _dff_many_markers(tmp_path, n):
     diin = b"".join(test_dsd._bchunk(b"MARK", mark) for _ in range(n))
     p = tmp_path / "mark.dff"
     p.write_bytes(test_dsd.make_dff(extra=test_dsd._bchunk(b"DIIN", diin)))
+    return str(p)
+
+
+def _exs_over_cap(tmp_path, n):
+    """An EXS24 instrument longer than n bytes."""
+    import test_exs
+
+    p = tmp_path / "big.exs"
+    p.write_bytes(test_exs.exs_file(zones=max(2, n // 150)))
+    return str(p)
+
+
+def _exs_many_chunks(tmp_path, n):
+    """An EXS24 instrument with more than n chunks."""
+    import test_exs
+
+    p = tmp_path / "many.exs"
+    p.write_bytes(test_exs.exs_file(zones=n))
+    return str(p)
+
+
+def _sfz_many(tmp_path, n):
+    """An SFZ with more than n bytes, sections and sample files."""
+    import test_sfz
+
+    p = tmp_path / "many.sfz"
+    p.write_bytes(test_sfz.sfz_text(n=n + 2))
+    return str(p)
+
+
+def _alp_many(tmp_path, n):
+    """A Live Pack with more than n files and an index over n bytes."""
+    import test_alp
+
+    files = tuple((f"S/s{i}.wav.flac", b"fLaC" + bytes(8), 0) for i in range(n + 2))
+    p = tmp_path / "many.alp"
+    p.write_bytes(test_alp.alp_bytes(files=files))
+    return str(p)
+
+
+def _ad_over_cap(tmp_path, n):
+    """An AppleDouble sidecar longer than n bytes."""
+    import test_appledouble
+
+    p = tmp_path / "._big.wav"
+    p.write_bytes(test_appledouble.sidecar() + bytes(n * 4))
+    return str(p)
+
+
+def _ad_many_attrs(tmp_path, n):
+    """An AppleDouble sidecar with more than n entries and attributes."""
+    import struct as _s
+    import test_appledouble
+
+    attrs = tuple((f"com.example.a{i}", b"v") for i in range(n + 2))
+    data = bytearray(test_appledouble.sidecar(attrs=attrs))
+    _s.pack_into(">H", data, 24, n + 2)     # more entries than are laid out
+    p = tmp_path / "._many.wav"
+    p.write_bytes(bytes(data))
+    return str(p)
+
+
+def _tal_many(tmp_path, n):
+    """A TAL-Sampler program longer than n bytes and with more than n zones."""
+    import test_xmlsampler
+
+    p = tmp_path / "many.talsmpl"
+    p.write_bytes(test_xmlsampler.tal_text(n=n + 2))
+    return str(p)
+
+
+def _kontakt_nested(tmp_path, n):
+    """Kontakt patches nested n deep inside each other's containers."""
+    import test_kontakt as tk
+    inner = tk.header() + tk._directory([])
+    for _ in range(n):
+        inner = tk.header() + tk._directory([]) + tk.patch_obj(inner)
+    p = tmp_path / "nested.nki"
+    p.write_bytes(inner)
+    return str(p)
+
+
+def _kontakt_big_trailer(tmp_path, n):
+    """A Kontakt 4.2 patch whose soundinfo trailer is longer than n bytes."""
+    import test_kontakt as tk
+    p = tmp_path / "trailer.nki"
+    p.write_bytes(tk.k42_patch())
+    return str(p)
+
+
+def _kontakt_big_body(tmp_path, n):
+    """A Kontakt 2 patch whose zlib body is longer than n bytes."""
+    import os as _os
+    import zlib as _zlib
+    import test_kontakt
+
+    body = _zlib.compress(_os.urandom(n * 4), 0)
+    p = tmp_path / "big.nki"
+    p.write_bytes(test_kontakt.header() + body)
+    return str(p)
+
+
+def _kontakt_big_xml(tmp_path, n):
+    """A Kontakt 2 patch whose XML inflates past n bytes."""
+    import test_kontakt
+
+    p = tmp_path / "xml.nki"
+    p.write_bytes(test_kontakt.k2_patch(xml=test_kontakt.k2_xml() + b" " * (n * 4)))
+    return str(p)
+
+
+def _nkx_many_files(tmp_path, n):
+    """A Kontakt sample container holding n files."""
+    import test_kontakt
+
+    files = tuple((f"s{i}.wav", b"RIFF" + b"\0" * 8) for i in range(n))
+    p = tmp_path / "many.nkx"
+    p.write_bytes(test_kontakt.container(files=files, resources=()))
     return str(p)
 
 
@@ -1180,7 +1345,22 @@ def _sndh_over_cap(tmp_path, n):
     return str(q)
 
 
+def _seed(fmt):
+    """A builder that ignores n and writes the seed as built: for a cap the
+    seed already crosses once it is patched to 0 or 1."""
+    def build(tmp_path, n):
+        import seeds
+        q = tmp_path / ("seed" + seeds.suffix(fmt))
+        q.write_bytes(seeds.build(fmt))
+        return str(q)
+    return build
+
+
 SWEPT = [
+    # the seed holds one annotation, and triage's seed four chunks
+    ("acidcat.core.walk.sigmf", "_ANNOTATION_CAP", 0, _seed("sigmf"), "annotations"),
+    ("acidcat.core.forensics.triage", "_LIST_CAP", 1, _seed("unknown-container"),
+     "listing the first"),
     ("acidcat.core.walk.sndh", "_SNDH_READ_CAP", 512, _sndh_over_cap, "parsed the first"),
     ("acidcat.core.walk.ym", "_YM_READ_CAP", 512, _ym_over_cap, "parsed the first"),
     ("acidcat.core.walk.ym", "_YM_DRUM_LIST_CAP", 4, _ym_many_drums, "listing the first"),
@@ -1295,6 +1475,37 @@ SWEPT = [
      "listing the first"),
     ("acidcat.core.walk.dsd", "_COMMENT_CAP", 4, _dff_many_comments,
      "listing the first"),
+    ("acidcat.core.walk.exs", "_EXS_READ_CAP", 1024, _exs_over_cap,
+     "were read"),
+    ("acidcat.core.walk.exs", "_EXS_CHUNK_CAP", 4, _exs_many_chunks,
+     "stopped there"),
+    ("acidcat.core.walk.sfz", "_SFZ_READ_CAP", 256, _sfz_many, "were read"),
+    ("acidcat.core.walk.sfz", "_SFZ_SECTION_CAP", 4, _sfz_many, "node each"),
+    ("acidcat.core.walk.sfz", "_SFZ_SAMPLE_CHECK_CAP", 4, _sfz_many,
+     "were looked for"),
+    ("acidcat.core.walk.alp", "_ALP_FILE_NODE_CAP", 4, _alp_many, "node each"),
+    ("acidcat.core.walk.alp", "_ALP_INDEX_CAP", 64, _alp_many, "not listed"),
+    ("acidcat.core.walk.appledouble", "_AD_READ_CAP", 1024, _ad_over_cap,
+     "were read"),
+    ("acidcat.core.walk.appledouble", "_AD_ENTRY_CAP", 1, _ad_many_attrs,
+     "entries; the first"),
+    ("acidcat.core.walk.appledouble", "_AD_ATTR_CAP", 2, _ad_many_attrs,
+     "extended attributes"),
+    ("acidcat.core.walk.xmlsampler", "_XS_READ_CAP", 256, _tal_many, "were read"),
+    ("acidcat.core.walk.xmlsampler", "_XS_ZONE_CAP", 4, _tal_many, "node each"),
+    ("acidcat.core.walk.ni", "_NI_NEST_CAP", 2, _kontakt_nested, "the walk stops"),
+    ("acidcat.core.walk.ni", "_KONTAKT_TRAILER_CAP", 64, _kontakt_big_trailer,
+     "were read"),
+    ("acidcat.core.walk.ni", "_KONTAKT_READ_CAP", 256, _kontakt_big_body,
+     "were read"),
+    ("acidcat.core.walk.ni", "_KONTAKT_XML_CAP", 256, _kontakt_big_xml,
+     "the part inflated"),
+    ("acidcat.core.walk.ni", "_NI_ENTRY_CAP", 4, _nkx_many_files,
+     "were not read"),
+    ("acidcat.core.walk.ni", "_NI_OBJECT_CAP", 4, _nkx_many_files,
+     "stopped there"),
+    ("acidcat.core.walk.ni", "_NI_OBJECT_CHUNK_CAP", 4, _nkx_many_files,
+     "summarised"),
     ("acidcat.core.walk.dsd", "_MARKER_CAP", 4, _dff_many_markers,
      "listing the first"),
 ]
@@ -1320,8 +1531,39 @@ def test_a_bound_that_bites_says_so(tmp_path, monkeypatch, module, const, small,
     monkeypatch.setattr(mod, const, small)
     path = build(tmp_path, small * 4)
     _label, _chunks, warns = walk_file(path)
-    assert any(says in w for w in warns), (
-        f"{const} was crossed and nothing said so; warnings were {warns}")
+    said = [w for w in warns if says in w]
+    assert said, f"{const} was crossed and nothing said so; warnings were {warns}"
+    # and says it as a coverage note naming this bound, never as a defect
+    # (2.0: a cap hit is a coverage finding by construction)
+    caps = [getattr(w, "cap", None) for w in said]
+    assert all(is_coverage(w) for w in said), (
+        f"{const} was announced as a defect: {said}")
+    assert any(c and c["limit"] == small and c["used"] >= small for c in caps), (
+        f"{const} was announced without its bound: {caps}")
+
+
+@pytest.mark.parametrize("module,const,small,build,says",
+                         SWEPT, ids=[f"{m.rsplit('.', 1)[-1]}.{c}"
+                                     for m, c, _s, _b, _y in SWEPT])
+def test_a_bound_that_bites_is_a_limit_hit_in_the_document(tmp_path, monkeypatch,
+                                                            module, const, small,
+                                                            build, says):
+    """The same crossing, read through the v1 Document: a coverage finding
+    carrying the cap, and the limit named in `limits.hit`."""
+    from acidcat.core.infra import contract
+    monkeypatch.setattr(importlib.import_module(module), const, small)
+    doc = contract.walk(build(tmp_path, small * 4))
+    cov = [f for f in doc["findings"] if says in f["message"]]
+    assert cov and all(f["kind"] == "coverage" for f in cov), cov
+    assert all(f["code"].startswith("cap.") for f in cov), cov
+    assert {f["cap"]["name"] for f in cov} <= set(doc["limits"]["hit"]), (
+        cov, doc["limits"])
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((SRC.parent.parent / "docs/contract/node-v1.schema.json")
+                        .read_text(encoding="utf-8"))
+    errs = list(jsonschema.Draft202012Validator(schema).iter_errors(
+        json.loads(json.dumps(doc))))
+    assert not errs, [(e.json_path, e.message[:120]) for e in errs[:3]]
 
 
 @pytest.mark.parametrize("module,const,small,build,says",
@@ -1388,7 +1630,7 @@ def test_the_ledger_has_no_ghosts():
 def test_pending_only_shrinks():
     """A ratchet, after tests/test_targets.py. The number is written down so
     that adding to the list is a visible act rather than a quiet one."""
-    assert len(PENDING_1_0_1) <= 61, (
+    assert len(PENDING_1_0_1) <= 58, (
         f"PENDING_1_0_1 has grown to {len(PENDING_1_0_1)}. A new bound belongs "
         f"in SWEPT or EXEMPT; this list is debt and may only shrink.")
 

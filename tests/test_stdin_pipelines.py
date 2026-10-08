@@ -67,17 +67,33 @@ def test_carve_into_inspect_composes(wav, tmp_path):
 
     assert inspect.returncode == 0, err.decode()
     doc = json.loads(out.decode().splitlines()[0])
-    assert doc["format"] == "RIFF/WAVE"
-    assert {c["id"].strip() for c in doc["chunks"]} == {"fmt", "data"}
+    assert doc["format"]["label"] == "RIFF/WAVE"
+    assert {c["id"] for c in doc["nodes"][0]["children"]} == {"RIFF/fmt_", "RIFF/data"}
 
 
-@pytest.mark.parametrize("verb", ["inspect", "classify"])
+# every verb that buffers `-` to a temp copy; the copy's full path carries the
+# home directory, so a leak here is a privacy bug, not a cosmetic one
+_LEAKY = [["inspect"], ["classify"], ["check"], ["audit"], ["od", "-", "@0+4"],
+          ["stats", "--by", "shape"], ["inspect", "--summary"]]
+
+
+@pytest.mark.parametrize("verb", _LEAKY, ids=" ".join)
 def test_no_temp_path_reaches_the_output(wav, verb):
     """The leak this fix must not introduce -- `extract` had exactly it."""
-    r = _pipe(wav.read_bytes(), verb, "-")
+    r = _pipe(wav.read_bytes(), *(verb if "-" in verb else verb + ["-"]))
     blob = (r.stdout + r.stderr).decode(errors="replace")
     assert "<stdin>" in blob
     assert "acidcat_stdin" not in blob and "tmp" not in blob.lower().split("/")[-1]
+
+
+@pytest.mark.parametrize("argv", [["check", "--json", "-"],
+                                  ["stats", "--by", "shape", "--json", "-"]],
+                         ids=" ".join)
+def test_every_json_path_is_stdin(wav, argv):
+    r = _pipe(wav.read_bytes(), *argv)
+    assert r.returncode == 0, r.stderr
+    text = r.stdout.decode()
+    assert "acidcat_stdin" not in text and "<stdin>" in text
 
 
 @pytest.mark.parametrize("verb", ["inspect", "classify"])
@@ -88,12 +104,17 @@ def test_json_names_stdin_not_the_temp_copy(wav, verb):
     # pretty-printed array. Both are documented; parse each as what it is.
     doc = json.loads(text.splitlines()[0] if verb == "inspect" else text)
     rec = doc[0] if isinstance(doc, list) else doc
-    assert rec["file"] == "<stdin>"
+    # inspect's is a Document, whose file carries the path the caller gave
+    got = rec["file"]["path"] if "file" in rec else rec["path"]
+    assert got == "<stdin>"
 
 
-@pytest.mark.parametrize("verb", ["inspect", "classify"])
+@pytest.mark.parametrize("verb", [["inspect"], ["classify"], ["locate"],
+                                  ["audit"], ["od"], ["check"], ["probe", "map"],
+                                  ["stats", "--by", "shape"]], ids=" ".join)
 def test_empty_stdin_is_reported(verb):
-    r = _pipe(b"", verb, "-")
+    # one exit code for "nothing to read" on every verb; five said 1
+    r = _pipe(b"", *verb, "-")
     assert r.returncode == 2                      # could not run
     assert b"stdin" in r.stderr.lower()
 
@@ -103,3 +124,15 @@ def test_named_files_are_unaffected(wav):
                        capture_output=True, text=True)
     assert r.returncode == 0
     assert r.stdout.startswith("a.wav:")
+
+
+@pytest.mark.parametrize("argv", [["-"], ["inspect", "--summary", "-"]])
+def test_the_summary_card_names_stdin(wav, argv):
+    """`cat f.wav | acidcat -` printed `File  tmpXXXX.acidcat_stdin`: the
+    shared target walker resolved `-` before the card was built, so the
+    card's own stdin check never fired."""
+    r = _pipe(wav.read_bytes(), *argv)
+    out = r.stdout.decode()
+    assert r.returncode == 0, r.stderr.decode()
+    assert out.splitlines()[0].split() == ["File", "<stdin>"]
+    assert "acidcat_stdin" not in out

@@ -4,12 +4,16 @@ Edits the standard text chunks (NAME, AUTH, ANNO) while preserving the audio
 (COMM/SSND) and every unknown chunk byte-for-byte. AIFF is BIG-endian (the trap
 that separates it from WAV): FORM/chunk sizes are big-endian, otherwise the
 alignment rules match RIFF (one uncounted 0x00 pad after any odd-sized chunk,
-FORM size = file - 8). Malformed files are refused rather than guessed.
+FORM size = file - 8). Malformed files are refused rather than guessed. An odd
+chunk whose writer left the pad out is followed where the next chunk really
+starts, as the walker does, and gets its pad on the rewrite.
 """
 
+import io
 import struct
 
-from acidcat.core.write.edits import EditError
+from acidcat.core.formats.riff import decode_text, pad_step
+from acidcat.core.write.edits import BadValue, EditError
 
 # field -> AIFF text chunk id (raw text, not null-terminated, not pascal)
 _AIFF_TEXT = {
@@ -25,6 +29,7 @@ def _iter_chunks(data):
     if data[:4] != b"FORM" or data[8:12] not in (b"AIFF", b"AIFC"):
         raise EditError("not an AIFF/AIFC file")
     n = len(data)
+    f = io.BytesIO(data)
     pos = 12
     chunks = []
     seen_ssnd = False
@@ -38,7 +43,9 @@ def _iter_chunks(data):
         chunks.append([cid, data[pos + 8:pos + 8 + size]])
         if cid == b"SSND":
             seen_ssnd = True
-        pos += 8 + size + (size & 1)
+        pos += 8 + size
+        if size & 1:
+            pos += pad_step(f, pos, n, "big")   # 0 when the writer left it out
     if not seen_ssnd:
         raise EditError("no SSND (sound data) chunk; refusing to rewrite")
     return chunks, data[pos:]
@@ -47,7 +54,7 @@ def _iter_chunks(data):
 def edit_aiff(data, changes):
     unknown = [f for f in changes if f.lower() not in _AIFF_TEXT]
     if unknown:
-        raise EditError(f"AIFF has no editable field(s): {', '.join(sorted(unknown))}")
+        raise BadValue(f"AIFF has no editable field(s): {', '.join(sorted(unknown))}")
     chunks, trailing = _iter_chunks(data)
     audio = next(c[1] for c in chunks if c[0] == b"SSND")
     applied = []
@@ -55,7 +62,7 @@ def edit_aiff(data, changes):
     for field, value in changes.items():
         cid = _AIFF_TEXT[field.lower()]
         existing = next((c for c in chunks if c[0] == cid), None)
-        old = existing[1].decode("latin-1") if existing else None
+        old = decode_text(existing[1]) if existing else None
         if value is None:
             if existing:
                 chunks.remove(existing)

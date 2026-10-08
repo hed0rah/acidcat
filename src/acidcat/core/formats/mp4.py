@@ -14,6 +14,7 @@ and the iTunes tags under udta > meta > ilst.
 import math
 import struct
 
+from acidcat.core.infra.source import open_input
 from acidcat.core.formats.mp3 import ID3V1_GENRES
 
 _CONTAINERS = {
@@ -171,7 +172,7 @@ def find_moov(filepath, file_size):
     each, no payload), so it is found regardless of file size or position.
     Non-faststart files (most Apple/ffmpeg output) put moov at EOF. Returns
     (offset, size) or (None, None)."""
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         pos = 0
         while pos + 8 <= file_size:
             f.seek(pos)

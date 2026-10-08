@@ -8,15 +8,15 @@ real region and walked field by field, and the SNDH inside is described
 with its fields unpositioned, since offsets into the unpacked image are
 not file offsets. The unpacked image must come out at exactly the length
 the ICE header states, with 'SNDH' where it belongs, before anything in it
-is reported.
+is reported. The image is also declared as a layer, walked like a bare SNDH,
+for the v1 Document (node-v1.md section 3).
 """
 
-import os
 
 from acidcat.core.codecs import ice
 from acidcat.core.formats import sndh as sndhmod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # The largest real SNDH measured unpacks to a few hundred KB (the DMA ones
@@ -26,12 +26,13 @@ _SNDH_UNPACK_CAP = _SNDH_READ_CAP
 
 
 def inspect_sndh(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _SNDH_READ_CAP))
     warns = []
     if size > _SNDH_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d" % (size, _SNDH_READ_CAP)))
+        warns.append(hit("read_bytes", _SNDH_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d" % (size, _SNDH_READ_CAP)))
     if ice.is_ice(raw):
         return _packed(raw, warns)
     s = sndhmod.parse(raw)
@@ -163,7 +164,17 @@ def _packed(raw, warns):
               + _entry_fields(s, False, len(image))
               + [_tag_field(t, o, n, v, s, False, 0) for t, o, n, v in s["tags"]]
               + _no_hdns(s))
-    chunks.append(_chunk("ice", ice.HEADER, packed - ice.HEADER, _summary(s) + _title(s), fields))
+    body = _chunk("ice", ice.HEADER, packed - ice.HEADER, _summary(s) + _title(s), fields)
+    # the unpacked tune is layer 1: the same walk as a bare SNDH, positioned
+    # in the image. Only the v1 Document reads it (core/infra/layers.py).
+    body["layer"] = {
+        "name": "unpacked SNDH", "decoder": "ice",
+        "params": {"size": unpacked},
+        "length": len(image), "length_known": True,
+        "verdict": {"result": "verified", "method": "exact-length",
+                    "detail": "%d bytes" % unpacked}}
+    body["layer_chunks"] = _bare(image, s)
+    chunks.append(body)
     if packed < len(raw):
         tail = raw[packed:]
         zero = not any(tail)

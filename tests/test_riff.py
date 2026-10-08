@@ -1135,3 +1135,19 @@ def test_a_cdif_whose_declared_size_disagrees_is_reported(tmp_path):
     _l, chunks, _w = _walk_bytes(tmp_path, _wav_with(_chunk(b"CDif", body)))
     c, _vals = _fields(chunks, "CDif")
     assert any("declares 999" in w for w in c["warnings"])
+
+
+
+def test_an_unpadded_odd_riff_chunk_is_followed(tmp_path):
+    # bug hunt 2026-10-02: the RIFF iterator had the AIFF one's blind pad step
+    import struct as _s
+    from acidcat.core.formats.riff import iter_chunks as _iter
+    fmt = _s.pack("<HHIIHH", 1, 1, 8000, 16000, 2, 16)
+    body = (b"WAVE" + b"fmt " + _s.pack("<I", 16) + fmt
+            + b"IART" + _s.pack("<I", 3) + b"abc"
+            + b"data" + _s.pack("<I", 4) + b"\x00" * 4)
+    p = tmp_path / "odd.wav"
+    p.write_bytes(b"RIFF" + _s.pack("<I", len(body)) + body)
+    seen = []
+    assert [c for c, _o, _n in _iter(str(p), seen)] == ["fmt ", "IART", "data"]
+    assert seen == [("IART", 36)]

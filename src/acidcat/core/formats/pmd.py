@@ -128,12 +128,14 @@ def parse(raw):
          "memo_lines": [], "memo_at": None, "memo_tag": None}
     if not is_pmd(raw):
         h["why"] = "the first three bytes are not a PMD header"
+        h["code"] = "magic.mismatch"
         return h
     h["flag"] = raw[0]
     mml = memoryview(raw)[1:]          # the driver's mmlbuf
     n = len(mml)
     if n < STREAM_START:
         h["why"] = "file ends inside the part table"
+        h["code"] = "header.truncated"
         return h
 
     offsets = struct.unpack_from("<%dH" % PARTS, mml, 0)
@@ -147,6 +149,7 @@ def parse(raw):
         h["parts"].append(entry)
     if any(p["offset"] >= n for p in h["parts"]):
         h["why"] = "a part offset points outside the file"
+        h["code"] = "pointer.dangling"
         return h
     h["tone_at"] = tone_at
     # MC.EXE without /V writes no instruments, and then the tone offset is
@@ -154,6 +157,7 @@ def parse(raw):
     h["has_tones"] = tone_at != STREAM_START
     if tone_at > n:
         h["why"] = "the tone offset points outside the file"
+        h["code"] = "pointer.dangling"
         return h
 
     _read_memo(mml, h)

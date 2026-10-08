@@ -368,7 +368,7 @@ def _from_aiff(filepath, row, do_deep=False):
     # same convention as the WAV smpl root.
     if row.get("bpm") is None and ctx.get("basc_beats") and row["duration"]:
         row["bpm"] = round(ctx["basc_beats"] / row["duration"] * 60, 2)
-    if row.get("key") is None and ctx.get("basc_root_key"):
+    if row.get("key") is None and 0 < (ctx.get("basc_root_key") or 0) < 128:
         row["key"] = midi_note_to_pitch_class(ctx["basc_root_key"])
 
     # otherwise fall back to filename/folder tokens.

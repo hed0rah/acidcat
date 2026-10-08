@@ -12,11 +12,11 @@ precedes essentially every message with the ticks since the previous one.
 Reference: MMA M2-116-U (MIDI Clip File) v1.0; M2-104-UM (UMP) v1.1.2.
 """
 
-import os
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
 
 from acidcat.core.formats import ump
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _open, _size
 
 MAGIC = b"SMF2CLIP"
 MAX_CLIP_BYTES = 64 * 1024 * 1024                       # clip files are event streams, not audio
@@ -24,14 +24,15 @@ MAX_CLIP_BYTES = 64 * 1024 * 1024                       # clip files are event s
 
 def inspect_midi2(filepath, deep=False):
     """Walk a .midi2 clip file. Returns (chunks, file_warnings)."""
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:                     # capped read: the file must not size the alloc
+    size = _size(filepath)
+    with _open(filepath) as f:                     # capped read: the file must not size the alloc
         data = f.read(min(MAX_CLIP_BYTES, size))
     file_warns = []
     if size > MAX_CLIP_BYTES:
-        file_warns.append(coverage(f"clip is {size:,} bytes; walked the first {MAX_CLIP_BYTES:,}"))
+        file_warns.append(hit("read_bytes", MAX_CLIP_BYTES, size,
+                              f"clip is {size:,} bytes; walked the first {MAX_CLIP_BYTES:,}"))
     if data[:8] != MAGIC:
-        file_warns.append("missing SMF2CLIP magic")
+        file_warns.append(defect("magic.mismatch", "missing SMF2CLIP magic"))
 
     header = {"id": "SMF2CLIP", "offset": 0, "size": 8, "summary": "MIDI Clip File header",
               "payload_base": 0, "warnings": [],
@@ -39,6 +40,15 @@ def inspect_midi2(filepath, deep=False):
                             "8-byte ASCII; the whole rest of the file is a UMP stream")]}
 
     tpq = tempo_10ns = bpm = timesig = None
+    tempo_changes = timesig_changes = 0
+    last_tempo = last_timesig = None
+    # a Flex Data text longer than 12 bytes spans UMPs: form 1 starts it, 2
+    # continues, 3 ends; 0 is a whole text in one packet
+    text_parts = {}
+    # a SysEx message is start, continue..., end -- or one complete packet;
+    # per group, so interleaved groups are not mistaken for disorder
+    sysex_open = {}
+    sysex_disorder = []
     metadata = []
     nticks = 0
     n_events = n_notes = 0
@@ -60,12 +70,30 @@ def inspect_midi2(filepath, deep=False):
         if kind == "dctpq":
             tpq = m["value"]
         elif kind == "set_tempo":
-            tempo_10ns, bpm = m["tempo_10ns"], m.get("bpm")
+            # the clip opens at the first tempo; a later one counts as a change
+            # only when it differs (Start of Clip restates the header's tempo)
+            if m["tempo_10ns"] != last_tempo:
+                tempo_changes += 1
+            last_tempo = m["tempo_10ns"]
+            if tempo_10ns is None:
+                tempo_10ns, bpm = m["tempo_10ns"], m.get("bpm")
         elif kind == "set_time_signature":
-            den = 1 << m["denom_pow2"] if m["denom_pow2"] else 0
-            timesig = f"{m['numerator']}/{den}" if den else f"{m['numerator']}/?"
+            sig = (m["numerator"], m["denom_pow2"])
+            if sig != last_timesig:
+                timesig_changes += 1
+            last_timesig = sig
+            if timesig is None:
+                den = 1 << m["denom_pow2"] if m["denom_pow2"] else 0
+                timesig = f"{m['numerator']}/{den}" if den else f"{m['numerator']}/?"
         elif kind == "flex_text":
-            metadata.append((m.get("status_bank"), m.get("text", "")))
+            key = (m.get("group"), m.get("status_bank"), m.get("status"))
+            form = m.get("form", 0)
+            if form in (0, 1):
+                text_parts[key] = m.get("text", "")
+            else:
+                text_parts[key] = text_parts.get(key, "") + m.get("text", "")
+            if form in (0, 3):
+                metadata.append((m.get("status_bank"), text_parts.pop(key)))
         elif kind == "start_of_clip":
             seen_start = True
         elif kind == "end_of_clip":
@@ -74,17 +102,33 @@ def inspect_midi2(filepath, deep=False):
             n_events += 1
             if kind in ("note_on", "note_off"):
                 n_notes += 1
+            elif kind in ("sysex7", "sysex8"):
+                key = (kind, m.get("group"), m.get("stream_id"))
+                st = m.get("status")
+                was_open = sysex_open.get(key, False)
+                if st == "start":
+                    if was_open:
+                        sysex_disorder.append((abs_off, "a start while one is open"))
+                    sysex_open[key] = True
+                elif st in ("continue", "end"):
+                    if not was_open:
+                        sysex_disorder.append((abs_off, f"a {st} with no start"))
+                    sysex_open[key] = st == "continue"
+                elif st == "complete" and was_open:
+                    sysex_disorder.append((abs_off, "a complete packet inside an open one"))
         if deep and kind not in ("noop",):
             rows.append({"tick": nticks, "event": kind, "detail": _detail(m)})
 
     if consumed < len(data):
         truncated = True
-        file_warns.append(f"{len(data) - consumed} trailing byte(s) after the last "
-                           f"complete UMP (truncated packet or extra data)")
+        file_warns.append(defect("bytes.stray",
+                                 f"{len(data) - consumed} trailing byte(s) after the last "
+                                  f"complete UMP (truncated packet or extra data)"))
 
-    # duration from accumulated ticks + tempo (both optional)
+    # duration from accumulated ticks + tempo (both optional). With tempo
+    # changes a single tempo cannot give it, so it is not claimed.
     dur = None
-    if tpq and tempo_10ns:
+    if tpq and tempo_10ns and tempo_changes <= 1:
         dur = nticks / tpq * (tempo_10ns * 1e-8)      # 10ns units -> seconds per quarter
 
     clip = {"id": "clip", "offset": 8, "size": max(0, consumed - 8),
@@ -93,9 +137,11 @@ def inspect_midi2(filepath, deep=False):
     fl.append(_f(None, 0, "resolution", f"{tpq} ticks/quarter" if tpq else "(no DCTPQ)",
                  "DCTPQ; mandatory per spec"))
     if bpm:
-        fl.append(_f(None, 0, "tempo", f"{bpm:.3f} BPM", f"{tempo_10ns} x 10ns per quarter"))
+        fl.append(_f(None, 0, "tempo", f"{bpm:.3f} BPM", f"{tempo_10ns} x 10ns per quarter"
+                     + (f"; the first of {tempo_changes}" if tempo_changes > 1 else "")))
     if timesig:
-        fl.append(_f(None, 0, "time_signature", timesig))
+        fl.append(_f(None, 0, "time_signature", timesig,
+                     f"the first of {timesig_changes}" if timesig_changes > 1 else ""))
     fl.append(_f(None, 0, "events", f"{n_events} ({n_notes} note)"))
     if dur is not None:
         fl.append(_f(None, 0, "duration", f"{dur:.2f} s", f"{nticks} ticks total"))
@@ -103,17 +149,25 @@ def inspect_midi2(filepath, deep=False):
         fl.append(_f(None, 0, "meta", text, f"Flex Data text, status bank 0x{(bank or 0):02X}"))
 
     if not tpq:
-        clip["warnings"].append("no DCTPQ resolution message (mandatory)")
+        clip["warnings"].append(defect("required.missing",
+                                       "no DCTPQ resolution message (mandatory)"))
     if not seen_start:
-        clip["warnings"].append("no Start of Clip message")
+        clip["warnings"].append(defect("required.missing", "no Start of Clip message"))
     if not seen_end:
-        clip["warnings"].append("no End of Clip marker")
+        clip["warnings"].append(defect("required.missing", "no End of Clip marker"))
+    if sysex_disorder or any(sysex_open.values()):
+        where = ", ".join(f"{why} at {at:#x}" for at, why in sysex_disorder[:3])
+        if any(sysex_open.values()):
+            where = (where + ", " if where else "") + "a message left unended"
+        clip["warnings"].append(defect("chunk.order", f"SysEx packets out of order: {where}"))
     if data_after_end:
-        clip["warnings"].append("data after End of Clip (nothing may follow it)")
+        clip["warnings"].append(defect("bytes.stray",
+                                       "data after End of Clip (nothing may follow it)"))
 
     clip["summary"] = ", ".join(
         p for p in [f"TPQ {tpq}" if tpq else None,
-                    f"{bpm:.0f} BPM" if bpm else None,
+                    (f"{bpm:.0f} BPM" + (f" (+{tempo_changes - 1} changes)"
+                                           if tempo_changes > 1 else "")) if bpm else None,
                     timesig, f"{n_events} events",
                     f"{dur:.1f}s" if dur is not None else None] if p)
     if deep:

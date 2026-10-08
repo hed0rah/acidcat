@@ -4,12 +4,16 @@ Edits LIST/INFO tags and the acid chunk (bpm/key) while preserving the audio and
 every unknown chunk byte-for-byte. Follows the RIFF rules exactly: little-endian
 sizes, one uncounted 0x00 pad after any odd-sized chunk, riff_size = file - 8,
 fmt before data. RF64/BW64 and malformed files are refused rather than guessed.
+An odd chunk whose writer left the pad out is followed where the next chunk
+really starts, as the walker does, and gets its pad on the rewrite.
 """
 
+import io
 import struct
 
-from acidcat.core.write.edits import EditError
-from acidcat.util.midi import NOTES
+from acidcat.core.formats.riff import decode_text, pad_step
+from acidcat.core.write.edits import BadValue, EditError
+from acidcat.util.midi import NOTES, midi_note_to_name
 
 # field -> INFO sub-chunk id
 _INFO_TAGS = {
@@ -22,8 +26,9 @@ _INFO_TAGS = {
     "software": b"ISFT", "engineer": b"IENG", "track": b"ITRK",
 }
 _ACID_FIELDS = {"bpm", "tempo", "key"}
-# bext fixed ASCII fields: field -> (offset, width). Editing is a size-stable
-# in-place patch (truncate to width, null-pad).
+# bext fixed text fields: field -> (offset, width in bytes). Editing is a
+# size-stable in-place patch (UTF-8, null-padded; a value wider than the field
+# is refused, never cut).
 _BEXT_FIELDS = {
     "bext_description": (0, 256), "description": (0, 256),
     "originator": (256, 32),
@@ -42,6 +47,81 @@ def _fmt_sample_rate(chunks):
     if fmt and len(fmt) >= 8:
         return struct.unpack_from("<I", fmt, 4)[0]
     return 44100
+
+
+# how far an acid chunk's beats at its tempo may miss the audio's length
+# before the walker calls the chunk inconsistent (core/walk/wav.py _parse_acid)
+_BEAT_DRIFT = 0.05
+
+
+def _audio_seconds(chunks):
+    """The audio's length in seconds as the walker reckons it: the fact
+    chunk's sample count, else the data bytes over block_align. None when
+    the file does not say."""
+    fmt = next((c[1] for c in chunks if c[0] == b"fmt "), None)
+    if not fmt or len(fmt) < 16:
+        return None
+    rate = struct.unpack_from("<I", fmt, 4)[0]
+    align = struct.unpack_from("<H", fmt, 12)[0]
+    fact = next((c[1] for c in chunks if c[0] == b"fact"), None)
+    data = next(c[1] for c in chunks if c[0] == b"data")
+    if fact is not None and len(fact) >= 4:
+        frames = struct.unpack_from("<I", fact, 0)[0]
+    elif align:
+        frames = len(data) // align
+    else:
+        return None
+    return frames / rate if rate and frames else None
+
+
+def _drifts(beats, bpm, seconds):
+    return abs(beats / bpm * 60 - seconds) / seconds > _BEAT_DRIFT
+
+
+def _keep_beats_in_step(buf, seconds, notes):
+    """After a new tempo, the acid chunk's beat count must still describe the
+    audio, or the edit leaves a chunk that contradicts itself (4 beats at 128
+    bpm in 0.014 s). A count that no longer fits becomes the whole number the
+    new tempo gives over the audio, or 0 (not stated) when no whole number
+    fits; `notes` says which."""
+    beats = struct.unpack_from("<I", buf, 12)[0]
+    bpm = struct.unpack_from("<f", buf, 20)[0]       # as stored, float32
+    if not (beats and bpm > 0 and seconds) or not _drifts(beats, bpm, seconds):
+        return
+    fit = round(bpm * seconds / 60)
+    if fit and _drifts(fit, bpm, seconds):
+        fit = 0
+    struct.pack_into("<I", buf, 12, fit)
+    if notes is not None:
+        notes.append(f"the acid chunk's {beats} beat(s) do not fit {seconds:.3f} s "
+                     f"at {bpm:g} bpm; its beat count is now "
+                     f"{fit if fit else '0 (not stated)'}")
+
+
+_MINOR = ("m", "min", "minor")
+_MAJOR = ("M", "maj", "major")
+
+
+def _mode_of(s):
+    """'minor' or 'major' when a key name says so ('Am', 'F# minor', 'Cmaj'),
+    else None. A pitch ('A3') or a bare note ('A') names no mode."""
+    s = str(s).strip()
+    i = 2 if len(s) > 1 and s[1] in "#b" else 1
+    rest = s[i:].strip()
+    if rest in _MINOR or rest.lower() in ("min", "minor"):
+        return "minor"
+    if rest in _MAJOR or rest.lower() in ("maj", "major"):
+        return "major"
+    return None
+
+
+def _note_name(v):
+    """A note value in one domain: the note name of its MIDI number (C3 =
+    60), so 'C3', '60' and 60 all read the same. None stays None."""
+    if v is None:
+        return None
+    m = _note_to_midi(str(v))
+    return midi_note_to_name(m) if m is not None else str(v)
 
 
 def _note_to_midi(s):
@@ -72,6 +152,7 @@ def _iter_chunks(data):
     if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         raise EditError("not a RIFF/WAVE file")
     n = len(data)
+    f = io.BytesIO(data)
     pos = 12
     chunks = []
     seen_fmt = seen_data = False
@@ -90,7 +171,9 @@ def _iter_chunks(data):
                 raise EditError("data chunk precedes fmt; refusing to rewrite")
             seen_data = True
         chunks.append([cid, payload])
-        pos += 8 + size + (size & 1)
+        pos += 8 + size
+        if size & 1:
+            pos += pad_step(f, pos, n, "little")   # 0 when the writer left it out
     if not seen_data:
         raise EditError("no data chunk; refusing to rewrite")
     trailing = data[pos:]  # bytes past the last aligned chunk, preserved verbatim
@@ -124,7 +207,12 @@ def _build_info(tags):
     return body
 
 
-def edit_wav(data, changes):
+def edit_wav(data, changes, notes=None, cascade=True):
+    """(new bytes, applied) for `changes`. What the edit could not store as
+    asked, and wrote anyway, is said in `notes` when a list is given: the
+    acid chunk holds a root note, so the mode of `key=Am` is dropped. Without
+    `cascade` a new tempo leaves the beat count as it was, and an edit that
+    then contradicts the audio is refused by verify, as --no-cascade says."""
     chunks, trailing = _iter_chunks(data)
     applied = []
 
@@ -135,7 +223,17 @@ def edit_wav(data, changes):
     unknown = (set(changes) - set(info_changes) - set(acid_changes)
                - set(bext_changes) - set(smpl_changes))
     if unknown:
-        raise EditError(f"WAV has no editable field(s): {', '.join(sorted(unknown))}")
+        raise BadValue(f"WAV has no editable field(s): {', '.join(sorted(unknown))}")
+    # a fixed-width field takes a value that fits its bytes, or none: cut to
+    # fit, the edit is not the one asked for, and the cut can land inside a
+    # UTF-8 sequence. Refused before anything is built.
+    bext_raw = {}
+    for field, value in bext_changes.items():
+        width = _BEXT_FIELDS[field.lower()][1]
+        raw = ("" if value is None else str(value)).encode("utf-8")
+        if len(raw) > width:
+            raise BadValue(f"{field} holds at most {width} bytes; got {len(raw)}")
+        bext_raw[field] = raw
 
     # ---- LIST/INFO tags ----
     if info_changes:
@@ -144,7 +242,7 @@ def edit_wav(data, changes):
         tags = _parse_info(li[1]) if li else {}
         for field, value in info_changes.items():
             sid = _INFO_TAGS[field.lower()]
-            old = tags.get(sid, b"").decode("latin-1") or None
+            old = decode_text(tags.get(sid, b"")) or None
             if value is None:
                 tags.pop(sid, None)
             else:
@@ -166,22 +264,38 @@ def edit_wav(data, changes):
         for field, value in acid_changes.items():
             fl = field.lower()
             if fl in ("bpm", "tempo"):
-                old = round(struct.unpack_from("<f", buf, 20)[0], 3)
-                struct.pack_into("<f", buf, 20, float(value) if value else 0.0)
+                # a chunk this edit creates held no tempo, whatever its default
+                old = round(struct.unpack_from("<f", buf, 20)[0], 3) if ac else None
+                try:
+                    bpm = float(value) if value else 0.0
+                except ValueError:
+                    raise BadValue(f"{field}={value!r}: not a number") from None
+                struct.pack_into("<f", buf, 20, bpm)
+                if cascade:
+                    _keep_beats_in_step(buf, _audio_seconds(chunks), notes)
                 applied.append((field, old, value))
             elif fl == "key":
+                # the root note (offset 4) counts only when flag 0x02 says so
                 flags = struct.unpack_from("<I", buf, 0)[0]
+                root = struct.unpack_from("<H", buf, 4)[0]
+                old = midi_note_to_name(root) if flags & 0x02 else None
                 if value is None:
                     struct.pack_into("<H", buf, 4, 0)
                     struct.pack_into("<I", buf, 0, flags & ~0x02)
-                    applied.append((field, "set", None))
+                    applied.append((field, old, None))
                 else:
                     midi = _note_to_midi(str(value))
                     if midi is None:
                         raise EditError(f"unrecognized key {value!r}")
+                    mode = _mode_of(value)
+                    if mode and notes is not None:
+                        notes.append(f"the acid chunk holds the root note only; "
+                                     f"{mode!r} is not stored")
                     struct.pack_into("<H", buf, 4, midi)
                     struct.pack_into("<I", buf, 0, flags | 0x02)
-                    applied.append((field, None, value))
+                    # reported as what the chunk now holds, a pitch, so the
+                    # report never claims a mode was written
+                    applied.append((field, old, midi_note_to_name(midi)))
         if ac:
             ac[1] = bytes(buf)
         else:
@@ -195,8 +309,8 @@ def edit_wav(data, changes):
             buf += bytearray(_BEXT_MIN - len(buf))
         for field, value in bext_changes.items():
             off, width = _BEXT_FIELDS[field.lower()]
-            old = buf[off:off + width].split(b"\x00", 1)[0].decode("latin-1") or None
-            raw = ("" if value is None else str(value)).encode("ascii", "replace")[:width]
+            old = decode_text(buf[off:off + width].split(b"\x00", 1)[0]) or None
+            raw = bext_raw[field]
             buf[off:off + width] = raw + b"\x00" * (width - len(raw))
             applied.append((field, old, value))
         if bx:
@@ -221,7 +335,10 @@ def edit_wav(data, changes):
             if midi is None:
                 raise EditError(f"unrecognized root note {value!r}")
             struct.pack_into("<I", buf, 12, midi)
-            applied.append((field, old, value))
+            # old and new in one domain, note names: the chunk holds a MIDI
+            # number and a request may say 'C3' or '60'
+            applied.append((field, midi_note_to_name(old) if sm else None,
+                            _note_name(midi)))
         if sm:
             sm[1] = bytes(buf)
         else:

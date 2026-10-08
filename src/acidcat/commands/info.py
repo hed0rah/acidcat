@@ -61,12 +61,11 @@ def _detect_format(filepath):
         return "aiff"
     if is_serum_preset(filepath):
         return "serum"
+    # no extension fallback for AIFF or MIDI: their magic said no, and a
+    # builder handed other bytes read a RIFF/RMID header as 'MIDI type 21069'
+    # and passed an empty .aif as AIFF; the sniff below routes them instead
     ext = os.path.splitext(filepath)[1].lower()
-    if ext in (".aif", ".aiff"):
-        return "aiff"
-    if ext in (".mid", ".midi"):
-        return "midi"
-    if ext.lower() == ".serumpreset":
+    if ext == ".serumpreset":
         return "serum"
     if is_tagged_format(filepath):
         return "tagged"
@@ -99,6 +98,23 @@ def _is_preset(filepath, ext):
             or (head[:4] == b"RIFF" and head[8:12] == b"NIKS"))
 
 
+class _Card(dict):
+    """The card a person reads, label -> display string, plus `typed`: for a
+    label whose display states a value ("0.19s", "-", "yes"), the machine
+    keys and values that replace it in json/csv rows (cli-2.0.md section
+    4.1). A label with no `typed` entry goes out as it is."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.typed = {}
+
+
+def _typed(rec, label, **values):
+    """Give `label`'s machine form; a plain dict card has none to give."""
+    if isinstance(rec, _Card):
+        rec.typed[label] = values
+
+
 def _info_wav(filepath, args):
     """Build info record for a WAV/RIFF file, from the inspect walker's ctx
     (the single WAV decoder since the 2026-07 unification)."""
@@ -117,7 +133,7 @@ def _info_wav(filepath, args):
 
     _vlog(args, "[detect] fmt=wav")
 
-    rec = {}
+    rec = _Card()
     rec["File"] = os.path.basename(filepath)
 
     if ctx.get("format_tag") is not None:
@@ -133,6 +149,7 @@ def _info_wav(filepath, args):
 
     if duration is not None:
         rec["Duration"] = f"{duration}s"
+        _typed(rec, "Duration", duration_sec=duration)
 
     if bpm is not None:
         rec["BPM"] = bpm
@@ -141,28 +158,38 @@ def _info_wav(filepath, args):
              "acid_one_shot": ctx.get("acid_one_shot"), "bpm": bpm}, duration)
         if beats:
             rec["Beats"] = beats
+            _typed(rec, "Beats", acid_beats=beats)
         if acid_root is not None:
             rec["ACID Root"] = midi_note_to_name(acid_root)
         if beats and bpm:
             expected = round((beats / bpm) * 60, 4)
             rec["Expected Duration"] = f"{expected}s"
+            _typed(rec, "Expected Duration", expected_duration=expected)
             if duration:
                 diff = round(duration - expected, 4)
                 rec["Duration Diff"] = f"{diff}s"
+                _typed(rec, "Duration Diff", duration_diff=diff)
     else:
         rec["BPM"] = "-"
+        _typed(rec, "BPM", bpm=None)
 
     if smpl_root is not None:
         rec["Key"] = f"{midi_note_to_pitch_class(smpl_root)} (from SMPL)"
+        _typed(rec, "Key", key=midi_note_to_pitch_class(smpl_root),
+               key_source="smpl")
         _vlog(args, f"[key] smpl_root={smpl_root} -> {midi_note_to_pitch_class(smpl_root)}")
     elif acid_root is not None:
         rec["Key"] = f"{midi_note_to_pitch_class(acid_root)} (from ACID)"
+        _typed(rec, "Key", key=midi_note_to_pitch_class(acid_root),
+               key_source="acid")
         _vlog(args, f"[key] acid_root={acid_root} -> {midi_note_to_pitch_class(acid_root)}")
     else:
         rec["Key"] = "-"
+        _typed(rec, "Key", key=None, key_source=None)
         _vlog(args, "[key] no SMPL/ACID root, unset")
 
     rec["ACID"] = "yes" if bpm is not None else "no"
+    _typed(rec, "ACID", acid=bpm is not None)
 
     if smpl_root is not None:
         smpl_parts = [f"root={midi_note_to_name(smpl_root)}"]
@@ -171,8 +198,13 @@ def _info_wav(filepath, args):
         else:
             smpl_parts.append("loops=0")
         rec["SMPL"] = " ".join(smpl_parts)
+        _typed(rec, "SMPL", smpl_root=midi_note_to_name(smpl_root),
+               smpl_loop_start=ctx.get("smpl_loop_start"),
+               smpl_loop_end=ctx.get("smpl_loop_end"))
     else:
         rec["SMPL"] = "no"
+        _typed(rec, "SMPL", smpl_root=None, smpl_loop_start=None,
+               smpl_loop_end=None)
 
     rec["Chunks"] = ", ".join(seen) if seen else "(none)"
 
@@ -197,7 +229,7 @@ def _info_aiff(filepath, args):
     # the walker records the real AIFC compression 4cc (e.g. "sowt") in ctx
     compression = ctx.get("compression")
 
-    rec = {}
+    rec = _Card()
     rec["File"] = os.path.basename(filepath)
 
     fmt_parts = ["AIFF"]
@@ -217,6 +249,7 @@ def _info_aiff(filepath, args):
 
     if ctx.get("duration") is not None:
         rec["Duration"] = f"{ctx['duration']}s"
+        _typed(rec, "Duration", duration_sec=ctx["duration"])
     if ctx.get("frames") is not None:
         rec["Frames"] = ctx["frames"]
     if ctx.get("name"):
@@ -242,7 +275,7 @@ def _info_midi(filepath, args):
     meta = {}
     inspect_midi(filepath, ctx=meta)
 
-    rec = {}
+    rec = _Card()
     rec["File"] = os.path.basename(filepath)
     rec["Format"] = f"MIDI type {meta['format']}" if meta.get("format") is not None else "MIDI"
 
@@ -260,8 +293,10 @@ def _info_midi(filepath, args):
             tpf = division & 0xFF
             shown = 29.97 if fps == 29 else fps
             rec["Division"] = f"SMPTE {shown} fps, {tpf} ticks/frame"
+            _typed(rec, "Division", smpte_fps=shown, ticks_per_frame=tpf)
         else:
             rec["Division"] = f"{division} ticks/beat"
+            _typed(rec, "Division", ticks_per_beat=division)
 
     if meta.get("tempo_bpm") is not None:
         rec["BPM"] = meta["tempo_bpm"]
@@ -288,8 +323,10 @@ def _info_midi(filepath, args):
 
     if meta.get("duration") is not None:
         rec["Duration"] = f"{meta['duration']}s"
+        _typed(rec, "Duration", duration_sec=meta["duration"])
     elif meta.get("duration_ticks", 0) > 0:
         rec["Duration"] = f"{meta['duration_ticks']} ticks"
+        _typed(rec, "Duration", duration_ticks=meta["duration_ticks"])
 
     return rec
 
@@ -366,7 +403,7 @@ def _info_tagged(filepath, args):
     if meta is None:
         return {"File": os.path.basename(filepath), "Format": "unknown (mutagen failed)"}
 
-    rec = {}
+    rec = _Card()
     rec["File"] = os.path.basename(filepath)
 
     # format line
@@ -386,6 +423,7 @@ def _info_tagged(filepath, args):
 
     if meta.get("duration") is not None:
         rec["Duration"] = f"{meta['duration']}s"
+        _typed(rec, "Duration", duration_sec=meta["duration"])
 
     if meta.get("title"):
         rec["Title"] = meta["title"]
@@ -398,11 +436,13 @@ def _info_tagged(filepath, args):
         rec["BPM"] = meta["bpm"]
     else:
         rec["BPM"] = "-"
+        _typed(rec, "BPM", bpm=None)
 
     if meta.get("key"):
         rec["Key"] = meta["key"]
     else:
         rec["Key"] = "-"
+        _typed(rec, "Key", key=None)
 
     if meta.get("genre"):
         rec["Genre"] = meta["genre"]
@@ -444,10 +484,12 @@ def _add_deep_analysis(filepath, rec, args):
             bpm_val = estimates["estimated_bpm"]
             src = estimates.get("bpm_source", "")
             rec["BPM"] = f"{bpm_val} ({src})" if src else bpm_val
+            _typed(rec, "BPM", bpm=bpm_val, bpm_source=src or None)
         if estimates.get("estimated_key") and rec.get("Key") in (None, "-"):
             key_val = estimates["estimated_key"]
             src = estimates.get("key_source", "")
             rec["Key"] = f"{key_val} ({src})" if src else key_val
+            _typed(rec, "Key", key=key_val, key_source=src or None)
 
     t1 = _time.perf_counter()
     feats = extract_audio_features(filepath)
@@ -459,12 +501,55 @@ def _add_deep_analysis(filepath, rec, args):
         rec["Zero Crossing Rate"] = f"{float(feats.get('zcr_mean', 0)):.4f}"
         rec["Tempo (librosa)"] = f"{float(feats.get('tempo_librosa', 0)):.1f}"
         rec["Beat Count"] = int(feats.get('beat_count', 0))
+        _typed(rec, "Spectral Centroid", spectral_centroid_mean=float(
+            feats.get('spectral_centroid_mean', 0)))
+        _typed(rec, "RMS Energy", rms_mean=float(feats.get('rms_mean', 0)))
+        _typed(rec, "Zero Crossing Rate", zcr_mean=float(feats.get('zcr_mean', 0)))
+        _typed(rec, "Tempo (librosa)",
+               tempo_librosa=float(feats.get('tempo_librosa', 0)))
+        _typed(rec, "Beat Count", beat_count=rec["Beat Count"])
 
 
 def run(args):
-    """Per-file report, so it takes as many as you hand it."""
+    """Per-file report, so it takes as many as you hand it. The table is one
+    card per file; json, csv and tsv are rows, one per file, in one array
+    (cli-2.0.md section 4.1)."""
     from acidcat.util import targets
-    return targets.each(args, "target", _run_one, verb="info")
+    fmt_name = getattr(args, "output_format", "table") or "table"
+    if fmt_name == "table":
+        return targets.each(args, "target", _run_one, verb="info")
+    args._rows = []
+    rc = targets.each(args, "target", _run_one, verb="info", header=False)
+    if args._rows or fmt_name == "json":
+        stream = sys.stdout
+        if getattr(args, "output", None):
+            stream = open(args.output, "w", encoding="utf-8")
+        try:
+            output(args._rows, fmt=fmt_name, stream=stream)
+        finally:
+            if stream is not sys.stdout:
+                stream.close()
+    return rc
+
+
+def _machine(rec, given, filepath):
+    """The card as a row: `path` as given, `format` the registry id and
+    `label` its display label, the card's own words under snake_case keys
+    (its `Format` line is `description`). A line that states a value is the
+    value, under the name `stats --by meta` gives it: `Duration 0.19s` is
+    `duration_sec: 0.19`, `BPM -` is `bpm: null`, `ACID no` is `acid:
+    false`."""
+    from acidcat.commands._output import format_of, snake
+    row = {"path": given, **format_of(filepath)}
+    typed = getattr(rec, "typed", {})
+    for k, v in rec.items():
+        if k == "File":
+            continue
+        if k in typed:
+            row.update(typed[k])
+        else:
+            row["description" if k == "Format" else snake(k)] = v
+    return row
 
 
 def _run_one(args):
@@ -476,7 +561,7 @@ def _run_one(args):
         tmp_path = stdin_to_tempfile()
         if tmp_path is None:
             print("acidcat: no data on stdin", file=sys.stderr)
-            return 1
+            return 2
         filepath = tmp_path
 
     if not os.path.isfile(filepath):
@@ -515,9 +600,16 @@ def _run_one(args):
                   f"(try: acidcat classify {name})", file=sys.stderr)
             return 2
 
-        # when reading from stdin, show <stdin> instead of tempfile name
-        if tmp_path:
+        # when reading from stdin, show <stdin> instead of tempfile name --
+        # also when targets.each resolved `-` before this ran, which left the
+        # card naming the temp copy (`cat f.wav | acidcat -`)
+        if tmp_path or getattr(args, "_given", None) == "<stdin>":
             rec["File"] = "<stdin>"
+
+        if getattr(args, "_rows", None) is not None:
+            given = "<stdin>" if tmp_path else getattr(args, "_given", filepath)
+            args._rows.append(_machine(rec, given, filepath))
+            return 0
 
         # output
         stream = sys.stdout

@@ -15,7 +15,10 @@ witness, so they are repairable:
     it flips the 0x80 bit on a type byte.
   * **PADDING body all-zero** (ZERO kind): the spec fixes PADDING content at
     0x00, so non-zero bytes there are junk. Zeroed in place. This is the FLAC
-    analog of the RIFF odd-chunk pad byte.
+    analog of the RIFF odd-chunk pad byte. Only when it is filler, though: a
+    PADDING inside a chain that does not reach the frame sync, or one holding
+    a frame sync or a vorbis-comment body, is reported with no witness and
+    never zeroed (``_padding_damage``).
 
 Everything from the first audio frame on is guarded and never touched. Fields that
 would need the audio decoded to witness them (STREAMINFO's MD5 and total-samples,
@@ -60,18 +63,59 @@ def walk(data):
     return blocks, pos, False
 
 
+def _vorbis_like(body):
+    """True when body opens like a VORBIS_COMMENT: a little-endian u32 vendor
+    length L, 0 < L < len, followed by L printable bytes."""
+    if len(body) < 5:
+        return False
+    n = int.from_bytes(bytes(body[:4]), "little")
+    return (0 < n < len(body) - 3
+            and all(0x20 <= x < 0x7f for x in bytes(body[4:4 + n])))
+
+
+def _padding_damage(body, ok):
+    """Why a non-zero PADDING body is not filler, or None when it is.
+
+    Real filler is a writer's leftover inside an intact chain. A PADDING
+    length that swallowed audio frames, or a block whose type byte now reads
+    PADDING, holds bytes a reader needs: zeroing them destroys them."""
+    if not ok:
+        return ("the metadata chain walk does not end at an audio frame "
+                "sync, so a block length is wrong; the PADDING may hold "
+                "audio frames")
+    raw = bytes(body)
+    if b"\xff\xf8" in raw or b"\xff\xf9" in raw:
+        return ("the PADDING holds a FLAC frame sync (0xFFF8/0xFFF9): its "
+                "length has most likely swallowed audio frames")
+    if _vorbis_like(raw):
+        return ("the PADDING reads like a VORBIS_COMMENT body (a vendor "
+                "string length and text): the block type is most likely "
+                "wrong, and the tags are in it")
+    return None
+
+
 def analyze(data):
     """Return a list of ``{path, field, old, new, kind, witness}`` for the
-    repairable FLAC structural violations. Read-only."""
+    FLAC structural violations (``detail`` on one with no witness).
+    Read-only."""
     out = []
     blocks, audio_start, ok = walk(data)
 
-    # PADDING must be all zero (spec)
+    # PADDING must be all zero (spec), but only filler is zeroed
     for i, b in enumerate(blocks):
         if b["type"] == _PADDING:
             body = data[b["body"]:b["body"] + b["length"]]
             if any(body):
                 nz = sum(1 for x in body if x)
+                why = _padding_damage(body, ok)
+                if why:
+                    out.append({"path": f"PADDING[{i}]", "field": "padding",
+                                "old": f"{nz} non-zero byte(s)", "new": None,
+                                "kind": "size", "witness": "",
+                                "detail": (f"{nz:,} non-zero byte(s), not "
+                                           f"filler: {why}. Zeroing them "
+                                           f"would destroy them")})
+                    continue
                 out.append({"path": f"PADDING[{i}]", "field": "padding",
                             "old": f"{nz} non-zero byte(s)", "new": "zeroed",
                             "kind": "zero", "witness": "spec (PADDING = 0x00)"})
@@ -97,7 +141,8 @@ def repair_flac(data):
     out = bytearray(data)
 
     for b in blocks:
-        if b["type"] == _PADDING:
+        if (b["type"] == _PADDING and _padding_damage(
+                data[b["body"]:b["body"] + b["length"]], ok) is None):
             for j in range(b["body"], b["body"] + b["length"]):
                 out[j] = 0
     if ok:

@@ -14,6 +14,7 @@ from acidcat.core.formats.aiff import is_aiff
 from acidcat.core.tagged import is_tagged_format
 from acidcat.util.midi import midi_note_to_name
 from acidcat.util.csv_helpers import safe_basename_for_csv
+from acidcat.util.paths import under
 
 
 # extensions to pick up during directory walk
@@ -67,7 +68,7 @@ def _scan_wav(filepath):
     key = midi_note_to_name(smpl_root) or midi_note_to_name(acid_root)
 
     return {
-        "filename": filepath,
+        "path": filepath,
         "format": "wav",
         "bpm": bpm,
         "key": key,
@@ -92,7 +93,7 @@ def _scan_aiff(filepath):
     seen = [c["id"] for c in chunks]
 
     return {
-        "filename": filepath,
+        "path": filepath,
         "format": "aiff",
         "bpm": None,
         "key": None,
@@ -115,7 +116,7 @@ def _scan_tagged(filepath):
         return None, []
 
     return {
-        "filename": filepath,
+        "path": filepath,
         "format": meta.get("format_type", "unknown"),
         "bpm": meta.get("bpm"),
         "key": meta.get("key"),
@@ -129,11 +130,28 @@ def _scan_tagged(filepath):
     }, []
 
 
+def _groups(targets):
+    """(path, name) for each file: those os.walk finds under a directory,
+    spelled as the directory was given, and a file named directly (`stats
+    FILE`) exactly as given, in the order given (review V8)."""
+    for t in targets:
+        if os.path.isfile(t):
+            yield t, os.path.basename(t)
+        else:
+            for root, _dirs, files in os.walk(t):
+                for name in files:
+                    yield under(t, root, name), name
+
+
 def run(args):
-    directory = args.target
-    if not os.path.isdir(directory):
-        print(f"acidcat scan: {directory}: Not a directory", file=sys.stderr)
-        return 2
+    # `targets` when stats passes several (files or directories); 1.8's
+    # parser gave one directory as `target`
+    targets = list(getattr(args, "targets", None) or [args.target])
+    for t in targets:
+        if not os.path.exists(t):
+            print(f"acidcat stats: {t}: No such file or directory", file=sys.stderr)
+            return 2
+    directory = ", ".join(targets)
 
     # stdout unless -o names a file. This used to invent
     # `<dirname>_metadata.csv` in whatever directory you happened to be
@@ -166,86 +184,96 @@ def run(args):
     rows = []
     count = 0
 
-    for root, _, files in os.walk(directory):
-        for file in files:
-            ext = os.path.splitext(file)[1].lower()
-            if ext not in AUDIO_EXTENSIONS:
-                continue
+    for filepath, file in _groups(targets):
+        ext = os.path.splitext(file)[1].lower()
+        if ext not in AUDIO_EXTENSIONS:
+            continue
 
-            filepath = os.path.join(root, file)
-
-            # dispatch by format
-            try:
-                if ext in (".wav",):
-                    row, seen = _scan_wav(filepath)
-                elif ext in (".aif", ".aiff") or is_aiff(filepath):
-                    row, seen = _scan_aiff(filepath)
-                elif is_tagged_format(filepath):
-                    row, seen = _scan_tagged(filepath)
-                    if row is None:
-                        continue
-                else:
+        # dispatch by format
+        try:
+            if ext in (".wav",):
+                row, seen = _scan_wav(filepath)
+            elif ext in (".aif", ".aiff") or is_aiff(filepath):
+                row, seen = _scan_aiff(filepath)
+            elif is_tagged_format(filepath):
+                row, seen = _scan_tagged(filepath)
+                if row is None:
                     continue
-            except Exception as e:
-                if not quiet:
-                    print(f"  [skip] {file}: {e}", file=sys.stderr)
+            else:
                 continue
-
-            # Chunk filter. `and seen` made this a no-op for any format with no
-            # chunks -- a tagged MP3 or an AppleDouble stub returns seen == [],
-            # so the filter was skipped and the row kept. `--has acid` returned
-            # 95 rows where two independent counts (survey, and the index's own
-            # `chunks` column) both say 80: 13 MP3s, an MP4 and a resource-fork
-            # stub passed a RIFF-chunk filter. A file with no chunks cannot
-            # contain the one you asked for.
-            if wanted:
-                upper_seen = {s.upper() for s in seen}
-                if not (upper_seen & wanted):
-                    continue
-
-            # optional ML features
-            if do_features:
-                from acidcat.core.analysis.features import extract_audio_features
-                if not quiet:
-                    print(f"  [features] {os.path.basename(filepath)}...", file=sys.stderr)
-                feats = extract_audio_features(filepath)
-                if feats:
-                    row.update(feats)
-
-            # fallback BPM/key via librosa
-            if do_fallback and not row.get("bpm"):
-                from acidcat.core.analysis.detect import estimate_librosa_metadata
-                estimates = estimate_librosa_metadata(filepath)
-                if estimates.get("estimated_bpm") is not None:
-                    row["bpm"] = estimates["estimated_bpm"]
-                if estimates.get("estimated_key") is not None:
-                    row["key"] = estimates["estimated_key"]
-                if estimates.get("duration_sec") is not None and not row.get("duration_sec"):
-                    row["duration_sec"] = estimates["duration_sec"]
-
+        except Exception as e:
             if not quiet:
-                bpm_str = row.get("bpm") or "-"
-                print(f"  {os.path.basename(filepath):40s} BPM={bpm_str}", file=sys.stderr)
-            if verbose:
-                _vlog(f"    format={row.get('format')} "
-                      f"key={row.get('key') or '-'} "
-                      f"dur={row.get('duration_sec') or '-'}")
+                print(f"  [skip] {file}: {e}", file=sys.stderr)
+            continue
 
-            rows.append(row)
-            count += 1
-            if count >= num:
-                break
+        # Chunk filter. `and seen` made this a no-op for any format with no
+        # chunks -- a tagged MP3 or an AppleDouble stub returns seen == [],
+        # so the filter was skipped and the row kept. `--has acid` returned
+        # 95 rows where two independent counts (survey, and the index's own
+        # `chunks` column) both say 80: 13 MP3s, an MP4 and a resource-fork
+        # stub passed a RIFF-chunk filter. A file with no chunks cannot
+        # contain the one you asked for.
+        if wanted:
+            upper_seen = {s.upper() for s in seen}
+            if not (upper_seen & wanted):
+                continue
+
+        # optional ML features
+        if do_features:
+            from acidcat.core.analysis.features import extract_audio_features
+            if not quiet:
+                print(f"  [features] {os.path.basename(filepath)}...", file=sys.stderr)
+            feats = extract_audio_features(filepath)
+            if feats:
+                row.update(feats)
+
+        # fallback BPM/key via librosa
+        if do_fallback and not row.get("bpm"):
+            from acidcat.core.analysis.detect import estimate_librosa_metadata
+            estimates = estimate_librosa_metadata(filepath)
+            if estimates.get("estimated_bpm") is not None:
+                row["bpm"] = estimates["estimated_bpm"]
+            if estimates.get("estimated_key") is not None:
+                row["key"] = estimates["estimated_key"]
+            if estimates.get("duration_sec") is not None and not row.get("duration_sec"):
+                row["duration_sec"] = estimates["duration_sec"]
+
+        if not quiet:
+            bpm_str = row.get("bpm") or "-"
+            print(f"  {os.path.basename(filepath):40s} BPM={bpm_str}", file=sys.stderr)
+        if verbose:
+            _vlog(f"    format={row.get('format')} "
+                  f"key={row.get('key') or '-'} "
+                  f"dur={row.get('duration_sec') or '-'}")
+
+        # `format` the registry id and `label` its display label, as every
+        # verb's JSON names a format (cli-2.0.md section 4.1)
+        from acidcat.commands._output import format_of
+        fo = format_of(filepath)
+        row["format"] = fo["format"] or row.get("format")
+        row["label"] = fo["label"]
+        rows.append(row)
+        count += 1
         if count >= num:
             break
 
     if not rows:
         if not quiet:
-            print("acidcat scan: No audio files found.", file=sys.stderr)
-        return 0
+            print("acidcat stats: No audio files found.", file=sys.stderr)
+        if getattr(args, "output_format", None) == "json":
+            # no rows is still an array: `| jq` reads it like any other answer
+            if getattr(args, "output", None):
+                with open(args.output, "w", encoding="utf-8", newline="") as fh:
+                    fh.write("[]\n")
+            else:
+                print("[]")
+        # nothing its mode reads is the answer no, as --by shape and --by
+        # chunks say it (review V7)
+        return 1
 
     # fieldnames: core set, then any extras from features
     base_fieldnames = [
-        "filename", "format", "bpm", "key", "duration_sec",
+        "path", "format", "label", "bpm", "key", "duration_sec",
         "title", "artist",
         "acid_beats", "expected_duration", "duration_diff", "chunks",
     ]
@@ -265,13 +293,21 @@ def run(args):
     # The default is unchanged (a CSV file) because scripts depend on it.
     fmt = getattr(args, "output_format", None)
     if fmt in ("json", "table"):
-        from acidcat.core.infra.render import output as _render
+        from acidcat.core.infra.render import format_columns, output as _render
         shaped = [{k: r.get(k) for k in fieldnames} for r in rows]
         stream = sys.stdout
         if getattr(args, "output", None):
             stream = open(args.output, "w", encoding="utf-8", newline="")
         try:
-            _render(shaped, fmt=fmt, stream=stream)
+            if fmt == "table":
+                # one line per file: a record per file was thousands of lines
+                # over a real library (every field is in --json and --csv)
+                format_columns(shaped, [("path", "file"), ("format", "format"),
+                                        ("bpm", "bpm"), ("key", "key"),
+                                        ("duration_sec", "seconds"),
+                                        ("chunks", "chunks")], stream)
+            else:
+                _render(shaped, fmt=fmt, stream=stream)
         finally:
             if stream is not sys.stdout:
                 stream.close()
@@ -279,7 +315,10 @@ def run(args):
         # that stopped at -n said nothing about stopping: the machine-readable
         # face was the one that could not tell a complete run from a truncated
         # one. stderr, so the records on stdout stay parseable.
-        if not quiet and count >= num:
+        if getattr(args, "cap_flag", None) and count >= num:
+            from acidcat.commands.stats import cap_note
+            cap_note(num)
+        elif not quiet and count >= num:
             # "may remain": the loop breaks AT the cap without peeking, so a
             # directory holding exactly -n files is indistinguishable from one
             # holding more. Claiming more remain would be a confident guess in
@@ -305,7 +344,7 @@ def run(args):
         # a truncated run and a complete one must not print the same sentence:
         # "500 files" reads as the library's size, not as where we stopped
         cap_note = (f" (stopped at the -n {num} cap; more files may remain)"
-                    if count >= num else "")
+                    if count >= num and not getattr(args, "cap_flag", None) else "")
         # The ABSOLUTE path when there is one. An earlier fix here printed the
         # absolute path because a bare filename left people hunting with
         # `find` -- which made the surprise easier to locate rather than
@@ -313,5 +352,8 @@ def run(args):
         where = f" to {os.path.abspath(output_csv)}" if output_csv else ""
         print(f"\n[INFO] Wrote metadata for {len(rows)} files{where}"
               f"{cap_note}", file=sys.stderr)
+    if getattr(args, "cap_flag", None) and count >= num:
+        from acidcat.commands.stats import cap_note as _cap
+        _cap(num)
 
     return 0

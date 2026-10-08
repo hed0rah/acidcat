@@ -34,6 +34,22 @@ def format_table(data, stream=None):
         stream.write(f"{str(key):<{max_key + 1}} {value}\n")
 
 
+def format_columns(rows, columns, stream=None, blank="-"):
+    """One line per row: `columns` is [(key, heading)], each column as wide as
+    its widest cell, the last one never padded. For per-file listings over a
+    tree, where a key: value record per file is thousands of lines."""
+    if stream is None:
+        stream = sys.stdout
+    cells = [[heading for _k, heading in columns]]
+    for r in rows:
+        cells.append([blank if r.get(k) in (None, "") else str(r.get(k))
+                      for k, _h in columns])
+    widths = [max(len(row[i]) for row in cells) for i in range(len(columns))]
+    for row in cells:
+        stream.write("  ".join(c.ljust(w) for c, w in zip(row[:-1], widths))
+                     + ("  " if len(row) > 1 else "") + row[-1] + "\n")
+
+
 def format_json(data, stream=None, indent=2):
     """Write data as JSON to stream (default stdout)."""
     if stream is None:

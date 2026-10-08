@@ -10,7 +10,6 @@ every fact worth reporting lives in the first hundred bytes or the last few
 hundred.
 """
 
-import os
 import struct
 
 from acidcat.core.formats.dsd import (
@@ -18,8 +17,10 @@ from acidcat.core.formats.dsd import (
     DSF_CHANNEL_LAYOUTS, DSF_CHANNEL_TYPES,
     dsd_duration, dsf_header, rate_name,
 )
-from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect, error, info
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
+from acidcat.core.walk.base import _f, _open, _size
 
 # A DSDIFF is IFF and can nest. Real files are a handful of chunks; the bound
 # is for a crafted one that claims thousands.
@@ -39,7 +40,8 @@ def _id3_fields(payload):
     fields = [_f(None, 0, "id3_version",
                  f"2.{header['major']}.{header['revision']}")]
     for fid, text in frames[:40]:
-        fields.append(_f(None, 0, fid, str(text)[:160]))
+        fields.append(_f(None, 0, fid, str(text)[:160],
+                         text=mp3mod.id3_is_text(fid)))
     return fields, list(warns)
 
 
@@ -48,14 +50,14 @@ def _id3_fields(payload):
 def inspect_dsf(filepath, ctx=None):
     """Sony DSF: four blocks, little-endian, no nesting."""
     ctx = ctx if ctx is not None else {}
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         head = f.read(96)
     chunks, file_warns = [], []
 
     hdr = dsf_header(head)
     if hdr is None:
-        return chunks, ["not a readable DSF header"]
+        return chunks, [defect("magic.mismatch", "not a readable DSF header")]
 
     # ── the DSD block: where the file says it ends, and where its tag is ──
     # Field offsets are relative to payload_base, never to the file. The
@@ -75,12 +77,14 @@ def inspect_dsf(filepath, ctx=None):
     # that is wrong here is the same class of damage as a RIFF with a bad size
     if hdr["total_size"] != file_size:
         dsd_warns.append(
-            f"total_size says {hdr['total_size']:,} bytes, file is "
-            f"{file_size:,} ({hdr['total_size'] - file_size:+,})")
+            defect("count.mismatch",
+                   f"total_size says {hdr['total_size']:,} bytes, file is "
+                   f"{file_size:,} ({hdr['total_size'] - file_size:+,})"))
     if hdr["metadata_offset"] > file_size:
         dsd_warns.append(
-            f"metadata_offset {hdr['metadata_offset']:,} is past the end of "
-            f"the file ({file_size:,})")
+            defect("pointer.dangling",
+                   f"metadata_offset {hdr['metadata_offset']:,} is past the end of "
+                   f"the file ({file_size:,})"))
     chunks.append({"id": "DSD ", "offset": 0, "size": 28,
                    "summary": f"{hdr['total_size']:,} bytes total",
                    "fields": dsd_fields, "warnings": dsd_warns,
@@ -116,24 +120,30 @@ def inspect_dsf(filepath, ctx=None):
     ]
     fmt_warns = []
     if hdr["version"] != 1:
-        fmt_warns.append(f"format_version is {hdr['version']}; only 1 is defined")
+        fmt_warns.append(defect("value.invalid",
+                                f"format_version is {hdr['version']}; only 1 is defined"))
     if hdr["format_id"] != 0:
-        fmt_warns.append(f"format_id is {hdr['format_id']}; only 0 (DSD raw) "
-                         f"is defined")
+        fmt_warns.append(defect("value.invalid",
+                                f"format_id is {hdr['format_id']}; only 0 (DSD raw) "
+                                f"is defined"))
     if bits not in (1, 8):
-        fmt_warns.append(f"bits_per_sample is {bits}; DSD defines 1 and 8")
+        fmt_warns.append(defect("value.invalid",
+                                f"bits_per_sample is {bits}; DSD defines 1 and 8"))
     if layout and len(layout) != chans:
         fmt_warns.append(
-            f"channel_type {ctype} is {DSF_CHANNEL_TYPES.get(ctype, '?')} "
-            f"({len(layout)} channels) but channels says {chans}")
+            defect("field.inconsistent",
+                   f"channel_type {ctype} is {DSF_CHANNEL_TYPES.get(ctype, '?')} "
+                   f"({len(layout)} channels) but channels says {chans}"))
     if rate and rate not in (2822400, 5644800, 11289600, 22579200, 45158400,
                              3072000, 6144000, 12288000):
-        fmt_warns.append(f"sample_rate {rate:,} is not a defined DSD rate")
+        fmt_warns.append(defect("value.invalid",
+                                f"sample_rate {rate:,} is not a defined DSD rate"))
     if hdr["block_size"] != DSF_BLOCK_SIZE:
-        fmt_warns.append(f"block_size is {hdr['block_size']}, not the "
-                         f"{DSF_BLOCK_SIZE} the spec fixes")
+        fmt_warns.append(defect("value.invalid",
+                                f"block_size is {hdr['block_size']}, not the "
+                                f"{DSF_BLOCK_SIZE} the spec fixes"))
     if hdr["reserved"]:
-        fmt_warns.append("the reserved field is not zero")
+        fmt_warns.append(defect("reserved.nonzero", "the reserved field is not zero"))
 
     dur = dsd_duration(hdr["sample_count"], rate)
     if dur:
@@ -159,12 +169,13 @@ def inspect_dsf(filepath, ctx=None):
     data_off = 28 + hdr["fmt_size"]
     if not (0 < data_off <= file_size):
         file_warns.append(
-            f"fmt chunk_size {hdr['fmt_size']:,} puts the data block at "
-            f"0x{data_off:x}, outside a {file_size:,}-byte file")
+            defect("size.overrun",
+                   f"fmt chunk_size {hdr['fmt_size']:,} puts the data block at "
+                   f"0x{data_off:x}, outside a {file_size:,}-byte file"))
         for entry in chunks:
             file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
         return chunks, file_warns
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         f.seek(data_off)
         dh = f.read(12)
     if len(dh) >= 12 and dh[:4] == b"data":
@@ -184,28 +195,30 @@ def inspect_dsf(filepath, ctx=None):
                f"{audio * 8 // max(chans, 1):,} bits per channel"),
         ]
         if data_off + dsize > file_size:
-            dwarns.append(
+            dwarns.append(defect(
+                "size.overrun",
                 f"data claims {dsize:,} bytes at 0x{data_off:x} but only "
-                f"{file_size - data_off:,} remain (file is truncated)")
+                f"{file_size - data_off:,} remain (file is truncated)"))
         elif expect and abs(audio - expect) > DSF_BLOCK_SIZE * chans:
             # one bit per sample: bytes = samples/8 per channel, rounded up to
             # the fixed block. A gap wider than one block on every channel
             # means the count and the bytes disagree about something real.
             dwarns.append(
-                f"data holds {audio:,} bytes; {hdr['sample_count']:,} samples "
-                f"at 1 bit across {chans} channel(s) is {expect:,}")
+                defect("count.mismatch",
+                       f"data holds {audio:,} bytes; {hdr['sample_count']:,} samples "
+                       f"at 1 bit across {chans} channel(s) is {expect:,}"))
         chunks.append({"id": "data", "offset": data_off, "size": dsize,
                        "summary": f"{audio:,} bytes of one-bit stream",
                        "fields": dfields, "warnings": dwarns,
                        "payload_base": data_off + 12,
                        "payload_len": audio, "extent_len": dsize})
     else:
-        file_warns.append(f"no data block at 0x{data_off:x}")
+        file_warns.append(defect("required.missing", f"no data block at 0x{data_off:x}"))
 
     # ── the tag, which the header points at ──────────────────────────
     meta = hdr["metadata_offset"]
     if meta and meta < file_size:
-        with open(filepath, "rb") as f:
+        with _open(filepath) as f:
             f.seek(meta)
             tag = f.read(min(_TAG_CAP, file_size - meta))
         fields, warns = _id3_fields(tag)
@@ -227,7 +240,7 @@ def _dsdiff_prop(payload):
     """The PROP chunk's local chunks: rate, channels, compression, start."""
     fields, warns = [], []
     if len(payload) < 4:
-        return "truncated", fields, ["PROP is under 4 bytes"]
+        return "truncated", fields, [defect("chunk.short", "PROP is under 4 bytes")]
     ptype = payload[:4]
     fields.append(_f(0x00, 4, "property_type", ptype.decode("latin-1"),
                      "sound properties" if ptype == b"SND " else "unknown"))
@@ -259,8 +272,9 @@ def _dsdiff_prop(payload):
             fields.append(_f(pos, 12 + size, "channels", count,
                              ", ".join(names)))
             if count > _CHANNEL_LIST_CAP:
-                warns.append(coverage(f"listing the first {_CHANNEL_LIST_CAP} "
-                                      f"of {count} channels"))
+                warns.append(hit("list_rows", _CHANNEL_LIST_CAP, count,
+                                 f"listing the first {_CHANNEL_LIST_CAP} "
+                                 f"of {count} channels"))
             bits.append(f"{count}ch")
         elif cid == b"CMPR" and len(body) >= 5:
             ident = body[:4]
@@ -336,7 +350,7 @@ def _dsdiff_comt(payload, chans):
     """
     fields, warns = [], []
     if len(payload) < 2:
-        return "truncated", fields, ["COMT is under 2 bytes"]
+        return "truncated", fields, [defect("chunk.short", "COMT is under 2 bytes")]
     count = struct.unpack_from(">H", payload, 0)[0]
     fields.append(_f(0x00, 2, "comments", count))
     pos, shown, bits = 2, 0, []
@@ -366,10 +380,12 @@ def _dsdiff_comt(payload, chans):
     # many were READ is the truncation finding; how many were LISTED is the
     # coverage note, and a damaged chunk earns both.
     if shown < min(count, _COMMENT_CAP):
-        warns.append(f"declares {count} comments, {shown} fit in the chunk")
+        warns.append(defect("size.overrun",
+                            f"declares {count} comments, {shown} fit in the chunk"))
     if count > _COMMENT_CAP and shown >= _COMMENT_CAP:
-        warns.append(coverage(f"listing the first {_COMMENT_CAP} of {count} "
-                              f"comments"))
+        warns.append(hit("list_rows", _COMMENT_CAP, count,
+                         f"listing the first {_COMMENT_CAP} of {count} "
+                         f"comments"))
     return (" | ".join(bits) if bits else f"{count} comment(s)"), fields, warns
 
 
@@ -416,8 +432,9 @@ def _dsdiff_diin(payload):
                              f"{size:,} bytes"))
         pos += 12 + size + (size & 1)
     if marks > _MARKER_CAP:
-        warns.append(coverage(f"listing the first {_MARKER_CAP} of {marks} "
-                              f"markers"))
+        warns.append(hit("list_rows", _MARKER_CAP, marks,
+                         f"listing the first {_MARKER_CAP} of {marks} "
+                         f"markers"))
     if marks:
         bits.append(f"{marks} marker(s)")
     return (", ".join(bits) if bits else f"{n} chunk(s)"), fields, warns
@@ -459,16 +476,19 @@ def _dst_sound(payload, size, ctx):
         if csize == 0 and cid != b"DSTF":
             break
     if frames is None:
-        warns.append("no FRTE chunk: a DST stream states its length there and "
-                     "nowhere else")
+        warns.append(defect("required.missing",
+                            "no FRTE chunk: a DST stream states its length there and "
+                            "nowhere else"))
     elif counted and counted != frames:
         # only trustworthy when the whole chunk was read; a capped read sees
         # fewer frames than the file holds and that is not a finding
         if len(payload) >= size:
-            warns.append(f"FRTE declares {frames:,} frames, {counted:,} DSTF "
-                         f"chunks follow")
+            warns.append(defect("count.mismatch",
+                                f"FRTE declares {frames:,} frames, {counted:,} DSTF "
+                                f"chunks follow"))
     if n >= _MAX_CHUNKS:
-        warns.append(coverage(f"stopped after {_MAX_CHUNKS} DST chunks"))
+        warns.append(hit("work_steps", _MAX_CHUNKS, n,
+                         f"stopped after {_MAX_CHUNKS} DST chunks"))
     if frames and rate and ctx is not None:
         ctx.setdefault("duration", frames / rate)
     summary = f"DST lossless, {size:,} bytes"
@@ -482,21 +502,22 @@ def _dst_sound(payload, size, ctx):
 def inspect_dsdiff(filepath, ctx=None):
     """Philips DSDIFF: IFF with 64-bit sizes, big-endian throughout."""
     ctx = ctx if ctx is not None else {}
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     chunks, file_warns = [], []
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         head = f.read(16)
         if len(head) < 16:
-            return chunks, ["file is shorter than a FRM8 header"]
+            return chunks, [defect("header.truncated", "file is shorter than a FRM8 header")]
         declared = struct.unpack_from(">Q", head, 4)[0]
         # FRM8 counts everything after its own 12-byte header, so the file is
         # declared + 12. Wave64 counts its header IN, which is exactly the
         # kind of disagreement that makes one reader wrong about the other.
         if declared + 12 != file_size:
             file_warns.append(
-                f"FRM8 size says {declared:,} bytes ({declared + 12:,} with "
-                f"its header), file is {file_size:,} "
-                f"({declared + 12 - file_size:+,})")
+                defect("count.mismatch",
+                       f"FRM8 size says {declared:,} bytes ({declared + 12:,} with "
+                       f"its header), file is {file_size:,} "
+                       f"({declared + 12 - file_size:+,})"))
         chunks.append({
             "id": "FRM8", "offset": 0, "size": declared,
             "summary": f"DSDIFF, {declared:,} bytes",
@@ -527,9 +548,10 @@ def inspect_dsdiff(filepath, ctx=None):
                      "payload_base": pos + 12, "payload_len": size,
                      "extent_len": 12 + size}
             if pos + 12 + size > file_size:
-                entry["warnings"].append(
+                entry["warnings"].append(defect(
+                    "size.overrun",
                     f"claims {size:,} bytes but only "
-                    f"{max(0, file_size - pos - 12):,} remain")
+                    f"{max(0, file_size - pos - 12):,} remain"))
             read = min(size, _TAG_CAP)
             payload = f.read(read) if read else b""
             try:
@@ -538,9 +560,14 @@ def inspect_dsdiff(filepath, ctx=None):
                     entry["fields"] = [_f(0x00, 4, "version",
                                           f"{a}.{b}.{c}.{d}")]
                     entry["summary"] = f"DSDIFF version {a}.{b}"
-                    if (a, b) != (1, 5):
+                    # every 1.x revision is read the same way; an earlier one
+                    # is worth saying, not damage (FFmpeg's DST sample is 1.4)
+                    if a != 1:
                         entry["warnings"].append(
-                            f"version {a}.{b}; the published spec is 1.5")
+                            defect("value.invalid", f"version {a}.{b}; the published spec is 1.5"))
+                    elif b != 5:
+                        entry["warnings"].append(
+                            info("convention.noted", f"version {a}.{b}; the published spec is 1.5"))
                 elif cid == b"PROP":
                     entry["summary"], entry["fields"], entry["warnings"] = \
                         _dsdiff_prop(payload)
@@ -575,9 +602,10 @@ def inspect_dsdiff(filepath, ctx=None):
                                           "one per DST frame: offset and "
                                           "length, for seeking")]
                     if size % 12:
-                        entry["warnings"].append(
+                        entry["warnings"].append(defect(
+                            "length.misaligned",
                             f"{size:,} bytes is not a whole number of 12-byte "
-                            f"index entries")
+                            f"index entries"))
                 elif cid == b"MANF":
                     entry["summary"] = (
                         f"manufacturer-specific, {size:,} bytes")
@@ -590,7 +618,7 @@ def inspect_dsdiff(filepath, ctx=None):
                     entry["summary"] = f"{size:,} bytes"
             except Exception as e:                      # noqa: BLE001
                 entry["warnings"].append(
-                    f"parse error: {e.__class__.__name__}: {e}")
+                    error("walker.error", f"parse error: {e.__class__.__name__}: {e}"))
             chunks.append(entry)
             step = 12 + size + (size & 1)               # IFF pad rule, kept
             if step <= 12:
@@ -598,7 +626,8 @@ def inspect_dsdiff(filepath, ctx=None):
             pos += step
 
     if n >= _MAX_CHUNKS:
-        file_warns.append(coverage(f"stopped after {_MAX_CHUNKS} chunks"))
+        file_warns.append(hit("work_steps", _MAX_CHUNKS, n,
+                              f"stopped after {_MAX_CHUNKS} chunks"))
     for entry in chunks:
         file_warns.extend(w for w in entry["warnings"] if is_coverage(w))
     # carry the sound properties out for the scan row

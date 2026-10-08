@@ -1,17 +1,16 @@
 """NI Compressed Wave (.ncw) structural walker: audio parameters from
 the header; the compressed blocks are opaque."""
 
-import os
 
 from acidcat.core.codecs import ncw as ncwmod
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 def inspect_ncw(filepath):
     """Structural view of an NI Compressed Wave (.ncw) file: the audio
     parameters from the header. The compressed blocks are opaque."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         head = f.read(64)
     hdr = ncwmod.parse_header(head)
     if hdr is None:

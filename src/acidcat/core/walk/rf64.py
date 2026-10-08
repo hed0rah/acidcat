@@ -5,17 +5,18 @@ sentinels resolved through the ds64 chunk. Reuses the RIFF per-chunk
 parsers for everything but ds64.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _u32
+from acidcat.core.infra.findings import defect, error
+from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _u32, _open, _size
 from acidcat.core.walk.wav import _PARSERS, _parse_data
 
 def _parse_ds64(b, ctx):
     """EBU Tech 3306: 64-bit size overrides for RF64."""
     fields, warns = [], []
     if len(b) < 28:
-        return "truncated", fields, [f"ds64 payload is {len(b)} bytes, spec minimum is 28"]
+        return "truncated", fields, [defect("chunk.short",
+                                            f"ds64 payload is {len(b)} bytes, spec minimum is 28")]
     riff_size, data_size, sample_count = struct.unpack_from("<QQQ", b, 0)
     table_len = _u32(b, 24)
     fields.append(_f(0x00, 8, "riff_size", f"{riff_size:,}"))
@@ -32,8 +33,9 @@ def _parse_ds64(b, ctx):
     tpos = 28
     for i in range(table_len):
         if tpos + 12 > len(b):
-            warns.append(f"declares {table_len} override entries but payload "
-                         f"ends at entry {i}")
+            warns.append(defect("size.overrun",
+                                f"declares {table_len} override entries but payload "
+                                f"ends at entry {i}"))
             break
         ent_id = b[tpos:tpos + 4].decode("ascii", errors="replace")
         ent_size = struct.unpack_from("<Q", b, tpos + 4)[0]
@@ -44,9 +46,10 @@ def _parse_ds64(b, ctx):
         ctx["ds64_table"] = table
     file_size = ctx.get("file_size")
     if file_size is not None and data_size > file_size:
-        warns.append(
+        warns.append(defect(
+            "size.overrun",
             f"data_size {data_size:,} exceeds the whole file "
-            f"({file_size:,} bytes)")
+            f"({file_size:,} bytes)"))
     return f"64-bit sizes: data {data_size:,} bytes", fields, warns
 
 
@@ -55,24 +58,26 @@ def inspect_rf64(filepath):
     fields are 0xFFFFFFFF sentinels resolved through the ds64 chunk,
     which must be the first chunk.
     """
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     ctx = {"file_size": file_size}
     chunks = []
     file_warns = []
     seen = []
     sentinel = 0xFFFFFFFF
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12:
             # reachable via fmt_override, which promises to degrade like any
             # other walk; wav.py has the same guard for the same reason
-            return chunks, [f"file is {len(hdr)} bytes; an RF64 header needs 12"]
+            return chunks, [defect("header.truncated",
+                                   f"file is {len(hdr)} bytes; an RF64 header needs 12")]
         riff_size = struct.unpack("<I", hdr[4:8])[0]
         if riff_size != sentinel:
             file_warns.append(
-                f"RF64 header size is {riff_size:#x}, spec says the "
-                f"0xffffffff sentinel"
+                defect("value.invalid",
+                       f"RF64 header size is {riff_size:#x}, spec says the "
+                       f"0xffffffff sentinel")
             )
 
         pos = 12
@@ -91,8 +96,9 @@ def inspect_rf64(filepath):
                     real_size = ctx["ds64_table"][cid]
                 else:
                     file_warns.append(
-                        f"chunk {cid!r} carries the 64-bit sentinel but "
-                        f"ds64 provides no override"
+                        defect("required.missing",
+                               f"chunk {cid!r} carries the 64-bit sentinel but "
+                               f"ds64 provides no override")
                     )
                     break
             seen.append(cid)
@@ -114,7 +120,8 @@ def inspect_rf64(filepath):
                 else:
                     entry["summary"] = f"unparsed, first bytes: {payload[:16].hex(' ')}"
             except Exception as e:
-                entry["warnings"] = [f"parse error: {e.__class__.__name__}: {e}"]
+                entry["warnings"] = [error("walker.error",
+                                           f"parse error: {e.__class__.__name__}: {e}")]
             chunks.append(entry)
 
             pos += 8 + real_size
@@ -122,10 +129,12 @@ def inspect_rf64(filepath):
                 pos += 1
 
     if seen and seen[0] != "ds64":
-        file_warns.append("first chunk is not ds64, violating EBU Tech 3306")
+        file_warns.append(defect("chunk.order",
+                                 "first chunk is not ds64, violating EBU Tech 3306"))
     riff64 = ctx.get("ds64_riff_size")
     if riff64 and riff64 + 8 != file_size:
         file_warns.append(
-            f"ds64 riff_size says {riff64 + 8:,} bytes, file is {file_size:,}"
+            defect("count.mismatch",
+                   f"ds64 riff_size says {riff64 + 8:,} bytes, file is {file_size:,}")
         )
     return chunks, file_warns

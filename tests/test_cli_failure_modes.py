@@ -43,7 +43,8 @@ def test_unwritable_output_reports_failure(tmp_path, capsys):
     src.write_bytes(bytes(64))
     rc = main(["carve", str(src), "--offset", "0", "--length", "8",
                "-o", str(tmp_path / "q?w.bin")])
-    assert rc == 1, "a write that produced no file exited as success"
+    # could-not-run is 2: the output cannot be written, nothing was answered
+    assert rc == 2, "a write that produced no file exited as success"
     assert "acidcat carve:" in capsys.readouterr().err
 
 
@@ -53,8 +54,20 @@ def test_every_registered_verb_is_shadow_guarded():
     shadowed the verb and ran `scan` on the directory instead."""
     parser = _build_parser()
     assert set(parser._sub.choices) == SUBCOMMANDS
-    for expected in ("wrap", "census", "locate", "carve", "audit"):
+    for expected in ("stats", "locate", "carve", "audit", "edit"):
         assert expected in SUBCOMMANDS
+    # census is an alias of `stats --by chunks` in 2.0; the alias table guards it
+    from acidcat.cli import _bare_path
+    assert _bare_path(["census", "x"]) is None
+
+
+def test_an_alias_verb_is_shadow_guarded_too(tmp_path, monkeypatch):
+    """A 1.8 verb name is an alias through 2.x, so a directory called
+    `validate` must not turn `acidcat validate` into `acidcat stats validate`."""
+    from acidcat.cli import _bare_path
+    (tmp_path / "validate").mkdir()
+    monkeypatch.chdir(tmp_path)
+    assert _bare_path(["validate", "x.wav"]) is None
 
 
 def test_a_directory_named_after_a_verb_does_not_shadow_it(tmp_path, monkeypatch, capsys):

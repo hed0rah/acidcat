@@ -40,10 +40,11 @@ pedantry: three quarters of the corpus is at some other rate, and a fixed
 assumption resamples most of a game's sound set wrong.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import _f, _open, _size
+from acidcat.core.infra.findings import coded, defect
 
 _HDR = 8
 _FORMAT_PCM = 3
@@ -85,8 +86,9 @@ def parse_dmx(data, size=None):
     body = data[_HDR:]
     if _HDR + count != size:
         warns.append(
-            f"the header declares {count:,} bytes after it and the lump holds "
-            f"{max(0, size - _HDR):,}; reading what is there")
+            defect("count.mismatch",
+                   f"the header declares {count:,} bytes after it and the lump holds "
+                   f"{max(0, size - _HDR):,}; reading what is there"))
         count = min(count, len(body))
     # Padding is a property of the writer, not of the format, so it is reported
     # rather than removed: the samples the caller gets are the ones the lump
@@ -99,26 +101,28 @@ def parse_dmx(data, size=None):
 
 
 def inspect_dmx(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    file_size = _size(filepath)
+    with _open(filepath) as fh:
         data = fh.read(min(file_size, _READ_CAP))
     if not looks_like_dmx(data, file_size):
-        return [], ["not a DMX sound (Doom DS* lump)"]
+        return [], [defect("magic.mismatch", "not a DMX sound (Doom DS* lump)")]
 
     info = parse_dmx(data, file_size)
     file_warns = list(info["warnings"])
     if file_size > _READ_CAP:
-        file_warns.append(
+        file_warns.append(hit(
+            "read_bytes", _READ_CAP, file_size,
             f"lump is {file_size:,} bytes; only the first "
-            f"{_READ_CAP // (1024 * 1024)} MB was read")
+            f"{_READ_CAP // (1024 * 1024)} MB was read"))
 
     secs = info["count"] / float(info["rate"]) if info["rate"] else None
     warns = []
     if info["format"] != _FORMAT_PCM:
-        warns.append(f"format {info['format']} is not the 3 every shipped "
-                     f"sound carries; these samples may not be linear PCM")
+        warns.append(coded("layout.unmeasured",
+                           f"format {info['format']} is not the 3 every shipped "
+                            f"sound carries; these samples may not be linear PCM"))
     if info["count"] == 0:
-        warns.append("the lump carries no samples")
+        warns.append(defect("required.missing", "the lump carries no samples"))
 
     chunks = [{
         "id": "DMX", "offset": 0, "size": _HDR,

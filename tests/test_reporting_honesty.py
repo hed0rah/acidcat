@@ -26,26 +26,29 @@ def test_survey_distinguishes_absent_from_unreadable(tmp_path, capsys):
     statements at once. For a specimen hunter, unparseable is the find."""
     for n in ("b1.wav", "b2.wav", "b3.wav"):
         (tmp_path / n).write_bytes(b"RIFF\x10\x00\x00\x00WAVEjunk")
-    main(["survey", str(tmp_path)])
+    # survey is `stats --by chunks` in 2.0, and the census report keeps this
+    assert main(["survey", str(tmp_path)]) == 1
     out = capsys.readouterr().out
     assert "3 unparseable" in out
-    assert "none readable as RIFF" in out
-    assert "no RIFF/WAV files found" not in out
+    assert "none with a readable chunk" in out
+    assert "no IFF-family files found" not in out
 
 
 def test_survey_counts_unparseable_alongside_good_files(tmp_path, capsys):
     (tmp_path / "good.wav").write_bytes(_wav())
     (tmp_path / "bad.wav").write_bytes(b"RIFF\x10\x00\x00\x00WAVEjunk")
-    main(["survey", str(tmp_path)])
+    assert main(["survey", str(tmp_path)]) == 0
     out = capsys.readouterr().out
-    assert "1 WAV files scanned, 1 unparseable" in out
+    assert "2 IFF-family, 1 unparseable" in out
 
 
 def test_survey_says_when_the_cap_stopped_it(tmp_path, capsys):
     for i in range(4):
         (tmp_path / f"f{i}.wav").write_bytes(_wav())
     main(["survey", str(tmp_path), "-n", "2"])
-    assert "stopped at the -n 2 cap" in capsys.readouterr().out
+    got = capsys.readouterr()
+    assert "stopped at --max-files 2" in got.err
+    assert "counts from the first 2 file(s) only" in got.out
 
 
 def test_validate_does_not_call_a_library_consistent_when_files_were_unreadable(

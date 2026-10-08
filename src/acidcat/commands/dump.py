@@ -38,8 +38,8 @@ def run(args):
     from acidcat.util.stdin import resolved_input
     with resolved_input(args.target) as _p:
         if _p is None:
-            print("acidcat dump: no data on stdin", file=sys.stderr)
-            return 1
+            print("acidcat od: no data on stdin", file=sys.stderr)
+            return 2
         args.target = _p
         return _run(args)
 
@@ -47,7 +47,7 @@ def run(args):
 def _run(args):
     filepath = args.target
     if not os.path.isfile(filepath):
-        print(f"acidcat dump: {filepath}: No such file", file=sys.stderr)
+        print(f"acidcat od: {filepath}: No such file", file=sys.stderr)
         return 2
 
     # RIFF chunk IDs are always 4 bytes -- pad short names (e.g. "fmt" -> "fmt ")

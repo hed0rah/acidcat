@@ -5,6 +5,9 @@ The magic check, the VLQ decode, and the whole-file read cap the MIDI
 walker (core/walk/midi.py) consumes. Event parsing lives in the walker.
 """
 
+from acidcat.core.infra.source import open_input
+
+
 # bound the whole-file read: real SMFs are kilobytes to a few MB, and
 # even pathological "black MIDI" renders stay well under this. a forged
 # multi-GB .mid must not OOM the indexer (threat model is DoS).
@@ -14,7 +17,7 @@ MAX_SMF_BYTES = 256 * 1024 * 1024
 def is_midi(filepath):
     """Check if file is a Standard MIDI File."""
     try:
-        with open(filepath, "rb") as f:
+        with open_input(filepath) as f:
             return f.read(4) == b"MThd"
     except Exception:
         return False

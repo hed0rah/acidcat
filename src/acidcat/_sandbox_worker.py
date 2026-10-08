@@ -19,9 +19,11 @@ def main(argv=None):
         sys.stdout.write(json.dumps({"ok": False, "err": "no input path"}))
         return 0
     try:
+        from acidcat.core.primitives.notes import to_wire
         from acidcat.core.walk import walk_file
         label, chunks, warns = walk_file(paths[0], deep=deep)
-        out = {"ok": True, "label": label, "chunks": chunks, "warns": warns}
+        out = {"ok": True, "label": label, "chunks": to_wire(chunks),
+               "warns": to_wire(warns)}
     except MemoryError:
         out = {"ok": False, "err": "memory limit exceeded"}
     except BaseException as e:                       # incl. Unsupported, walker bugs

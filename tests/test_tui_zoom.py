@@ -124,9 +124,8 @@ def test_zoom_is_reachable_from_the_footer_and_the_help(wav):
     assert "z" in shown
     assert len(shown) <= 14, f"footer shows {len(shown)}, too many to read"
 
-    from acidcat.tui_app.screens import HelpScreen
-    import inspect
-    assert '("z"' in inspect.getsource(HelpScreen)
+    keys = [k for _a, rows in AcidcatTUI._help_sections() for k, _d in rows]
+    assert "z" in keys
 
 
 def test_the_hex_row_never_wraps_at_any_width(wav):
@@ -162,21 +161,21 @@ def test_the_detail_pane_never_changes_height(wav):
     #detail was `height: auto`, so a summary long enough to wrap grew the pane
     and stole a row from the hex view below it -- the visible symptom being
     that the hex pane resized when you selected a different chunk. It is a
-    two-line status now, fixed, and a long line clips.
+    fixed pane now (2.0: the field inspector, #inspect), and a long line clips.
     """
     async def scenario():
         for cols in (100, 120, 140, 200):
             app = AcidcatTUI(wav)
             async with app.run_test(size=(cols, 44)) as pilot:
                 await pilot.pause()
-                d = app.query_one("#detail")
+                d = app.query_one("#inspect")
                 seen = set()
                 for _ in range(8):
                     await pilot.press("down")
                     await pilot.pause()
                     seen.add(d.content_size.height)
                 assert len(seen) == 1, (
-                    f"{cols} cols: #detail took heights {sorted(seen)} across "
+                    f"{cols} cols: #inspect took heights {sorted(seen)} across "
                     f"nodes -- the layout jumps")
     _run(scenario)
 
@@ -233,14 +232,21 @@ def test_the_two_columns_are_symmetric(wav):
             async with app.run_test(size=(cols, rows)) as pilot:
                 await pilot.pause()
                 idbox = app.query_one("#idbox").region
-                detail = app.query_one("#detail").region
+                detail = app.query_one("#inspect").region
                 tree = app.query_one("#tree").region
                 hexw = app.query_one("#hexwrap").region
                 assert idbox.y == detail.y, f"{cols}x{rows}: top boxes start on different rows"
                 assert idbox.height == detail.height, f"{cols}x{rows}: top boxes differ in height"
                 assert tree.y == hexw.y, f"{cols}x{rows}: tree and hex start on different rows"
-                assert tree.height == hexw.height, f"{cols}x{rows}: tree and hex differ in height"
-                assert tree.width == hexw.width, f"{cols}x{rows}: columns differ in width"
+                # 2.0: the left column's lower half is the tree plus the data
+                # inspector under it, and together they match the hex pane
+                data = app.query_one("#data").region
+                assert tree.height + data.height == hexw.height, (
+                    f"{cols}x{rows}: tree + data inspector and hex differ in height")
+                # 2.0: 35/65, not half and half -- the bytes need the room
+                left = app.query_one("#left").region.width
+                assert abs(left - round(cols * 0.35)) <= 1, (
+                    f"{cols}x{rows}: the tree column is {left}, not 35%")
     _run(scenario)
 
 
@@ -318,10 +324,14 @@ def test_a_visualization_redraws_when_the_pane_changes_size(wav):
 
 def test_the_hilbert_map_grows_into_a_zoomed_pane(wav):
     """Order sets how many bytes fold into one cell, so fitting a bigger map
-    to a bigger pane is not cosmetic -- it is more of the file resolved."""
+    to a bigger pane is not cosmetic -- it is more of the file resolved.
+
+    90x50: the map is square, so it grows only where the pane's width is what
+    limits it. At 140 columns the 65% pane (2.0) is already wider than the
+    map is tall, and zooming adds width it cannot use."""
     async def scenario():
         app = AcidcatTUI(wav)
-        async with app.run_test(size=(140, 44)) as pilot:
+        async with app.run_test(size=(90, 50)) as pilot:
             await pilot.pause()
             await pilot.press("b")
             await pilot.press("b")

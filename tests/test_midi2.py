@@ -20,7 +20,8 @@ def _clip():
     return (b"SMF2CLIP"
             + _dcs(0) + _w(0x003001E0)                 # DCTPQ 480
             + _dcs(0) + _w(0xD0100000, 0x02FAF080, 0, 0)   # Set Tempo 120 BPM
-            + _dcs(0) + _w(0xD0100001, 0x04021800, 0, 0)   # Set Time Sig 4/4
+            + _dcs(0) + _w(0xD0100001, 0x04020800, 0, 0)   # 4/4, 8 32nds per quarter
+            #                                              (M2-104-UM 7.5.4)
             + _dcs(0) + _w(0xF0200000, 0, 0, 0)        # Start of Clip
             + _dcs(0) + _w(0x40903C00, 0x80000000)     # Note On note 60 vel 0x8000
             + _dcs(480) + _w(0x40803C00, 0)            # Note Off a quarter later
@@ -41,6 +42,74 @@ def test_ump_utility_and_stream():
     assert ump.decode((0xF0210000, 0, 0, 0))["kind"] == "end_of_clip"
     t = ump.decode((0xD0100000, 0x02FAF080, 0, 0))     # Set Tempo -> 120 BPM
     assert t["kind"] == "set_tempo" and round(t["bpm"]) == 120
+
+
+def test_ump_stream_statuses_follow_the_spec_table():
+    # M2-104-UM v1.1.2 Appendix F. 0x05 and 0x10 were once swapped here.
+    want = {0x00: "endpoint_discovery", 0x01: "endpoint_info", 0x02: "device_identity",
+            0x03: "endpoint_name", 0x04: "product_instance_id",
+            0x05: "stream_config_request", 0x06: "stream_config_notification",
+            0x10: "function_block_discovery", 0x11: "function_block_info",
+            0x12: "function_block_name", 0x20: "start_of_clip", 0x21: "end_of_clip"}
+    for status, kind in want.items():
+        assert ump.decode((0xF0000000 | status << 16, 0, 0, 0))["kind"] == kind
+
+
+def test_ump_poly_pressure_per_note_management_and_mixed_data_set():
+    m = ump.decode((0x40A03C00, 0x12345678))
+    assert (m["kind"], m["note"], m["data"]) == ("poly_pressure", 60, 0x12345678)
+    m = ump.decode((0x40F03C03, 0))
+    assert (m["kind"], m["note"], m["options"]) == ("per_note_management", 60, 3)
+    assert ump.decode((0x50800000, 0, 0, 0))["status"] == "mixed_data_set_header"
+    assert ump.decode((0x50900000, 0, 0, 0))["status"] == "mixed_data_set_payload"
+    # SysEx7 has no Mixed Data Set: the same nibble is not a known status there
+    assert ump.decode((0x30800000, 0))["status"] == "?"
+
+
+def _clip_with(body):
+    return (b"SMF2CLIP" + _dcs(0) + _w(0x003001E0) + _dcs(0) + _w(0xF0200000, 0, 0, 0)
+            + body + _dcs(0) + _w(0xF0210000, 0, 0, 0))
+
+
+def _walk_bytes(tmp_path, data):
+    from acidcat.core.walk import walk_file
+    p = tmp_path / "c.midi2"
+    p.write_bytes(data)
+    _l, chunks, warns = walk_file(str(p))
+    codes = [getattr(w, "code", None) for w in list(warns)
+             + [w for c in chunks for w in c.get("warnings", [])]]
+    return chunks, codes
+
+
+def test_midi2_reports_the_opening_tempo_and_counts_changes(tmp_path):
+    # a real tempo track (Holst's Mars) changes tempo 94 times; the clip opens
+    # at the FIRST one, which is what the summary must say
+    body = (_dcs(0) + _w(0xD0100000, 0x02FAF080, 0, 0)           # 120 BPM
+            + _dcs(480) + _w(0xD0100000, 0x0BEBC200, 0, 0))      # 30 BPM
+    chunks, codes = _walk_bytes(tmp_path, _clip_with(body))
+    assert "120 BPM (+1 changes)" in chunks[1]["summary"]
+    assert not any(f["name"] == "duration" for f in chunks[1]["fields"])
+    assert not codes
+
+
+def test_midi2_joins_text_split_across_packets(tmp_path):
+    # 12 text bytes per UMP: form 1 starts, 2 continues, 3 ends
+    def part(form, text):
+        return _w(0xD0000000 | form << 22 | 1 << 20 | 0x0103) + text.ljust(12, b"\x00")
+    body = (_dcs(0) + part(1, b"acidcat MIDI") + _dcs(0) + part(2, b" 2.0 feature")
+            + _dcs(0) + part(3, b" tour"))
+    chunks, codes = _walk_bytes(tmp_path, _clip_with(body))
+    meta = [f["value"] for f in chunks[1]["fields"] if f["name"] == "meta"]
+    assert meta == ["acidcat MIDI 2.0 feature tour"] and not codes
+
+
+def test_midi2_flags_sysex_out_of_order(tmp_path):
+    cont = _w(0x30220000, 0)                                     # SysEx7 continue, no start
+    chunks, codes = _walk_bytes(tmp_path, _clip_with(_dcs(0) + cont))
+    assert "chunk.order" in codes
+    ok = _w(0x30120000, 0) + _dcs(0) + _w(0x30320000, 0)         # start then end
+    chunks, codes = _walk_bytes(tmp_path, _clip_with(_dcs(0) + ok))
+    assert not codes
 
 
 def test_ump_self_delimiting_walk():

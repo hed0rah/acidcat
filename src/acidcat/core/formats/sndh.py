@@ -33,6 +33,7 @@ so, rather than reading code as text.
 
 import re
 import struct
+from acidcat.core.infra.findings import defect
 
 TAG = b"SNDH"
 TEXT_TAGS = {b"TITL": "title", b"COMM": "composer", b"RIPP": "ripper",
@@ -114,8 +115,9 @@ def parse(image):
         if t4 in TEXT_TAGS:
             s, nxt = _cstr(image, pos + 4, _TEXT_MAX)
             if s is None:
-                r["warnings"].append("the %s tag at 0x%X has no terminator"
-                                     % (t4.decode(), pos))
+                r["warnings"].append(defect("text.invalid",
+                                            "the %s tag at 0x%X has no terminator"
+                                            % (t4.decode(), pos)))
                 break
             tags.append((t4.decode(), pos, nxt - pos, s))
             text[TEXT_TAGS[t4]] = s
@@ -123,8 +125,9 @@ def parse(image):
             continue
         if t2 == b"##" and image[pos + 2:pos + 4].isdigit():
             if early:
-                r["warnings"].append("a per-subtune table comes before ##; it was "
-                                     "read as one subtune")
+                r["warnings"].append(defect("chunk.order",
+                                            "a per-subtune table comes before ##; it was "
+                                            "read as one subtune"))
             subtunes = int(image[pos + 2:pos + 4])
             tags.append(("##", pos, 4, subtunes))
             pos += 4
@@ -164,8 +167,9 @@ def parse(image):
                 for o in offs:
                     s, nxt = _cstr(image, pos + o, _TEXT_MAX)
                     if s is None:
-                        r["warnings"].append("a subtune name offset 0x%X in %s points "
-                                             "at no string" % (o, t4.decode()))
+                        r["warnings"].append(defect("reference.unresolved",
+                                                    "a subtune name offset 0x%X in %s points "
+                                                    "at no string" % (o, t4.decode())))
                         names.append(None)
                         continue
                     names.append(s)
@@ -186,13 +190,17 @@ def parse(image):
     if not hdns:
         header_end += header_end & 1              # the code starts on an even address
     if default is not None and subtunes and not 1 <= default <= subtunes:
-        r["warnings"].append("the default subtune %d is outside 1-%d" % (default, subtunes))
+        r["warnings"].append(defect("value.invalid",
+                                    "the default subtune %d is outside 1-%d"
+                                    % (default, subtunes)))
     for name, target, kind in r["entries"]:
         if target is None:
-            r["warnings"].append("the %s entry is not a branch (%s)" % (name, kind))
+            r["warnings"].append(defect("value.invalid",
+                                        "the %s entry is not a branch (%s)" % (name, kind)))
         elif not 0 <= target < n:
-            r["warnings"].append("the %s entry branches to 0x%X, outside the image"
-                                 % (name, target))
+            r["warnings"].append(defect("pointer.dangling",
+                                        "the %s entry branches to 0x%X, outside the image"
+                                        % (name, target)))
     r.update(ok=True, header_end=min(header_end, n), hdns=hdns, subtunes=subtunes or 1,
              subtunes_tagged=subtunes is not None, default=default, timer=timer,
              times=times, frames=frames, names=names, text=text)

@@ -74,8 +74,9 @@ def test_next_command_quotes_even_without_spaces(tmp_path):
         assert target.startswith('"') and target.endswith('"')
 
 
-def test_file_stays_human_readable(lib):
-    """`file` is for reading, `path` is for running. They are different fields
-    on purpose and must not collapse into each other."""
+def test_the_rows_name_a_file_by_path(lib):
+    """2.0 (cli-2.0.md section 4.1): a machine row names its file by `path`,
+    the one to run things on; the display name is the table's, so there is
+    no `file` beside it to collapse into it."""
     for rec in _classify(lib):
-        assert os.sep not in rec["file"] and "/" not in rec["file"]
+        assert "file" not in rec and rec["path"]

@@ -2,12 +2,12 @@
 box tree, with the stsd sample entries and their codec-config boxes
 (esds/alac/dOps) broken out. Box primitives live in core/mp4.py."""
 
-import os
 import struct
 
 from acidcat.core.formats import mp4 as mp4mod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import _f, _open, _size
 
 _CODEC_NAMES = {"mp4a": "AAC", "alac": "Apple Lossless", "Opus": "Opus",
                 "fLaC": "FLAC", "ac-3": "AC-3", "ec-3": "E-AC-3"}
@@ -206,7 +206,8 @@ def _stco_fields(data, b, file_size):
               _f(0x04, 4, "entry_count", f"{count:,}")]
     warns = []
     if count > avail:
-        warns.append(f"declares {count:,} chunk offsets but payload holds {avail:,}")
+        warns.append(defect("size.overrun",
+                            f"declares {count:,} chunk offsets but payload holds {avail:,}"))
     dangling = 0
     shown = min(count, avail, _STCO_CAP)
     for i in range(min(count, avail)):
@@ -222,7 +223,7 @@ def _stco_fields(data, b, file_size):
     if wide:
         note += ", 64-bit"
     if dangling:
-        warns.append(f"{dangling:,} chunk offset(s) point past EOF")
+        warns.append(defect("pointer.dangling", f"{dangling:,} chunk offset(s) point past EOF"))
         note += f", {dangling:,} dangling"
     if count > _STCO_CAP:
         note += f" (first {_STCO_CAP} annotated)"
@@ -377,22 +378,24 @@ def _capped_note(payload, kind):
     if kind == b"elst":
         h = mp4mod.parse_elst(payload)
         if h and h["capped"]:
-            return coverage("listing the first %d of %d edit-list entries"
-                            % (mp4mod._ELST_ENTRY_CAP, h["count"]))
+            return hit("list_rows", mp4mod._ELST_ENTRY_CAP, h['count'],
+                       "listing the first %d of %d edit-list entries"
+                       % (mp4mod._ELST_ENTRY_CAP, h["count"]))
     elif kind == b"dref":
         h = mp4mod.parse_dref(payload)
         if h and h["capped"]:
-            return coverage("examined the first %d of %d data references, so "
-                            "whether the media is all in this file is not "
-                            "settled" % (mp4mod._DREF_ENTRY_CAP, h["count"]))
+            return hit("list_rows", mp4mod._DREF_ENTRY_CAP, h['count'],
+                       "examined the first %d of %d data references, so "
+                       "whether the media is all in this file is not "
+                       "settled" % (mp4mod._DREF_ENTRY_CAP, h["count"]))
     return None
 
 
 def inspect_mp4(filepath):
     """Structural view of an ISO-BMFF MP4/M4A file: the decoded metadata (from
     udta > meta > ilst and the movie duration) followed by the box tree."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(file_size, _HEAD_WINDOW))  # box tree from the head
         # metadata lives in moov. use the head window when the whole moov fits in
         # it; re-read the full moov when it sits at EOF (non-faststart output) OR
@@ -463,9 +466,11 @@ def inspect_mp4(filepath):
         summary = ". " * b["depth"] + t
         fields = []
         if b["truncated"]:
-            warns.append(f"box {t!r} at 0x{b['offset']:08x} declares "
-                         f"{b.get('declared', 0):,} bytes, which overruns its "
-                         f"parent; {b['size']:,} bytes remain")
+            warns.append(defect(
+                "size.overrun",
+                f"box {t!r} at 0x{b['offset']:08x} declares "
+                f"{b.get('declared', 0):,} bytes, which overruns its "
+                f"parent; {b['size']:,} bytes remain"))
             summary += " (overruns parent)"
             fields.append(_f(0x00, 4, "declared_size", f"{b.get('declared', 0):,}",
                              "larger than what is left; not followed"))

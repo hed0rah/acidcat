@@ -14,13 +14,15 @@ is a multi-gigabyte capture). No numpy: a bounded struct read is enough.
 """
 
 import hashlib
-from acidcat.core.primitives.notes import coverage
 import json
 import os
 import re
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect, environment, info
+from acidcat.core.infra.limits import hit
+from acidcat.core.infra.source import as_source
+from acidcat.core.walk.base import _f, _open
 
 _EXT_KEY_CAP = 48                  # metadata keys to list (mirrors _ZONE_CAP)
 _ANNOTATION_CAP = 64
@@ -41,7 +43,7 @@ _IQ_EXT_GEOMETRY = {
 def _gqrx_name(path):
     """A GQRX capture filename match (gqrx_DATE_TIME_center_rate_fc.raw), or None.
     Shared with sniff() so a bare .raw is accepted only under this convention."""
-    return _GQRX_RE.search(os.path.basename(path))
+    return _GQRX_RE.search(os.path.basename(path or ""))
 
 
 def _parse_datatype(dt):
@@ -86,7 +88,7 @@ def _first_samples(data_path, geo, n=4):
     if not geo:
         return ""
     try:
-        with open(data_path, "rb") as f:
+        with _open(data_path) as f:
             raw = f.read(geo["sample_bytes"] * n)
     except OSError:
         return ""
@@ -110,7 +112,7 @@ def _clip_count(vals, geo):
 def _deep_stats(chunk, data_path, geo):
     """DC offset (I/Q means) and clipping percentage from the first 8 MB."""
     try:
-        with open(data_path, "rb") as f:
+        with _open(data_path) as f:
             raw = f.read(_DEEP_READ)
     except OSError:
         return
@@ -130,7 +132,7 @@ def _deep_stats(chunk, data_path, geo):
 
 def _sha512(data_path):
     h = hashlib.sha512()
-    with open(data_path, "rb") as f:
+    with _open(data_path) as f:
         for blk in iter(lambda: f.read(1 << 20), b""):
             h.update(blk)
     return h.hexdigest()
@@ -157,15 +159,26 @@ def _samples_chunk(data_path, data_size, geo, dt, deep):
     return chunk, n_samp
 
 
-def _pair_paths(path):
-    low = path.lower()
+def _pair_names(name):
+    low = name.lower()
     if low.endswith(".sigmf-meta"):
-        stem = path[:-len(".sigmf-meta")]
+        stem = name[:-len(".sigmf-meta")]
     elif low.endswith(".sigmf-data"):
-        stem = path[:-len(".sigmf-data")]
+        stem = name[:-len(".sigmf-data")]
     else:
-        stem = os.path.splitext(path)[0]
+        stem = os.path.splitext(name)[0]
     return stem + ".sigmf-meta", stem + ".sigmf-data"
+
+
+def _pair(src):
+    """(meta Source, data Source, meta name): the input is one half of the
+    pair and the other is its sibling; either may be None."""
+    name = src.name or ""
+    meta_name, data_name = _pair_names(name)
+    low = name.lower()
+    meta = src if low.endswith(".sigmf-meta") else src.sibling(meta_name)
+    data = src if low.endswith(".sigmf-data") else src.sibling(data_name)
+    return meta, data, meta_name
 
 
 def _num(v):
@@ -177,15 +190,18 @@ def _num(v):
 
 
 def inspect_sigmf(path, deep=False):
-    meta_path, data_path = _pair_paths(path)
+    src = as_source(path)
+    meta, data_src, meta_name = _pair(src)
+    data_path = data_src
     warns = []
     g, captures, annotations, meta_ok = {}, [], [], False
-    if os.path.isfile(meta_path) and os.path.getsize(meta_path) > _META_CAP:
-        warns.append(coverage(f"sidecar exceeds {_META_CAP >> 20} MB; not parsed"))
-    elif os.path.isfile(meta_path):
+    if meta is not None and meta.size > _META_CAP:
+        warns.append(hit("read_bytes", _META_CAP, meta.size,
+                         f"sidecar exceeds {_META_CAP >> 20} MB; not parsed"))
+    elif meta is not None:
         try:
-            with open(meta_path, "r", encoding="utf-8", errors="replace") as f:
-                m = json.loads(f.read(_META_CAP))  # size gated above; bounded read
+            text = meta.read(0, _META_CAP).decode("utf-8", "replace")
+            m = json.loads(text)  # size gated above; bounded read
             if not isinstance(m, dict):
                 raise ValueError("top-level SigMF JSON is not an object")
             g = m.get("global") if isinstance(m.get("global"), dict) else {}
@@ -193,39 +209,49 @@ def inspect_sigmf(path, deep=False):
             annotations = m.get("annotations") if isinstance(m.get("annotations"), list) else []
             meta_ok = True
         except (ValueError, OSError) as e:
-            warns.append(f"sidecar JSON did not parse: {e.__class__.__name__}")
+            warns.append(defect(
+                "parse.failed",
+                f"sidecar JSON did not parse: {e.__class__.__name__}"))
     else:
-        warns.append("no .sigmf-meta sidecar; datatype unknown (SigMF requires the pair)")
+        warns.append(environment(
+            "sibling.missing",
+            "no .sigmf-meta sidecar; datatype unknown (SigMF requires the pair)"))
 
-    data_size = os.path.getsize(data_path) if os.path.isfile(data_path) else 0
-    if not os.path.isfile(data_path):
-        warns.append("no .sigmf-data beside this .sigmf-meta")
+    data_size = data_src.size if data_src is not None else 0
+    if data_src is None:
+        warns.append(environment("sibling.missing", "no .sigmf-data beside this .sigmf-meta"))
 
     dt = g.get("core:datatype", "")
     geo = _parse_datatype(dt)
     sb = geo["sample_bytes"] if geo else 0
     if dt and geo is None:
-        warns.append(f"core:datatype {dt!r} does not parse; sample geometry unknown")
+        warns.append(defect(
+            "parse.failed",
+            f"core:datatype {dt!r} does not parse; sample geometry unknown"))
     elif geo and not geo["cplx"]:
-        warns.append("datatype is real (rN); this is a scalar sample stream, not IQ")
+        warns.append(info("convention.noted",
+                          "datatype is real (rN); this is a scalar sample stream, not IQ"))
     n_samp = data_size // sb if sb else 0
     if sb and data_size % sb:
-        warns.append(f"data size {data_size:,} is not a whole number of {dt} "
-                     f"samples ({data_size % sb} bytes trail)")
+        warns.append(defect(
+            "length.misaligned",
+            f"data size {data_size:,} is not a whole number of {dt} "
+            f"samples ({data_size % sb} bytes trail)"))
     _fs_raw = g.get("core:sample_rate")
     fs = _num(_fs_raw)
     if _fs_raw is not None and fs is None:
-        warns.append("core:sample_rate is not numeric; ignoring")
+        warns.append(defect("value.invalid", "core:sample_rate is not numeric; ignoring"))
     dur = (n_samp / fs) if (fs and n_samp) else None
 
     chunks = []
     if meta_ok:
         sha = g.get("core:sha512")
         sha_note = "not verified (use --deep)"
-        if deep and sha and os.path.isfile(data_path):
+        if deep and sha and data_src is not None:
             sha_note = "verified" if _sha512(data_path) == sha.lower() else "MISMATCH"
             if sha_note == "MISMATCH":
-                warns.append("core:sha512 does not match the data file")
+                warns.append(defect("checksum.mismatch",
+                                    "core:sha512 does not match the data file"))
         gfields = []
         if dt:
             gfields.append(_f(None, 0, "datatype", dt,
@@ -251,19 +277,20 @@ def inspect_sigmf(path, deep=False):
         for k in extra[:_EXT_KEY_CAP]:
             gfields.append(_f(None, 0, k, str(g[k])[:120]))
         if len(extra) > _EXT_KEY_CAP:
-            warns.append(coverage(f"listing the first {_EXT_KEY_CAP} of {len(extra)} global keys"))
+            warns.append(hit("list_rows", _EXT_KEY_CAP, len(extra),
+                             f"listing the first {_EXT_KEY_CAP} of {len(extra)} global keys"))
         dur_s = f", {dur:.1f} s" if dur is not None else ""
         chunks.append({
             "id": "global", "offset": 0, "size": 0, "payload_base": 0,
             "summary": (f"{dt or 'unknown'}  "
                         + (f"{fs / 1e6:g} Msps  " if fs else "")
-                        + f"{n_samp:,} samples{dur_s}  ({os.path.basename(meta_path)})"),
+                        + f"{n_samp:,} samples{dur_s}  ({os.path.basename(meta_name)})"),
             "fields": gfields, "warnings": [],
         })
 
         for i, c in enumerate(captures):
             if not isinstance(c, dict):
-                warns.append(f"capture[{i}] is not an object; skipped")
+                warns.append(defect("value.invalid", f"capture[{i}] is not an object; skipped"))
                 continue
             s0 = int(_num(c.get("core:sample_start")) or 0)
             nc = captures[i + 1] if i + 1 < len(captures) else None
@@ -279,15 +306,18 @@ def inspect_sigmf(path, deep=False):
                 if k not in ("core:frequency", "core:sample_start"):
                     cf.append(_f(None, 0, k.split(":")[-1], str(v)[:120]))
             if sb and off > data_size:
-                warns.append(f"capture[{i}] sample_start implies offset "
-                             f"0x{off:x} past EOF")
+                warns.append(defect(
+                    "pointer.dangling",
+                    f"capture[{i}] sample_start implies offset "
+                    f"0x{off:x} past EOF"))
             elif sb and off + span * sb > data_size:
                 # The START was checked and the END was not, so a segment that
                 # begins inside the stream and runs off the end of it was
                 # reported as a byte region with no warning at all. The
                 # metadata declares this span; the data plane does not have it.
-                warns.append(f"capture[{i}] claims {span * sb:,} bytes from "
-                             f"0x{off:x}, past the {data_size:,}-byte data plane")
+                warns.append(defect("size.overrun",
+                                    f"capture[{i}] claims {span * sb:,} bytes from "
+                                    f"0x{off:x}, past the {data_size:,}-byte data plane"))
             chunks.append({
                 "id": f"capture[{i}]", "offset": off, "size": span * sb,
                 "summary": f"@ {(fc or 0) / 1e6:.3f} MHz, sample {s0:,}+{span:,}",
@@ -296,20 +326,23 @@ def inspect_sigmf(path, deep=False):
 
         for i, a in enumerate(annotations[:_ANNOTATION_CAP]):
             if not isinstance(a, dict):
-                warns.append(f"annotation[{i}] is not an object; skipped")
+                warns.append(defect("value.invalid", f"annotation[{i}] is not an object; skipped"))
                 continue
             s0 = int(_num(a.get("core:sample_start")) or 0)
             cnt = int(_num(a.get("core:sample_count")) or 0)
             off = s0 * sb
             if sb and off > data_size:
-                warns.append(f"annotation[{i}] sample_start implies offset "
-                             f"0x{off:x} past EOF")
+                warns.append(defect(
+                    "pointer.dangling",
+                    f"annotation[{i}] sample_start implies offset "
+                    f"0x{off:x} past EOF"))
             elif sb and off + cnt * sb > data_size:
                 # as for captures: sample_count was never checked against the
                 # data plane, so a label spanning more samples than exist read
                 # as an ordinary region
-                warns.append(f"annotation[{i}] claims {cnt * sb:,} bytes from "
-                             f"0x{off:x}, past the {data_size:,}-byte data plane")
+                warns.append(defect("size.overrun",
+                                    f"annotation[{i}] claims {cnt * sb:,} bytes from "
+                                    f"0x{off:x}, past the {data_size:,}-byte data plane"))
             lab = a.get("core:label") or a.get("core:generator") or f"annotation {i}"
             af = [_f(None, 0, "sample_start", s0, "", xref=off),
                   _f(None, 0, "sample_count", cnt)]
@@ -322,22 +355,22 @@ def inspect_sigmf(path, deep=False):
                 "fields": af, "warnings": [], "payload_base": off,
             })
         if len(annotations) > _ANNOTATION_CAP:
-            warns.append(f"listing the first {_ANNOTATION_CAP} of "
-                         f"{len(annotations)} annotations")
+            warns.append(hit("list_rows", _ANNOTATION_CAP, len(annotations),
+                             f"listing the first {_ANNOTATION_CAP} of "
+                             f"{len(annotations)} annotations"))
 
-    if str(path).lower().endswith(".sigmf-meta") and os.path.isfile(meta_path):
-        return _as_sidecar(chunks, meta_path, data_path), warns
+    if meta is not None and meta is src:
+        return _as_sidecar(chunks, meta, data_src), warns
     samples, _ = _samples_chunk(data_path, data_size, geo, dt, deep)
     chunks.append(samples)
     return chunks, warns
 
 
-def _as_sidecar(chunks, meta_path, data_path):
+def _as_sidecar(chunks, meta, data_src):
     """The walk seen from the .sigmf-meta: its own bytes are the JSON. The
     captures and annotations locate bytes of the .sigmf-data, so here they are
     listed but not placed, and their pointers are not followed into this file."""
-    where = os.path.basename(data_path) if os.path.isfile(data_path) else "the .sigmf-data"
-    meta_size = os.path.getsize(meta_path)
+    where = os.path.basename(data_src.name) if data_src is not None else "the .sigmf-data"
     for c in chunks:
         if c["id"] == "global":
             continue
@@ -345,44 +378,45 @@ def _as_sidecar(chunks, meta_path, data_path):
         c["summary"] += f"  (in {where})"
         for f in c["fields"]:
             f.pop("xref", None)
-    chunks.append({"id": "sidecar", "offset": 0, "size": meta_size, "payload_base": 0,
-                   "summary": f"SigMF metadata, {meta_size:,} bytes of JSON; "
+    chunks.append({"id": "sidecar", "offset": 0, "size": meta.size, "payload_base": 0,
+                   "summary": f"SigMF metadata, {meta.size:,} bytes of JSON; "
                               f"the samples are in {where}",
                    "fields": [], "warnings": []})
     return chunks
 
 
 def inspect_iq(path, deep=False):
-    size = os.path.getsize(path)
-    ext = os.path.splitext(path.lower())[1]
+    src = as_source(path)
+    size = src.size
+    ext = src.ext
     warns = []
     dt = None
     fs = fc = dtime = None
     provenance = ""
     meta_fields = []
 
-    gm = _gqrx_name(path)
+    gm = _gqrx_name(src.name)
     if gm:
         dt, provenance = "cf32_le", "GQRX filename"
         d, t = gm.group(1), gm.group(2)
         fc, fs = int(gm.group(3)), int(gm.group(4))
         dtime = f"{d[:4]}-{d[4:6]}-{d[6:]} {t[:2]}:{t[2:4]}:{t[4:]}"
 
-    txt = os.path.splitext(path)[0] + ".TXT"
-    if os.path.isfile(txt):
+    txt = src.sibling(os.path.splitext(src.name or "")[0] + ".TXT")
+    if txt is not None:
         provenance = provenance or "PortaPack .TXT sidecar"
         try:
-            with open(txt, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    if "=" in line:
-                        k, v = line.strip().split("=", 1)
-                        meta_fields.append(_f(None, 0, k, v))
-                        if k == "sample_rate" and v.isdigit():
-                            fs = fs or int(v)
-                        if k == "center_frequency" and v.isdigit():
-                            fc = fc or int(v)
+            lines = txt.read(0, _META_CAP).decode("utf-8", "replace").splitlines()
         except OSError:
-            pass
+            lines = []
+        for line in lines:
+            if "=" in line:
+                k, v = line.strip().split("=", 1)
+                meta_fields.append(_f(None, 0, k, v))
+                if k == "sample_rate" and v.isdigit():
+                    fs = fs or int(v)
+                if k == "center_frequency" and v.isdigit():
+                    fc = fc or int(v)
 
     ext_note = ""
     if dt is None:                     # extension gives geometry, not metadata
@@ -409,7 +443,7 @@ def inspect_iq(path, deep=False):
             "fields": mf, "warnings": [],
         })
 
-    samples, _ = _samples_chunk(path, size, geo, dt, deep)
+    samples, _ = _samples_chunk(src, size, geo, dt, deep)
     if ext_note and samples["fields"]:
         samples["fields"][0]["note"] = (samples["fields"][0]["note"] + "; "
                                         + ext_note).strip("; ")
@@ -418,10 +452,12 @@ def inspect_iq(path, deep=False):
     chunks.append(samples)
 
     if dt is None:
-        warns.append("unknown IQ encoding; geometry from extension only")
+        warns.append(info("encoding.unknown", "unknown IQ encoding; geometry from extension only"))
     if fs is None:
-        warns.append("sample rate unknown; duration not derivable")
+        warns.append(info("value.assumed", "sample rate unknown; duration not derivable"))
     if sb and size % sb:
-        warns.append(f"data size {size:,} is not a whole number of {dt} "
-                     f"samples ({size % sb} bytes trail)")
+        warns.append(defect(
+            "length.misaligned",
+            f"data size {size:,} is not a whole number of {dt} "
+            f"samples ({size % sb} bytes trail)"))
     return chunks, warns

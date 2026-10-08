@@ -12,10 +12,10 @@ width from anything but this bit puts the file size check off by 2x and
 reports every float32 table as corrupt.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect
+from acidcat.core.walk.base import _f, _open, _size
 
 WTF_IS_SAMPLE = 0x01        # a one-shot sample rather than a wavetable
 WTF_LOOP_SAMPLE = 0x02      # that sample loops
@@ -37,12 +37,12 @@ def _describe(flags):
 
 
 def inspect_wt(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         head = fh.read(12)
     warns = []
     if head[:4] != b"vawt":
-        warns.append("missing 'vawt' magic")
+        warns.append(defect("magic.mismatch", "missing 'vawt' magic"))
 
     frame_samples = struct.unpack_from("<I", head, 4)[0] if len(head) >= 8 else 0
     frame_count = struct.unpack_from("<H", head, 8)[0] if len(head) >= 10 else 0
@@ -68,8 +68,9 @@ def inspect_wt(filepath):
         # floor rather than the file size
         short = size < expected
         if short or (not has_meta and size != expected):
-            warns.append(f"size {size:,} != header-implied {expected:,} "
-                         f"(12 + {frame_count} x {frame_samples} x {width})")
+            warns.append(defect("count.mismatch",
+                                f"size {size:,} != header-implied {expected:,} "
+                                f"(12 + {frame_count} x {frame_samples} x {width})"))
 
     header = {"id": "vawt", "offset": 0, "size": min(size, 12),
               "summary": (f"wavetable, {frame_count} frame(s) x "

@@ -22,8 +22,10 @@ Complements `inspect --hex` (a value-first table); this is a bytes-first layout.
 import os
 import sys
 from acidcat.util.color import add_color_arg, color_enabled
+from acidcat.util.stdin import as_given
 
 from acidcat.core.infra import bytefields as bf
+from acidcat.commands._output import add_output_format_arg, chosen_format, add_report_arg
 from acidcat.core.infra.mapped import map_file
 from acidcat.core.walk import walk_file
 from acidcat.core.walk.base import Unsupported
@@ -35,23 +37,24 @@ _FIELD_COLORS = (36, 32, 33, 35, 34, 31, 96, 92, 93, 95)
 def register(subparsers):
     p = subparsers.add_parser(
         "od", help="objdump-x-style annotated, colored hex dump of a file's structure")
-    p.add_argument("target", help="File to dump, or '-' for stdin.")
+    p.add_argument("target", metavar="FILE", help="File to dump, or '-' for stdin.")
+    p.add_argument("addrs", nargs="*", metavar="ADDR",
+                   help="What to dump: a node (its payload: RIFF/smpl), a field "
+                        "(RIFF/fmt_#sample_rate) or bytes (@0x100+64, "
+                        "@0x100..0x200). Several are dumped in turn. Without "
+                        "one, the whole file, annotated by its structure.")
+    # table (the dump) or json: with an ADDR, each range as
+    # {addr, offset, length, hex}
+    add_output_format_arg(p, only=("table", "json"), deprecated_f=False)
+    add_report_arg(p)
     add_color_arg(p)
     p.add_argument("--width", type=int, default=16, metavar="N",
                    help="hex bytes per line, and per field before eliding "
                         "(default 16)")
-    # range selection -- same vocabulary as `carve`, so a region found by
-    # `locate` can be handed to either verb unchanged
-    p.add_argument("--offset", metavar="N",
-                   help="Start at this offset (0x.. or decimal). Forces the raw "
-                        "dump: a byte range has no chunk structure of its own.")
+    # a search anchor, the one range spelling that is not an ADDR
     p.add_argument("--at", metavar="EXPR",
-                   help="Anchored start: 0xNN | end[-N] | find:STR|0xHEX[+N] | "
-                        "chunk:ID[+N].")
-    p.add_argument("--length", metavar="N",
-                   help="Number of bytes to dump from the start.")
-    p.add_argument("--end", metavar="N",
-                   help="End offset (exclusive), instead of --length.")
+                   help="A search anchor: end[-N] | find:STR|0xHEX[+N] | "
+                        "chunk:ID[+N] | 0xNN; dumps from there to the end.")
     p.add_argument("--region", type=int, metavar="N",
                    help="Dump the Nth region reported by `locate` (0-based); "
                         "runs locate itself, so no piping is required.")
@@ -60,7 +63,8 @@ def register(subparsers):
                         "that look like a file size or an offset table. "
                         "Inferred, not decoded -- and only on the raw dump; "
                         "a walked file already colours by decoded field.")
-    p.set_defaults(func=run)
+    # the 1.8 --offset/--length/--end are aliases now (cli_aliases)
+    p.set_defaults(func=run, offset=None, length=None, end=None)
 
 
 
@@ -82,7 +86,7 @@ def run(args):
     with resolved_input(args.target) as _p:
         if _p is None:
             print("acidcat od: no data on stdin", file=sys.stderr)
-            return 1
+            return 2
         args.target = _p
         return _run(args)
 
@@ -270,6 +274,57 @@ def _mark_summary(tags, on, covered, dumped):
     return _c("2", "  marks: " + body + " -- inferred, not decoded", on)
 
 
+def _run_addrs(args, path, addrs, on):
+    """Dump each ADDR's bytes in turn, or give them as JSON.
+
+    Every ADDR that resolves is dumped and each one that does not is named on
+    stderr, as `dump FILE acid smpl` printed the acid chunk and skipped the
+    missing smpl. Exit 0 when at least one resolved; otherwise 1 when they
+    named nothing there, 2 when one could not be read as an address at all."""
+    from acidcat import AddrError
+    from acidcat.commands import _addr
+    from acidcat.core.infra.render import format_json
+    ranges, failed = [], 0
+    for a in addrs:
+        try:
+            layer, start, length, name, blob = _addr.locate(path, a)
+        except AddrError as e:
+            print(f"acidcat od: {as_given(path)}: {e}", file=sys.stderr)
+            failed = max(failed, 1)
+            continue
+        except OSError as e:
+            # the file, not this address: no other address will do better
+            print(f"acidcat od: {as_given(path)}: {e.strerror or e}", file=sys.stderr)
+            return 2
+        except ValueError as e:
+            print(f"acidcat od: {as_given(path)}: {e}", file=sys.stderr)
+            failed = 2
+            continue
+        ranges.append((name, start, length, blob))
+    if not ranges:
+        return failed
+    data, close = map_file(path)
+    try:
+        # an address in a decoded layer reads that layer's bytes, and its
+        # offsets are the layer's (`1:@0+16`, `1:lh5/header#frames`)
+        if chosen_format(args) == "json":
+            format_json([{"addr": a, "offset": s, "length": n,
+                          "hex": bytes((data if blob is None else blob)[s:s + n]).hex()}
+                         for a, s, n, blob in ranges], sys.stdout)
+            return 0
+        rc = 0
+        for a, start, length, blob in ranges:
+            src = data if blob is None else blob
+            rc = _raw_dump(src, start, length, args.width, on,
+                           f"{as_given(path)}  {a}  0x{start:08x} .. 0x{start + length:08x}"
+                           f"  ({length:,} bytes)",
+                           _marks_for(args, src, start, length)
+                           if blob is None else None) or rc
+        return rc
+    finally:
+        close()
+
+
 def _run(args):
     path = args.target
     on = color_enabled(args)
@@ -278,13 +333,21 @@ def _run(args):
     # uncaught traceback across 21 verbs x 4 kinds of bad input. `od` takes one
     # file because its whole vocabulary is offsets into that file.
     if path != "-" and os.path.isdir(path):
-        print(f"acidcat od: {path}: Is a directory", file=sys.stderr)
+        print(f"acidcat od: {as_given(path)}: Is a directory", file=sys.stderr)
+        return 2
+    addrs = getattr(args, "addrs", None) or []
+    if addrs:
+        return _run_addrs(args, path, addrs, on)
+    if chosen_format(args) == "json":
+        print("acidcat od: --json needs an ADDR (the bytes to give as JSON)",
+              file=sys.stderr)
         return 2
     try:
         rng = _requested_range(args, path, _size(path))
     except (ValueError, KeyError, OSError) as e:
-        print(f"acidcat od: {path}: {e}", file=sys.stderr)
-        return 2
+        print(f"acidcat od: {as_given(path)}: {e}", file=sys.stderr)
+        # a search that finds nothing is the answer no (cli-2.0.md section 1)
+        return 1 if isinstance(e, bf.AnchorNotFound) else 2
 
     # an explicit byte range has no structure of its own -- dump it plainly
     if rng is not None:
@@ -292,7 +355,7 @@ def _run(args):
         data, close = map_file(path)
         try:
             return _raw_dump(data, start, length, args.width, on,
-                             f"{path}  0x{start:08x} .. 0x{start + length:08x}"
+                             f"{as_given(path)}  0x{start:08x} .. 0x{start + length:08x}"
                              f"  ({length:,} bytes)",
                              _marks_for(args, data, start, length))
         finally:
@@ -311,11 +374,11 @@ def _run(args):
             # learned to name the engine that stopped short; the fallback that
             # replaced a refusal has to do the same.
             shown = min(len(data), _AUTO_DUMP_CAP)
-            note = (f"{path}  {len(data):,} bytes  "
+            note = (f"{as_given(path)}  {len(data):,} bytes  "
                     f"(no structural walker -- raw dump)")
             if shown < len(data):
                 note += (f"\n  showing the first {shown:,} bytes; "
-                         f"use --offset/--length for the rest")
+                         f"give an ADDR (@0x{shown:x}+N) for the rest")
             return _raw_dump(data, 0, shown, args.width, on, note,
                              _marks_for(args, data, 0, shown))
         finally:

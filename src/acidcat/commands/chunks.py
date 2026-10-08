@@ -38,8 +38,8 @@ def _run_one(args):
     from acidcat.util.stdin import resolved_input
     with resolved_input(args.target) as _p:
         if _p is None:
-            print("acidcat chunks: no data on stdin", file=sys.stderr)
-            return 1
+            print("acidcat inspect: no data on stdin", file=sys.stderr)
+            return 2
         args.target = _p
         return _run(args)
 
@@ -47,10 +47,10 @@ def _run_one(args):
 def _run(args):
     filepath = args.target
     if os.path.isdir(filepath):
-        print(f"acidcat chunks: {filepath}: is a directory (expected a file)", file=sys.stderr)
+        print(f"acidcat inspect: {filepath}: is a directory (expected a file)", file=sys.stderr)
         return 2
     if not os.path.isfile(filepath):
-        print(f"acidcat chunks: {filepath}: No such file", file=sys.stderr)
+        print(f"acidcat inspect: {filepath}: No such file", file=sys.stderr)
         return 2
 
     fmt_name = getattr(args, 'output_format', 'table')
@@ -66,7 +66,7 @@ def _run(args):
         # 1, so a script could not tell "not a RIFF" from "a RIFF with no
         # matching chunks". Point at the verb that DOES read this file, rather
         # than making the user already know which one to switch to.
-        print(f"acidcat chunks: {filepath}: not a RIFF container "
+        print(f"acidcat inspect: {filepath}: not a RIFF container "
               f"(try: acidcat inspect {os.path.basename(filepath)})",
               file=sys.stderr)
         return 2

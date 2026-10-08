@@ -112,7 +112,34 @@ def test_convert_au_streaming_sentinel_takes_rest_of_file(tmp_path):
 
 
 def test_convert_au_unsupported_encoding_is_refused(tmp_path):
+    # no converter for this encoding is could-not-run (2), as the contract
+    # says of a file a verb has no converter for; it said 1
     src = tmp_path / "d.au"; src.write_bytes(_au(6, 44100, 1, b"\x00" * 8))  # 32-bit float
     out = tmp_path / "d.wav"
-    assert convert.run(_au_args(str(src), str(out))) == 1
+    assert convert.run(_au_args(str(src), str(out))) == 2
     assert not out.exists()
+
+
+def test_a_failure_building_the_midi_is_2(tmp_path, monkeypatch, capsys):
+    """The notes parsed, so an exception building the SMF is acidcat's bug,
+    not the clip's: it exited 1, the code for "no"."""
+    from acidcat.core.formats import bitwig as bwmod
+
+    def boom(*_a, **_k):
+        raise RuntimeError("smf writer bug")
+
+    monkeypatch.setattr(bwmod, "parse_notes", lambda _d: [object()])
+    monkeypatch.setattr(convert, "notes_to_smf", boom)
+    src = tmp_path / "c.bwclip"
+    src.write_bytes(bwmod.MAGIC + bytes(64))
+    assert convert.run(_au_args(str(src), str(tmp_path / "c.mid"))) == 2
+    assert "could not build MIDI" in capsys.readouterr().err
+
+
+def test_convert_to_an_unwritable_output_is_2_not_a_traceback(tmp_path, capsys):
+    src = tmp_path / "e.au"; src.write_bytes(_au(1, 8000, 1, b"\xff" * 64))
+    out = tmp_path / "taken.wav"
+    out.mkdir()                                  # a folder where the file goes
+    assert convert.run(_au_args(str(src), str(out))) == 2
+    err = capsys.readouterr().err
+    assert "taken.wav" in err and "Traceback" not in err

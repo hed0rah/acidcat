@@ -4,7 +4,12 @@
 
 Please report privately: open the repository's **Security** tab on GitHub and
 choose **Report a vulnerability** to file a private advisory. Don't open a public
-issue for a security problem. Fixes land in the latest release.
+issue for a security problem.
+
+## Supported versions
+
+2.x is the supported line; fixes land in the latest 2.x release. 1.8.7 stays
+installable with `pip install "acidcat<2"` but gets no further releases.
 
 ## Threat model
 

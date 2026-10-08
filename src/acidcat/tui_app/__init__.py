@@ -10,12 +10,25 @@ widgets + hex pane), and app (the AcidcatTUI application). This module re-export
 the stable surface.
 """
 
-from acidcat.tui_app.app import AcidcatTUI  # noqa: F401
-from acidcat.tui_app.render import edit_profile, hex_text, text_field_for  # noqa: F401,E501
-from acidcat.tui_app.screens import (  # noqa: F401
-    BrowseScreen, ConfirmScreen, DiffScreen, DiscScreen, EditScreen, HelpScreen,
-    HexPane, MapScreen, PromptScreen, RegionsScreen, ValidateScreen,
-)
+# Loaded on first use (PEP 562), not here: importing the package must not import
+# Textual, so the model (tui_app/model.py) and the render helpers stay usable
+# and testable without it.
+_HOME = {
+    "AcidcatTUI": "app",
+    "edit_profile": "render", "hex_text": "render", "text_field_for": "render",
+    "BrowseScreen": "screens", "ConfirmScreen": "screens", "DiffScreen": "screens",
+    "DiscScreen": "screens", "EditScreen": "screens", "HelpScreen": "screens",
+    "HexPane": "screens", "MapScreen": "screens", "PromptScreen": "screens",
+    "RegionsScreen": "screens", "ValidateScreen": "screens",
+}
+
+
+def __getattr__(name):
+    if name in _HOME:
+        import importlib
+        return getattr(importlib.import_module("acidcat.tui_app." + _HOME[name]), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "AcidcatTUI", "edit_profile", "hex_text", "text_field_for",

@@ -223,6 +223,29 @@ BINDINGS = {
         "category": Bind("device_category", None, "device_category"),
         "preset_category": Bind("preset_category", None, "preset_category"),
     },
+    # NI is three containers behind one format id -- hsin (Massive, Absynth,
+    # Kontakt 5+), NKS .nksf and the older .ksd -- and this row is what all
+    # three editors take. It borrowed Bitwig's row until a --set of `tags`
+    # was refused by every one of them: none of the three stores a tag,
+    # device or category where an editor can reach it. Unlike Bitwig, the
+    # name IS the preset's, so title is bound. `vendor` (and .ksd's `bank`)
+    # write too, under their own names, and have no canonical field.
+    "ni": {
+        "title": Bind("name", None, "name"),
+        "artist": Bind("author", None, "author"),
+        "comment": Bind("comment", None, "comment"),
+        "description": Bind("comment", None, "comment"),
+    },
+}
+
+# Formats whose editor changes a field only where the file already holds
+# it: the value is spliced into the slot it found, and there is no verified
+# layout for adding one. A field missing from such a file is a --set the file
+# cannot take (BadValue, exit 2), not a refused edit.
+IN_PLACE = {
+    "bitwig": "every field: a preset or project without the field cannot "
+              "take it",
+    "ni": "a .ksd preset's fields: the XML tag must already exist",
 }
 
 # The tagged writer serves one vocabulary to six containers, so they share a
@@ -232,7 +255,6 @@ TAGGED_FORMATS = ("flac", "mp3", "ogg", "opus", "mp4", "m4a")
 for _fmt in TAGGED_FORMATS:
     BINDINGS[_fmt] = BINDINGS["tagged"]
 BINDINGS["aifc"] = BINDINGS["aiff"]
-BINDINGS["ni"] = BINDINGS["bitwig"]
 
 
 def fields_for(fmt, access=None):

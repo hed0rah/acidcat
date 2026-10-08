@@ -14,8 +14,6 @@ Each is inspect-only: this maps structure and surfaces references, it does not
 render a sequence or resolve sample paths on disk.
 """
 
-import gzip
-from acidcat.core.primitives.notes import coverage
 import json
 import os
 import re
@@ -24,8 +22,11 @@ import zipfile
 import zlib
 from collections import Counter
 
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
+from acidcat.core.infra.source import gzip_open, zip_open
 from acidcat.core.primitives.zipio import zip_data_offset
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size, _name
 from acidcat.core.walk.base import _f
 
 _INT64_MAX = 2 ** 63 - 1                          # MPC's "unbounded length" sentinel
@@ -65,8 +66,8 @@ def _note_of(e):
 
 
 def inspect_mpcpattern(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(size, 64 * 1024 * 1024))
     try:
         obj = json.loads(data.decode("utf-8", "replace"))
@@ -124,8 +125,8 @@ def _xml_text(text, tag):
 
 
 def inspect_xpm(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(size, 64 * 1024 * 1024))
     text = data.decode("utf-8", "replace")
     if "<MPCVObject" not in text[:512]:
@@ -172,14 +173,15 @@ _XPN_MANIFEST_KEYS = ("title", "manufacturer", "type", "version", "identifier")
 
 
 def inspect_xpn(filepath):
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     try:
-        z = zipfile.ZipFile(filepath)
+        z = zip_open(filepath)
     except zipfile.BadZipFile:
         return ([{"id": "xpn", "offset": 0, "size": size,
                   "summary": "not a valid zip archive", "fields": [],
-                  "warnings": ["not a zip archive"], "payload_base": 0}],
-                ["not a zip archive"])
+                  "warnings": [defect("magic.mismatch", "not a zip archive")],
+                  "payload_base": 0}],
+                [defect("magic.mismatch", "not a zip archive")])
 
     warns = []
     with z:
@@ -191,7 +193,8 @@ def inspect_xpn(filepath):
                 with z.open("Expansion.xml") as zf:   # streamed: bomb-safe
                     raw = zf.read(_XPN_XML_CAP + 1)
                 if len(raw) > _XPN_XML_CAP:
-                    warns.append(coverage(f"Expansion.xml exceeds {_XPN_XML_CAP >> 20} MB; truncated"))
+                    warns.append(hit("inflate_bytes", _XPN_XML_CAP, len(raw),
+                                     f"Expansion.xml exceeds {_XPN_XML_CAP >> 20} MB; truncated"))
                     raw = raw[:_XPN_XML_CAP]
                 xml = raw.decode("utf-8", "replace")
                 for tag in _XPN_MANIFEST_KEYS + ("description", "img"):
@@ -199,14 +202,14 @@ def inspect_xpn(filepath):
                     if v:
                         man[tag] = v
             except Exception:
-                warns.append("Expansion.xml did not parse")
+                warns.append(defect("parse.failed", "Expansion.xml did not parse"))
         else:
-            warns.append("no Expansion.xml manifest")
+            warns.append(defect("required.missing", "no Expansion.xml manifest"))
 
         programs = [zi for zi in infos if zi.filename.lower().endswith(".xpm")]
         samples = [zi for zi in infos
                    if zi.filename.lower().endswith((".wav", ".flac", ".aif", ".aiff"))]
-        title = man.get("title") or os.path.basename(filepath)
+        title = man.get("title") or _name(filepath)
         fields = [_f(None, 0, "title", title)]
         for k in _XPN_MANIFEST_KEYS[1:]:
             if man.get(k):
@@ -231,7 +234,8 @@ def inspect_xpn(filepath):
             except ValueError:
                 # a corrupt/mutated entry whose local header the central
                 # directory points at wrongly: skip it, keep the rest
-                warns.append(f"{zi.filename}: unreadable local header, skipped")
+                warns.append(defect("parse.failed",
+                                    f"{zi.filename}: unreadable local header, skipped"))
                 continue
             stored = zi.compress_type == zipfile.ZIP_STORED
             comp = "stored (carveable .xpm)" if stored else "deflated (raw stream)"
@@ -253,9 +257,9 @@ def inspect_xpn(filepath):
 # ---- .xtd (gzip ACVS container: MPC3 track / kit) -------------------------
 
 def inspect_xtd(filepath):
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     try:
-        with gzip.open(filepath, "rb") as g:
+        with gzip_open(filepath) as g:
             raw = g.read(_XTD_CAP + 1)
     except (OSError, EOFError, zlib.error) as e:
         # zlib.error is NOT an OSError. gzip raises BadGzipFile (an OSError)
@@ -284,10 +288,11 @@ def inspect_xtd(filepath):
             obj = json.loads(raw[brace:])
             kit = obj.get("data", {}) if isinstance(obj, dict) else {}
         except (ValueError, RecursionError):
-            warns.append("ACVS JSON payload did not parse")
+            warns.append(defect("parse.failed", "ACVS JSON payload did not parse"))
     elif truncated:
-        warns.append(coverage(f"decompressed payload exceeds {_XTD_CAP // (1 << 20)} MB cap; "
-                     "metadata not parsed"))
+        warns.append(hit("inflate_bytes", _XTD_CAP, _XTD_CAP,
+                         f"decompressed payload exceeds {_XTD_CAP // (1 << 20)} MB cap; "
+                         "metadata not parsed"))
 
     samples = kit.get("samples") if isinstance(kit.get("samples"), list) else []
     prog = kit.get("program") if isinstance(kit.get("program"), dict) else {}
@@ -325,8 +330,8 @@ def inspect_xtd(filepath):
 # ---- .snd (MPC2000 sound: 16-bit PCM container) --------------------------
 
 def inspect_snd(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         head = f.read(48)
     if len(head) < 42 or head[0] != 1:
         raise _Unsupported("not an MPC2000 .snd sound")
@@ -346,8 +351,9 @@ def inspect_snd(filepath):
             break
     if resolved is None:
         hdr, frames = 42, struct.unpack_from("<I", head, 0x1e)[0]
-        warns.append(f"{frames:,} frames x {channels}ch do not fit the "
-                     f"{size:,}-byte file at a 38- or 42-byte header")
+        warns.append(defect("size.overrun",
+                            f"{frames:,} frames x {channels}ch do not fit the "
+                            f"{size:,}-byte file at a 38- or 42-byte header"))
     else:
         hdr, frames = resolved
     pcm_bytes = frames * 2 * channels
@@ -388,10 +394,10 @@ def _pgm_name(raw):
 
 
 def inspect_pgm(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(size, 8 * 1024 * 1024))
-    prog = os.path.splitext(os.path.basename(filepath))[0]
+    prog = os.path.splitext(_name(filepath))[0]
     if data[4:4 + len(_MPC1000_MAGIC)] == _MPC1000_MAGIC:
         return _inspect_pgm_mpc1000(data, size, prog)
     if len(data) >= 19 and data[18] == 0 and 0x20 <= data[2] < 0x7f:
@@ -437,8 +443,9 @@ def _inspect_pgm_mpc1000(data, size, prog):
                           f"{len(all_samples)} sample(s)",
                "fields": fields, "warnings": []}]
     if len(pads) > _PGM_PAD_CAP:
-        chunks[0]["warnings"].append(
-            f"{len(pads)} pads; listing first {_PGM_PAD_CAP}")
+        chunks[0]["warnings"].append(hit(
+            "list_rows", _PGM_PAD_CAP, len(pads),
+            f"{len(pads)} pads; listing first {_PGM_PAD_CAP}"))
     for pi, base, layers in pads[:_PGM_PAD_CAP]:
         # RELATIVE to the pad's payload base, which is what a field offset
         # means everywhere else (core/infra/fieldcodec.py:_field_abs). These
@@ -473,7 +480,8 @@ def _inspect_pgm_mpc2000(data, size, prog):
     if entries:
         sf = [_f(o - 2, 16, f"[{j}]", n)                     # relative to payload_base
               for j, (o, n) in enumerate(entries[:_PGM_PAD_CAP])]
-        sw = ([f"{len(entries)} slots; listing first {_PGM_PAD_CAP}"]
+        sw = ([hit("list_rows", _PGM_PAD_CAP, len(entries),
+                   f"{len(entries)} slots; listing first {_PGM_PAD_CAP}")]
               if len(entries) > _PGM_PAD_CAP else [])
         chunks.append({"id": "samples", "offset": 2, "size": len(entries) * 17,
                        "summary": f"{len(entries)} sample-name slot(s)",

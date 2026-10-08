@@ -4,13 +4,32 @@ The chunk internals beyond the creator/name strings and the slice count are
 proprietary, so they are reported as regions, not decoded. Byte-level facts only.
 """
 
-import os
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
 
-from acidcat.core.walk.base import _f, _bu32, _dtext
+from acidcat.core.walk.base import _f, _bu32, _dtext, _open, _size
 
 _MAX = 4 * 1024 * 1024
 
+
+
+# the CREI strings, in the order ReCycle writes them
+_CREI_NAMES = ("creator", "copyright", "url", "contact")
+
+
+def _crei_records(b):
+    """[(offset, length, name, text)] for a CREI payload, or None when it is
+    not a run of u32be-length strings that tiles the payload exactly. Read as
+    one string, the length prefixes and NULs leaked into the creator."""
+    out, p = [], 0
+    while p + 4 <= len(b):
+        n = int.from_bytes(b[p:p + 4], "big")
+        if p + 4 + n > len(b):
+            return None
+        name = _CREI_NAMES[len(out)] if len(out) < len(_CREI_NAMES) else f"text_{len(out)}"
+        out.append((p + 4, n, name, _dtext(b[p + 4:p + 4 + n]).strip("\x00 ").strip()))
+        p += 4 + n
+    return out if out and p == len(b) else None
 
 def _count_slices(data, start, end, depth=0):
     """Count SLCE slice markers, descending into nested 'CAT ' groups (the
@@ -34,12 +53,12 @@ def _count_slices(data, start, end, depth=0):
 
 
 def inspect_rx2(filepath):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = _size(filepath)
+    with _open(filepath) as f:
         data = f.read(min(size, _MAX))
     warns = []
     if data[:4] != b"CAT ":
-        warns.append("missing CAT container magic")
+        warns.append(defect("magic.mismatch", "missing CAT container magic"))
     form = data[8:12].decode("latin-1", "replace") if len(data) >= 12 else "?"
     cat_size = _bu32(data, 4) if len(data) >= 8 else 0
 
@@ -61,10 +80,12 @@ def inspect_rx2(filepath):
         cbody = pos + 8
         if cbody + clen > size:
             # genuinely past the end of the FILE
-            warns.append(f"{cid.decode('latin-1', 'replace')} chunk runs past EOF")
+            warns.append(defect(
+                "size.overrun",
+                f"{cid.decode('latin-1', 'replace')} chunk runs past EOF"))
             chunks.append({"id": cid.decode("latin-1", "replace"), "offset": pos,
                            "size": max(0, size - cbody), "summary": "truncated",
-                           "fields": [], "warnings": ["size exceeds file"],
+                           "fields": [], "warnings": [defect("size.overrun", "size exceeds file")],
                            "payload_base": cbody})
             break
         if cbody + clen > len(data):
@@ -77,14 +98,20 @@ def inspect_rx2(filepath):
                            "summary": (f"{clen:,} bytes, beyond the "
                                        f"{_MAX // (1024 * 1024)} MB read window"),
                            "fields": [], "warnings": [], "payload_base": cbody})
-            warns.append(coverage(f"stopped at the {_MAX // (1024 * 1024)} MB read window; "
-                         f"chunks after {cid.decode('latin-1', 'replace')} "
-                         f"were not walked"))
+            warns.append(hit("read_bytes", _MAX, cbody + clen,
+                             f"stopped at the {_MAX // (1024 * 1024)} MB read window; "
+                             f"chunks after {cid.decode('latin-1', 'replace')} "
+                             f"were not walked"))
             break
         cid_s = cid.decode("latin-1", "replace")
         cfields = []
         summary = ""
-        if cid == b"CREI":
+        if cid == b"CREI" and _crei_records(data[cbody:cbody + clen]) is not None:
+            for at, n, name, text in _crei_records(data[cbody:cbody + clen]):
+                if text:
+                    cfields.append(_f(at, n, name, text[:80]))
+            summary = next((f["value"] for f in cfields), "")[:60]
+        elif cid == b"CREI":
             creator = _dtext(data[cbody:cbody + clen]).strip("\x00 ").strip()
             if creator:
                 # 0, not cbody: a field offset is RELATIVE to its chunk's

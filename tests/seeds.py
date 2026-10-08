@@ -1257,6 +1257,109 @@ def ni():
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
+# NI's two other containers. The registry holds one seed per format id and
+# `ni` is the .nksf above, but the editor is three editors behind that id, so
+# a test that holds the ledger to the editor needs all three.
+
+def _hsin_frame(item_id, payload=b"", children=()):
+    """One hsin frame: the 0x30-byte header, a data section whose item stack
+    is `item_id` over the terminating item 1, the payload, then each child
+    behind its 12-byte reference (u32 0, a domain tag, u32 0)."""
+    term = b"DSIN" + struct.pack("<II", 1, 1) + bytes(12)
+    data = (b"DSIN" + struct.pack("<II", item_id, 1)
+            + struct.pack("<Q", len(term)) + term + payload)
+    body = b"".join(struct.pack("<I", 0) + dom + struct.pack("<I", 0) + child
+                    for dom, child in children)
+    size = 0x30 + len(data) + len(body)
+    return (struct.pack("<QI", size, 1) + b"hsin" + struct.pack("<II", 1, 0)
+            + bytes(16) + struct.pack("<Q", len(data)) + data + body)
+
+
+def ni_hsin(name="Seed", author="Nobody", vendor="Seeds", description="",
+            domain=b"DSIN"):
+    """An hsin preset (Massive, Absynth, Kontakt 5+): a root frame holding
+    one SoundInfoItem(108), whose payload is u32 1, u32 0, then name, author,
+    vendor and description as u32-counted UTF-16LE. `domain` is the root's
+    child reference tag."""
+    strings = b"".join(struct.pack("<I", len(s)) + s.encode("utf-16-le")
+                       for s in (name, author, vendor, description))
+    info = _hsin_frame(108, struct.pack("<II", 1, 0) + strings)
+    return _hsin_frame(118, children=[(domain, info)])
+
+
+def ni_ksd(**tags):
+    """An old .ksd (Absynth / KORE): `-in-`, then compSize and uncompSize
+    ahead of a zlib stream holding the NI_DOC_HEADER and its XML. `tags`
+    replaces the default doc_name/Author/Vendor/Comment tags."""
+    import zlib
+    tags = tags or {"doc_name": "Seed", "Author": "Nobody", "Vendor": "Seeds",
+                    "Comment": "seed"}
+    xml = "<?xml version=\"1.0\"?><NI_DOC_HEADER>" + "".join(
+        f"<{t}>{v}</{t}>" for t, v in tags.items()) + "</NI_DOC_HEADER>"
+    blob = b"NI_DOC_HEADER" + xml.encode("utf-8")
+    comp = zlib.compress(blob, 9)
+    return (b"-in-" + bytes(4) + struct.pack("<II", len(comp), len(blob))
+            + comp)
+
+
+@seed("alp", ".alp")
+def alp():
+    """Ableton Live Pack: gzip over a pl-a container, three files back to
+    back, then the index with its file tree and metadata."""
+    return _call("test_alp", "alp_bytes")
+
+
+@seed("appledouble", ".wav")
+def appledouble():
+    """AppleDouble sidecar: RFC 1740 header, Finder info carrying three
+    extended attributes (quarantine, a binary-plist WhereFroms, plain text),
+    and a blank resource fork. Sniffed by magic, so the extension it rides
+    under does not matter."""
+    return _call("test_appledouble", "sidecar")
+
+
+@seed("talsmpl", ".talsmpl")
+def talsmpl():
+    """TAL-Sampler program: XML, a program and two multisample zones."""
+    return _call("test_xmlsampler", "tal_text")
+
+
+@seed("uvip", ".uvip")
+def uvip():
+    """UVI program: <UVI4> XML, two keygroups each with a sample player."""
+    return _call("test_xmlsampler", "uvi_text")
+
+
+@seed("exs", ".exs")
+def exs():
+    """Logic EXS24 instrument: an instrument chunk, two zones, a group, two
+    samples and a parameter chunk, each an 84-byte header and its data."""
+    return _call("test_exs", "exs_file")
+
+
+@seed("sfz", ".sfz")
+def sfz():
+    """SFZ instrument: comments, a control, a group and two regions, as text.
+    The samples it names do not exist beside the seed; that is a finding
+    about the environment, not the file."""
+    return _call("test_sfz", "sfz_text")
+
+
+@seed("kontakt", ".nki", sniffs_as="ni")
+def kontakt():
+    """Kontakt 4.2 patch: the fixed header, a FastLZ body, the soundinfo
+    trailer. The Kontakt 2 zlib body is the same walker's other branch and is
+    covered by tests/test_kontakt.py."""
+    return _call("test_kontakt", "k42_patch")
+
+
+@seed("nkx", ".nkx", sniffs_as="ni")
+def nkx():
+    """Kontakt sample container: a directory tree, then resource and sample
+    objects whose names pair with the file entries by order."""
+    return _call("test_kontakt", "container")
+
+
 @seed("xpm", ".xpm")
 def xpm():
     """Akai MPC keygroup program: XML, and content-confirmed rather than sniffed
@@ -1373,7 +1476,8 @@ def ym(version=b"YM5!", frames=4, drums=(b"\x80" * 8,), interleaved=True,
     """ST-Sound YM register dump. YM5/YM6 by default: header, digidrums, three
     strings, 16 registers a frame, End!. version=b"YM3!" is the bare 14-register
     form. packed=True wraps it in a stored (-lh0-) LHA level-0 member, which is
-    the wrapper's header path without needing a compressor."""
+    the wrapper's header path without needing a compressor; packed="lh5" in a
+    real -lh5- member whose one block codes every byte as a literal."""
     if version in (b"YM2!", b"YM3!", b"YM3b"):
         body = version + bytes([(k * 7 + f) & 0x0F for k in range(14) for f in range(frames)])
         if version == b"YM3b":
@@ -1396,7 +1500,44 @@ def ym(version=b"YM5!", frames=4, drums=(b"\x80" * 8,), interleaved=True,
         body = bytes(body)
     if not packed:
         return body
+    if packed == "lh5":
+        return lha_member(body, name=b"SEED.YM", method=b"-lh5-",
+                          packed_body=lh5_literals(body))
     return lha_member(body, name=b"SEED.YM")
+
+
+class Bits(object):
+    """An MSB-first bit writer, for building -lh5- streams by hand."""
+
+    def __init__(self):
+        self.bits = []
+
+    def put(self, value, n):
+        self.bits += [(value >> (n - 1 - i)) & 1 for i in range(n)]
+
+    def code(self, s):
+        self.bits += [int(c) for c in s]
+
+    def bytes(self):
+        b = self.bits + [0] * (-len(self.bits) % 8)
+        return bytes(int("".join(map(str, b[i:i + 8])), 2) for i in range(0, len(b), 8))
+
+
+def lh5_literals(data):
+    """One -lh5- block coding every byte as a literal: the literal table gives
+    all 256 bytes length 8, so a byte's canonical code is the byte itself.
+    Both small tables are single-symbol and cost nothing per use. Up to 65,535
+    bytes."""
+    w = Bits()
+    w.put(len(data), 16)
+    w.put(0, 5)
+    w.put(10, 5)                                # every length is 10 - 2 = 8
+    w.put(256, 9)                               # lengths for symbols 0-255
+    w.put(0, 4)
+    w.put(0, 4)                                 # positions: always 0
+    for b in data:
+        w.put(b, 8)
+    return w.bytes()
 
 
 def lha_member(data, name=b"SEED", method=b"-lh0-", packed_body=None):

@@ -8,6 +8,11 @@ contain that it does not.
 ## The contract
 
 A walker is a function `inspect_x(filepath, ...) -> (chunks, file_warnings)`.
+`filepath` is a path or a Source (`core/infra/source.py`): read it with `_open`,
+`_size` and `_name` from `walk/base.py`, and `zip_open` / `gzip_open` from
+`core/infra/source.py`, never with `open()` or `os.path` (a test enforces it).
+A file beside it (a PSF's library, a cue sheet's BIN) is
+`as_source(filepath).sibling(name)`, which is None for bytes in memory.
 
 A **chunk** is a dict: `id`, `offset`, `size`, `summary`, `fields`, `warnings`,
 and optionally `payload_base` (the absolute offset that field offsets are
@@ -101,13 +106,24 @@ Any decompression, any length-prefixed allocation, and any chunk chain needs a
 ceiling, and hitting the ceiling must be **reported**, not silent:
 
 ```python
+from acidcat.core.infra.limits import hit
+
 if truncated:
-    warns.append(f"XML exceeded the {CAP // (1024*1024)} MB cap; counts below "
-                 f"describe only the prefix read")
+    warns.append(hit("inflate_bytes", _XML_CAP, len(xml),
+                     f"XML exceeded the {_XML_CAP // (1024*1024)} MB cap; counts "
+                     f"below describe only the prefix read"))
 ```
 
 A cap that silently truncates turns into a confident wrong answer -- the house
-bug class. The rule is: a cap you hit is a warning, always.
+bug class. The rule is: a cap you hit is a warning, always, and it is made with
+`hit(name, limit, used, message)`. `name` is the limit it belongs to
+(`read_bytes`, `chunk_payload`, `inflate_bytes`, `work_steps`, `list_rows`,
+`frame_rows`, `depth`); `limit` is your constant; `used` is how much the file
+asked for (the total when you know it, else the count you reached). That makes
+it a coverage note: reported, but never a defect, so `audit` does not fail a
+clean file for being large. A plain string is a defect. Put the constant in the
+module that reads it, name it `_..._CAP`, and register it in
+`tests/test_cap_announcements.py`.
 
 ### Say what you do not know
 
@@ -116,6 +132,36 @@ reached. A short file may never reach it, and then the rate is a lower bound.
 That distinction is carried through the API (`rate_exact`), into the field note
 ("lower bound -- grid never hit the cap"), and into a test. Reporting the lower
 bound as a reading would be indistinguishable from correct until it wasn't.
+
+### Give every warning a code
+
+A warning is read by scripts, `audit` and the TUI, which select it by its code,
+never by its words. Make it with the helper for what it is, from
+`acidcat.core.infra.findings`:
+
+```python
+warns.append(defect("size.overrun", f"chunk {cid!r} claims {size:,} bytes "
+                                    f"but only {avail:,} remain"))
+warns.append(environment("sibling.missing", f"names library {lib!r} and it "
+                                            f"is not beside this file"))
+```
+
+`defect` is the file breaking its format, `environment` is something outside
+it (a sibling file), `info` is worth knowing. The codes are in `REGISTRY`; add
+one there when none fits, with its kind and severity. A plain string still
+works but is reported as `legacy`, and `tests/test_findings.py` fails on it:
+every warning a walker writes carries a code. When the code is only known at
+run time (a resolver's reason), `coded(code, message)` takes the kind from the
+registry.
+
+### Declare a decoded layer
+
+When a chunk's payload is compressed and you decode it, declare the image as a
+layer rather than reporting its fields unpositioned: set `chunk["layer"]`
+(decoder name from `core/infra/layers.py`, its params, length and the check
+you ran) and `chunk["layer_chunks"]` (your walk of the image, offsets in the
+image). Register the decoder if it is new. `walk/ym.py` is the example; the
+layer's chunks never go on the flat list.
 
 ### Report absence as a finding
 

@@ -1,14 +1,16 @@
 """
 RIFF/WAVE chunk primitives.
 
-The lenient traversal (iter_chunks / iter_spans) that the WAV walker and
-the grammar strategy consume, container info, and the acid/smpl field
+The lenient traversal (iter_chunks / iter_spans) the WAV walker consumes,
+container info, and the acid/smpl field
 vetting helpers. Chunk field decoding lives in core/walk/wav.py.
 """
 
-import os
 import struct
 from collections import namedtuple
+
+from acidcat.core.infra.source import open_input, input_size
+from acidcat.core.infra.findings import defect
 
 # cap on payload bytes read per chunk (a forged size cannot force an unbounded
 # allocation); the declared size is still reported in full.
@@ -39,14 +41,48 @@ def safe_fourcc(cid):
     return "hex:" + cid.hex()
 
 
-def iter_chunks(filepath):
+def decode_text(raw):
+    """Decode metadata text: UTF-8, falling back to latin-1. RIFF INFO, bext
+    and the AIFF text chunks declare no encoding; modern DAWs (and bandcamp)
+    write UTF-8, and ascii/errors='replace' silently destroyed non-Latin tags
+    (Korean, CJK, the whole non-ASCII world) into U+FFFD. latin-1 never
+    raises, so a real cp1252 tag still round-trips. The walkers read text
+    through this and the editors read old values through it, so a value an
+    editor writes as UTF-8 reads back as written."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
+def pad_step(f, at, file_size, byteorder):
+    """The pad after an odd chunk whose payload ends at `at`: 1, or 0 when the
+    writer left it out. Some writers do; stepping over a pad that is not there
+    lands one byte into the next chunk and every chunk after it is misread.
+
+    0 only when `at` holds a chunk header whose size fits the file and `at + 1`
+    does not, so a conformant file (a 0x00 pad is never a chunk id) always
+    gets its pad, and a non-zero pad is still read as a pad."""
+    f.seek(at)
+    b = f.read(9)
+
+    def fits(off, hdr):
+        if len(hdr) < 8 or not all(0x20 <= c < 0x7F for c in hdr[:4]):
+            return False
+        return off + 8 + int.from_bytes(hdr[4:8], byteorder) <= file_size
+    return 0 if fits(at, b[:8]) and not fits(at + 1, b[1:9]) else 1
+
+
+def iter_chunks(filepath, unpadded=None):
     """
     Yield (chunk_id_str, offset, size) for each chunk in a RIFF/WAVE file.
 
-    Lightweight iterator -- doesn't parse chunk contents.
+    Lightweight iterator -- doesn't parse chunk contents. An odd chunk the
+    writer left unpadded is followed where the next chunk really starts, and
+    (id, offset) of it is appended to `unpadded` when a list is given.
     """
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    size = input_size(filepath)
+    with open_input(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12 or hdr[0:4] != b"RIFF" or hdr[8:12] != b"WAVE":
             return
@@ -64,36 +100,41 @@ def iter_chunks(filepath):
             yield (cid, pos, csz)
             pos += 8 + csz
             if csz % 2 == 1:
-                pos += 1
+                step = pad_step(f, pos, size, "little")
+                if not step and unpadded is not None:
+                    unpadded.append((cid, pos - 8 - csz))
+                pos += step
 
 
 def iter_spans(filepath):
-    """Lenient RIFF/WAVE traversal, the single source both the walker and the
-    grammar strategy consume. Returns ``(spans, warnings)``. Enumerates via
+    """Lenient RIFF/WAVE traversal, the WAV walker's. Returns ``(spans, warnings)``. Enumerates via
     ``iter_chunks`` so the chunk-walk arithmetic has exactly one home, and adds
     the payload read plus the traversal warnings (riff_size mismatch, chunk
     overrun) in the walker's exact wording. Degrades, never raises.
     """
-    file_size = os.path.getsize(filepath)
+    file_size = input_size(filepath)
     spans, warns = [], []
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12:
-            return [], [f"file is {len(hdr)} bytes; a RIFF header needs 12"]
+            return [], [defect("header.truncated",
+                               f"file is {len(hdr)} bytes; a RIFF header needs 12")]
         if hdr[0:4] != b"RIFF" or hdr[8:12] != b"WAVE":
-            return [], ["not a RIFF/WAVE container"]
+            return [], [defect("magic.mismatch", "not a RIFF/WAVE container")]
         riff_size = struct.unpack("<I", hdr[4:8])[0]
         if riff_size + 8 != file_size:
             warns.append(
-                f"riff_size says {riff_size + 8:,} bytes, file is "
-                f"{file_size:,} ({file_size - riff_size - 8:+,})"
+                defect("count.mismatch",
+                       f"riff_size says {riff_size + 8:,} bytes, file is "
+                       f"{file_size:,} ({file_size - riff_size - 8:+,})")
             )
         for cid, offset, size in iter_chunks(filepath):
             avail = max(0, file_size - offset - 8)
             if size > avail:
                 warns.append(
-                    f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
-                    f"but only {avail:,} remain"
+                    defect("size.overrun",
+                           f"chunk {cid!r} at 0x{offset:08x} claims {size:,} bytes "
+                           f"but only {avail:,} remain")
                 )
             f.seek(offset + 8)
             payload = f.read(min(size, PAYLOAD_CAP))
@@ -151,7 +192,7 @@ def effective_acid_beats(meta, duration):
 
 def get_riff_info(filepath):
     """Return RIFF container size and type string, or None if not RIFF."""
-    with open(filepath, "rb") as f:
+    with open_input(filepath) as f:
         hdr = f.read(12)
         if len(hdr) < 12 or hdr[0:4] != b"RIFF":
             return None

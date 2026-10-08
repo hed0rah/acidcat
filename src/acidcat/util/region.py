@@ -16,22 +16,33 @@ import os
 import tempfile
 
 
-def add_region_args(parser, region_help=None):
-    """Add the range-selection flags to a parser."""
-    parser.add_argument("--offset", metavar="N",
-                        help="Start of a byte range to work on (0x.. or decimal).")
-    parser.add_argument("--length", metavar="N",
-                        help="Length of that range, in bytes.")
-    parser.add_argument("--end", metavar="N",
-                        help="End of the range (exclusive), instead of --length.")
+def add_region_args(parser, region_help=None, addr=False):
+    """Add the range-selection flags to a parser. With `addr` (2.0), --at also
+    takes an ADDR and the 1.8 --offset/--length/--end are left to the alias
+    layer, which rewrites them as --at @OFF+LEN."""
+    if not addr:
+        parser.add_argument("--offset", metavar="N",
+                            help="Start of a byte range to work on (0x.. or decimal).")
+        parser.add_argument("--length", metavar="N",
+                            help="Length of that range, in bytes.")
+        parser.add_argument("--end", metavar="N",
+                            help="End of the range (exclusive), instead of --length.")
     parser.add_argument("--at", metavar="EXPR",
-                        help="Anchored start: 0xNN | end[-N] | find:STR|0xHEX[+N] "
-                             "| chunk:ID[+N].")
+                        help=("An ADDR (@0x100+64, @0x100..0x200, RIFF/data) or a "
+                              "search anchor: end[-N] | find:STR|0xHEX[+N] | "
+                              "chunk:ID[+N] | 0xNN." if addr else
+                              "Anchored start: 0xNN | end[-N] | find:STR|0xHEX[+N] "
+                              "| chunk:ID[+N]."))
     parser.add_argument("--region", type=int, metavar="N",
                         help=region_help or
                         "Work on the Nth region `locate` reports (0-based), so a "
                         "blob found inside a larger image can be walked directly.")
     return parser
+
+
+def _is_anchor(text):
+    from acidcat.commands._addr import is_anchor
+    return is_anchor(text)
 
 
 def _int(text, what):
@@ -63,6 +74,9 @@ def resolve_range(args, path):
 
     size = os.path.getsize(path)
     start = None
+    if at is not None and not _is_anchor(at):
+        from acidcat.commands import _addr
+        return _addr.resolve(path, at)
     if at is not None:
         from acidcat.core.infra import bytefields as bf
         start = bf.resolve_offset(at, path, size)

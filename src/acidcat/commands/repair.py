@@ -20,7 +20,7 @@ repair here" rather than guessing.
 import os
 import sys
 
-from acidcat.commands._output import add_output_format_arg, chosen_format
+from acidcat.commands._output import add_output_format_arg, chosen_format, format_of
 from acidcat.core.infra.render import output as _render
 from acidcat.core.write import constraints, writer
 from acidcat.core.write.repairers import AudioGuardError
@@ -46,7 +46,7 @@ def register(subparsers):
 
 def _record(path, report):
     """The machine shape of a report: what this file is and what is wrong."""
-    return {"path": path, "format": report.label,
+    return {"path": path, **format_of(path),
             "issues": len(report.violations),
             "repairable": any(v.repairable for v in report.violations),
             "detail": "; ".join(v.describe() for v in report.violations),
@@ -83,12 +83,13 @@ def _repair_one(path, args, rows=None):
         # nothing checkable, the same answer `validate` gives on a format it
         # does not model -- not a passing result for a file never examined
         if rows is not None:
-            rows.append({"path": path, "format": None, "action": "skipped",
+            rows.append({"path": path, **format_of(path), "action": "skipped",
                          "issues": 0, "repairable": False, "written": None,
                          "backup": None,
                          "detail": "not a structurally-modeled container"})
-        print(f"acidcat repair: {path}: not a RIFF/AIFF/MP4 container "
-              f"(nothing to repair here)", file=sys.stderr)
+        from acidcat.commands._output import checked_formats
+        print(f"acidcat check: {path}: not a format check models (nothing to "
+              f"repair here); check covers: {checked_formats()}", file=sys.stderr)
         return 2
 
     if args.dry_run:
@@ -102,28 +103,42 @@ def _repair_one(path, args, rows=None):
         if rows is not None:
             rows[-1]["action"] = "would-repair" if report.violations else "clean"
             rows[-1]["written"] = rows[-1]["backup"] = None
-        return 1 if report.violations else 0
+        # a non-zero pad byte would be zeroed, but it is filler, not a fault
+        # (decisions.md, 2026-10-07), so it does not fail the dry run
+        return 1 if report.defects else 0
 
     try:
         new_data, report = constraints.repair(data, opts)
     except AudioGuardError as e:
-        print(f"acidcat repair: {path}: aborted, {e} (refusing to write)",
+        print(f"acidcat check: {path}: aborted, {e} (refusing to write)",
               file=sys.stderr)
         return 1
 
-    if not _present(path, report, rows):
+    # a defect with no witness is left in the file. --fix used to exit 0 and
+    # call such a file "clean", so `check --fix f && ship f` shipped it while
+    # --dry-run on the same file said 1. Whatever is left after the fix
+    # decides the exit, the same way it decides --dry-run's.
+    left = [v for v in report.defects if not v.repairable]
+    rc = 1 if left else 0
+    to_write = _present(path, report, rows)
+    if left:
+        print(f"acidcat check: {path}: {len(left)} defect(s) left unrepaired "
+              f"(no witness to fix them from)", file=sys.stderr)
+    if not to_write:
         if rows is not None:
-            rows[-1].update(action="clean", written=None, backup=None)
-        return 0
+            rows[-1].update(action="unrepaired" if left else "clean",
+                            written=None, backup=None)
+        return rc
     try:
         written, backup = writer.commit(
             path, new_data, out=args.output, overwrite=args.overwrite)
     except OSError as e:
-        print(f"acidcat repair: {path}: {e}", file=sys.stderr)
+        print(f"acidcat check: {path}: {e}", file=sys.stderr)
         return 2
     if rows is not None:
-        rows[-1].update(action="repaired", written=written, backup=backup)
-        return 0
+        rows[-1].update(action="partly-repaired" if left else "repaired",
+                        written=written, backup=backup)
+        return rc
     if backup:
         note = f"  (backup: {os.path.basename(backup)})"
     elif not args.output and not args.overwrite:
@@ -137,21 +152,23 @@ def _repair_one(path, args, rows=None):
     else:
         note = ""
     print(f"  wrote {os.path.basename(written)}{note}")
-    return 0
+    return rc
 
 
 def run(args):
     if args.output and len(args.inputs) > 1:
-        print("acidcat repair: -o works with a single input file", file=sys.stderr)
+        print("acidcat check: -o works with a single input file", file=sys.stderr)
         return 2
     fmt = chosen_format(args)
     rows = None if fmt == "table" else []
     rc = 0
     for path in args.inputs:
+        # max, not `or`: a later 1 overwrote an earlier 2, so the exit
+        # depended on the order the files were named in
         try:
-            rc = _repair_one(path, args, rows) or rc
+            rc = max(rc, _repair_one(path, args, rows))
         except (OSError, ValueError) as e:
-            print(f"acidcat repair: {path}: {e}", file=sys.stderr)
+            print(f"acidcat check: {path}: {e}", file=sys.stderr)
             rc = 2
     if rows is not None:
         if fmt in ("csv", "tsv"):

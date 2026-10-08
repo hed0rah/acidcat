@@ -250,7 +250,12 @@ def in_rom(addr):
 
 
 def violations(h, filesize):
-    """Spec violations, as (field, complaint) pairs.
+    """Spec violations, as (field, complaint) pairs."""
+    return [(field, complaint) for field, complaint, _code in coded_violations(h, filesize)]
+
+
+def coded_violations(h, filesize):
+    """Spec violations, as (field, complaint, finding code) triples.
 
     Everything here is a MUST in the format description, not a preference. The
     RSID rules are the strict ones: the spec says a reader must reject an RSID
@@ -260,55 +265,56 @@ def violations(h, filesize):
     out = []
     v = h.get("version", 0)
     if h["magic"] not in MAGICS:
-        out.append(("magicID", "not 'PSID' or 'RSID'"))
+        out.append(("magicID", "not 'PSID' or 'RSID'", "magic.mismatch"))
     if v not in (1, 2, 3, 4):
-        out.append(("version", "%d is outside the defined range 1-4" % v))
+        out.append(("version", "%d is outside the defined range 1-4" % v, "value.invalid"))
     expected = header_size(v)
     if v in (1, 2, 3, 4) and h["data_offset"] != expected:
         out.append(("dataOffset",
                     "0x%04X for a v%d header, expected 0x%04X"
-                    % (h["data_offset"], v, expected)))
+                    % (h["data_offset"], v, expected), "field.inconsistent"))
     if not 1 <= h["songs"] <= 0x100:
-        out.append(("songs", "%d is outside 1-256" % h["songs"]))
+        out.append(("songs", "%d is outside 1-256" % h["songs"], "value.invalid"))
     if h["songs"] and not 1 <= h["start_song"] <= h["songs"]:
         out.append(("startSong",
-                    "%d is not within 1-%d" % (h["start_song"], h["songs"])))
+                    "%d is not within 1-%d" % (h["start_song"], h["songs"]), "value.invalid"))
     if h["data_offset"] > filesize:
-        out.append(("dataOffset", "points past the end of the file"))
+        out.append(("dataOffset", "points past the end of the file", "pointer.dangling"))
     if h.get("flags_reserved"):
-        out.append(("flags", "bits 10-15 are reserved and should be 0"))
+        out.append(("flags", "bits 10-15 are reserved and should be 0", "reserved.nonzero"))
 
     if h["is_rsid"]:
         if v < 2:
-            out.append(("version", "RSID requires version 2 or higher"))
+            out.append(("version", "RSID requires version 2 or higher", "value.invalid"))
         if h["load_address"]:
             out.append(("loadAddress",
-                        "RSID requires 0, found $%04X" % h["load_address"]))
+                        "RSID requires 0, found $%04X" % h["load_address"], "value.invalid"))
         if h["play_address"]:
             out.append(("playAddress",
-                        "RSID requires 0, found $%04X" % h["play_address"]))
+                        "RSID requires 0, found $%04X" % h["play_address"], "value.invalid"))
         if h["speed"]:
             out.append(("speed",
-                        "RSID requires 0, found 0x%08X" % h["speed"]))
+                        "RSID requires 0, found 0x%08X" % h["speed"], "value.invalid"))
         if h["effective_load"] and h["effective_load"] < RSID_MIN_LOAD:
             out.append(("loadAddress",
                         "RSID load must not be below $%04X, found $%04X"
-                        % (RSID_MIN_LOAD, h["effective_load"])))
+                        % (RSID_MIN_LOAD, h["effective_load"]), "address.outside"))
         init = h["init_address"]
         if init and in_rom(init):
             out.append(("initAddress",
-                        "RSID init must not point into ROM, found $%04X" % init))
+                        "RSID init must not point into ROM, found $%04X" % init,
+                        "address.outside"))
         if h["psid_specific"] and init:
             out.append(("initAddress",
-                        "the C64 BASIC flag is set, so init must be 0"))
+                        "the C64 BASIC flag is set, so init must be 0", "field.inconsistent"))
     # startPage/pageLength describe a free region for a relocated driver; the
     # spec pins pageLength to 0 at both sentinel values of startPage.
     if h["start_page"] in (0x00, 0xFF) and h["page_length"]:
         out.append(("pageLength",
-                    "must be 0 when startPage is 0x%02X" % h["start_page"]))
+                    "must be 0 when startPage is 0x%02X" % h["start_page"], "field.inconsistent"))
     if h["third_sid_byte"] and h["third_sid_byte"] == h["second_sid_byte"]:
         out.append(("thirdSIDAddress",
-                    "cannot be the same address as the second SID"))
+                    "cannot be the same address as the second SID", "field.inconsistent"))
     return out
 
 

@@ -105,5 +105,7 @@ class TestTheExitCode:
     def test_a_missing_file_is_still_reported_first(self, monkeypatch, capsys):
         """Whichever is wrong, say the one the user can act on."""
         monkeypatch.setattr(sys.stdout, "isatty", lambda: False, raising=False)
-        assert tuicmd.run(_Args("no/such/file.wav")) == 1
-        assert "not a file" in capsys.readouterr().out
+        # could-not-run is 2, and the message goes to stderr like every verb's
+        assert tuicmd.run(_Args("no/such/file.wav")) == 2
+        out = capsys.readouterr()
+        assert out.out == "" and "No such file" in out.err

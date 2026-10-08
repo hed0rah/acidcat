@@ -6,16 +6,17 @@ all of them) is an LHA member: its header is a real region of the file and
 is walked field by field, and the YM inside is described with its fields
 unpositioned, since offsets into the unpacked image are not file offsets.
 The unpacked body must match the member's CRC-16 before anything in it
-is reported.
+is reported. The image is also declared as a layer, walked region by region
+like a bare YM, for the v1 Document (node-v1.md section 3).
 """
 
-import os
 import time
 
 from acidcat.core.codecs import lha
 from acidcat.core.formats import ym as ymmod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # The largest real YM measured unpacks to well under 1 MB (a six-minute
@@ -29,12 +30,13 @@ _VOICES = "ABC"
 
 
 def inspect_ym(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _YM_READ_CAP))
     warns = []
     if size > _YM_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d" % (size, _YM_READ_CAP)))
+        warns.append(hit("read_bytes", _YM_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d" % (size, _YM_READ_CAP)))
     if lha.is_lha(raw):
         return _packed(raw, warns)
     y = ymmod.parse(raw)
@@ -42,8 +44,9 @@ def inspect_ym(filepath, deep=False):
         raise _Unsupported(y["why"])
     warns.extend(y["warnings"])
     if len(y["drums"]) > _YM_DRUM_LIST_CAP:
-        warns.append(coverage("listing the first %d of %d digidrums"
-                              % (_YM_DRUM_LIST_CAP, len(y["drums"]))))
+        warns.append(hit("list_rows", _YM_DRUM_LIST_CAP, len(y['drums']),
+                         "listing the first %d of %d digidrums"
+                         % (_YM_DRUM_LIST_CAP, len(y["drums"]))))
     return _bare(raw, y), warns
 
 
@@ -198,7 +201,9 @@ def _packed(raw, warns):
                            "an LHA member that is not a YM tune: %s" % y["why"])
     warns.extend(y["warnings"])
     if not h["checksum_ok"]:
-        warns.append("the LHA header checksum does not match its bytes")
+        warns.append(defect(
+            "checksum.mismatch",
+            "the LHA header checksum does not match its bytes"))
     nlen = len(h["name"])
     hfields = [
         _f(0, 1, "header_size", h["header_len"] - 2),
@@ -220,8 +225,19 @@ def _packed(raw, warns):
     body_fields = ([_f(None, 0, "unpacked", "%s bytes from %s"
                        % (format(len(image), ","), format(h["packed"], ",")))]
                    + _tune_fields(image, y, False) + _string_fields(y, False))
-    chunks.append(_chunk(h["method"].strip("-"), h["body"], h["packed"],
-                         _summary(y) + _title(y), body_fields))
+    body = _chunk(h["method"].strip("-"), h["body"], h["packed"],
+                  _summary(y) + _title(y), body_fields)
+    # the unpacked tune is layer 1: the same walk as a bare YM, positioned in
+    # the image. Only the v1 Document reads it (core/infra/layers.py).
+    body["layer"] = {
+        "name": "unpacked " + y["magic"].rstrip("!"),
+        "decoder": "lha." + h["method"].strip("-"),
+        "params": {"size": h["size"], "crc": h["crc"]},
+        "length": len(image), "length_known": True,
+        "verdict": {"result": "verified", "method": "crc16",
+                    "detail": "0x%04X" % h["crc"]}}
+    body["layer_chunks"] = _bare(image, y)
+    chunks.append(body)
     end = h["body"] + h["packed"]
     if end < len(raw):
         tail = raw[end:]

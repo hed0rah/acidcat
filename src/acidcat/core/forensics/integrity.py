@@ -146,6 +146,9 @@ def _bit_depth_finding(bits, eff, examined):
         return None
     return {
         "check": "bit_depth",
+        # a note, like dual-mono: padded audio is legal and plays as written;
+        # it says how the file was made, not that it is broken
+        "kind": "info",
         "verdict": f"declared {bits}-bit, effective {eff}-bit",
         "detail": f"the low {bits - eff} bit(s) are always zero across "
                   f"{examined:,} samples sampled end to end -- likely upsampled "

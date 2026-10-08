@@ -375,3 +375,27 @@ class TestFormatTwoIsNotAMax:
         chunks, warns = inspect_midi(str(p))
         assert _field(chunks[0], "duration")["value"] == "4.000 s"
         assert not any("share no timeline" in w for w in warns)
+
+
+
+def test_duration_integrates_the_tempo_map(tmp_path):
+    # the span was timed at the first tempo alone: a file at 120 then 60 bpm
+    # read as half its length
+    tempo = b"\x00\xFF\x51\x03\x07\xA1\x20"            # 120 bpm at tick 0
+    slow = b"\x83\x60\xFF\x51\x03\x0F\x42\x40"        # 60 bpm at tick 480
+    end = b"\x83\x60\xFF\x2F\x00"                       # end at tick 960
+    p = tmp_path / "two_tempos.mid"
+    p.write_bytes(_build_smf([tempo + slow + end], division=480))
+    chunks, _w = inspect_midi(str(p))
+    dur = _field(chunks[0], "duration")
+    assert dur["value"] == "1.500 s"           # 0.5 s at 120, then 1.0 s at 60
+    assert "approximate" not in dur["note"]
+
+
+def test_a_tempo_in_another_track_is_global_in_format_1(tmp_path):
+    conductor = b"\x00\xFF\x51\x03\x07\xA1\x20\x83\x60\xFF\x51\x03\x0F\x42\x40\x00\xFF\x2F\x00"
+    notes = b"\x87\x40\x90\x3C\x64\x00\xFF\x2F\x00"          # runs to tick 960
+    p = tmp_path / "conductor.mid"
+    p.write_bytes(_build_smf([conductor, notes], division=480))
+    chunks, _w = inspect_midi(str(p))
+    assert _field(chunks[0], "duration")["value"] == "1.500 s"

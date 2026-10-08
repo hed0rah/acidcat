@@ -19,11 +19,12 @@ import json
 import os
 import sys
 
-from acidcat.commands._output import add_output_format_arg
+from acidcat.commands._output import add_output_format_arg, add_report_arg
 from acidcat.util import stdin as stdinmod
 from acidcat.core.forensics.classify import classify as classify_file
 from acidcat.core.infra.render import output
 from acidcat.util.color import add_color_arg, color_enabled
+from acidcat.util.paths import under
 from acidcat.util.stdin import display_name
 
 _SHAPE_COLOR = {
@@ -43,17 +44,21 @@ def register(subparsers):
         "classify",
         help="Triage a file: single format, container, damaged, or not audio -- "
              "and what to run next.")
-    p.add_argument("targets", nargs="+", metavar="target",
+    p.add_argument("targets", nargs="+", metavar="FILE",
                    help="Files or directories to triage.")
     p.add_argument("--shallow", action="store_true",
                    help="Magic and chunk structure only -- skip the embedded "
                         "container sweep and resync. For large trees where the "
                         "per-file sweep would dominate.")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"))
+    add_report_arg(p)
     add_color_arg(p)
+    p.add_argument("--problems-only", action="store_true",
+                   help="Report only files that are not a plain single file of "
+                        "their format (the ones worth a closer look).")
     p.add_argument("-q", "--quiet", action="store_true",
-                   help="Only report files that are not a plainly-understood "
-                        "single format.")
+                   help="Drop progress and summary lines on stderr (never "
+                        "changes stdout).")
     p.set_defaults(func=run)
 
 
@@ -62,7 +67,7 @@ def _iter_targets(targets):
         if os.path.isdir(t):
             for root, _dirs, files in os.walk(t):
                 for fn in sorted(files):
-                    yield os.path.join(root, fn)
+                    yield under(t, root, fn)
         else:
             yield t
 
@@ -71,9 +76,10 @@ def _c(code, text, on):
     return f"\033[{code}m{text}\033[0m" if on else text
 
 
-# verdicts that mean "there is nothing here acidcat can work with". Every other
-# shape names something it understood well enough to hand to another verb.
-_NOTHING_FOUND = {"opaque", "foreign", "empty"}
+# verdicts that mean "no walker reads this, so inspect cannot run on it".
+# `unwalked` names the format and still belongs here: named is not walkable,
+# and `classify f && inspect f` is promised to stop on exactly these.
+_NOTHING_FOUND = {"opaque", "foreign", "empty", "unwalked"}
 
 
 def run(args):
@@ -105,7 +111,7 @@ def run(args):
                 continue
             if v["shape"] not in _NOTHING_FOUND:
                 identified += 1
-            if args.quiet and v["shape"] == "single":
+            if getattr(args, "problems_only", False) and v["shape"] == "single":
                 continue
             name = display if display == "<stdin>" else display_name(path)
             # `file` is for reading, `path` is for running: the latter must stay
@@ -113,7 +119,9 @@ def run(args):
             # `next` alone was a bare verb ("locate") with no target, so the one
             # field whose whole purpose is "what to run now" could not be run --
             # next_command is the same line the table prints.
-            target = display if display == "<stdin>" else os.path.normpath(path)
+            # as given (cli-2.0.md 4.1): normpath turned every / into \ on
+            # Windows (review V8)
+            target = display if display == "<stdin>" else path
             nxt = v["next"] or ""
             rows.append({"file": name, "shape": v["shape"],
                          "format": v["format"] or "", "next": nxt,
@@ -125,22 +133,32 @@ def run(args):
                          "detail": v["detail"], "path": target,
                          "evidence": v["evidence"]})
 
-    # 1 when nothing among the targets was identifiable, so `classify f &&
-    # inspect f` stops instead of running inspect on a file classify just
-    # called opaque. A read failure (2) outranks it.
+    # 1 when no target is one a walker reads, so `classify f && inspect f`
+    # stops instead of running inspect on a file it cannot walk. A read
+    # failure (2) outranks it.
     if not exit_code and not identified:
         exit_code = 1
 
-    if fmt == "json":
-        json.dump(rows, sys.stdout, indent=2, default=str)
-        sys.stdout.write("\n")
-        return exit_code
-    if fmt in ("csv", "tsv"):
+    if fmt in ("json", "csv", "tsv"):
+        # the machine rows name a file by `path` and a format by registry id
+        # and label (cli-2.0.md section 4.1); `file`, the display name, is
+        # the table's
+        from acidcat.core.walk import _WALKERS
+        mrows = []
+        for r in rows:
+            m = {k: v for k, v in r.items() if k != "file"}
+            m["format"] = r["format"] or None
+            m["label"] = _WALKERS[r["format"]][0] if r["format"] in _WALKERS else m["format"]
+            mrows.append(m)
+        if fmt == "json":
+            json.dump(mrows, sys.stdout, indent=2, default=str)
+            sys.stdout.write("\n")
+            return exit_code
         # both delimited renderings, not just csv: listing tsv in the choices
         # while falling through to the table would be a flag that is accepted
         # and ignored, which is the bug this pass exists to remove.
-        output([{k: r[k] for k in ("file", "shape", "format", "next", "detail")}
-                for r in rows], fmt=fmt)
+        output([{k: r[k] for k in ("path", "shape", "format", "label", "next", "detail")}
+                for r in mrows], fmt=fmt)
         return exit_code
 
     if not rows:

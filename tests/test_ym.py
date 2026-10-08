@@ -20,35 +20,8 @@ from acidcat.core.walk import walk_file
 import seeds
 
 
-class _Bits(object):
-    def __init__(self):
-        self.bits = []
-
-    def put(self, value, n):
-        self.bits += [(value >> (n - 1 - i)) & 1 for i in range(n)]
-
-    def code(self, s):
-        self.bits += [int(c) for c in s]
-
-    def bytes(self):
-        b = self.bits + [0] * (-len(self.bits) % 8)
-        return bytes(int("".join(map(str, b[i:i + 8])), 2) for i in range(0, len(b), 8))
-
-
-def _literal_block(data):
-    """Every byte a literal: the literal table gives all 256 bytes length 8,
-    so a byte's canonical code is the byte itself. Both small tables are
-    single-symbol and cost nothing per use."""
-    w = _Bits()
-    w.put(len(data), 16)
-    w.put(0, 5)
-    w.put(10, 5)                                # every length is 10 - 2 = 8
-    w.put(256, 9)                               # lengths for symbols 0-255
-    w.put(0, 4)
-    w.put(0, 4)                                 # positions: always 0
-    for b in data:
-        w.put(b, 8)
-    return w.bytes()
+_Bits = seeds.Bits
+_literal_block = seeds.lh5_literals
 
 
 def _match_block():
@@ -170,6 +143,38 @@ def test_a_missing_end_marker_and_short_data_are_said():
     assert any("End!" in w for w in y["warnings"])
     y = ymmod.parse(img[:-4 - 20])
     assert any("says 4 frames; 2 fit" in w for w in y["warnings"])
+
+
+def test_no_end_marker_is_a_note_but_a_misplaced_one_is_a_defect():
+    """Players stop at the frame count, so a YM without End! plays the same:
+    a convention note, not damage (decided 2026-10-07). A marker that is in
+    the file but not where the frames end means the count is wrong."""
+    img = seeds.SEEDS["ym"][0](frames=4)
+    y = ymmod.parse(img[:-4])
+    assert [(w.kind, w.code) for w in y["warnings"]] == [
+        ("info", "convention.noted")]
+    y = ymmod.parse(img[:-4] + bytes(16) + b"End!")      # one frame too many
+    assert [(w.kind, w.code) for w in y["warnings"]] == [
+        ("defect", "count.mismatch")]
+
+
+def test_no_end_marker_with_data_after_the_frames_is_a_defect():
+    """The note covers a file whose frames end the file. With no End! and
+    more data after the frames, the count is likely too small: 8 frames of
+    data, a header that says 4, passed as the convention (review F7)."""
+    img = bytearray(seeds.SEEDS["ym"][0](frames=8)[:-4])
+    struct.pack_into(">I", img, 12, 4)
+    y = ymmod.parse(bytes(img))
+    assert [(w.kind, w.code) for w in y["warnings"]] == [("defect", "bytes.stray")]
+    assert "64 bytes follow the last frame" in y["warnings"][0]
+    # a cut-off marker, or zero fill shorter than a frame (6 bytes, on a
+    # real rip), is still the convention; a whole frame of zeros is not
+    y = ymmod.parse(seeds.SEEDS["ym"][0](frames=4)[:-4] + bytes(16))
+    assert [w.code for w in y["warnings"]] == ["bytes.stray"]
+    for tail in (b"End", bytes(4), bytes(6)):
+        y = ymmod.parse(seeds.SEEDS["ym"][0](frames=4)[:-4] + tail)
+        assert [(w.kind, w.code) for w in y["warnings"]] == [
+            ("info", "convention.noted")], tail
 
 
 # -- the walk --------------------------------------------------------------

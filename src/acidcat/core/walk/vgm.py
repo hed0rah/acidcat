@@ -13,11 +13,11 @@ spanning the gzip with every field unpositioned and the layout described
 in the summary.
 """
 
-import os
 
 from acidcat.core.formats import vgm as vgmmod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import Unsupported as _Unsupported
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import Unsupported as _Unsupported, _open, _size
 from acidcat.core.walk.base import _f
 
 # The largest real VGM measured is a few MB; 64 MB reads anything a chip
@@ -55,13 +55,14 @@ def _seconds(samples):
 
 
 def inspect_vgm(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _VGM_READ_CAP))
     warns = []
     if size > _VGM_READ_CAP:
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, _VGM_READ_CAP)))
+        warns.append(hit("read_bytes", _VGM_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, _VGM_READ_CAP)))
     packed = vgmmod.is_vgz(raw)
     if packed:
         image = vgmmod.inflate(raw, _VGM_INFLATE_CAP)
@@ -78,31 +79,41 @@ def inspect_vgm(filepath, deep=False):
         raise _Unsupported(h["why"])
     end = min(h["gd3_at"] or h["eof"], len(image))
     if h["eof"] != len(image):
-        warns.append("the header says the file ends at %d; it is %d bytes"
-                     % (h["eof"], len(image)))
+        warns.append(defect("count.mismatch",
+                            "the header says the file ends at %d; it is %d bytes"
+                            % (h["eof"], len(image))))
     w = vgmmod.walk_commands(image, h["data_at"], end, _VGM_COMMAND_CAP)
     if w["capped"]:
-        warns.append(coverage("decoded the first %d commands" % _VGM_COMMAND_CAP))
+        warns.append(hit("work_steps", _VGM_COMMAND_CAP, _VGM_COMMAND_CAP,
+                         "decoded the first %d commands" % _VGM_COMMAND_CAP))
     elif not w["ended"]:
-        warns.append("the command stream has no end marker (0x66)"
-                     + (": " + w["why"] if w["why"] else ""))
+        warns.append(defect("required.missing",
+                            "the command stream has no end marker (0x66)"
+                            + (": " + w["why"] if w["why"] else "")))
     elif w["end"] != end:
-        warns.append("the stream ends at %d and the next region starts at %d"
-                     % (w["end"], end))
+        warns.append(defect("geometry.invalid",
+                            "the stream ends at %d and the next region starts at %d"
+                            % (w["end"], end)))
     if h["loop_at"] is not None and not h["data_at"] <= h["loop_at"] < w["end"]:
-        warns.append("the loop point 0x%X is outside the command stream" % h["loop_at"])
+        warns.append(defect("pointer.dangling",
+                            "the loop point 0x%X is outside the command stream" % h["loop_at"]))
     if not w["capped"] and w["ended"] and w["waits"] != h["total_samples"]:
-        warns.append("the header says %d samples and the waits add up to %d"
-                     % (h["total_samples"], w["waits"]))
+        warns.append(defect("count.mismatch",
+                            "the header says %d samples and the waits add up to %d"
+                            % (h["total_samples"], w["waits"])))
     clocked = {c["name"] for c in h["chips"]}
     for chip in sorted(w["writes"]):
         if chip not in clocked:
-            warns.append("%d writes to %s, whose clock is zero" % (w["writes"][chip], chip))
+            warns.append(defect("reference.unresolved",
+                                "%d writes to %s, whose clock is zero"
+                                % (w["writes"][chip], chip)))
 
     header_fields = _header_fields(h, w)
     gd3 = vgmmod.parse_gd3(image, h["gd3_at"]) if h["gd3_at"] is not None else None
     if h["gd3_at"] is not None and not gd3["ok"]:
-        warns.append("the header points at a GD3 tag and there is none at 0x%X" % h["gd3_at"])
+        warns.append(defect(
+            "pointer.dangling",
+            "the header points at a GD3 tag and there is none at 0x%X" % h["gd3_at"]))
     title = _title(gd3)
 
     if packed:
@@ -129,8 +140,9 @@ def inspect_vgm(filepath, deep=False):
     pos = h["data_at"]
     blocks = w["blocks"]
     if len(blocks) > _VGM_BLOCK_LIST_CAP:
-        warns.append(coverage("listing the first %d of %d data blocks"
-                              % (_VGM_BLOCK_LIST_CAP, len(blocks))))
+        warns.append(hit("list_rows", _VGM_BLOCK_LIST_CAP, len(blocks),
+                         "listing the first %d of %d data blocks"
+                         % (_VGM_BLOCK_LIST_CAP, len(blocks))))
         blocks = blocks[:_VGM_BLOCK_LIST_CAP]
     run = 0
     for i, (at, btype, blen) in enumerate(blocks):

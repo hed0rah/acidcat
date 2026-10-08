@@ -103,6 +103,9 @@ def test_options_may_follow_operands(two_wavs):
 def test_dash_reads_stdin(verb):
     """Invariant 3. shape, audit and validate had no stdin handling at all --
     audit got it for free once it routed through targets.each."""
+    if verb == "detect":
+        # analyze exits 2, once, without the analysis extra; CI installs it
+        pytest.importorskip("librosa")
     from conftest import CORPUS_WAV as src
     raw = open(src, "rb").read()
     r = subprocess.run([sys.executable, "-m", "acidcat", verb, "-"],
@@ -159,3 +162,23 @@ def test_a_failure_in_one_file_fails_the_command(two_wavs, tmp_path):
     bad.write_bytes(b"RIFF\x00\x00\x00\x00WAVEjunk")
     r = _cli("audit", a, str(bad))
     assert r.returncode != 0
+
+
+@pytest.mark.parametrize("verb,args", [
+    ("read", ["fmt.sample_rate"]), ("strings", []), ("entropy", []),
+    ("find", ["s:data"]), ("scan", ["44100", "-t", "u32"]),
+])
+def test_probe_takes_the_standard_flags_after_the_subverb(two_wavs, tmp_path,
+                                                          verb, args):
+    """Review V9: `probe read AT F --json` was an argparse error; every other
+    verb takes its flags anywhere. The same JSON either side of the subverb,
+    and -o after it writes the report."""
+    a, _b = two_wavs
+    before = _cli("probe", "--json", verb, *args, a)
+    after = _cli("probe", verb, *args, a, "--json")
+    assert before.returncode == after.returncode == 0, after.stderr
+    assert after.stdout == before.stdout and after.stdout.lstrip().startswith(("{", "["))
+    out = tmp_path / "r.json"
+    r = _cli("probe", verb, *args, a, "--output-format", "json", "-o", str(out))
+    assert r.returncode == 0 and not r.stdout
+    assert out.read_text(encoding="utf-8") == before.stdout

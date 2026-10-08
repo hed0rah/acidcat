@@ -27,10 +27,10 @@ The id is "au"; the MPC2000 ".snd" is a different format (id "snd") with no
 ".snd" magic, told apart from this one at sniff time by content.
 """
 
-import os
 import struct
 
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.findings import defect, info
+from acidcat.core.walk.base import _f, _open, _size
 
 MAGIC = b".snd"
 _HDR_MIN = 24
@@ -135,11 +135,11 @@ def _duration(size, rate, bits, channels, fixed):
 
 
 def inspect_au(filepath):
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    file_size = _size(filepath)
+    with _open(filepath) as fh:
         data = fh.read(min(file_size, _HEAD_CAP))
     if len(data) < len(MAGIC) or data[:4] != MAGIC:
-        return [], ["not a Sun/NeXT audio file (.au/.snd)"]
+        return [], [defect("magic.mismatch", "not a Sun/NeXT audio file (.au/.snd)")]
 
     file_warns = []
     if len(data) < _HDR_MIN:
@@ -147,8 +147,9 @@ def inspect_au(filepath):
             "id": "au", "offset": 0, "size": len(data),
             "summary": "Sun/NeXT audio, header truncated",
             "fields": [_f(0x00, 4, "magic", ".snd")],
-            "warnings": [f"header truncated: {len(data)} of the {_HDR_MIN}-byte "
-                         f"header are present"],
+            "warnings": [defect("header.truncated",
+                                f"header truncated: {len(data)} of the {_HDR_MIN}-byte "
+                                f"header are present")],
             "payload_base": 0,
         }], file_warns)
 
@@ -165,18 +166,22 @@ def inspect_au(filepath):
 
     hdr_warns = []
     if data_offset < _HDR_MIN:
-        hdr_warns.append(f"data offset {data_offset} is inside the "
-                         f"{_HDR_MIN}-byte header")
+        hdr_warns.append(defect("geometry.invalid",
+                                f"data offset {data_offset} is inside the "
+                                f"{_HDR_MIN}-byte header"))
     elif data_offset > file_size:
-        hdr_warns.append(f"data offset {data_offset} points past the end of the "
-                         f"{file_size:,}-byte file")
+        hdr_warns.append(defect(
+            "pointer.dangling",
+            f"data offset {data_offset} points past the end of the "
+            f"{file_size:,}-byte file"))
     if encoding not in _ENC:
-        hdr_warns.append(f"encoding code {encoding} is not one of the documented "
-                         f"Sun/NeXT codes")
+        hdr_warns.append(defect("id.unknown",
+                                f"encoding code {encoding} is not one of the documented "
+                                f"Sun/NeXT codes"))
     if rate == 0:
-        hdr_warns.append("sample rate is 0")
+        hdr_warns.append(defect("value.invalid", "sample rate is 0"))
     if channels == 0:
-        hdr_warns.append("channel count is 0")
+        hdr_warns.append(defect("value.invalid", "channel count is 0"))
 
     annot = _annotation(data, data_offset)
     dsize = "unknown (streaming)" if unknown else f"{data_size:,}"
@@ -209,12 +214,14 @@ def inspect_au(filepath):
         secs = _duration(eff_size, rate, bits, channels, encoding in _FIXED_WIDTH)
         w = []
         if not linear:
-            w.append(f"{name} is not linear PCM; these bytes are a codec and "
-                     f"play as noise if fed to a PCM player")
+            w.append(info("decode.partial",
+                          f"{name} is not linear PCM; these bytes are a codec and "
+                          f"play as noise if fed to a PCM player"))
         if data_offset + eff_size > file_size:
-            w.append(f"audio runs past the end of the file "
-                     f"(@0x{data_offset:x} + {eff_size:,}); "
-                     f"{avail:,} bytes are there")
+            w.append(defect("size.overrun",
+                            f"audio runs past the end of the file "
+                            f"(@0x{data_offset:x} + {eff_size:,}); "
+                            f"{avail:,} bytes are there"))
         dfields = [
             _f(None, 0, "encoding", name),
             _f(None, 0, "sample_rate", rate if rate else "unknown"),

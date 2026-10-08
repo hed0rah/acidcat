@@ -21,11 +21,12 @@ f32/f64); it is searched in both byte orders. HEX for find is a hex string
 (64617461) or, with a leading s:, literal text (s:data).
 """
 
+import argparse
 import json
 import os
 import sys
 
-from acidcat.commands._output import (add_output_format_arg,
+from acidcat.commands._output import (add_output_format_arg, add_report_arg,
                                       chosen_format)
 from acidcat.util.stdin import display_name
 from acidcat.util.color import add_color_arg, color_enabled, fg
@@ -39,7 +40,8 @@ from acidcat.tui_theme import BYTE_CLASS
 def register(subparsers):
     p = subparsers.add_parser(
         "probe",
-        help="Byte-level dissection: typed read, value scan, find, strings, hexdump, diff.")
+        help="Byte-level dissection: offset table, typed read, value scan, find, "
+             "strings, diff, entropy, byte map, sample LSBs.")
     # The file operand belongs to each SUB-VERB, not to `probe` itself.
     #
     # It used to sit here, giving `acidcat probe FILE VERB ...` -- which reads
@@ -62,6 +64,9 @@ def register(subparsers):
     # offsets, entropy windows, byte ranges) and there is no single column set a
     # csv could honestly claim to be.
     add_output_format_arg(p, only=("table", "json"))
+    add_report_arg(p)                  # before the subverb, like --output-format
+    p.add_argument("-q", "--quiet", action="store_true",
+                   help="Drop the summary and cap notes on stderr (errors stay).")
     sub = p.add_subparsers(dest="verb", metavar="VERB")
 
     # The gap between acidcat-as-hex-viewer and acidcat-as-RE-workbench. You
@@ -88,18 +93,18 @@ def register(subparsers):
                          "entries are absolute file offsets.")
     tb.add_argument("--end", metavar="EXPR",
                     help="Where the last region ends (default: EOF).")
-    tb.add_argument("--be", action="store_true", help="Force big-endian.")
-    tb.add_argument("--le", action="store_true", help="Force little-endian.")
+    tb.add_argument("--byte-order", choices=("be", "le"),
+                    help="Force big- or little-endian.")
     tb.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
     r = sub.add_parser("read", help="Read AT as typed values (pwndbg x).")
-    r.add_argument("at", help="Offset (0x.. / decimal) or name (chunk / chunk.field).")
+    r.add_argument("at", help="An offset (0x.. / decimal) or an ADDR (RIFF/fmt_#sample_rate, @0x2c+4; 1.8's chunk.field too).")
     r.add_argument("--type", "-t", default="u32", choices=sorted(pr.FMT_STRUCT),
                    help="Value type (default u32).")
     r.add_argument("--count", "-n", type=int, default=1, help="How many values.")
-    r.add_argument("--be", action="store_true", help="Force big-endian.")
-    r.add_argument("--le", action="store_true", help="Force little-endian.")
+    r.add_argument("--byte-order", choices=("be", "le"),
+                   help="Force big- or little-endian.")
     r.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
@@ -120,7 +125,9 @@ def register(subparsers):
     st.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
-    h = sub.add_parser("hexdump", help="Annotated hexdump at AT.")
+    # `probe hexdump AT` is `od FILE @AT+LEN` in 2.0 (an alias, cli_aliases);
+    # the parser is kept off the verb list but its code path stays for it
+    h = argparse.ArgumentParser(add_help=False)
     h.add_argument("at", help="Offset or structural name.")
     h.add_argument("--len", "-l", dest="length", type=int, default=256,
                    help="Bytes to dump (default 256, or the chunk size for a name).")
@@ -144,7 +151,7 @@ def register(subparsers):
     # no -o short form: -o is "output file" everywhere else in acidcat
     mp.add_argument("--order", type=int, default=5,
                     help="Grid is 2^order per side (default 5 = 32x32).")
-    add_color_arg(mp, deprecated_no_color=True)
+    add_color_arg(mp)
     mp.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
 
@@ -153,6 +160,24 @@ def register(subparsers):
     lb.add_argument("--width", "-w", type=int, default=64, help="Plot width in cells.")
     lb.add_argument("files", nargs="+", metavar="FILE",
                      help="File(s) to dissect, or '-' for stdin.")
+
+    # the standard flags after the subverb too (`probe read AT F --json`), as
+    # on every other verb (review V9). SUPPRESS, so a flag written before the
+    # subverb is not reset by the subparser's default.
+    for sp in sub.choices.values():
+        sp.add_argument("--output-format", dest="output_format", metavar="FMT",
+                        choices=("table", "json"), default=argparse.SUPPRESS,
+                        help="Output rendering: table, json (default: table).")
+        sp.add_argument("--json", dest="output_format", action="store_const",
+                        const="json", default=argparse.SUPPRESS,
+                        help="Render as JSON (shorthand for --output-format json).")
+        sp.add_argument("-o", "--output", dest="report_to", metavar="PATH",
+                        default=argparse.SUPPRESS,
+                        help="Write the report here instead of stdout.")
+        sp.add_argument("-q", "--quiet", action="store_true",
+                        default=argparse.SUPPRESS,
+                        help="Drop the summary and cap notes on stderr "
+                             "(errors stay); never changes stdout.")
 
     p.set_defaults(func=run)
 
@@ -189,8 +214,12 @@ _STRINGS_CAP = 1000
 _DIFF_SHOWN_CAP = 256
 
 
-def _cap_note(total, shown, unit):
-    if total <= shown:
+def _quiet(args):
+    return getattr(args, "quiet", False)
+
+
+def _cap_note(args, total, shown, unit):
+    if total <= shown or _quiet(args):
         return
     print(f"acidcat probe: {total:,} {unit} found; listing the first "
           f"{shown:,} (the rest are not shown)", file=sys.stderr)
@@ -204,10 +233,14 @@ def run(args):
     """
     from acidcat.util.stdin import resolved_input
 
+    # both False without --byte-order: the verbs then pick the format's own
+    order = getattr(args, "byte_order", None)
+    args.be, args.le = order == "be", order == "le"
+
     files = list(getattr(args, "files", []) or [])
     if not getattr(args, "verb", None):
         print("acidcat probe: pick a verb "
-              "(table/read/scan/find/strings/hexdump/diff/entropy/map)",
+              "(table/read/scan/find/strings/diff/entropy/map/lsb)",
               file=sys.stderr)
         return 2
 
@@ -216,7 +249,7 @@ def run(args):
         with resolved_input(args.file) as _p:
             if _p is None:
                 print("acidcat probe: no data on stdin", file=sys.stderr)
-                return 1
+                return 2
             args.file = _p
             return _run(args)
 
@@ -226,7 +259,7 @@ def run(args):
         with resolved_input(target) as _p:
             if _p is None:
                 print("acidcat probe: no data on stdin", file=sys.stderr)
-                return 1
+                return 2
             args.file = _p
             # grep/file style: name the file only when there is more than one,
             # so single-file output stays pipeable exactly as it was
@@ -327,16 +360,18 @@ def _dispatch(args, verb, path, data):
         try:
             recs, meta = _table_regions(args, path, data, order)
         except (KeyError, ValueError) as e:
-            print(f"acidcat probe: {e}", file=sys.stderr)
+            # a KeyError's str() is its repr, quotes and all
+            print(f"acidcat probe: {e.args[0] if e.args else e}", file=sys.stderr)
             return 2
         if _emit(args, {"verb": "table", **meta, "regions": recs}):
             return 0 if recs else 1
-        if meta["truncated_to_file"]:
-            print(f"  count {meta['declared_count']} exceeds what the file "
-                  f"holds; walked {meta['entries']}", file=sys.stderr)
-        print(f"{meta['entries']} entr(ies) at 0x{meta['table_at']:08x}, "
-              f"base 0x{meta['base']:08x} -> {len(recs)} region(s)",
-              file=sys.stderr)
+        if not _quiet(args):
+            if meta["truncated_to_file"]:
+                print(f"  count {meta['declared_count']} exceeds what the file "
+                      f"holds; walked {meta['entries']}", file=sys.stderr)
+            print(f"{meta['entries']} entr(ies) at 0x{meta['table_at']:08x}, "
+                  f"base 0x{meta['base']:08x} -> {len(recs)} region(s)",
+                  file=sys.stderr)
         for r in recs:
             print(f"  [{r['index']:>4}]  0x{r['offset']:08x}  {r['length']:>12,}")
         return 0 if recs else 1
@@ -345,7 +380,8 @@ def _dispatch(args, verb, path, data):
         try:
             off, _ln, note = pr.resolve(path, args.at)
         except (KeyError, ValueError) as e:
-            print(f"acidcat probe: {e}", file=sys.stderr)
+            # a KeyError's str() is its repr, quotes and all
+            print(f"acidcat probe: {e.args[0] if e.args else e}", file=sys.stderr)
             return 2
         order = _byteorder(args, label)
         vals = pr.read_typed(data, off, args.type, args.count, order)
@@ -371,11 +407,12 @@ def _dispatch(args, verb, path, data):
         hits, total_hits = pr.scan_value_counted(data, value, args.type, _SHOWN_CAP)
         if _emit(args, {"verb": "scan", "value": args.value, "type": args.type,
                         "hits": [{"offset": o, "endian": e} for o, e in hits]}):
-            _cap_note(total_hits, len(hits), "hit(s)")
+            _cap_note(args, total_hits, len(hits), "hit(s)")
             return 0 if hits else 1
-        print(f"{total_hits:,} hit(s) for {args.value} as {args.type}",
-              file=sys.stderr)
-        _cap_note(total_hits, len(hits), "hit(s)")
+        if not _quiet(args):
+            print(f"{total_hits:,} hit(s) for {args.value} as {args.type}",
+                  file=sys.stderr)
+        _cap_note(args, total_hits, len(hits), "hit(s)")
         for off, order in hits:
             print(f"  0x{off:08x}  ({order})")
         return 0 if hits else 1
@@ -394,10 +431,11 @@ def _dispatch(args, verb, path, data):
         if _emit(args, {"verb": "find", "pattern": pat,
                         "length": len(needle),
                         "hits": [{"offset": o} for o in offs]}):
-            _cap_note(total_offs, len(offs), "hit(s)")
+            _cap_note(args, total_offs, len(offs), "hit(s)")
             return 0 if offs else 1
-        print(f"{total_offs:,} hit(s) for {pat}", file=sys.stderr)
-        _cap_note(total_offs, len(offs), "hit(s)")
+        if not _quiet(args):
+            print(f"{total_offs:,} hit(s) for {pat}", file=sys.stderr)
+        _cap_note(args, total_offs, len(offs), "hit(s)")
         for off in offs:
             print(f"  0x{off:08x}")
         return 0 if offs else 1
@@ -410,9 +448,9 @@ def _dispatch(args, verb, path, data):
         if _emit(args, {"verb": "strings", "min_length": args.min,
                         "strings": [{"offset": o, "text": t}
                                     for o, t in found]}):
-            _cap_note(total_found, len(found), "string(s)")
+            _cap_note(args, total_found, len(found), "string(s)")
             return 0 if found else 1
-        _cap_note(total_found, len(found), "string(s)")
+        _cap_note(args, total_found, len(found), "string(s)")
         for off, text in found:
             print(f"0x{off:08x}  {text}")
         return 0 if found else 1
@@ -421,7 +459,8 @@ def _dispatch(args, verb, path, data):
         try:
             off, ln, _note = pr.resolve(path, args.at)
         except (KeyError, ValueError) as e:
-            print(f"acidcat probe: {e}", file=sys.stderr)
+            # a KeyError's str() is its repr, quotes and all
+            print(f"acidcat probe: {e.args[0] if e.args else e}", file=sys.stderr)
             return 2
         length = args.length if args.length != 256 else (ln or 256)
         print(pr.hexdump(data, off, length))
@@ -444,14 +483,14 @@ def _dispatch(args, verb, path, data):
                         "identical": not ranges and la == lb,
                         "ranges": [{"offset": st, "end": en, "length": en - st}
                                    for st, en in ranges]}):
-            _cap_note(total_ranges, len(ranges), "changed range(s)")
+            _cap_note(args, total_ranges, len(ranges), "changed range(s)")
             return 0 if (not ranges and la == lb) else 1
         if not ranges and la == lb:
             print("identical")
             return 0
         print(f"{display_name(path)} ({la:,}) vs {os.path.basename(args.other)} "
               f"({lb:,}): {total_ranges:,} changed range(s)")
-        _cap_note(total_ranges, len(ranges), "changed range(s)")
+        _cap_note(args, total_ranges, len(ranges), "changed range(s)")
         for s, e in ranges:
             print(f"  0x{s:08x}..0x{e:08x}  ({e - s} bytes)")
         if la != lb:

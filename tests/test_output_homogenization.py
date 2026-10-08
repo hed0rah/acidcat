@@ -73,7 +73,7 @@ def test_shape_json_is_parseable_records(files):
     ok, _ = files
     doc = json.loads(_run("shape", "--no-path", "--json", str(ok)).stdout)
     assert len(doc) == 1
-    assert doc[0]["format"] == "RIFF/WAVE"
+    assert (doc[0]["format"], doc[0]["label"]) == ("wav", "RIFF/WAVE")
     assert doc[0]["chunks"] == "data,fmt"
 
 
@@ -83,7 +83,7 @@ def test_shape_csv_has_a_header(files):
     ok, _ = files
     rows = list(csv.DictReader(io.StringIO(
         _run("shape", "--no-path", "--csv", str(ok)).stdout)))
-    assert rows and rows[0]["format"] == "RIFF/WAVE"
+    assert rows and (rows[0]["format"], rows[0]["label"]) == ("wav", "RIFF/WAVE")
 
 
 # ── validate ───────────────────────────────────────────────────────
@@ -162,11 +162,16 @@ def _declared_formats(verb):
     return []
 
 
-# every verb whose output is flat records. The nested ones (inspect's chunk
-# tree, census's histograms, dump's hex) deliberately offer table+json only.
+# every verb whose output is flat records. The nested ones (audit's report,
+# probe's dissection) deliberately offer table+json only. census's histogram
+# is flat rows in csv/tsv (chunk id, files, occurrences, example): it is
+# `stats --by chunks` in 2.0, and survey, which it absorbed, had csv.
 _FLAT_RECORD_VERBS = ["chunks", "classify", "detect", "extract", "features",
                       "formats", "info", "locate", "query", "repair", "scan",
-                      "similar", "survey", "shape", "validate", "write"]
+                      "similar", "shape", "validate", "write",
+                      # 2.0: the new verbs, and inspect, whose --quiet chunk
+                      # table is flat rows (one per chunk) in csv/tsv
+                      "check", "edit", "stats", "analyze", "inspect"]
 
 
 @pytest.mark.parametrize("verb", _FLAT_RECORD_VERBS)
@@ -177,7 +182,7 @@ def test_flat_record_verbs_offer_all_four_renderings(verb):
     assert set(_declared_formats(verb)) == {"table", "json", "csv", "tsv"}, verb
 
 
-@pytest.mark.parametrize("verb", ["census", "inspect", "audit", "probe"])
+@pytest.mark.parametrize("verb", ["audit", "probe"])
 def test_nested_verbs_deliberately_offer_fewer(verb):
     """Pinned so the rule above is a decision, not an oversight: csv/tsv have
     no honest representation for a chunk tree or a histogram-of-histograms."""
@@ -279,3 +284,37 @@ def test_mutating_verbs_keep_their_human_output(tmp_path, verb, extra_args):
     out = _run(verb, str(p), *extra_args).stdout
     assert "wrote" in out
     assert not out.lstrip().startswith(("{", "["))
+
+
+@pytest.mark.parametrize("fmt", ["json", "csv", "tsv"])
+def test_formats_fields_honours_the_output_format(fmt):
+    # --fields printed its table whatever was asked for
+    r = _run("formats", "--fields", "--output-format", fmt, "wav")
+    assert r.returncode == 0, r.stderr
+    if fmt == "json":
+        rows = json.loads(r.stdout)
+    else:
+        rows = list(csv.DictReader(io.StringIO(r.stdout),
+                                   delimiter="," if fmt == "csv" else "\t"))
+    assert rows and set(rows[0]) == {"field", "kind", "access", "goes_to"}
+    assert any(row["field"] == "artist" for row in rows)
+
+
+def test_no_rows_in_json_is_an_empty_array(files, tmp_path):
+    # the exit code said "nothing matched"; stdout said nothing at all
+    ok, _bad = files
+    junk = tmp_path / "junk.bin"
+    junk.write_bytes(b"\x00" * 64)
+    for argv in (["stats", "--json", str(junk)],
+                 ["stats", "--by", "shape", "--only-format", "nope", "--json", str(ok)]):
+        r = _run(*argv)
+        assert r.returncode == 1, (argv, r.stderr)
+        assert json.loads(r.stdout) == [], argv
+
+
+def test_stats_by_shape_writes_its_output_file(files, tmp_path):
+    ok, _bad = files
+    out = tmp_path / "shape.tsv"
+    r = _run("stats", str(ok), "--by", "shape", "-o", str(out))
+    assert r.returncode == 0, r.stderr
+    assert not r.stdout and "RIFF" in out.read_text(encoding="utf-8")

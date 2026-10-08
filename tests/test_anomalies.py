@@ -99,6 +99,21 @@ def test_duplicate_id3_frame_flagged(tmp_path):
     assert dups
 
 
+def test_two_itunes_comment_frames_in_a_v22_tag_are_legal(tmp_path):
+    """iTunes and Logic write COM twice (iTunNORM, iTunSMPB); ID3 allows one
+    comment per language and descriptor, in v2.2 as in v2.3."""
+    def fr(fid, desc, text):
+        b = b"\x00eng" + desc + b"\x00" + text
+        return fid + len(b).to_bytes(3, "big") + b
+    frames = (fr(b"COM", b"iTunNORM", b" 00000258") + fr(b"COM", b"iTunSMPB", b" 00000000")
+              + b"TT2" + (2).to_bytes(3, "big") + b"\x00x")
+    n = len(frames)
+    ss = bytes([(n >> 21) & 0x7f, (n >> 14) & 0x7f, (n >> 7) & 0x7f, n & 0x7f])
+    raw = b"ID3\x02\x00\x00" + ss + frames + (b"\xff\xfb\x90\x00" + b"\x00" * 413) * 8
+    findings = _scan(_write(tmp_path, "itunes.mp3", raw))
+    assert not [f for f in findings if f["rule"] == "duplicate_frame"]
+
+
 def test_nonzero_padding_flagged(tmp_path):
     # a synthetic FLAC-shaped PADDING chunk whose content is non-zero
     path = _write(tmp_path, "pad.bin", b"\xaa" * 16)
@@ -319,6 +334,31 @@ def test_id3_zero_padding_not_flagged(tmp_path):
     assert not any(f["rule"] == "id3_padding_nonzero"
                    for f in anomalies.scan(path, label, chunks, warns))
 
+
+_FRAME = b"\xff\xfb\x90\x00" + bytes(413)        # MPEG-1 L3 128k 44.1k: 417 bytes
+
+
+def test_id3_padding_holding_frames_is_a_defect(tmp_path):
+    """A tag size grown over three audio frames: the "padding" is audio every
+    reader skips, not filler, so it is not the info note (review F6)."""
+    from acidcat.cli import main
+    from acidcat.core.walk import walk_file
+    data = _mp3_with_id3_padding(bytes(20) + _FRAME * 3)
+    path = _write(tmp_path, "swallow.mp3", data)
+    label, chunks, warns = walk_file(path)
+    rules = [f["rule"] for f in anomalies.scan(path, label, chunks, warns)]
+    assert "id3_swallows_frames" in rules and "id3_padding_nonzero" not in rules
+    assert main(["audit", path]) == 1
+
+
+def test_id3_padding_with_a_lone_sync_word_stays_a_note(tmp_path):
+    # one header-shaped word with no frame after it is junk, not audio
+    from acidcat.core.walk import walk_file
+    data = _mp3_with_id3_padding(bytes(3) + b"\xff\xfb\x90\x00junk" + bytes(3))
+    path = _write(tmp_path, "lone.mp3", data)
+    label, chunks, warns = walk_file(path)
+    rules = [f["rule"] for f in anomalies.scan(path, label, chunks, warns)]
+    assert "id3_padding_nonzero" in rules and "id3_swallows_frames" not in rules
 
 def _mp4_moov_last(sample_size, count, mdat_payload):
     # non-faststart layout: mdat before moov (moov at/near EOF)

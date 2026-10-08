@@ -29,6 +29,7 @@ SIZE = "size"
 OFFSET = "offset"
 COUNT = "count"
 ZERO = "zero"
+RATE = "rate"       # a field that follows from the sample format (raterepair)
 
 
 @dataclass
@@ -45,6 +46,14 @@ class Violation:
     @property
     def repairable(self):
         return bool(self.witness)
+
+    @property
+    def filler(self):
+        """A non-zero RIFF/IFF pad byte or FLAC PADDING block: the spec says
+        write 0, readers skip it, and what it holds is a writer's leftover,
+        not damage (the nonzero_pad finding is info). --fix still zeroes it;
+        it never fails a check (decisions.md, 2026-10-07)."""
+        return self.kind == ZERO and self.field in ("pad_byte", "padding")
 
     def describe(self):
         # some violations are not a stored-vs-computed mismatch at all -- an
@@ -71,6 +80,11 @@ class Report:
     @property
     def repairable(self):
         return [v for v in self.violations if v.repairable]
+
+    @property
+    def defects(self):
+        """The violations that fail a check: all but filler."""
+        return [v for v in self.violations if not v.filler]
 
 
 class Repairer:
@@ -102,8 +116,9 @@ class Repairer:
 
 def _repairers():
     from acidcat.core.write.repairers import (CountRepairer, FlacRepairer, IffRepairer,
-                                        Mp4OffsetRepairer)
-    return (IffRepairer(), Mp4OffsetRepairer(), FlacRepairer(), CountRepairer())
+                                        Mp4OffsetRepairer, RateRepairer)
+    return (IffRepairer(), Mp4OffsetRepairer(), FlacRepairer(), CountRepairer(),
+            RateRepairer())
 
 
 def repairer_for(data):

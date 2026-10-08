@@ -309,8 +309,8 @@ def main(argv=None):
         print("build_explorer: no records in input", file=sys.stderr)
         return 1
     if not records[0].get("full"):
-        print("build_explorer: input is not a --full dump (run acidcat inspect "
-              "--full)", file=sys.stderr)
+        print("build_explorer: input is not a positioned dump (make the page "
+              "with `acidcat explore FILE`)", file=sys.stderr)
         return 1
 
     pages = "\n".join(build(r) for r in records)

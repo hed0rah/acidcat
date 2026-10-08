@@ -12,11 +12,12 @@ distinct region, and each names every slot that reaches it.
 See core/formats/pdx.py for the layout and where it was verified.
 """
 
-import os
 
 from acidcat.core.formats import pdx as pdxmod
-from acidcat.core.primitives.notes import coverage, is_coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.limits import hit
+from acidcat.core.primitives.notes import is_coverage
+from acidcat.core.walk.base import _f, _open, _size
+from acidcat.core.infra.findings import coded, defect, info
 
 # The largest real bank measured holds 77 samples. A bank claiming hundreds is
 # legal arithmetic, so the listing is bounded and says when it bit.
@@ -27,8 +28,8 @@ _PDX_SLOT_FIELD_CAP = 96
 
 
 def inspect_pdx(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         # only the table is read; the samples are located, not loaded.
         # Eight banks is the format's own ceiling, so this is not a cap on
         # the answer -- a table that needs more is not a table.
@@ -41,7 +42,7 @@ def inspect_pdx(filepath, deep=False):
         return [{"id": "table", "offset": 0, "size": min(size, pdxmod.BANK),
                  "summary": "not a resolvable PDX slot table: %s" % h["why"],
                  "fields": [], "warnings": [], "payload_base": 0}], \
-            ["slot table did not resolve: %s" % h["why"]]
+            [coded(h["code"], "slot table did not resolve: %s" % h["why"])]
 
     chunks = [_table_chunk(h)]
     warns = [w for w in chunks[0]["warnings"] if is_coverage(w)]
@@ -89,9 +90,9 @@ def inspect_pdx(filepath, deep=False):
         chunks.append(entry)
 
     if len(regions) > _PDX_SAMPLE_CAP:
-        chunks[0]["warnings"].append(coverage(
-            "listing the first %d of %d samples"
-            % (_PDX_SAMPLE_CAP, len(regions))))
+        chunks[0]["warnings"].append(hit(
+            "list_rows", _PDX_SAMPLE_CAP, len(regions),
+            "listing the first %d of %d samples" % (_PDX_SAMPLE_CAP, len(regions))))
         warns.append(chunks[0]["warnings"][-1])
 
     # Bytes past the last sample. Nearly always exactly one, and nearly
@@ -109,9 +110,10 @@ def inspect_pdx(filepath, deep=False):
             "fields": [], "warnings": [],
             "payload_base": end, "payload_len": tail, "extent_len": tail})
         if tail > pdxmod.SLOT:
-            warns.append("%d bytes after the last sample are reached by no "
-                         "slot, which is more than a writer rounding up"
-                         % tail)
+            warns.append(defect("bytes.stray",
+                                "%d bytes after the last sample are reached by no "
+                                "slot, which is more than a writer rounding up"
+                                % tail))
     return chunks, warns
 
 
@@ -134,8 +136,9 @@ def _table_chunk(h):
                          "%d bytes" % length, "at 0x%06X" % off, xref=off))
     warnings = []
     if h["used"] > _PDX_SLOT_FIELD_CAP:
-        warnings.append(coverage("listing the first %d of %d filled slots"
-                                 % (_PDX_SLOT_FIELD_CAP, h["used"])))
+        warnings.append(hit("list_rows", _PDX_SLOT_FIELD_CAP, h['used'],
+                            "listing the first %d of %d filled slots"
+                            % (_PDX_SLOT_FIELD_CAP, h["used"])))
     return {"id": "table", "offset": 0, "size": h["table_size"],
             "summary": "%d sample%s in %d bank%s"
                        % (h["used"], "" if h["used"] == 1 else "s",
@@ -156,8 +159,9 @@ def _packed(size, h):
             "summary": "slot table packed with %s" % h["packer"],
             "fields": [_f(None, 0, "packer", h["packer"],
                           "unpack it to read the slot table")],
-            "warnings": ["the whole bank is packed with %s, so no sample is "
-                         "located" % h["packer"]],
+            "warnings": [info("decode.partial",
+                              "the whole bank is packed with %s, so no sample is "
+                              "located" % h["packer"])],
             "payload_base": 0, "payload_len": min(size, pdxmod.BANK),
             "extent_len": min(size, pdxmod.BANK)}
     if size <= pdxmod.BANK:

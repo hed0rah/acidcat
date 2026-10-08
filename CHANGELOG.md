@@ -1,8 +1,945 @@
 # Changelog
 
 All notable changes to acidcat. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
-adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
+follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [2.0.0] - 2026-10-07
+
+acidcat 2.0. From this release `pip install acidcat` installs 2.0; 1.8.x
+stays available as `pip install "acidcat<2"`. 2.0 needs Python 3.11 or newer:
+on 3.10, pip keeps installing 1.8.7.
+
+**Coming from 1.8:** read "Migrating from 1.x" under [2.0.0a1] below. In
+short: every 1.8 verb still runs, as an alias that prints its 2.0 spelling on
+stderr (aliases are removed in 3.0); a handful of flags are gone (`-f`,
+`probe --no-color`, `formats --format-out`, `carve --format`, `--length` or
+`--end` beside a search anchor); exit codes mean one thing everywhere (0 ok, 1
+the answer is no, 2 could not run), and only a defect exits 1; `inspect
+--json` is the versioned Document (docs/contract/node-v1.md). `inspect
+--summary --json` keys and types changed (see [2.0.0rc2] Changed and
+docs/contract/cli-2.0.md section 4.1), and `inspect --chunks --csv` names its
+file column `path`. The full 1.8 to 2.0 table is docs/contract/cli-2.0.md.
+
+2.x is the supported line; fixes land in the latest 2.x release. 1.8.7 stays
+installable with `pip install "acidcat<2"` but gets no further releases.
+
+2.0.0 is 2.0.0rc2 plus the fixes below. They came from running rc2 over a
+real sample library of 3,229 files (every reading verb, damaged copies, and
+500 edits on copies, with no crash and the library untouched) and from a last
+review of the release, which found that rc2's guard against `-o` naming the
+input missed a file reached through a directory, and that demoting harmless
+padding to a note also let real damage through. The work since 1.8.7 is in
+the sections after it: the breaking pass (2.0.0a1), then rounds of hunting
+bugs over real files and a review of the whole release (a2, rc1, rc2).
+
+If 2.0.0 breaks something for you, open an issue: a release that breaks users
+is yanked from PyPI and a 2.0.1 follows; until then `pip install "acidcat<2"`
+gets 1.8.7.
+
+### Changed
+
+- **Padded bit depth is a note** (decisions.md F2): 16-bit audio in a 24-bit
+  file is legal and plays as written, so `audit` reports it under INTEGRITY
+  and exits 0, as for dual-mono. 42 of 2,328 WAVs in one real library exited
+  1 for it.
+
+### Fixed
+
+- **The `-o` guard covers every way to name the input.** `stats DIR -o
+  DIR/x.wav` (and `audit`, `classify`, `inspect` the same way) truncated
+  x.wav before the walk read it, exit 0: rc2's guard matched only files named
+  on the command line. `edit F --get cover -o F` wrote the picture over F.
+  And `--out`, which argparse reads as `--output`, had its value taken for an
+  input, so an old output file was refused.
+- **`lib similar` without the analysis extra is exit 2**, as every missing
+  extra is; it was 1.
+- **Damage that looks like padding is a defect again.** rc2 made harmless
+  filler a note (a non-zero pad byte, FLAC PADDING or ID3v2 padding, a YM
+  with no `End!`); that also passed real damage, and `check --fix` destroyed
+  data. Filler stays a note. These now fail `check` or `audit` (exit 1), and
+  `--fix` leaves the bytes alone:
+  - a WAV `data` or AIFF `SSND` size that ends mid-frame, with a non-zero
+    byte after it: that byte is the last audio byte, not a pad, and `--fix`
+    zeroed it;
+  - FLAC PADDING inside a metadata chain that does not reach the audio, or
+    that holds a frame sync or a vorbis-comment body: `--fix` zeroed audio
+    frames or the tags;
+  - ID3v2 padding that holds MPEG frames (new rule `id3_swallows_frames`):
+    the tag size runs over audio every reader skips;
+  - a YM with no `End!` and frames of data after the frame count.
+- **`check --fix` no longer shrinks a RIFF/FORM size to where a broken
+  chunk walk stops.** A wrong chunk size earlier in the file made it write
+  that point as the master size, leaving every later chunk outside the
+  container, exit 0. A master size is fixed only when the chunks reach the
+  end of the file; otherwise it is reported with no witness and left.
+- **The "fix with: acidcat check --fix" hint and JSON `repairable` count
+  defects only.** A file whose only repairable item was filler advertised a
+  fix that then exited 1.
+- **A directory walk takes every format acidcat reads.** `audit DIR`,
+  `stats DIR`, `inspect DIR`, `lib index DIR` and the rest skipped 49 of the
+  99 formats with a walker (REX/RX2 loops, Serum presets, EXS, SFZ, Live
+  Packs, MPC, NI monoliths, the chiptune formats) as "unrecognised
+  extension", while the same file named directly read fine. A test now ties
+  the walk to every walker's extension.
+- **WAV `acid`**: a one-shot whose beat count does not match its length is a
+  note, not damage. Exporters leave defaults there (8 beats at 120 bpm on a
+  0.2 s clap) and nothing stretches a one-shot; on a loop the mismatch is
+  still a defect.
+
+## [2.0.0rc2] - 2026-10-07
+
+The second release candidate, published as a pre-release: `pip install
+acidcat` still installs 1.8.x, and `pip install --pre acidcat` installs this.
+It is rc1 plus what a review of the whole release turned up: four reviews
+(the plan, the docs against the CLI, the code changed since 2.0.0a1, and the
+package), checked against the code before anything was changed. Two of the
+fixes are data safety: an `-o` that named the input destroyed it. The
+behaviour changes below are the last before 2.0.0, made now because each would
+break a script if made after.
+
+### Changed
+
+- **Harmless spec breaches are notes, not defects** (decisions.md F1). A
+  non-zero RIFF/IFF pad byte, FLAC PADDING block or ID3v2 padding, and a YM
+  file with no `End!` marker: readers skip them and the file plays the same,
+  but `check` and `audit` exited 1, and a script cannot read "harmless" from
+  an exit code. They are still reported, and `check --fix` still zeroes
+  padding. An `End!` that is present but not where the frames end is still a
+  defect.
+- **`inspect --summary --json`/`--csv`** (and bare `acidcat FILE`) give
+  values, not the card's words: `"duration_sec": 0.19` where it said
+  `"duration": "0.19s"`, `null` where it said `"-"`, `"acid": false` where it
+  said `"no"`. Names and types match `stats --by meta` where both report a
+  fact (`duration_sec`, `bpm`, `acid_beats`, `expected_duration`,
+  `duration_diff`), and a line that held two facts is two keys: `key` and
+  `key_source`; `smpl_root`, `smpl_loop_start` and `smpl_loop_end` for `smpl`;
+  `ticks_per_beat` (or `smpte_fps` and `ticks_per_frame`) for a MIDI
+  `division`; `duration_ticks` for a MIDI length in ticks. The table is
+  unchanged.
+- **`inspect --chunks --csv` names the file `path`.** Its first column was
+  `file`; every other row the CLI writes calls it `path`, as the contract
+  says.
+
+### Fixed
+
+- **An `-o` that names the input is refused (exit 2), not written over it.**
+  The report verbs (`audit`, `od`, `classify`, `inspect`, `stats`, `probe`,
+  ...) opened `-o` before reading, so naming the input replaced it with the
+  report (`inspect` left it empty; `od` and `stats` exited 0), and `carve
+  FILE FIELD -o FILE` wrote the field over the file. `edit` and `check --fix`
+  keep `-o` naming the input as their atomic in-place edit with a backup.
+- **`check --fix`** exits 1 when it leaves a defect it cannot repair (it
+  exited 0 and called the file clean; the JSON row says `unrepaired` or
+  `partly-repaired`); over several files it exits with the worst code in any
+  order; a file in a checked directory that cannot be read is exit 2.
+- **`check --fix` refuses a "pad byte" that is part of the next chunk id**
+  (a size one too large desyncs the walk) instead of zeroing it.
+- **Akai `.akp`**: a RIFF size of 0 no longer hides a chunk that runs past the
+  end of the file.
+- **Impulse Tracker**: a sample cut short by a truncated file is a defect; a
+  truncated module audited clean.
+- **Exit codes**: a walker crash, a sandbox failure or a walk that cannot be
+  described as a Document is 2 in `inspect`; an unwritable output or unread
+  file is 2 on every `carve` path; a `convert` batch with a failure or a
+  refusal no longer exits 0.
+- **`tui`**: a missing `[tui]` extra or a missing file is exit 2, on stderr,
+  like every other could-not-run; it was 1, and the missing file went to
+  stdout.
+- **`lib index DIR` without `--label`** keeps the label the library already
+  has. It fell back to the folder's name, so re-indexing a library named with
+  `--label` renamed it and `lib stats`/`lib forget` by the old name found
+  nothing.
+- **WAV `acid`**: a tempo outside 40-300 on a file flagged one-shot is a
+  note, not damage. A one-shot plays at its own speed and nothing reads the
+  field; a near-zero float left there printed as `acid tempo 0.00 outside
+  sane range` and `audit` exited 1. The message now prints such a value as
+  it is (`1e-06`), not as a zero it is not. On a loop it is still a defect.
+
+## [2.0.0rc1] - 2026-10-06
+
+The first release candidate of 2.0, published as a pre-release: `pip install
+acidcat` still installs 1.8.x, and `pip install --pre acidcat` installs this.
+2.0 is feature-frozen from here; what changes before 2.0.0 is fixes. It is
+2.0.0a2 plus a third round of hunting bugs, over the paths that read: every
+reading verb on 837 real files across 89 formats and on damaged copies of
+them, about 27,000 runs over two seeds, with no crash, hang, malformed JSON
+or exit code outside 0, 1 and 2. What it found was real files reported as
+damaged; those are fixed below.
+
+### Fixed
+
+- **SPC**: the ID666 tag flag's 26 and 27 are decimal, as the spec says; they
+  were read as hex, so every tagged file was reported as breaking the spec and
+  as having no tag (its text was read anyway).
+- **SPC**: two voices whose samples overlap in RAM are a note, not damage. A
+  snapshot holds whatever the driver left there, and one real file in twenty
+  shows it; `audit` exited 1 on all of them.
+- **SPC**: an xid6 tag whose sub-chunks are packed rather than padded to four
+  bytes is read as packed (about one in fifty real tags), with a note. It
+  read as a damaged block.
+- **Akai `.akp`**: a RIFF size of 0 is how the S5000/S6000 writes it, and most
+  real programs carry it. `check` and `audit` called each one broken, and
+  `check --fix` rewrote a file the sampler wrote. It is now a note, and a
+  repair of anything else keeps the 0.
+- **Impulse Tracker**: an empty sample slot (no data, length 0) keeps whatever
+  pointer it was saved with, often past the end of the file. It is no longer
+  followed as a cross-reference or reported as a dangling pointer.
+- **ID3v2.2**: a tag with two comment frames of different descriptors, as
+  iTunes and Logic write (`iTunNORM`, `iTunSMPB`), is legal; the duplicate
+  frame rule knew only the v2.3 frame names, so `audit` exited 1.
+
+## [2.0.0a2] - 2026-10-03
+
+The second alpha of 2.0, published as a pre-release like the first: `pip
+install acidcat` still installs 1.8.x, and `pip install --pre acidcat`
+installs this. It is 2.0.0a1 plus the fixes from two rounds of hunting bugs
+over real files: the first over every verb, the second over the paths that
+write (`edit`, `check --fix`, `convert`), run on copies of 551 real files.
+`check --fix` came through that second round with nothing to fix. Python 3.14
+is now tested.
+
+### Added
+
+- **Ableton Live Packs** (`.alp`), a new format. A pack is gzip over a
+  `pl-a` container: the files back to back, then an index in Live's own
+  object serialisation (the one `.asd` files use). `inspect` reads the
+  index and lists the pack's whole file tree, each file at its offset in
+  the container with its size, date, pre-compression size and metadata;
+  `extract` writes the samples out as the pack stores them (FLAC), in two
+  streamed passes, so a pack of hundreds of megabytes is never held whole.
+  On 34 real packs the files tile the data region exactly.
+
+### Changed
+
+- **A suspicion is not a defect, in three more places.** Non-zero padding
+  (JUNK, FLLR, PAD, FLAC PADDING) is `padding.nonzero`, an `info` finding:
+  the spec makes padding filler whatever it holds, and a writer that deletes
+  a chunk in place by renaming it JUNK leaves a healthy file, so `audit` names
+  it (and what it looks like, e.g. a former LIST/INFO body) and exits 0. It
+  was `reserved.nonzero`, a defect, which stays for real reserved fields.
+  `audit --signal` reports matching channels (near-mono, dual-mono) as a note,
+  not an integrity mismatch, and exits 0. Walker findings print at their
+  code's registered severity (a `notice` code printed as `warn`).
+- **`classify` exits 1 on a file it names but no walker reads** (`unwalked`),
+  as it does on opaque, foreign and empty files, so `classify f && inspect f`
+  stops there. It exited 0, and inspect then exited 2.
+- **`edit` exits 2 on a --set it cannot take**: a field the file's format does
+  not have, or a value its field cannot hold (`bpm=abc`), with a plain message
+  (it exited 1 with "could not convert string to float"). A refused edit is
+  still 1.
+- **`analyze` exits 2 when nothing could be decoded** (a named file, or every
+  file in a directory). The row still says `failed`; it exited 0.
+- **`probe -q`**, before or after the subverb, drops the summary and cap notes
+  on stderr.
+- **What `formats --fields` lists, the editor takes.** The NI row claimed
+  Bitwig's fields; NI presets take title, artist, comment and description,
+  and author edits now reach all three NI containers (none did). Bitwig edits
+  a field in place and cannot add one, and the table says so. MP4 `key` is
+  written to the freeform `initialkey` atom the reader already reads. A field
+  a file cannot hold is exit 2 with a plain message.
+- **`edit`, `convert`: could-not-run is 2.** An over-long value for a
+  fixed-width WAV field (bext description 256 bytes, originator 32) is refused
+  before anything is written; a file the tag library cannot read has no
+  editor; an AU encoding with no converter (float, 24-bit, G.72x); an output
+  that cannot be written. `convert X.sf2 -o out.wav` refuses: a soundfont is
+  one file per sample, so -o names a folder (it made a folder called out.wav).
+- **A WAV tempo edit keeps the acid beat count in step** with the audio, and
+  says so; under `--no-cascade` it is refused instead, as for every tied field.
+
+### Fixed
+
+- **WAV and AIFF text is UTF-8.** Non-ASCII titles, artists and bext text
+  were written as UTF-8 and read back as latin-1, so the edit's own check
+  refused them; bext was written as ASCII with '?'. Text reads as UTF-8 when
+  it is valid UTF-8, else latin-1.
+- **The WAV and AIFF editors follow an unpadded odd chunk**, as the walkers
+  already did: a file inspect and check read fine was refused as overrunning.
+- **NI presets:** Massive X's `.mxsnd` frame tree is walked (its edits failed
+  with "bad child prefix"), and a long value reads back whole (the reader
+  capped strings at 256 and misread the name after a long edit).
+- **`od big | head` exited 120 on Python 3.14**: the closed pipe was met at
+  the interpreter's final flush, outside the handler.
+- **Thirty-three bugs from a proactive hunt over real files, specimens and
+  built inputs**, each with a regression test:
+  - crashes: an AppleDouble quarantine time past year 9999, Kontakt monoliths
+    nested hundreds deep (now a depth cap), `probe table` without
+    `--byte-order`;
+  - stdin: `check`, `stats --by shape`, `od` and `audit` printed the stdin
+    buffer's temp path, home directory included; they say `<stdin>`. Every
+    verb exits 2 on an empty pipe;
+  - wrong values: a CBR MP3 called VBR under `--frames` (the Info frame was
+    walked as audio); RX2 CREI read as one string, prefixes and all; a MIDI
+    file's duration taken at its first tempo (the tempo map is now
+    integrated); `inspect --summary` trusting a .mid/.aif extension over the
+    bytes; an hsin preset whose size starts with '{' sniffed as Vital; an
+    Apple Loops root of 0xFFFF read as D#; a title "05" became the number 5
+    in JSON; an ID3 tag stopped at a zero-size frame; a cut or bad-CRC Live
+    Pack passed as verified or lost its last read; the Ogg pages count and
+    the multistream rule;
+  - false alarms: an unpadded odd chunk in AIFF and RIFF (now followed, one
+    defect); a big-endian typedstream; four read caps reported as damage
+    (Kontakt body and trailer, a RIFF id3 chunk, the hsin subtree);
+  - CLI: 1.8 range aliases put the ADDR inside an option's value, read
+    offset 0 for an `--at` anchor, and built `fmt +8`; a signed `@OFF` read
+    from the end of the file; `formats --fields` ignored `--json`/`--csv`;
+    an empty JSON answer from `stats` is `[]`; `stats --by shape -o` wrote
+    nothing;
+  - speed: SFZ values and TAL/UVI tags were quadratic on hostile input,
+    long FastLZ runs were copied a byte at a time, AppleDouble plists were
+    rendered exponentially;
+  - `stats --by chunks` differed run to run (examples are now the smallest
+    paths, ties sort by key).
+
+- **UMP Stream messages named from the right table.** Status 0x05 was
+  called Function Block Discovery and 0x10 Stream Configuration Request;
+  M2-104-UM v1.1.2 has them the other way round. Product Instance Id,
+  Stream Configuration Notification, Function Block Info and Function Block
+  Name are now named too, as are MIDI 2.0 Poly Pressure and Per-Note
+  Management (note, value, flags) and SysEx8's Mixed Data Set header and
+  payload. Checked against the MMA/AMEI specifications line by line.
+- **A MIDI 2.0 clip's tempo is the one it opens at.** A clip that changes
+  tempo reported its last tempo and time signature as though they held
+  throughout (a real tempo track changes 94 times); it now reports the first
+  and counts the changes, and no longer derives a duration from one tempo.
+  SysEx packets out of order (a continue or end with no start, a start while
+  one is open) are a finding. Text split across packets (a title longer than
+  12 bytes) is joined back into one string, and a tempo restated unchanged is
+  not counted as a change. Checked against 14 real clip files from two
+  independent writers.
+
+## [2.0.0a1] - 2026-09-29
+
+An alpha of 2.0, published as a pre-release: `pip install acidcat` still
+installs 1.8.x, and `pip install --pre acidcat` installs this. The command
+line and the Python API below are what 2.0 intends to ship; the anatomy
+pages are still being reworked, and names may yet change before 2.0.0.
+Fixes to 1.x continue on the 1.8 line.
+
+### Migrating from 1.x
+
+What a 1.8 user or script has to change. Everything else keeps working
+through 2.x, with a note on stderr where a spelling has a new name.
+
+**Python.** 3.11 or later.
+
+**The command line.** Seventeen verbs replace twenty-nine. Every 1.8 verb
+and flag still runs as an alias: it prints one line on stderr naming the 2.0
+spelling, then runs exactly that (`docs/contract/cli-2.0.md` has the table).
+The aliases go in 3.0. What does not alias:
+
+- `-f`, `--no-color`, `formats --format-out` and `carve --format`, deprecated
+  in 1.x, are removed; each exits 2 naming what to write instead
+  (`--output-format`, `--color never`, `--encoding`).
+- `--length` or `--end` beside a search anchor (`carve --at find:RIFF --end
+  0x4000`, also on `od` and `inspect`) is removed: an anchor runs to the end
+  of the file in 2.0, and 1.8 read the range from offset 0. It exits 2; use
+  an ADDR (`RIFF/data+8`, `@OFF+LEN`). A numeric `--at` with a length still
+  aliases to `@OFF+LEN`.
+- `inspect -q` only quiets stderr. The chunk table alone is `inspect
+  --chunks` (what `chunks` now runs).
+- `inspect --only/--exclude` take node ids, globs or names and match
+  exactly; a pattern that names no chunk exits 1.
+- Exit codes: `inspect` on a file no walker reads exits 2 (was 1), as do a
+  bad argument value (`formats nope`, `inspect --force-format nope`) and
+  `edit` on a missing file. `edit` and `extract` on a file they have no
+  editor or extractor for (tags, strip, an address, the cover) exit 2 (was
+  1); a refused edit of a file they do edit is still 1. `stats` exits 1
+  when no target is a file its mode reads, in every mode (`--by meta` said
+  0). `classify` and `inspect --try-all` still answer 1.
+- `audit` exits 1 only for a defect. A suspicion (a polyglot, bytes past
+  the container, LSB entropy, a cavity) is reported, as an `info` finding,
+  and exits 0; 1.8 exited 1 on any of them, so `audit f || quarantine f`
+  quarantines less. Read `audit --json` (`kind`, `code`) to act on them.
+- `check` (and `validate`) now FAIL a PCM WAV whose `block_align`,
+  `avg_bytes_per_sec` or `smpl` sample period disagrees with its format
+  (`RIFF/fmt_ block_align: 4 -> 2`), which 1.8 passed; `check --fix`
+  rewrites them. A gate that passed such files exits 1 now.
+- `stats` (and the `survey` and `census` aliases) stop at 10,000 files
+  unless `--max-files` says otherwise (`0` for no limit); the `scan` alias
+  keeps its 1.8 default of 500.
+- Addresses print and take the node ids of the Document: `RIFF/fmt_`,
+  `RIFF/fmt_#sample_rate`, `FORM/COMM`. A bare name (`fmt`) still resolves.
+  `probe read data FILE` reads the chunk's payload (1.8 gave its header).
+- A name that repeats among its siblings is indexed on every occurrence,
+  from 0: a WAV with two LIST chunks has `RIFF/LIST[0]` and `RIFF/LIST[1]`
+  (earlier 2.0 builds gave `RIFF/LIST` and `RIFF/LIST~2`). Quote the
+  brackets in zsh: `acidcat od f.wav 'RIFF/LIST[1]'`.
+
+**`inspect --json` is the contract v1 Document** (`docs/contract/node-v1.md`,
+`node-v1.schema.json`), one object per file per line. The 1.8 keys map as:
+
+| 1.8 | 2.0 |
+|---|---|
+| `file` (a string) | `file.path` |
+| `format` (the label) | `format.label`; `format.id` is the registry id |
+| `size` | `file.size` |
+| `chunks[]` | `nodes[]`, a tree: an IFF file's chunks are the children of its `RIFF`/`FORM` root |
+| chunk `id` | node `name`; node `id` is the address (`RIFF/fmt_`) |
+| chunk `offset`, `size` | `extent` and `payload` (`{layer, off, len}`) |
+| chunk `payload_base` | `payload.off` |
+| field `name`, `value` | `name`, `key`; `display` is 1.8's value, `value` the machine value |
+| field `off` (relative), `abs` | `at.off` (absolute), `at.len` |
+| `warnings`, chunk `warnings` | `findings[]` with `kind`, `code`, `severity`, `node` |
+| `anomalies` (with `--anomalies`) | more `findings[]`, codes `anomaly.*` |
+| `lsb` | the `anomaly.lsb_entropy` finding when it fires |
+
+Every other verb's JSON follows one rule (cli-2.0.md section 4.1): keys are
+snake_case (`inspect --summary`'s `File`, `Format`, `Duration` are `path`,
+`description`, `duration_sec`; since 2.0.0rc2 the values are typed, a number
+in seconds and `null` for an absent value), a file is `path` (`scan`'s and `features`'
+`filename`, `audit`'s and `classify`'s `file`), and `format` is the registry
+id with `label` beside it. Row verbs always give an array, `audit` and
+`inspect --summary` included.
+
+`--full` was the positioned dump; the Document is positioned throughout, so
+`--full` is `--json`.
+
+**The Python API.** `acidcat.open(path | bytes | Source)` returns a
+`Document`; `doc.to_json()` is the dict above,
+`doc.field("RIFF/fmt_#sample_rate")` a field, `doc.edit({...})` a `Patch`
+(`repair()`, `verify()`, `commit(out, backup=True)`). `acidcat.walk()` and `acidcat.walk_file()`
+still return `(label, chunks, warnings)` with a `DeprecationWarning`, and go
+in 3.0. `acidcat.probe.resolve()` takes an ADDR. `acidcat.open()` takes
+`format=` and raises `Unsupported` for a file no walker claims. `acidcat.core.grammar` is
+gone.
+
+**acidcat-lab** requires acidcat 2.
+
+### Added
+
+- **A description of every walk as one document (contract v1).**
+  `core/infra/contract.py` turns a walk into the Document that
+  `docs/contract/node-v1.md` specifies: a node tree with stable ids, fields
+  located absolutely with a machine value beside the display string and the
+  storage type they were read as, the play/decode/render capabilities, and one
+  findings list. Nothing reads it yet; `inspect --json` is unchanged.
+
+- **One `Limits` object** (`core/infra/limits.py`) records what a walk ran
+  under on its Document, and `hit(name, limit, used, message)` announces a cap:
+  the note names the limit, the bound and how much the file asked for, and the
+  Document lists it in `limits.hit` with a `cap.*` finding.
+  `contract.walk()` takes `limits=`.
+- **Finding codes.** Every warning can carry a stable code consumers key on
+  instead of its wording (`core/infra/findings.py`): `size.overrun`,
+  `pointer.dangling`, `magic.mismatch`, `parse.failed`, `checksum.mismatch`,
+  `sibling.missing` and others, 100 walker sites so far. The rest report as
+  `legacy` and are counted. Forensic findings (`inspect --anomalies`,
+  `audit --json`) gain a `code` key.
+- **Layers.** A packed YM's unpacked tune is layer 1 of its Document: the
+  LHA body is decoded through a registry of decoders (`core/infra/layers.py`,
+  `-lh5-` and stored `-lh0-`) and checked against the member's CRC-16, and the
+  tune is walked region by region inside it, so its frame count has a byte
+  range (`1:lh5/header#frames`). A Pack-Ice SNDH is layered the same way:
+  the image must fill exactly the length its header states, and its entry
+  branches, tags and player are walked inside it; on 298 real packed SNDH
+  files the layer is the verified image. A PSF's zlib program is layer 1
+  too, checked by zlib's own Adler-32 and the length the walk measured; the
+  GBA and DS program header is walked inside it (entry point, load offset,
+  ROM byte count), and any other machine's program is one region. On 250
+  real GSF and 2SF files the layer is the inflated program. An Ableton
+  document (.als, .alc, .adg, .adv, .agr) is gzip over XML: the XML is layer
+  1, checked by gzip's CRC-32 and length trailer, and the root element's
+  attributes (Creator, versions) are placed on their value bytes.
+- **`carve --layer N`** writes a layer's bytes, decoded and checked the same
+  way; `--layer 0` is the file.
+- **`docs/contract/cli-2.0.md`**: every 1.8 command and flag, what it becomes
+  in 2.0, and which old spellings keep working through 2.x. A test fails when
+  the parser grows a flag the page does not map.
+
+- **`edit` takes bytes as hex.** A byte field's new value can be written
+  `hex:0100`; the length must match the field's. `edit --json` shows byte
+  values the same way.
+- **`check` names what it covers.** On a format it does not model it exits
+  2 with the list of formats it checks, for `validate` and `repair` alike.
+
+- **AppleDouble sidecars**, a new format. The `._name` files macOS leaves
+  beside files on other volumes and in every `__MACOSX` folder were
+  unrecognised. They now read out: the file they describe, its Finder
+  type and creator codes (`PTul` is Pro Tools, `a-lv` Ableton), and every
+  extended attribute -- the quarantine record naming the program that
+  downloaded the file and when, the WhereFroms URLs, Finder tags.
+- **TAL-Sampler and UVI programs** (`.talsmpl`, `.uvip`), two new
+  formats. Both are XML, read without an XML parser: the program name and
+  the path it was saved at, and every zone or keygroup with its sample,
+  key and velocity range. A UVI program's samples are looked for beside
+  it, like an SFZ's.
+- **SFZ instruments** (`.sfz`), a new format. Every header section and
+  opcode, each value placed on its bytes; the region, group and sample
+  counts; and every sample file a region names (through `default_path`,
+  `#define` variables and group inheritance) looked for beside the file.
+  A missing sample is an environment finding naming the files. A file
+  with no `<control>` whose samples are all absent says it may be a
+  fragment another SFZ includes, since an included file's paths resolve
+  from the includer.
+- **Logic EXS24 instruments** (`.exs`), a new format. The instrument's
+  counts, every zone (root key, key and velocity range, fine tune, pan,
+  volume, sample start and end, loop) with its group and sample named,
+  and every sample (frames, rate, bits, channels, file type and the path
+  it was recorded at). Big-endian PowerPC-era files read the same. The
+  zone layout was checked against SFZ files shipped beside the same
+  instruments.
+- **Kontakt 2 through 4.2 patches.** `.nki`, `.nkm` and `.nkb` files that
+  open `12 90 a8 7f` were unrecognised. The header now reads out: the
+  Kontakt version that saved it, the timestamp, zone, group and program
+  counts, total sample bytes, author and URL. A Kontakt 2 to 4.1 body is
+  zlib over XML, so the program name and every zone's sample path are read
+  too (the encoded `@d007samplesF...` form decoded to `samples/...`), with
+  `--frames` listing them. A 4.2 body is FastLZ, now decoded at level 2 as
+  well as level 1, and its soundinfo trailer (name, author, attributes) is
+  read. Header versions before 0x100 are recognised and say they are not
+  laid out.
+- **The Kontakt sample container.** `.nkx` and `.nkr` files, and the body
+  of a monolith `.nki`, are a directory tree and then the stored objects.
+  `inspect` walks both: every directory, sample, resource and embedded
+  patch, the sample's payload named NCW, RIFF WAV, AIFF or opaque, and the
+  names paired with the objects when the counts agree. A monolith's own
+  patch is walked inside it.
+
+### Changed
+
+- **A SoundFont's presets and instruments are `sfbk`'s children.** They
+  are read from the pdta and have no extent of their own, so they were
+  top-level nodes beside the root (`preset[0]`, 400 of them in a real font).
+  In any IFF-shaped file an unpositioned node is now the root's child, after
+  the positioned ones: `sfbk/preset[0]`, `sfbk/inst[3]`. `preset[0]` still
+  resolves as a unique last step.
+- **Every number in the Document is a number.** Only whole-number display
+  strings were parsed; a duration, a fade, a rate with its unit stayed text.
+  A field's `value` is now the float (`"0.25"`), the number in its base unit
+  (`"0.008 s"` 0.008, `"10000 ms"` 10, `"44,100 Hz"` 44100, `"192 kbps"`
+  192000, `"4 bytes"` 4), the seconds of an `m:ss` length, fade or duration
+  (`"1:00"` 60) or the list of ints (`"0, 255"`); `display` keeps the text.
+  A version (`"1.10"`) and a CD address (`00:00:04`) stay text. A Kurzweil
+  keymap's `sample_refs` is the list of sample ids (its display `1,234` was
+  the int 1234).
+- **A cap that fired is recorded at its bound.** The Document's `limits`
+  said `list_rows: null` beside `hit: ["list_rows"]` (an E4B listing its
+  first 512 rows): a limit named without the value that stopped the walk. A
+  built-in cap that fired is now recorded at the bound that fired, the
+  smallest when several lists were cut; each coverage finding's `cap` still
+  has its own. A caller's value (`depth`, `inflate_bytes`) stays as given.
+- **Every forensic finding row has a `kind`** (`audit --json`'s `hidden`
+  and `forensics`, `acidcat.anomalies_scan()`): `defect`, `coverage`,
+  `environment`, `info` or `error`, the walker note's own or its code's. A
+  walker note's `rule` is always `structure`; `coverage`, `environment` and
+  `info` were pseudo-rules standing in for the kind. The tables and `stats
+  --by shape --anomalies` flags read as before.
+- **An IFF file's header is its root node.** A WAV's Document ids are
+  `RIFF`, `RIFF/fmt_`, `RIFF/data` (they were `unwalked`, `fmt_`, `data`,
+  with the 12-byte header an unwalked gap), an AIFF's `FORM/COMM`, an RF64's
+  `RF64/ds64`, a Wave64's `wave64/fmt_`: the addresses the docs always used.
+  The root ends where its size says, so bytes past the declared end are its
+  siblings. The tuple API and the tables built on it are unchanged.
+- **The documented edit runs end to end.** `acidcat.open(wav).edit(
+  {"RIFF/fmt_#sample_rate": 48000})`, then `.repair()`, `.verify()` and
+  `.commit("out.wav", backup=True)`. The WAV fmt fields are typed by the
+  walker, so they edit without `force=True`. `Patch.repair()` runs the
+  constraint engine for what the patch put out of step, and refuses when the
+  original already had violations it would also rewrite. `Patch.commit()`
+  takes `backup=` (default True) in place of `overwrite=`.
+- **`edit --set ADDR=VALUE` cascades.** Setting `RIFF/fmt_#sample_rate`
+  also sets `avg_bytes_per_sec` (and a `smpl` chunk's `sample_period`),
+  one line each saying what it follows; `--no-cascade` refuses instead.
+  A field edit through the CLI no longer stops with an internal error.
+- **inspect prints ids an address takes.** The table, the field-detail
+  headers and the csv `id` column show `RIFF/fmt_` (csv adds the walker's
+  `name`), and `od` headers show the id an address resolved to.
+  `--only`/`--exclude` take ADDR node terms (ids, globs, names), and a
+  pattern that names no chunk exits 1 instead of printing an empty
+  table. The chunk-table view is `inspect --chunks` (`chunks` aliases
+  to it); `-q` now only quiets stderr, so 1.8's `inspect -q` prints the
+  field detail too.
+- **Addresses everywhere.** `probe read/table/scan` take an ADDR
+  (`chunk.field` still works; a node now means its payload), and `od`
+  and `carve` read an address in a decoded layer (`1:@0+16`,
+  `1:program/program_header`) where they refused it.
+- **Opening a large file no longer copies its audio.** The normaliser
+  read every field's bytes to infer a type, a 48 MB data payload
+  included; it reads at most 64 KiB of a field.
+- **Exit codes.** `inspect` on a file no walker reads exits 2, as `audit`
+  and `check` do (it was 1); a bad argument value exits 2 (`formats
+  nope`, `formats --fields` with no format, `inspect --force-format
+  nope`, which is now checked before any file is read). `classify`'s
+  "opaque" and `inspect --try-all`'s leads stay 1: they are answers.
+- **Document values.** A field's `value` is never a formatted number
+  (`"8,755"` is `8755`; text-typed fields keep their text). Every
+  derived field carries `derived_from`: its walker's sources, the
+  positioned field it repeats, or its node (counted in the new
+  `typing.derived_by_node`). An all-zero gap inside a payload is a
+  `padding` node, not `unwalked`. MP3 frame rows are `index`,
+  `bitrate_kbps`, `sample_rate`, `mode`, `bytes`, with a real `at.len`
+  (so are the columns of `inspect --frames` on an MP3).
+- **`inspect --json` is the contract v1 Document** (see Migrating from
+  1.x): the one `acidcat.open()` builds, with `file.path` and, with
+  `--anomalies`, the forensic findings. `--only/--exclude` cut its tree
+  to the chosen nodes and their ancestors.
+- **One JSON rule across verbs** (cli-2.0.md section 4.1): snake_case
+  keys, a file named by `path` as given, a format by `format` (registry
+  id) and `label` (display label). `inspect --summary` rows are
+  snake_case (`Format` becomes `description`) and many files give one
+  array; `audit` gives one array of rows, like `check`; `check`, `edit`,
+  `stats --by shape` and `classify` report `format` as the id (it was a
+  label or a writer's name); `stats --by meta` and `analyze` say `path`
+  (was `filename`); `classify` drops its basename `file`.
+- **Forensic findings have their real kind.** Suspicions (a polyglot,
+  trailing or unaccounted bytes, an LSB-entropy hint, a second Ogg
+  stream, ...) are `info`; a rule that catches the format broken (a
+  wrong format tag, a duplicate chunk or ID3 frame, non-zero padding) is
+  a `defect`. `audit` exits 1 on defects only, so a WAV with an archive
+  appended reports it and exits 0 (it exited 1). A RIFF or FORM size
+  short of the file is `container.trailing` (info) when nothing past it
+  is a chunk, and still `count.mismatch` when something is.
+- **Standard flags.** `-o PATH` writes the report on every verb that has
+  one (`od`, `probe`, `classify`, `locate`, `audit`, `formats`, `lib
+  list`/`stats` gained it); `-q` on `audit` and `edit`; `od
+  --output-format`; positional files are `FILE` in every usage line.
+  `stats FILE` works in every `--by`, and a flag for another `--by` is
+  refused (exit 2) instead of noted and ignored. `analyze` takes several
+  files (one array of rows) and exits 2 once without librosa (it printed
+  the error per file and emitted empty rows). `--no-recurse` and
+  `--limit NAME=VALUE` are not in 2.0.0a1.
+- **The API's names.** `acidcat.Patch` and `acidcat.PatchError` are
+  exported; `open` stays out of `__all__` (a star import would shadow
+  the builtin); `acidcat.open(format="wav")` replaces `fmt=`;
+  `acidcat.open()` raises `Unsupported` for a file no walker claims,
+  including the structural triage of an unknown container, whose
+  Document (from `inspect --json`) has the format id `triage`, so
+  `format.id` is never null. `Finding.node` is the `Node`, and
+  `Finding.node_id` its id. The Document's `limits.applied` names the
+  limits a caller's value changes (`decode`, `depth`, `inflate_bytes`).
+- **`check` holds a PCM WAV's `block_align` and `avg_bytes_per_sec`, and a
+  `smpl` chunk's `sample_period`, to the sample format** (violation kind
+  `rate`), the same arithmetic the walker already reported as a
+  `field.inconsistent` defect, and `check --fix` sets them.
+- **`acidcat.walk()` and `acidcat.walk_file()` are deprecated.** The 1.x
+  tuple API still returns `(label, chunks, warnings)` and now warns with a
+  `DeprecationWarning` naming `acidcat.open()`; it is removed in 3.0.
+  Nothing in acidcat or acidcat-lab calls it, and
+  `tests/test_tuple_api_deprecated.py` keeps it that way.
+- **acidcat-lab reads files through `acidcat.open()`** and requires
+  acidcat 2 (`acidcat>=2.0.0a1,<3`). `polyglot verify` reports the same
+  chunks as before and no longer writes a temporary file.
+- **The 2.0 command line: seventeen verbs** (`docs/contract/cli-2.0.md`):
+  inspect, od, carve, probe, classify, locate, audit, check, edit, stats,
+  analyze, lib, convert, extract, formats, explore, tui. `od` and `carve`
+  take an address (`od FILE fmt`, `carve FILE 'RIFF/LIST#INAM'`,
+  `carve FILE @0x2c+16`); `inspect --summary` and `--tags` are the two
+  views; `check` validates and `check --fix` repairs; `edit` sets tags,
+  typed fields, byte ranges and the cover; `stats --by meta|shape|chunks`
+  gives one line per file or a count over a tree, stopping at
+  `--max-files` (10,000 by default, `0` for all; stopping is a coverage
+  line on stderr and exit 0); `analyze` holds the librosa passes; `lib`
+  the library (`index`, `query`, `similar`, `list`, `forget`, `stats`).
+  A bare file is `inspect --summary`, a bare directory `stats`.
+- **Every 1.8 verb and flag is an alias through 2.x.** It prints one line
+  on stderr naming its 2.0 spelling, then runs exactly that, so its stdout
+  is the 2.0 form's. `-f`, `--no-color`, `formats --format-out` and
+  `carve --format`, deprecated in 1.x, are removed: each exits 2 naming
+  what to write instead.
+- **Output that changes under the aliases:** `chunks` prints inspect's
+  `--quiet` table; `dump` and `probe hexdump` print the `od` layout, and
+  `dump` skips a missing chunk as it did; `carve --field` prints the
+  field's Document value; `scan` and `shape` tables are one line per file;
+  `survey` and `census` give the census report, whose histogram labels
+  `files` and `occurrences` (JSON: `{files, occurrences}` per id), counts
+  `unparseable` files, offers csv/tsv, and exits 1 on a tree with nothing
+  readable; `classify -q` no longer filters stdout (`--problems-only`
+  does); hints and messages name the 2.0 verbs. `analyze --features`
+  defaults to a table (the `features` alias still asks for csv), and
+  `acidcat` with no verb exits 2.
+- **TUI: the bytes pane shows the file around the selection.** Selecting a
+  field lights its bytes inside their neighbours, with the selected node's
+  fields tinted, instead of showing the selection alone on an empty pane.
+  PgDn/PgUp page through the file (they paged inside the selection, 1,024
+  bytes at a time), and up/down on the focused pane move it a row. The tree
+  takes 35% and the bytes 65%, so the hex is 16 bytes a row from 120 columns
+  (it folded to 8 below 156). A status line under the panes names the layer,
+  the selection's offset and length, the finding count and the actions the
+  selected node offers. Keys are unchanged.
+- **TUI: what a node can do comes from its caps.** `p` plays a tune on the
+  engine its `render` cap names (`core/codecs/engines.py`), decodes a file
+  with a `decode` cap whole, and reads PCM with the geometry of the `audio`
+  cap; `e` on the file opens its tag editor when it has an `edit` cap, and on
+  a field edits the value as before; `X` writes out a node with a `carve` cap
+  when there are no regions. Nothing in `tui_app/` chooses by format name any
+  more: the edit profiles moved to `core/write/profiles.py` and the PS1 disc
+  catalog to `core/containers/psxdisc.py`. A walker can declare a cap on its
+  chunk (`chunk["caps"]`), and the TUI acts on it with no change of its own.
+- **TUI: layers.** `enter` on a node that opens a layer (a packed YM's LHA
+  body) shows the decoded image as a view of its own, read-only, named in the
+  breadcrumb (`tune.ym > unpacked YM5`) and the status line (`layer 1`); its
+  fields have byte ranges there and light up in its bytes. `u` comes back to
+  the file. In the file view, a field of the packed tune says which layer holds
+  its bytes and how to open it, instead of "no byte range".
+- **TUI: a field inspector and a data inspector.** The field inspector
+  (replacing the detail box) gives the selected field's type and where it
+  came from, offset, length, bytes, value, meaning, note and pointer target;
+  `enter` on a pointer follows it, like `x`. The data inspector reads the
+  bytes at the cursor as u8 to u64, i8 to i64 and f32/f64, little- and
+  big-endian side by side, with their ASCII and bits.
+- **TUI: a byte strip, generated help, and an open dialog that remembers.**
+  A row under the panes draws the whole layer to scale as the nodes that
+  hold its bytes: a node's header bytes as header, bytes no walker described
+  as gaps, the selection lit, and a small chunk between big ones still keeps
+  the cell it starts in. The help (`?`) is generated from the key bindings,
+  grouped by area (move, bytes, play, edit, regions, file), so a rebound key
+  cannot leave it wrong; it scrolls, and a long line hangs under itself. The
+  open dialog (`o`) starts where a file was last opened, lists recent files
+  above the tree, and hides dot files and folders; it remembers in
+  `<acidcat home>/tui.json`. The data inspector shows only where it fits
+  without wrapping, and the field inspector fits its bytes to the pane
+  instead of running past its edge on a narrow terminal. Keys are unchanged.
+- **One front door for edits.** `doc.edit({ADDR or tag: value})` returns a
+  Patch; `patch.verify()` reads every edit back from the new bytes and
+  re-walks them, and `patch.commit()` writes it atomically with a backup. A
+  field is written through its type and the inverse of its transform (FLAC's
+  three-bit channel count, stored minus one, beside the sample rate); raw
+  bytes replace an exact range; `cover` embeds or removes the cover; any other
+  key is a tag of the file's metadata profile. A field whose type was only
+  inferred is refused without `force=True`. `acidcat write`, `write --strip`
+  and `cover` now go through it and refuse to write an edit that does not read
+  back or that adds a defect; the TUI's field edits are Patches too.
+- **`acidcat.open()`: a file as a Document.** `acidcat.open(path | bytes |
+  Source)` walks a file into read-only views over the contract v1 dict:
+  `Document`, `Node`, `Field`, `Layer`, `Finding` and `Loc`. An ADDR names a
+  place (`doc.field("1:lh5/header#frames")`, `doc.node("RIFF/fmt_")`,
+  `doc.resolve("@0x10+4")`, `doc.find("**/data")`), and every view prints the
+  address that resolves back to it. `doc.layer_bytes(n)` decodes a derived
+  layer on demand, `doc.read(addr)` gives the bytes an address names, and
+  `doc.to_json()` is the v1 dict. The forensic scan's findings join the
+  walker's in `doc.findings`, once each. Additive: the tuple API is
+  unchanged.
+- **Every walker warning has a code.** The remaining plain-string warnings
+  in the walkers and format decoders (about 440 sites) carry a finding code,
+  so no warning a walk produces reaches a Document or `audit` as `legacy`.
+  Sixteen codes were added where none of the existing ones fitted (a count
+  that disagrees with its payload, two fields that disagree, a value the spec
+  does not allow, an unterminated or malformed text field, an address outside
+  the machine's window, a required chunk missing, chunks out of order, an
+  unknown id, a reference to nothing, stray bytes, a sibling that changed, a
+  value a reader has to assume, a layout no specimen showed, a convention
+  that looks like damage, a part walked past undecoded, and a file no walker
+  reads). Message wording is unchanged. Some findings change kind with their
+  code: a caught exception is now `error`/`walker.error`, and conventions,
+  assumed values and undecoded parts are `info`, not defects.
+- **TUI: the tree keeps its height.** The data inspector under it shows the
+  four readings most fields are (u16, u32, i32, f32) and `i` shows all ten, so
+  the tree has about 13 rows at 120x36 instead of 7. Both byte orders of a
+  reading are written the same way: in decimal, or both in hex when either is
+  too wide. The info box lays its facts out as whole phrases ("2 chunks", "[u
+  back (1)]" never split across lines), and a finding's message wraps under
+  its number. Inside a decoded layer the file is named as in the breadcrumb
+  (`tune.ym > unpacked YM5`), never by the temp file that holds the layer.
+- **Cap hits are never defects.** Twenty-two places reported crossing one of
+  acidcat's own limits as a plain warning, which `audit` counted against the
+  file: the 8SVX, SMUS, VOC, DMX and BFD read and chunk caps, eight E-mu
+  listings, the MIDI read cap and event listing, the MP3 frame listing, the
+  SigMF annotation, tracker sample and MPC pad listings, and the generic
+  triage's read window and chunk listing. They are coverage notes now, with the
+  same text. A coverage note cannot be made without naming its limit, so a new
+  cap cannot be misfiled.
+- **A missing sibling is not a defect.** A PSF whose library, a cue sheet
+  whose BIN, or a SigMF recording whose sidecar is not beside it is now an
+  `environment` finding: still printed, but `audit` exits 0 for it. Read from
+  memory, PSF and cue say the sibling was not looked for.
+- **`inspect --sandbox` keeps each warning's kind.** The sandbox returned its
+  walk as JSON and every coverage note came back a defect.
+- The forced parse (`inspect --force`, the TUI's force view) picks each
+  walker's complaint by code, not by the words "magic" or "spec says".
+- **Walkers read a Source, not a path.** A walk maps the file once, and bytes
+  in memory walk exactly as a file does: `walk_bytes` no longer writes a temp
+  file (it cost 1.9x the walk at 300 bytes and 400x at 64 MB), and an RMID's
+  wrapped SMF is walked in memory rather than through one. The helpers the
+  walkers share take a path or a Source, and open a plain path as before.
+  Checked: every seed and `data/` fixture walks to identical output from a
+  path before and after, deep and shallow; from bytes the output is the same
+  except where a file beside it would be checked (a cue sheet's BIN, a PSF's
+  library), which cannot happen without a directory.
+
+- **The last step of an id resolves on its own when it is unique.**
+  `od f.wav fmt_` and `inspect --only fmt_` find `RIFF/fmt_`, for every
+  verb that takes an ADDR; `LIST[1]` finds `RIFF/LIST[1]`. A step that
+  names several nodes is ambiguous and lists them.
+- **Inferred audio capabilities name an ffmpeg codec** (`pcm_s16le`,
+  `pcm_s16be`, `pcm_s8`, `pcm_f32le` ...) and are inferred only for
+  formats whose sample layout the walk states: WAV and its RF64/W64/BW64
+  kin, AIFF/AIFC, 8SVX, AU and CAF lpcm. Other formats (DSF, RMID, SID)
+  no longer get a guessed `play` capability.
+- `format.family` and `format.variant` are reserved in node-v1.md for a
+  later v1.x and not emitted.
+- `inspect --deep` and `--frames` help says what each one does and how
+  they differ.
+
+### Removed
+
+- **Python 3.10.** acidcat and acidcat-lab require Python 3.11 or later;
+  CI tests 3.11, 3.12 and 3.13. 3.10 reaches end of life in October 2026.
+- **The declarative grammar engine, `acidcat.core.grammar`,** and its tests
+  (`test_grammar_wav.py`, `test_grammar_flac.py`, `test_descriptor_fuzz.py`).
+  It described two formats, ran only in tests, and the walkers it was checked
+  against remain the oracle. `vocab.TABLES`, `vocab.FLAGS`,
+  `vocab.MP3_PADDING` and `vocab.MPEGLAYER3_ID` went with it; nothing else
+  read them. The check that `CTX_KEYS` covers every ctx key the WAV walker
+  publishes moved to `test_ctx_keys.py` and still runs over the generated
+  corpus (or `ACIDCAT_CORPUS`).
+- `acidcat.core.forensics.forced._MAGIC_COMPLAINT`, the words the forced parse
+  matched; it matches finding codes.
+- `acidcat.core.primitives.notes.coverage(text)`. Use
+  `acidcat.core.infra.limits.hit(name, limit, used, text)`; `Note(text,
+  "coverage")` without a `cap` now raises `ValueError`.
+
+### Fixed
+
+- **Every valid RF64 failed `check`.** RF64 writes 0xFFFFFFFF in its 32-bit
+  size fields and keeps the real sizes in ds64; the structure model read the
+  placeholders literally, reported the data chunk as overrunning the file, and
+  proposed an 88-byte RIFF size. `check` now declines RF64 with a note, as the
+  tag editor does.
+- **`check` advertised a fix it would refuse** on a file whose audio chunk the
+  walk cannot reach (a wrong size earlier in the file). It now explains the
+  misread and marks nothing repairable.
+- **A search anchor that finds nothing exits 1.** `od`, `carve` and
+  `inspect --at find:NOPE` (or `chunk:ZZZZ`) exited 2, the code for a
+  malformed argument; nothing matched is the answer no. A malformed anchor
+  still exits 2.
+
+- **Bytes appended past a WAV's RIFF end were read as chunks.** 2 MB of
+  appended zeros became 262,144 empty chunks, and opening the file took
+  seconds (a TUI test ran past its budget on CI). A chunk id is four ASCII
+  characters, so the walk now stops at the first that is not; the bytes stay
+  past the container end, where the scan reports them as trailing data.
+- **`cat f.wav | acidcat -` names `<stdin>`.** The summary card printed the
+  temporary copy's name (`File  tmpXXXX.acidcat_stdin`); the shared target
+  walker resolved `-` before the card's own check could see it.
+
+- **Hints print the 2.0 command.** `audit`'s HIDDEN section suggested
+  `acidcat carve F --offset 0xNN`, and `inspect --resync` `--offset N
+  --length L`: 1.8 spellings that run through an alias and print a note.
+  They say `carve F --at 0xNN` and `carve F @0xNN+L`.
+
+- **`inspect --only RIFF` is the whole file.** The table's ids start with
+  the root, and naming it said "names no chunk" (the root is made by the
+  Document, not a walker chunk). A node now picks its subtree for `--only`
+  and `--exclude`: `--only RIFF` shows every chunk and `--json` keeps the
+  root whole, `--exclude RIFF` hides them all.
+
+- **`carve FILE FIELD -o PATH` writes the field's bytes**, the ones the
+  file holds (`44 ac 00 00` for a 44100 Hz rate). It wrote the display text
+  and a platform newline (`44100\r\n` on Windows), and `--encoding raw` on
+  a field was ignored. On stdout the value text is still the default;
+  `--encoding value` writes it to `-o` (with LF), `hex`/`c`/`py`/`b64`
+  format the bytes. A derived value with no bytes writes its text, and
+  refuses `--encoding raw`; a `GLOB#KEY` lists values and refuses the byte
+  encodings.
+
+- **`probe`'s standard flags go after the sub-verb too.** `probe read AT F
+  --json` was an argparse error; `--output-format`, `--json` and `-o` are
+  accepted before or after the sub-verb, with the same output.
+
+- **Paths stay as given.** `classify` normalised every path (backslashes on
+  Windows, `./` dropped) and `stats`, `convert` and the shared tree walker
+  joined `os.walk`'s roots with `os.sep`, so a target typed `C:/samples` gave
+  rows mixing `/` and `\`. A path found under a target is spelled the way
+  the target was; a file named directly is exactly as given. `locate --json`
+  and `--csv` rows gain `path` and `label`.
+
+- **`probe hexdump` on a chunk name runs.** The 1.8 alias made `od FILE
+  @fmt+256` of `probe hexdump fmt FILE`, which `od` refused. Only an offset
+  takes the `@`; a chunk name is passed as the ADDR it is, and `chunk.field`
+  becomes `chunk#field`.
+
+- **A chunk that runs past a short header size is the container's.** The
+  commonest WAV defect is a `riff_size` a few bytes short of the data chunk;
+  the Document made that chunk a sibling of the `RIFF` root, so `RIFF/data`
+  named nothing and `od f.wav RIFF/data` exited 1. The root now grows to hold
+  a chunk that starts inside it (WAV, AIFF, Wave64, every IFF root). The WAV
+  and AIFF walkers call it `count.mismatch`, a defect ("chunk 'data' at
+  0x00000024 runs past it"), where they said `container.trailing`, info, and
+  `audit` no longer reports the chunk's tail as bytes hidden past the
+  container, so `audit` and `check` agree (both exit 1).
+
+- **`edit`'s cover honours `--dry-run` and `-o`.** `edit --set cover=@IMG`
+  ran through the 1.8 `cover` verb, which has no dry run and reads `-o` as
+  "extract to": a dry run embedded the cover and made a backup, and `-o
+  copy.mp3` rewrote the input in place. `--unset cover` on a file with no
+  cover no longer rewrites it. A WAV or AIFF takes a cover: the audio guard
+  hashed a RIFF or FORM file whole, so the ID3 chunk mutagen adds after the
+  sound data read as changed audio and every such edit was refused. It now
+  compares the `data` or `SSND` payload.
+
+- **`write FILE.wav --set key=Am` and `--set root=C3` exited 1** ("the patch
+  does not verify"), as did clearing the key with `--set key=`. The WAV
+  writer reported the old key as None (or "set") instead of reading the
+  root note the acid chunk held, and reported a note name where the chunk
+  reads back a MIDI number. Old and new are now both note names (C3 = 60),
+  which is also what `--dry-run` shows. The acid chunk holds a root note
+  only, so `key=Am` stores A and says on stderr that the minor is not
+  stored. Every `acidcat write` example in README.md and CHEATSHEET.md is
+  now run as a test.
+- **`acidcat inspect` crashed on every SoundFont** (also in 1.8.6), and so
+  did `inspect --full` and `od`: the SF2 preset and instrument tree has no
+  byte position, and the renderers formatted its offset as a number. A test
+  now runs every render mode over every seed.
+- **A WAV's RF64 reservation was reported as overwritten damage.** The
+  28-byte JUNK a writer puts first is filled on purpose: with the ds64 sizes
+  (sometimes stale, the file having grown), with a quote Ableton Live writes
+  there, or with the RIFF size over such a quote. It is now read as the
+  reservation, and the quote is a provenance tell for Ableton Live. Measured
+  on 6,000 WAVs: every non-zero one was one of these.
+- **Zip-based formats were reported as polyglots** (.xpn, .labx,
+  .multisample): the archive's own end record was taken for an appended zip,
+  and its members for smuggled files. An SF3's Ogg samples were flagged the
+  same way. A multisample now places its central directory.
+- **A Max for Live instrument was a "magic mismatch".** The four bytes at 8
+  are the device type, `aaaa` for an audio effect and `iiii` for an
+  instrument, not a constant.
+- **A `.vitalskin` was read as a Vital preset**, every theme key flagged as
+  an unknown one. A skin has no `settings` and is no longer a preset.
+- **`audit` called a console ROM `[unknown]`** and suggested `locate`; it
+  now names the ROM and suggests `extract`.
+- **`constraints.repair` raised on a multi-track MP4.** It promises a report,
+  and the MP4 repairer located the audio before its guarded run, which raised
+  on a two-track video. The `repair` command already caught it; the library
+  call now declines the file the same way.
+- **MP4 timestamps used a call Python 3.12 deprecates** (`utcfromtimestamp`),
+  and it will stop working when Python removes it. Output is unchanged.
+- **A DSDIFF 1.4 file was reported as damaged.** Every 1.x revision reads
+  the same way; an earlier one is now a notice. Another major version is
+  still a defect.
+- **A SigMF recording opened by its `.sigmf-meta` was reported as broken.**
+  The walk described the data file's regions whichever half was opened, so a
+  real 1,045-byte sidecar came back with three invalid chunks and every byte
+  unaccounted for. Opened by its metadata, the walk now places only the JSON;
+  the captures and annotations are listed and say which file holds them.
+- **A cut BRSTM was reported as whole.** The RSTM header declares the file's
+  size at 0x08 and the walker never read it; a stream in FFmpeg's test suite
+  holds 200 KB of a declared 9.1 MB. The size is now a field, and a file
+  shorter than it declares is a `size.overrun`.
+- **Every 12-bit AIFF and WAV was reported as damaged.** Both formats store
+  a sample in whole bytes, so 12-bit takes two, but the size checks divided
+  the bit depth by eight and rounded down. AIFF warned that SSND held twice
+  the audio its frame count implied, and WAV that a correct `block_align` was
+  wrong. Found on two 1991 Prosonus AIFFs in the specimen library.
+- **A cut MDX was not recognised as MDX.** Sixteen real modules are
+  truncated rips whose offset tables point past the end of the file. The
+  header (title terminator, bank name, a 9- or 16-channel table) identifies
+  them, so they now sniff as MDX and the walk reports each offset that
+  dangles. No other file in the corpus has such a header.
+- **76 X68000 sample banks were not recognised.** Their writer emitted only
+  the slots it filled, a table shorter than one 96-slot bank, so reading a
+  whole bank read sample data as slots. A short table is now accepted when
+  it accounts for the file exactly: every slot inside it, the samples laid
+  end to end to the last byte. None of 333,922 other files in the corpus
+  passes that test.
+- **Two walkers found wrong by public test files.** McGill's AU and AIFF
+  sample sets, now in the corpus, caught a Sun/NeXT file whose data chunk
+  claimed 172,032 bytes of an 86,044-byte file (the chunk now owns what is
+  there, with a `size.overrun` finding) and an AIFF-C `APPL` chunk whose
+  first data byte was read as a Pascal-string length of 71 in a 12-byte
+  chunk (the name is decoded only when it fits).
 
 ## [1.8.7] - 2026-09-28
 

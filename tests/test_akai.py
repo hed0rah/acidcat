@@ -84,3 +84,104 @@ def test_akp_rejects_non_aprg(tmp_path):
         assert False, "expected Unsupported"
     except Unsupported:
         pass
+
+
+def _zero_size(p):
+    raw = bytearray(open(p, "rb").read())
+    raw[4:8] = bytes(4)
+    open(p, "wb").write(bytes(raw))
+    return bytes(raw)
+
+
+def test_a_zero_riff_size_is_akais_convention_not_damage(tmp_path):
+    """The S5000/S6000 writes 0 in an .akp's RIFF size and most real programs
+    carry it: check must not call them broken, and --fix must not rewrite one."""
+    from acidcat.core.write import constraints
+    raw = _zero_size(_make_akp(tmp_path))
+    rep = constraints.analyze(raw)
+    assert rep.violations == []
+    assert "Akai" in rep.note
+    new, _rep = constraints.repair(raw)
+    assert new == raw
+
+
+def test_a_wrong_nonzero_riff_size_is_still_reported(tmp_path):
+    from acidcat.core.write import constraints
+    p = _make_akp(tmp_path)
+    raw = bytearray(open(p, "rb").read())
+    raw[4:8] = (len(raw) - 100).to_bytes(4, "little")
+    rep = constraints.analyze(bytes(raw))
+    assert [(v.path, v.field) for v in rep.violations] == [("RIFF", "size")]
+
+
+def test_a_zero_riff_size_does_not_hide_an_overrunning_last_chunk(tmp_path):
+    """The size-0 filter dropped the only signal the IFF model has for a
+    chunk running past EOF, so check called a truncated program consistent.
+    The 0 is the convention; the chunks must still end where the file does."""
+    from acidcat.core.write import constraints
+    raw = bytearray(_zero_size(_make_akp(tmp_path)))
+    last = raw.rfind(b"kgrp")
+    size = struct.unpack_from("<I", raw, last + 4)[0]
+    struct.pack_into("<I", raw, last + 4, size + 64)       # 64 bytes past EOF
+    rep = constraints.analyze(bytes(raw))
+    assert [(v.path, v.field, v.repairable) for v in rep.violations] == [
+        ("RIFF", "size", False)]
+    assert "overruns the file" in rep.violations[0].describe()
+    new, rep = constraints.repair(bytes(raw))
+    assert new == bytes(raw) and not rep.repairable          # nothing to write
+
+
+def test_fix_refuses_a_pad_byte_that_is_part_of_the_next_chunk_id(tmp_path):
+    """prg's size one too large swallows the 'o' of the next "out ", and the
+    parse reads the 'u' as prg's pad. --fix zeroed it, writing new damage into
+    a chunk id; APRG has no audio payload, so no audio guard stopped it.
+    The layout is the real S5000 one: prg, then out (8 bytes), then kgrps."""
+    import pytest
+    from acidcat.cli import main
+    from acidcat.core.write import constraints
+    from acidcat.core.write.repairers import AudioGuardError
+    body = (b"APRG" + _chunk(b"prg ", bytes([1, 7, 1, 0, 2, 0]))
+            + _chunk(b"out ", bytes(8)) + _kgrp(0, 127, ["Kick"]))
+    for size in (len(body), 0):
+        raw = bytearray(b"RIFF" + struct.pack("<I", size) + body)
+        struct.pack_into("<I", raw, raw.find(b"prg ") + 4, 7)
+        raw = bytes(raw)
+        p = tmp_path / "desync.akp"
+        p.write_bytes(raw)
+        rep = constraints.analyze(raw)
+        assert "'out '" in rep.violations[0].describe()
+        assert not rep.repairable                 # check must not offer --fix
+        with pytest.raises(AudioGuardError):
+            constraints.repair(raw)
+        assert main(["check", "--fix", "--overwrite", str(p)]) == 1
+        assert p.read_bytes() == raw              # nothing written
+
+
+def test_a_zero_riff_size_survives_another_repair(tmp_path):
+    """A program with a real fault elsewhere is fixed there and keeps its 0."""
+    from acidcat.core.write import constraints
+    p = _make_akp(tmp_path)
+    raw = _zero_size(p) + b"junk" + (3).to_bytes(4, "little") + b"abc" + b"U"
+    new, rep = constraints.repair(raw)
+    assert [v.field for v in rep.violations] == ["pad_byte"]
+    assert new[4:8] == bytes(4) and new[-1:] == bytes(1)
+
+
+def test_fix_leaves_a_master_size_the_walk_cannot_reach_eof_for(tmp_path):
+    """prg 6 -> 8 with a real RIFF size: the walk misaligns after prg and
+    stops, and --fix wrote the walk's end (20) as the RIFF size, leaving every
+    keygroup outside the RIFF, exit 0. A master size is witnessed by the end
+    of the file only when the recomputed size reaches it."""
+    from acidcat.cli import main
+    from acidcat.core.write import constraints
+    raw = bytearray(open(_make_akp(tmp_path), "rb").read())
+    struct.pack_into("<I", raw, raw.find(b"prg ") + 4, 8)
+    raw = bytes(raw)
+    p = tmp_path / "prg8.akp"
+    p.write_bytes(raw)
+    rep = constraints.analyze(raw)
+    assert [(v.path, v.field, v.repairable) for v in rep.violations] == [
+        ("RIFF", "size", False)]
+    assert main(["check", str(p)]) == 1
+    assert main(["check", "--fix", "--overwrite", str(p)]) == 1
+    assert p.read_bytes() == raw                  # nothing written

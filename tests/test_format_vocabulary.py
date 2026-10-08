@@ -71,7 +71,6 @@ def test_a_lying_midi_header_is_not_trusted():
 
 @pytest.mark.parametrize("name,body", [
     ("README.txt", b"This is a readme about the sample pack.\n"),
-    ("patch.sfz", b"<group>\n key=60\n sample=kick.wav\n</group>\n"),
     ("notes.md", b"# Notes\n\n- one\n- two\n"),
 ])
 def test_text_is_not_called_opaque(tmp_path, name, body):
@@ -81,6 +80,16 @@ def test_text_is_not_called_opaque(tmp_path, name, body):
     assert v["shape"] != "opaque"
     assert "readable as text" in v["detail"]
     assert not v["next"]        # do not send a text file to the audio scanner
+
+
+def test_an_sfz_is_a_format_not_just_text(tmp_path):
+    """SFZ was the text case above until it gained a walker; now classify
+    names the format, and still does not send it to the audio scanner."""
+    p = tmp_path / "patch.sfz"
+    p.write_bytes(b"<group> key=60\n<region> sample=kick.wav\n")
+    v = classify(str(p))
+    assert v["shape"] != "opaque"
+    assert "sfz" in v["detail"]
 
 
 def test_real_binary_is_still_opaque(tmp_path):

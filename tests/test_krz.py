@@ -193,3 +193,17 @@ def test_pcm_region_owns_exactly_its_bytes(tmp_path):
     base, n = geometry.payload_of(region)
     assert base == region["offset"], "PCM has no header to skip"
     assert base + n == os.path.getsize(p), (base, n, os.path.getsize(p))
+
+
+def test_sample_refs_are_a_list_in_the_document(tmp_path):
+    """Review V6: `1,234` in the display is two samples; the Document's
+    value is the list, not the int 1234."""
+    import acidcat
+    hdr = struct.pack(">HHHHHH", 0, 0x03, 0, 100, 127, 3) + b"\x00" * 16
+    entries = struct.pack(">HB", 1, 1) * 4 + struct.pack(">HB", 234, 1) * 4
+    p = tmp_path / "refs.krz"
+    p.write_bytes(_bank([_object(37, 200, "K", hdr + entries)]))
+    doc = acidcat.open(p, forensics=False)
+    refs = [f for n in doc.walk() for f in n.fields if f.key == "sample_refs"]
+    assert refs and refs[0].value == [1, 234]
+    assert refs[0].display == "1,234"

@@ -14,11 +14,11 @@ whether the file honours the constraints that make it safe on real hardware.
 See core/formats/sid.py for the layout and the byte-order trap.
 """
 
-import os
 
 from acidcat.core.formats import sid as sidmod
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _f
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import _f, _open, _size
+from acidcat.core.infra.findings import defect
 
 # A SID is tiny -- the largest of 630 measured tunes is 60 KB. The cap is far
 # above anything real so that a forged header cannot make us read a huge file,
@@ -31,8 +31,8 @@ def _addr(a):
 
 
 def inspect_sid(filepath, deep=False):
-    size = os.path.getsize(filepath)
-    with open(filepath, "rb") as fh:
+    size = _size(filepath)
+    with _open(filepath) as fh:
         raw = fh.read(min(size, _SID_READ_CAP))
     warns = []
     if size > _SID_READ_CAP:
@@ -40,25 +40,28 @@ def inspect_sid(filepath, deep=False):
         # the memory image length, and the extent derived from it, would
         # describe a prefix -- so the note has to be exact at any size, and
         # a rounded "0 MB" is what a small cap collapses to.
-        warns.append(coverage("file is %d bytes; parsed the first %d"
-                              % (size, len(raw))))
+        warns.append(hit("read_bytes", _SID_READ_CAP, size,
+                         "file is %d bytes; parsed the first %d"
+                         % (size, len(raw))))
 
     h = sidmod.parse_header(raw)
     magic = h["magic"].decode("latin-1", "replace")
     version = h["version"]
     hdr_len = min(h["data_offset"] or sidmod.header_size(version), len(raw))
 
-    for field, complaint in sidmod.violations(h, len(raw)):
-        warns.append("%s: %s" % (field, complaint))
+    for field, complaint, code in sidmod.coded_violations(h, len(raw)):
+        warns.append(defect(code, "%s: %s" % (field, complaint)))
     if h["truncated"]:
-        warns.append("file is shorter than a v1 header (0x%02X bytes)"
-                     % sidmod.HEADER_V1)
+        warns.append(defect("header.truncated",
+                            "file is shorter than a v1 header (0x%02X bytes)"
+                            % sidmod.HEADER_V1))
 
     chunks = [_header_chunk(h, raw, magic, version, hdr_len, deep)]
     if h["data_offset"] and h["data_offset"] < len(raw):
         chunks.append(_data_chunk(h, raw))
     else:
-        warns.append("no C64 data: dataOffset is at or past the end of the file")
+        warns.append(defect("pointer.dangling",
+                            "no C64 data: dataOffset is at or past the end of the file"))
     return chunks, warns
 
 

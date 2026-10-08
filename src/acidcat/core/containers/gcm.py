@@ -11,8 +11,9 @@ so the tree is walked by index ranges, not nesting.
         print(f["path"], f["offset"], f["size"])
 """
 
-import os
 import struct
+
+from acidcat.core.infra.source import open_input, input_size
 
 MAGIC = 0xC2339F3D                   # GameCube disc magic word, at offset 0x1C
 _MAGIC_OFF = 0x1C
@@ -22,7 +23,7 @@ _MAX_DEPTH = 64          # a real disc nests a handful deep
 def is_gcm(path):
     """True if `path` is a GameCube disc image (by the 0x1C magic word)."""
     try:
-        with open(path, "rb") as f:
+        with open_input(path) as f:
             f.seek(_MAGIC_OFF)
             return struct.unpack(">I", f.read(4))[0] == MAGIC
     except (OSError, struct.error):
@@ -37,8 +38,8 @@ def _entry(fst, i):
 def walk(path):
     """Yield {path, offset, size} for every file on a GameCube disc, or nothing
     if `path` is not one. offset/size are absolute byte positions in the image."""
-    fsize = os.path.getsize(path)
-    with open(path, "rb") as f:
+    fsize = input_size(path)
+    with open_input(path) as f:
         head = f.read(0x440)
         if len(head) < 0x440 or struct.unpack_from(">I", head, _MAGIC_OFF)[0] != MAGIC:
             return
@@ -104,12 +105,12 @@ def read_file(path, entry, limit=None):
     unchecked, and a 1,118-byte file declaring a 0xFFFFFFFF entry allocated
     4.3 GB here before finding out the file was 1 KB long.
     """
-    fsize = os.path.getsize(path)
+    fsize = input_size(path)
     off = entry["offset"]
     if off >= fsize:
         return b""
     n = entry["size"] if limit is None else min(entry["size"], limit)
     n = min(n, fsize - off)
-    with open(path, "rb") as f:
+    with open_input(path) as f:
         f.seek(off)
         return f.read(n)

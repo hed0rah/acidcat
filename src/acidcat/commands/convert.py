@@ -19,6 +19,7 @@ import struct
 import sys
 
 from acidcat.util import outpath
+from acidcat.util.paths import under
 
 from acidcat.core.codecs import adpcm
 from acidcat.core.codecs import g711
@@ -43,7 +44,7 @@ def register(subparsers):
         "convert",
         help="Bitwig clip -> MIDI, NCW/8SVX/AU -> WAV, or SF2 -> a folder of WAVs.",
     )
-    p.add_argument("input", help="Input file (.bwclip / .ncw / .sf2 / .8svx / "
+    p.add_argument("input", metavar="FILE", help="Input file (.bwclip / .ncw / .sf2 / .8svx / "
                                  ".au), or a directory to batch-convert every "
                                  ".ncw within.")
     p.add_argument("-o", "--output",
@@ -73,12 +74,12 @@ def register(subparsers):
 def _batch_ncw(directory, args):
     """Convert every .ncw under `directory` to a sibling .wav. Read-only on the
     inputs; one bad file is counted and skipped, never fatal."""
-    done = skipped = failed = refused = 0
+    done = skipped = failed = refused = unreadable = 0
     for root, _dirs, files in os.walk(directory):
         for name in files:
             if not name.lower().endswith(".ncw"):
                 continue
-            src = os.path.join(root, name)
+            src = under(directory, root, name)
             out = os.path.splitext(src)[0] + ".wav"
             if args.skip_existing and os.path.exists(out):
                 skipped += 1
@@ -101,16 +102,24 @@ def _batch_ncw(directory, args):
                     print(f"  {os.path.relpath(src, directory)} -> "
                           f"{hdr['num_samples']:,} samples", file=sys.stderr)
             except (ncwmod.NcwError, OSError) as e:
-                failed += 1
+                if isinstance(e, OSError):
+                    unreadable += 1         # could not read it or write the wav
+                else:
+                    failed += 1             # the file itself is bad
                 print(f"  [skip] {os.path.relpath(src, directory)}: {e}",
                       file=sys.stderr)
     print(f"converted {done:,} .ncw -> .wav"
           + (f", skipped {skipped:,} existing" if skipped else "")
           + (f", refused {refused:,} that would overwrite an existing file"
              if refused else "")
-          + (f", {failed:,} failed" if failed else ""))
-    # a refusal is a file NOT converted, so it must not report success
-    return 0 if done or not (failed or refused) else 1
+          + (f", {failed + unreadable:,} failed" if failed + unreadable else ""))
+    # a refusal is a file NOT converted, so it must not report success, and
+    # neither is a failure beside a success: `done` used to excuse both, so
+    # one good file made a run with failures exit 0. 2 when a file could not
+    # be read or written (could not run), else 1 for a refused or bad file.
+    if unreadable:
+        return 2
+    return 1 if failed or refused else 0
 
 
 def _run_ncw(path, data, args):
@@ -134,6 +143,9 @@ def _run_ncw(path, data, args):
     return 0
 
 
+_FILE_EXTS = (".wav", ".wave", ".ogg", ".aif", ".aiff", ".flac", ".mp3", ".sf2", ".sf3")
+
+
 def _run_sf2(path, data, args):
     try:
         info = sf2mod.parse_sf2(data)
@@ -145,6 +157,13 @@ def _run_sf2(path, data, args):
         print(f"acidcat convert: {path}: no extractable samples", file=sys.stderr)
         return 1
     outdir = args.output or (os.path.splitext(path)[0] + "_samples")
+    if os.path.splitext(outdir)[1].lower() in _FILE_EXTS and not os.path.isdir(outdir):
+        # one file per sample, so -o names a folder; `-o out.wav` made a folder
+        # called out.wav, which reads as a file that will not open
+        print(f"acidcat convert: {path}: a soundfont converts to one file per "
+              f"sample, so -o names a folder; {outdir!r} looks like a file",
+              file=sys.stderr)
+        return 2
     os.makedirs(outdir, exist_ok=True)
     for i, s in enumerate(samples):
         if s.get("compressed"):
@@ -221,9 +240,11 @@ def _run_au(path, data, args):
     enc = hdr["encoding"]
     name = aumod._ENC.get(enc, (f"encoding {enc}", 0, False, False))[0]
     if enc not in _AU_TO_PCM:
+        # no converter for this encoding: could not run (2), as for a format
+        # convert does not model at all
         print(f"acidcat convert: {path}: {name} is not supported for conversion "
               f"yet (mu-law, A-law, 8- and 16-bit linear PCM are)", file=sys.stderr)
-        return 1
+        return 2
     off = hdr["data_offset"]
     if off < 24 or off > len(data):
         print(f"acidcat convert: {path}: data offset {off} is outside the file",
@@ -334,6 +355,18 @@ def _run_to_pcm(path, data, args):
 
 
 def run(args):
+    try:
+        return _convert(args)
+    except OSError as e:
+        # a write that failed names its file; a closed stdout does not, and
+        # must reach the CLI's closed-pipe handler untouched
+        if e.filename is None:
+            raise
+        print(f"acidcat convert: {e.filename}: {e.strerror or e}", file=sys.stderr)
+        return 2
+
+
+def _convert(args):
     path = args.input
     if os.path.isdir(path):
         return _batch_ncw(path, args)
@@ -379,7 +412,7 @@ def run(args):
     except Exception as e:
         print(f"acidcat convert: {path}: could not build MIDI "
               f"({e.__class__.__name__})", file=sys.stderr)
-        return 1
+        return 2            # the notes parsed: a failure here is ours
     out = args.output or (os.path.splitext(path)[0] + ".mid")
     err = outpath.refuse_self_overwrite("convert", path, out)
     if err:

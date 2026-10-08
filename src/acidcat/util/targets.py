@@ -24,6 +24,8 @@ caller can say how many.
 
 import os
 
+from acidcat.util.paths import under
+
 # Every extension acidcat has a walker, converter or extractor for. One list:
 # a second one is how the drift above happened. test_targets.py pins the
 # commands to it.
@@ -53,11 +55,36 @@ GAME_EXTS = frozenset({
     ".bin", ".z64", ".n64", ".v64", ".sfc", ".smc", ".spc", ".brr",
 })
 
-MIDI_EXTS = frozenset({".mid", ".midi", ".rmi", ".midi2", ".syx"})
+MIDI_EXTS = frozenset({".mid", ".midi", ".rmi", ".rmid", ".midi2", ".syx"})
+
+# The rest of what the walkers read. A directory walk skipped every one of
+# these (REX loops, Serum presets, EXS/SFZ, Live Packs, chiptunes) while the
+# same file named directly read fine; tests/test_targets.py now checks every
+# walker's seed extension is here. The bare ".m" of PMD and the raw IQ
+# extensions are left out: both name far more files that are not ours.
+FORMAT_EXTS = frozenset({
+    # samplers, loops and instruments
+    ".rx2", ".rex", ".rcy", ".exs", ".sfz", ".xpm", ".xpn", ".mpcpattern",
+    ".multisample", ".labx", ".uvip", ".talsmpl", ".sxt", ".mxgrp", ".mxsnd",
+    ".nkx", ".nkr", ".exb", ".pat", ".bfdlac", ".alp", ".serumpreset", ".wt",
+    ".xtd",
+    # high resolution and capture
+    ".dsf", ".dff", ".sigmf-meta",
+    # trackers and chip music
+    ".okt", ".stm", ".s3p", ".fc", ".smus", ".cmf", ".dmx",
+    ".sid", ".nsf", ".nsfe", ".gbs", ".hes", ".kss", ".sap", ".ym", ".sndh",
+    ".vgm", ".vgz", ".s98", ".mdx", ".pdx", ".pt2", ".pt3", ".stc", ".m2",
+    ".mz",
+    ".psf", ".minipsf", ".psf2", ".minipsf2", ".gsf", ".minigsf", ".2sf",
+    ".mini2sf", ".usf", ".miniusf", ".snsf", ".minisnsf", ".ssf", ".minissf",
+    ".qsf", ".miniqsf",
+    # consoles and discs
+    ".ctl", ".cdxa",
+})
 
 # The default gate for a directory walk: anything acidcat might parse.
 KNOWN_EXTS = (CONTAINER_EXTS | TRACKER_EXTS | PRESET_EXTS | GAME_EXTS
-              | MIDI_EXTS)
+              | MIDI_EXTS | FORMAT_EXTS)
 
 
 def _ext(path):
@@ -106,7 +133,7 @@ def expand(inputs, *, accept=None, recurse=True, follow_links=False):
                 if not recurse:
                     dirs[:] = []
                 for name in sorted(names):
-                    p = os.path.join(root, name)
+                    p = under(item, root, name)
                     if keep(p):
                         add(p)
                     else:
@@ -117,7 +144,8 @@ def expand(inputs, *, accept=None, recurse=True, follow_links=False):
     return files, skipped
 
 
-def each(args, attr, single, *, verb, accept=None, header=True, stream=None):
+def each(args, attr, single, *, verb, accept=None, header=True, stream=None,
+         quiet=False):
     """Run a single-file command once per operand.
 
     ``audit`` and ``inspect`` are the same kind of verb -- read a file, print
@@ -159,8 +187,11 @@ def each(args, attr, single, *, verb, accept=None, header=True, stream=None):
         with resolved_input(path) as real:
             if real is None:
                 print(f"acidcat {verb}: no data on stdin", file=sys.stderr)
-                return 1
+                return 2
             setattr(args, attr, real)
+            # the operand as the caller gave it, for a record's `path`
+            # (never a stdin temp copy's name)
+            args._given = "<stdin>" if real != path else path
             if many and header:
                 if i:
                     print(file=out)
@@ -168,7 +199,7 @@ def each(args, attr, single, *, verb, accept=None, header=True, stream=None):
             worst = max(worst, single(args) or 0)
 
     note = skip_note(skipped)
-    if note:
+    if note and not quiet:
         print(f"  {note}", file=sys.stderr)
     return worst
 

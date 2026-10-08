@@ -48,6 +48,7 @@ against 132,305 files of everything else: 3,256 accepted, 0 false positives.
 
 import struct
 
+from acidcat.core.infra.source import open_input, input_size
 from acidcat.core.formats.mdx import packer_stamp
 
 SLOT = 8
@@ -77,6 +78,7 @@ def parse_table(raw, filesize):
          "padded": False, "short": False}
     if filesize < BANK + SLOT:
         h["why"] = "file is smaller than one %d-byte bank table" % BANK
+        h["code"] = "header.truncated"
         return h
 
     n = SLOTS_PER_BANK
@@ -84,12 +86,14 @@ def parse_table(raw, filesize):
         want = n * SLOT
         if want > len(raw) or want > filesize:
             h["why"] = "file ends inside the slot table"
+            h["code"] = "header.truncated"
             return h
         words = struct.unpack_from(">%dI" % (n * 2), raw, 0)
         rows = [(words[i * 2], words[i * 2 + 1]) for i in range(n)]
         live = [(o, s) for o, s in rows if o or s]
         if not live:
             h["why"] = "every slot is empty"
+            h["code"] = "value.invalid"
             return h
         if any(s == 0 or o + s > filesize for o, s in live):
             # This is where a PACKED bank lands. The compressors of the era
@@ -99,12 +103,14 @@ def parse_table(raw, filesize):
             if h["packer"]:
                 h["why"] = ("the bank is packed with %s; the slot table "
                             "belongs to the unpacked form" % h["packer"])
+                h["code"] = "decode.partial"
                 return h
             short = _short_table(raw, filesize)
             if short:
                 h.update(short)
                 return h
             h["why"] = "a slot points outside the file"
+            h["code"] = "pointer.dangling"
             return h
 
         low = min(o for o, _s in live)
@@ -129,8 +135,10 @@ def parse_table(raw, filesize):
             return h
         h["why"] = ("the first sample begins at %d, which is not where a "
                     "table of whole banks ends" % low)
+        h["code"] = "value.invalid"
         return h
     h["why"] = "slot table claims more than %d banks" % MAX_BANKS
+    h["code"] = "value.invalid"
     return h
 
 
@@ -175,10 +183,9 @@ def looks_like_pdx(raw, filesize):
 
 
 def looks_like_pdx_file(path):
-    import os
     try:
-        with open(path, "rb") as fh:
+        with open_input(path) as fh:
             head = fh.read(MAX_BANKS * BANK)
-        return looks_like_pdx(head, os.path.getsize(path))
+        return looks_like_pdx(head, input_size(path))
     except OSError:
         return False

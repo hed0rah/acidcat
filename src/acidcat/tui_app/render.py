@@ -1,17 +1,22 @@
 """acidcat TUI -- byte/field rendering helpers and metadata edit profiles.
 
 Pure helpers shared by the TUI screens and the app: hex rendering (hex_text,
-_hex_rows), a fuzzy matcher (_fuzzy), bounded file reads (_read), and the
-per-format metadata edit profiles (edit_profile, text_field_for) the edit form
-is built from -- plus the view/scan/undo cap constants. No Textual app state.
+context_hex, _hex_rows), a fuzzy matcher (_fuzzy), bounded file reads (_read),
+and the view/scan/undo cap constants. The metadata edit profiles the edit form
+is built from are re-exported from core (acidcat.core.write.profiles). No
+Textual app state.
 """
 
-import os
 import re
+import textwrap
 
+from rich.cells import cell_len
 from rich.text import Text
 
-from acidcat.tui_theme import DIM, FG, GUTTER, PALETTE
+# the metadata edit profiles live in core (acidcat.core.write.profiles); these
+# names stay importable from here and from acidcat.tui_app
+from acidcat.core.write.profiles import edit_profile, text_field_for  # noqa: F401
+from acidcat.tui_theme import DIM, FG, GUTTER, PALETTE, SOFT
 
 
 _SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # braille scan spinner
@@ -109,6 +114,251 @@ def hex_text(path, off, length, accent, spans=None, width=16, start=0):
     return t
 
 
+def byte_strip(nodes, length, width, selection=None):
+    """The whole layer as one row: each cell is `length / width` bytes, drawn
+    as the node that holds them.
+
+    `nodes` are the layer's top-level Document nodes (with `extent`, and
+    `payload` where the node has a header). A node's header bytes are drawn as
+    header, not as its payload, and the cell where a node starts always shows
+    that node's header, so a small chunk between big ones is never swallowed.
+    Bytes no walker described (`kind: unwalked`) are a gap. Cells that hold
+    selected bytes are lit. Exactly `width` cells, no newline.
+    """
+    t = Text(no_wrap=True, overflow="crop")
+    if width <= 0:
+        return t
+    if not length:
+        t.append("·" * width, style=GUTTER)
+        return t
+    spans = []                      # (off, end, kind, color)
+    ci = 0
+    for n in nodes:
+        e = n.get("extent")
+        if not e:
+            continue
+        if n.get("kind") == "unwalked":
+            spans.append((e["off"], e["off"] + e["len"], "gap", GUTTER))
+            continue
+        color = PALETTE[ci % len(PALETTE)]
+        ci += 1
+        p = n.get("payload") or e
+        head_end = min(max(p["off"], e["off"]), e["off"] + e["len"])
+        if head_end > e["off"]:
+            spans.append((e["off"], head_end, "head", color))
+        spans.append((head_end, e["off"] + e["len"], "body", color))
+    spans.sort()
+    lo, hi = ((selection[0], selection[0] + max(selection[1], 1))
+              if selection and selection[0] is not None else (None, None))
+    for c in range(width):
+        a = c * length // width
+        b = max(a + 1, (c + 1) * length // width)
+        here = [sp for sp in spans if sp[0] < b and sp[1] > a]
+        # a header that starts in this cell wins it; else what covers the
+        # cell's middle; else a gap
+        starts = [sp for sp in here if sp[2] == "head" and a <= sp[0] < b]
+        mid = (a + b) // 2
+        cover = [sp for sp in here if sp[0] <= mid < sp[1]] or here
+        sp = starts[0] if starts else (cover[0] if cover else None)
+        kind, color = (sp[2], sp[3]) if sp else ("gap", GUTTER)
+        glyph = {"head": "▌", "body": "█", "gap": "·"}[kind]
+        lit = lo is not None and lo < b and a < hi
+        style = color + (f" on {FG}" if lit else "")
+        if lit and kind == "body":
+            glyph = "▓"
+        t.append(glyph, style=style)
+    return t
+
+
+def pack(pieces, width, sep="  "):
+    """Lay whole phrases out in lines of `width` cells: each piece (a Text) is
+    kept on one line, and moves to the next line whole when it does not fit
+    beside the others, so "2 chunks" never reads "2 / chunks". Only a piece
+    wider than a whole line is broken, at its spaces, with the rest indented
+    under it. A None or empty piece is skipped. No trailing newline."""
+    out = Text()
+    col = 0
+    for piece in pieces:
+        if piece is None or not piece.plain:
+            continue
+        n = piece.cell_len
+        if col and col + len(sep) + n <= width:
+            out.append(sep)
+            col += len(sep)
+        elif col:
+            out.append("\n")
+            col = 0
+        if n <= width or width <= 4:
+            out.append_text(piece)
+            col += n
+            continue
+        # wider than a line: break at spaces, keeping the piece's style
+        style = piece.spans[0].style if piece.spans else piece.style
+        lines = textwrap.wrap(piece.plain, width - 2) or [piece.plain]
+        for i, ln in enumerate(lines):
+            if i:
+                out.append("\n  ")
+            out.append(ln, style=style)
+        col = cell_len(lines[-1]) + (2 if len(lines) > 1 else 0)
+    return out
+
+
+def field_inspector(d, width=None):
+    """The selected node, said in full: at most six lines, each cut to
+    `width` with an ellipsis rather than wrapped, so the pane never changes
+    height. The first bytes are budgeted to the width, whole bytes only, so
+    a narrow pane shows fewer of them rather than half of one.
+
+    `d` is plain facts the app gathered: name, accent, kind (field, chunk or
+    root), off, len, raw (the first bytes), type and type_source, value,
+    display, meaning (an enum's label), note, ptr ((target, in_file) or None),
+    summary, payload ((off, len) or None), caps (strings), findings (count),
+    hint (how it can be edited)."""
+    lines = []
+
+    def line():
+        t = Text(no_wrap=True, overflow="ellipsis")
+        lines.append(t)
+        return t
+
+    t = line()
+    t.append(str(d.get("name", "")), style=f"bold {d.get('accent') or FG}")
+    if d.get("type"):
+        t.append(f"   {d['type']}", style=SOFT)
+        if d.get("type_source") and d["type_source"] != "none":
+            t.append(f" ({d['type_source']})", style=DIM)
+    elif d.get("kind") in ("chunk", "root"):
+        t.append(f"   {d['kind']}", style=DIM)
+
+    t = line()
+    if d.get("off") is None:
+        t.append(d.get("where") or "no byte range: derived from other fields",
+                 style=DIM)
+    else:
+        t.append("@ ", style=DIM)
+        t.append(f"0x{d['off']:08x}", style=FG)
+        t.append(f"   {d.get('len', 0):,} bytes", style=SOFT)
+        tail = ""
+        if d.get("payload") and d["payload"] != (d.get("off"), d.get("len")):
+            po, pl = d["payload"]
+            tail = f"   payload 0x{po:08x}+{pl:,}"
+        raw = d.get("raw") or b""
+        if raw:
+            n = 16
+            if width:
+                # "   xx xx .. xx" is 3n+2 cells, " …" 2 more when cut short
+                n = min(n, max(0, (width - t.cell_len - len(tail) - 4) // 3))
+            shown = raw[:n]
+            if shown:
+                t.append("   " + shown.hex(" "), style=FG)
+                if d.get("len", 0) > len(shown):
+                    t.append(" …", style=DIM)
+        if tail:
+            t.append(tail, style=DIM)
+
+    if d.get("kind") == "field":
+        t = line()
+        t.append("value   ", style=DIM)
+        t.append(str(d.get("value")), style=f"bold {FG}")
+        disp = d.get("display")
+        if disp not in (None, "") and str(disp) != str(d.get("value")):
+            t.append(f"   {disp}", style=SOFT)
+        if d.get("meaning"):
+            t = line()
+            t.append("meaning ", style=DIM)
+            t.append(str(d["meaning"]), style=SOFT)
+    elif d.get("summary"):
+        t = line()
+        t.append(str(d["summary"]), style=SOFT)
+    if d.get("note"):
+        t = line()
+        t.append("note    ", style=DIM)
+        t.append(str(d["note"]), style=SOFT)
+    if d.get("ptr") is not None:
+        target, ok = d["ptr"]
+        t = line()
+        t.append("points  ", style=DIM)
+        t.append(f"0x{target:08x}", style=FG if ok else PALETTE[-1])
+        t.append("   enter follows" if ok else "   DANGLING: outside the file",
+                 style=SOFT if ok else f"bold {PALETTE[-1]}")
+    if d.get("caps"):
+        t = line()
+        t.append("offers  ", style=DIM)
+        t.append("   ".join(d["caps"]), style=PALETTE[0])
+    if d.get("findings"):
+        t = line()
+        n = d["findings"]
+        t.append(f"{n} finding{'s' if n != 1 else ''} here", style=PALETTE[-2])
+    if d.get("hint"):
+        t = line()
+        t.append(str(d["hint"]), style=DIM)
+    out = Text(no_wrap=True, overflow="ellipsis")
+    for i, ln in enumerate(lines[:6]):
+        if i:
+            out.append("\n")
+        if width and ln.cell_len > width:
+            ln.truncate(width, overflow="ellipsis")
+        out.append_text(ln)
+    return out
+
+
+# the data inspector's rows: all of them, and the four it shows by default
+_DATA_ROWS = (("u8", "<B", ">B"), ("i8", "<b", ">b"), ("u16", "<H", ">H"),
+              ("i16", "<h", ">h"), ("u32", "<I", ">I"), ("i32", "<i", ">i"),
+              ("u64", "<Q", ">Q"), ("i64", "<q", ">q"), ("f32", "<f", ">f"),
+              ("f64", "<d", ">d"))
+_DATA_COMPACT = ("u16", "u32", "i32", "f32")
+
+
+def data_inspector(off, raw, width=40, full=True):
+    """The bytes at the cursor read the common ways, little-endian beside
+    big-endian, with the ASCII and the bits of the first byte: u16, u32, i32
+    and f32, or with `full` u8 to u64, i8 to i64 and f32/f64. `raw` is up to 8
+    bytes at `off`; a reading the bytes run out for is left blank rather than
+    padded into a wrong number. Both sides of a row are written the same way:
+    in decimal, or in hex when either is too wide for its column."""
+    import struct
+    t = Text(no_wrap=True, overflow="ellipsis")
+    col = (width - 4) // 2
+
+    def fit(text, room):
+        # a number too long for its column says so: a silently shortened
+        # number reads as a different one
+        if len(text) > room:
+            text = text[:room - 1] + "…"
+        return text.ljust(room)
+
+    if off is None or not raw:
+        t.append("  no bytes under the cursor", style=DIM)
+        return t
+    head = raw[:8]
+    t.append(f"{off:08x}", style=FG)
+    t.append("  ")
+    t.append("".join(chr(b) if 32 <= b < 127 else "." for b in head), style=SOFT)
+    t.append("  ")
+    t.append(f"{head[0]:08b}", style=DIM)
+    t.append("\n")
+    t.append("    " + "little".ljust(col) + "big", style=DIM)
+    rows = [r for r in _DATA_ROWS if full or r[0] in _DATA_COMPACT]
+    for name, le, be in rows:
+        n = struct.calcsize(le)
+        t.append("\n")
+        t.append(name.ljust(4), style=GUTTER)
+        if len(raw) < n:
+            continue
+        vals = [struct.unpack(fmt, bytes(raw[:n]))[0] for fmt in (le, be)]
+        if isinstance(vals[0], float):
+            texts = [f"{v:.6g}" for v in vals]
+        else:
+            texts = [str(v) for v in vals]
+            if any(len(x) > col - 1 for x in texts):
+                mask = (1 << (8 * n)) - 1
+                texts = [f"0x{v & mask:x}" for v in vals]
+        t.append(fit(texts[0], col - 1) + " ", style=FG)
+        t.append(fit(texts[1], col), style=FG)
+    return t
+
+
 def _spans_cmap(base_off, spans, limit):
     """Map each shown byte position (relative to base_off) to a per-field color,
     cycling the palette across the fields."""
@@ -150,78 +400,66 @@ def _hex_rows(t, off, raw, byte_style, cmap=None, width=16):
         t.append("\n")
 
 
-# editable-field profiles, mirroring what the write engine accepts per format.
-# (field, label) -- field is the --set name commands.write understands.
-_WAV_FIELDS = [("title", "title"), ("artist", "artist"), ("album", "album"),
-               ("genre", "genre"), ("comment", "comment"), ("date", "date"),
-               ("bpm", "bpm"), ("key", "key"),
-               ("root_note", "root note (C3 or 60)")]
-_AIFF_FIELDS = [("title", "title"), ("artist", "artist"), ("comment", "comment")]
-_TAGGED_FIELDS = [("title", "title"), ("artist", "artist"), ("album", "album"),
-                  ("genre", "genre"), ("comment", "comment"), ("date", "date"),
-                  ("bpm", "bpm"), ("key", "key")]
-_VITAL_FIELDS = [("name", "preset name"), ("author", "author"),
-                 ("comment", "comments")]
+def context_hex(start, raw, width, selection, spans, accent):
+    """The bytes pane: `raw` (the window of the layer that starts at `start`)
+    as hex rows, with the selected bytes lit inside their surroundings.
 
+    `selection` is (offset, length) in the same layer, or None. The selected
+    bytes are drawn on a lit background; within them each field of `spans`
+    takes its own palette color, the rest the node's `accent`. Everything
+    outside the selection is context: readable, and quieter than what you
+    picked. The last row carries no newline, so the pane holds exactly as many
+    rows as it was given and never grows a scrollbar that would narrow it.
+    """
+    t = Text()
+    lo, hi = ((selection[0], selection[0] + max(selection[1], 1))
+              if selection and selection[0] is not None else (None, None))
+    tint = {}
+    for i, (ao, ln) in enumerate(spans or ()):
+        color = PALETTE[i % len(PALETTE)]
+        for p in range(max(ao, start), min(ao + ln, start + len(raw))):
+            tint[p] = color
+    lit = f"on {GUTTER}"
 
-def edit_profile(path):
-    """Return (profile_name, [(field, label), ...]) for the file's format, or
-    None where the write engine has no editor (or editing is disabled, e.g.
-    Bitwig/NI). Routing mirrors commands.write._edit so the form only offers
-    fields a save can actually apply."""
-    ext = os.path.splitext(path)[1].lower()
-    with open(path, "rb") as f:
-        head = f.read(16)
-    if ext == ".vital" or head[:1] == b"{":
-        return ("Vital", _VITAL_FIELDS)
-    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
-        return ("WAV", _WAV_FIELDS)
-    # Bitwig / NI preset writing is disabled in the engine; do not offer it.
-    if (head[:4] == b"BtWg" or head[12:16] == b"hsin" or head[:4] == b"-in-"
-            or (head[:4] == b"RIFF" and head[8:12] == b"NIKS")):
-        return None
-    if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
-        return ("AIFF", _AIFF_FIELDS)
-    tagged = (head[:4] == b"fLaC" or head[:3] == b"ID3" or head[:4] == b"OggS"
-              or head[4:8] == b"ftyp"
-              or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
-    if tagged:
-        return ("tagged", _TAGGED_FIELDS)
-    return None
+    def style(pos, b):
+        if lo is not None and lo <= pos < hi:
+            return f"bold {tint.get(pos, accent)} {lit}"
+        return DIM if b == 0 else SOFT
 
-
-
-
-# tagged-audio text fields the write engine (mutagen) can set, keyed by the
-# walker's field name: ID3 frame ids (mp3) and Vorbis comment keys (flac/ogg).
-_ID3_TEXT = {"TIT2": "title", "TPE1": "artist", "TALB": "album", "TCON": "genre",
-             "COMM": "comment", "TDRC": "date", "TYER": "date", "TBPM": "bpm",
-             "TKEY": "key", "TRCK": "track"}
-_VORBIS_TEXT = {"TITLE": "title", "ARTIST": "artist", "ALBUM": "album",
-                "GENRE": "genre", "COMMENT": "comment", "DESCRIPTION": "comment",
-                "DATE": "date", "BPM": "bpm", "KEY": "key", "INITIALKEY": "key",
-                "TRACKNUMBER": "track"}
-
-
-def text_field_for(profile, field_name):
-    """If `field_name` (a walker field name) is a variable-length text field the
-    write engine can edit, return the engine field name to route it through;
-    else None. These must NOT be same-length byte-patched -- a longer title
-    shifts the file -- so the editor re-serializes via the metadata engine."""
-    if profile == "WAV":
-        from acidcat.core.write.edit_riff import _INFO_TAGS
-        rev = {v.decode("latin1").strip(): k for k, v in _INFO_TAGS.items()}
-        return rev.get(field_name)
-    if profile == "AIFF":
-        from acidcat.core.write.edit_aiff import _AIFF_TEXT
-        rev = {v.decode("latin1").strip(): k for k, v in _AIFF_TEXT.items()}
-        return rev.get(field_name)
-    if profile == "tagged":
-        n = field_name.strip()
-        return _ID3_TEXT.get(n) or _VORBIS_TEXT.get(n.upper())
-    return None
-
-
+    rows = [raw[r:r + width] for r in range(0, len(raw), width)]
+    for n, chunk in enumerate(rows):
+        off = start + n * width
+        mark = lo is not None and off < hi and lo < off + width
+        t.append(f"{off:08x}", style=accent if mark else GUTTER)
+        t.append("  ")
+        for i in range(width):
+            if i < len(chunk):
+                st = style(off + i, chunk[i])
+                t.append(f"{chunk[i]:02x}", style=st)
+                # the gap after a lit byte stays lit when the next is too, so
+                # a selection reads as one bar rather than a row of islands
+                nxt = off + i + 1
+                join = (lo is not None and lo <= off + i < hi and nxt < hi
+                        and i + 1 < len(chunk))
+                t.append(" ", style=lit if join else "")
+            else:
+                t.append("   ")
+            if width > 8 and i == (width // 2) - 1:
+                t.append(" ")
+        t.append(" ")
+        for i, b in enumerate(chunk):
+            printable = 32 <= b < 127
+            pos = off + i
+            if lo is not None and lo <= pos < hi:
+                st = style(pos, b)
+            else:
+                st = SOFT if printable else DIM
+            t.append(chr(b) if printable else ".", style=st)
+        if n < len(rows) - 1:
+            t.append("\n")
+    if not rows:
+        t.append("  (this layer is empty)", style=DIM)
+    return t
 
 
 _SIZE_ECHO = re.compile(r",?\s*\b[\d,]+ bytes\b")

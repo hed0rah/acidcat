@@ -28,7 +28,6 @@ class _PlayProbe:
     _chunk_name_at = AcidcatTUI._chunk_name_at
     action_play = AcidcatTUI.action_play
     _decodable = AcidcatTUI._decodable
-    _DECODABLE = AcidcatTUI._DECODABLE
     # Play acts on the PAYLOAD now, which it asks the selected node for and
     # falls back to _cur_region when there is no node. These tests drive it at
     # the _cur_region level, so the fallback is the path under test -- borrow
@@ -37,9 +36,8 @@ class _PlayProbe:
     _info = AcidcatTUI._info
     _cur_node = None
     # Play asks whether the SELECTED BYTES decode before it reinterprets them
-    # as PCM. These tests are about the reinterpreting path, so the probe says
-    # no -- exercising the guard rather than the decoder.
-    _decodable_at = staticmethod(lambda *a, **kw: None)
+    # as PCM; the probe's work path does not exist, so they read as nothing
+    # and never decode -- exercising the guard rather than the decoder.
     _play_temp = staticmethod(lambda *a, **kw: None)
 
     # Default to a format the player CANNOT decode. These tests are about the
@@ -48,9 +46,15 @@ class _PlayProbe:
     # which produces music rather than the loud noise the guard exists to
     # prevent. See test_a_decodable_format_is_played_not_reinterpreted.
     def __init__(self, chunks, fmt="Serum preset", region=(0, 4096)):
+        from acidcat.core.infra import capabilities
+        from acidcat.tui_app.model import DocumentModel
         self.chunks = chunks
         self.fmt = fmt
         self.work = "unused-by-these-tests"
+        # 2.0: play decides by the file's caps, which the model holds; the
+        # same caps the app's model computes from the walk
+        self.model = DocumentModel()
+        self.model.chunk_caps = capabilities.caps(None, fmt, chunks)
         self._cur_region = (region[0], region[1], None)
         self.pushed = []
         self.played = []

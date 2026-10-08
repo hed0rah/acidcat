@@ -134,7 +134,7 @@ def run(args):
     try:
         return _run(args)
     except SchemaVersionError as e:
-        print(f"acidcat index: {e}", file=sys.stderr)
+        print(f"acidcat lib: {e}", file=sys.stderr)
         return 2
 
 
@@ -157,14 +157,14 @@ def _run(args):
     active_mgmt = [name for name, v in mgmt_flag_set.items() if v]
     if args.target and active_mgmt:
         print(
-            f"acidcat index: cannot combine {active_mgmt[0]} with a "
+            f"acidcat lib: cannot combine {active_mgmt[0]} with a "
             f"target directory. Drop the target or remove the flag.",
             file=sys.stderr,
         )
         return 2
     if len(active_mgmt) > 1:
         print(
-            f"acidcat index: cannot combine {active_mgmt[0]} and "
+            f"acidcat lib: cannot combine {active_mgmt[0]} and "
             f"{active_mgmt[1]}; pick one.",
             file=sys.stderr,
         )
@@ -202,19 +202,31 @@ def _run(args):
 
     # main index mode requires a target dir
     if not args.target:
-        print("acidcat index: missing target directory (or use "
+        print("acidcat lib: missing target directory (or use "
               "--list/--orphans/--stats/--forget/--remove)", file=sys.stderr)
         return 2
 
     target = args.target
     if not os.path.isdir(target):
-        print(f"acidcat index: {target}: Not a directory", file=sys.stderr)
+        print(f"acidcat lib: {target}: Not a directory", file=sys.stderr)
         return 2
 
     _warn_legacy_db(args)
 
     scan_root = acidpaths.normalize(target)
-    label = args.label or os.path.basename(scan_root) or "library"
+    label = args.label
+    if not label:
+        # a re-index without --label keeps the name the library has: falling
+        # back to the folder name renamed it, and `lib stats OLDNAME` then
+        # found nothing
+        rconn = reg.open_registry(registry_path)
+        try:
+            known = reg.get_library(rconn, scan_root)
+        finally:
+            rconn.close()
+        if known is not None and known["root_path"] == scan_root:
+            label = known["label"]
+    label = label or os.path.basename(scan_root) or "library"
     in_tree = bool(args.in_tree)
     db_path = (
         acidpaths.in_tree_db_path_for(scan_root) if in_tree
@@ -234,7 +246,7 @@ def _run(args):
                 in_tree=in_tree, schema_version=idx.SCHEMA_VERSION,
             )
         except reg.OverlapError as e:
-            print(f"acidcat index: {e}", file=sys.stderr)
+            print(f"acidcat lib: {e}", file=sys.stderr)
             return 1
     finally:
         rconn.close()
@@ -247,7 +259,7 @@ def _run(args):
                 if os.path.isfile(sidecar):
                     os.remove(sidecar)
         except OSError as e:
-            print(f"acidcat index: --rebuild could not remove {db_path}: {e}",
+            print(f"acidcat lib: --rebuild could not remove {db_path}: {e}",
                   file=sys.stderr)
             return 2
         _vlog(args, f"[index] removed existing DB at {db_path}")
@@ -350,7 +362,7 @@ def _cmd_stats(target, registry_path):
     try:
         row = reg.get_library(rconn, target)
         if row is None:
-            print(f"acidcat index: no library matches '{target}'", file=sys.stderr)
+            print(f"acidcat lib: no library matches '{target}'", file=sys.stderr)
             return 1
     finally:
         rconn.close()
@@ -389,7 +401,7 @@ def _cmd_forget(target, registry_path, quiet=False):
     finally:
         rconn.close()
     if n == 0:
-        print(f"acidcat index: no library matches '{target}'", file=sys.stderr)
+        print(f"acidcat lib: no library matches '{target}'", file=sys.stderr)
         return 1
     if not quiet:
         print(f"[INFO] forgot library '{target}' "
@@ -402,7 +414,7 @@ def _cmd_remove(target, registry_path, quiet=False):
     try:
         row = reg.get_library(rconn, target)
         if row is None:
-            print(f"acidcat index: no library matches '{target}'",
+            print(f"acidcat lib: no library matches '{target}'",
                   file=sys.stderr)
             return 1
         db_path = row["db_path"]
@@ -436,7 +448,7 @@ def _cmd_refresh_stats(target, registry_path, quiet=False):
         if target:
             row = reg.get_library(rconn, target)
             if row is None:
-                print(f"acidcat index: no library matches '{target}'",
+                print(f"acidcat lib: no library matches '{target}'",
                       file=sys.stderr)
                 return 1
             libs = [row]
@@ -506,11 +518,11 @@ def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
                    dry_run, do_features, do_deep, quiet, verbose):
     """Walk `root`, register every qualifying subdir as its own library."""
     if not os.path.isdir(root):
-        print(f"acidcat index: --discover ROOT must be a directory: {root}",
+        print(f"acidcat lib: --discover ROOT must be a directory: {root}",
               file=sys.stderr)
         return 1
     if _refuses_as_root(root):
-        print(f"acidcat index: refusing to --discover at {root!r}; pick a "
+        print(f"acidcat lib: refusing to --discover at {root!r}; pick a "
               f"more specific samples directory.", file=sys.stderr)
         return 1
 

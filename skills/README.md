@@ -5,9 +5,11 @@ your skills directory:
 
     cp -r skills/acidcat ~/.claude/skills/
 
-It teaches Claude when and how to use acidcat: inspecting/editing/searching audio
-and synth-preset metadata, building the HTML byte-explorer, clip-to-MIDI convert,
-driving the TUI, and the MCP server (stdio + streamable HTTP).
+It teaches Claude when and how to use acidcat 2.0: the seventeen verbs, the
+ADDR grammar every verb shares, the contract v1 Document `inspect --json`
+writes, verified edits and structural checks, recovery from blobs, the HTML
+byte explorer, clip-to-MIDI convert, driving the TUI, and the MCP server
+(stdio + streamable HTTP).
 
 Install it alongside the MCP server rather than instead of it. The server's tool
 descriptions cover each call on its own; the skill covers the parts that only

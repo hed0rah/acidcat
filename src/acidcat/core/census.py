@@ -24,6 +24,7 @@ set of named flags (RIFX, BW64, Wave64, ID3-in-WAV, Pro Tools / ADM chunks, ...)
 """
 
 import os
+import stat
 import struct
 import sys
 import threading
@@ -109,6 +110,23 @@ def _autofs_mountpoints():
     return skip
 
 
+
+def _keep(lst, path, cap):
+    """Add `path` to the sorted example list, keeping the `cap` smallest. The
+    examples are then the same whatever order the files were read in: the
+    first N seen depended on which worker thread got which file."""
+    import bisect
+    if path in lst or (len(lst) >= cap and path >= lst[-1]):
+        return
+    bisect.insort(lst, path)
+    del lst[cap:]
+
+
+def _by_count(d):
+    """A count table, largest first and ties by key, so a rerun prints the
+    same order (ties kept the dict's insertion order, which is the schedule)."""
+    return sorted(d.items(), key=lambda kv: (-kv[1], str(kv[0])))
+
 class ScanOptions:
     __slots__ = ("follow_symlinks", "one_file_system", "fadvise", "noatime")
 
@@ -120,11 +138,13 @@ class ScanOptions:
         self.noatime = noatime
 
 
-def walk_tree(roots, opts, exts=_EXTS):
+def walk_tree(roots, opts, exts=_EXTS, skipped=None):
     """Yield the path of every regular file under ``roots`` whose extension is in
     ``exts``. Explicit-stack scandir (no recursion limit), loop-safe, boundary-
     aware, and free of any per-file stat: the extension test is a string op on
-    the dirent name and the directory/regular test uses the cached ``d_type``."""
+    the dirent name and the directory/regular test uses the cached ``d_type``.
+    ``skipped``, a one-item list, counts the regular files passed over for
+    their extension, so a caller can say what it did not read."""
     autofs = _autofs_mountpoints() if os.name == "posix" else frozenset()
     visited = set()                                    # (st_dev, st_ino) of dirs entered
     follow = opts.follow_symlinks
@@ -133,6 +153,9 @@ def walk_tree(roots, opts, exts=_EXTS):
         try:
             rst = os.stat(root)
         except OSError:
+            continue
+        if stat.S_ISREG(rst.st_mode):
+            yield os.fspath(root)      # named directly: read whatever its extension
             continue
         root_dev = rst.st_dev
         ident = (rst.st_dev, rst.st_ino)
@@ -157,6 +180,9 @@ def walk_tree(roots, opts, exts=_EXTS):
                         name = entry.name
                         dot = name.rfind(".")
                         if dot < 0 or name[dot:].casefold() not in exts:
+                            if skipped is not None and entry.is_file(
+                                    follow_symlinks=follow):
+                                skipped[0] += 1
                             continue
                         if entry.is_file(follow_symlinks=follow):
                             yield entry.path
@@ -195,7 +221,21 @@ class Census:
     """Accumulates the census. One instance per worker thread (each thread only
     touches its own), merged at the end -- so the hot path takes no lock."""
 
-    def __init__(self):
+    def __init__(self, has=None, examples=CHUNK_EXAMPLES):
+        # --has: count only files holding every one of these ids (compared
+        # case-blind and without the pad space); `filtered_out` counts the
+        # files opened and passed over for not holding them
+        self.has = frozenset(h.strip().casefold() for h in has) if has else None
+        self.examples = examples
+        self.filtered_out = 0
+        # files that hold each id (at least once), beside chunk_counts, which
+        # counts every occurrence: the two differ as soon as a file repeats an
+        # id (two LISTs, two DISPs), and a report has to say which it is
+        self.chunk_files = {}
+        # IFF-family files whose header read and whose walk found no chunk:
+        # for a specimen hunter that is the find, not an absence, and a run
+        # over nothing else must not read as a clean one
+        self.unparseable = 0
         self.files = 0
         self.riff_files = 0
         self.errors = 0
@@ -225,38 +265,51 @@ class Census:
         as the number of files, so a flag hit 900 times displayed as "25". The
         count and the examples are different facts and are kept apart now.
         """
-        lst = self.flags.setdefault(name, [])
-        if len(lst) < cap:
-            lst.append(json_safe_path(path))
+        _keep(self.flags.setdefault(name, []), json_safe_path(path), cap)
         self.flag_counts[name] = self.flag_counts.get(name, 0) + 1
 
     def merge(self, other):
         self.files += other.files
         self.riff_files += other.riff_files
         self.errors += other.errors
+        self.filtered_out += other.filtered_out
+        self.unparseable += other.unparseable
         self.truncated = self.truncated or other.truncated
         self.limit = self.limit if self.limit is not None else other.limit
-        for attr in ("by_container", "chunk_counts", "fmt_tags", "list_types",
-                     "fact_sizes", "bext_versions", "flag_counts"):
+        for attr in ("by_container", "chunk_counts", "chunk_files", "fmt_tags",
+                     "list_types", "fact_sizes", "bext_versions", "flag_counts"):
             dst, src = getattr(self, attr), getattr(other, attr)
             for k, v in src.items():
                 dst[k] = dst.get(k, 0) + v
-        merged = dict(other.chunk_first)
-        for c, paths in self.chunk_first.items():
-            merged[c] = (merged.get(c, []) + paths)[:CHUNK_EXAMPLES]
-        self.chunk_first = merged
+        for c, paths in other.chunk_first.items():
+            got = self.chunk_first.setdefault(c, [])
+            for p in paths:
+                _keep(got, p, self.examples)
         for k, v in other.fmt_tag_example.items():
-            self.fmt_tag_example.setdefault(k, v)
+            mine = self.fmt_tag_example.get(k)
+            self.fmt_tag_example[k] = v if mine is None else min(mine, v)
         for name, paths in other.flags.items():
             lst = self.flags.setdefault(name, [])
             for p in paths:
-                if len(lst) >= 25:
-                    break
-                lst.append(p)
+                _keep(lst, p, 25)
 
     def census_file(self, path, fadvise=True, noatime=False):
         """Dissect one file into this accumulator. Positioned reads of chunk
-        headers only; degrades on any malformed/short file, never raises."""
+        headers only; degrades on any malformed/short file, never raises.
+        With `has`, the file is read into a scratch accumulator first and
+        counted only when it holds every id asked for."""
+        if self.has is not None:
+            one = Census(examples=self.examples)
+            one.census_file(path, fadvise, noatime)
+            held = {c.strip().casefold() for c in one.chunk_counts}
+            if self.has <= held:
+                self.merge(one)
+            else:
+                self.files += one.files
+                self.errors += one.errors
+                self.filtered_out += 1
+                self.unparseable += one.unparseable
+            return
         self.files += 1
         # O_BINARY is mandatory on Windows and a no-op everywhere else. Without
         # it os.open gives a TEXT-mode descriptor, and os.read stops dead at the
@@ -343,6 +396,7 @@ class Census:
         fsize = os.fstat(fd).st_size
         pos, n = 12, 0
         ds64_data = None                              # RF64/BW64 real data size
+        seen = set()                                  # ids this file holds
         while pos + 8 <= fsize and n < _MAX_CHUNKS:
             hdr = _pread(fd, 8, pos)
             if len(hdr) < 8:
@@ -355,13 +409,15 @@ class Census:
             n += 1
             fourcc = _safe_fourcc(cid)
             self._bump(self.chunk_counts, fourcc)
+            if fourcc not in seen:
+                seen.add(fourcc)
+                self._bump(self.chunk_files, fourcc)
             # A few example paths per id rather than one. One path finds a
             # specimen; a handful lets a reader compare specimens, which is
             # what measuring an undocumented chunk actually needs, and it
             # turned every chunk investigation into a fresh corpus walk.
-            got = self.chunk_first.setdefault(fourcc, [])
-            if len(got) < CHUNK_EXAMPLES and (not got or got[-1] != path):
-                got.append(json_safe_path(path))
+            _keep(self.chunk_first.setdefault(fourcc, []), json_safe_path(path),
+                  self.examples)
 
             if cid == b"ds64":
                 # RF64/BW64 carry the real 64-bit data size here (dataSize is a
@@ -373,7 +429,9 @@ class Census:
                 tag = self._peek_u16(fd, pos + 8, u16)
                 if tag is not None:
                     self._bump(self.fmt_tags, tag)
-                    self.fmt_tag_example.setdefault(tag, json_safe_path(path))
+                    prev = self.fmt_tag_example.get(tag)
+                    here = json_safe_path(path)
+                    self.fmt_tag_example[tag] = here if prev is None else min(prev, here)
                     if tag == 0x0039:
                         self._flag("fmt_tag_0x0039", path)
                     elif 0x0101 <= tag <= 0x0103:
@@ -428,6 +486,8 @@ class Census:
             if step <= 8 or real == 0xFFFFFFFF:
                 break                                  # garbage/sentinel size: stop cleanly
             pos += step
+        if not seen:
+            self.unparseable += 1
 
     def _peek_u16(self, fd, off, fmt):
         try:
@@ -437,7 +497,7 @@ class Census:
             return None
 
     def result(self, top=None):
-        chunks = sorted(self.chunk_counts.items(), key=lambda kv: -kv[1])
+        chunks = _by_count(self.chunk_counts)
         rare = [[c, n, (self.chunk_first.get(c) or [""])[0]]
                 for c, n in chunks if n <= 5]
         hist = chunks[:top] if top else chunks
@@ -449,10 +509,14 @@ class Census:
             "riff_family_files": self.riff_files,
             "iff_family_files": self.riff_files,
             "errors": self.errors,
+            "unparseable": self.unparseable,
             "distinct_chunks": len(self.chunk_counts),
-            "containers": dict(sorted(self.by_container.items(),
-                                      key=lambda kv: -kv[1])),
-            "chunk_histogram": {c: n for c, n in hist},
+            "containers": dict(_by_count(self.by_container)),
+            # labelled: `files` holding the id, and every `occurrences` of it.
+            # They differ whenever a file repeats an id, and a bare number
+            # left a reader to guess which it was.
+            "chunk_histogram": {c: {"files": self.chunk_files.get(c, 0),
+                                    "occurrences": n} for c, n in hist},
             # One example path per chunk id. The census already recorded these
             # and then dropped them at output time, so every id in the
             # histogram was a count with no way to go and look at one. Finding
@@ -463,15 +527,14 @@ class Census:
             # Scoped to the histogram, so `--top` bounds this the same way.
             "chunk_examples": {c: self.chunk_first.get(c, []) for c, _n in hist},
             "rare_chunks": rare,
-            "format_tags": {"0x%04x" % t: n for t, n in
-                            sorted(self.fmt_tags.items(), key=lambda kv: -kv[1])},
-            "format_tag_examples": {"0x%04x" % t: p
-                                    for t, p in self.fmt_tag_example.items()},
-            "list_types": self.list_types,
-            "fact_sizes": {str(k): v for k, v in self.fact_sizes.items()},
-            "bext_versions": {str(k): v for k, v in self.bext_versions.items()},
-            "flags": self.flags,
-            "flag_counts": self.flag_counts,
+            "format_tags": {"0x%04x" % t: n for t, n in _by_count(self.fmt_tags)},
+            "format_tag_examples": {"0x%04x" % t: p for t, p in
+                                    sorted(self.fmt_tag_example.items())},
+            "list_types": dict(_by_count(self.list_types)),
+            "fact_sizes": {str(k): v for k, v in _by_count(self.fact_sizes)},
+            "bext_versions": {str(k): v for k, v in _by_count(self.bext_versions)},
+            "flags": dict(sorted(self.flags.items())),
+            "flag_counts": dict(sorted(self.flag_counts.items())),
             # A truncated census makes the same claims as a complete one. The
             # table disclosed "20 files opened" but --json had no limit or
             # truncation field at all, so a consumer could not tell a prefix
@@ -480,6 +543,8 @@ class Census:
             # and is the 4th most common in the tree.
             "truncated": bool(self.truncated),
             "limit": self.limit,
+            "has": sorted(self.has) if self.has else None,
+            "filtered_out": self.filtered_out,
         }
 
 
@@ -510,7 +575,7 @@ def default_workers(root, io_hint="auto"):
 
 
 def run_census(roots, opts=None, jobs="auto", io_hint="auto", limit=None,
-               progress=None):
+               progress=None, has=None, examples=CHUNK_EXAMPLES, skipped=None):
     """Walk ``roots`` and return a merged Census. Single-threaded when ``jobs``
     is 1 (or a spinning disk is detected); otherwise a fixed worker pool reads
     files off a bounded queue while the main thread walks the tree, each worker
@@ -527,8 +592,8 @@ def run_census(roots, opts=None, jobs="auto", io_hint="auto", limit=None,
     gc.disable()                                       # bulk ingest: no cycles to collect
     try:
         if jobs == 1:
-            cx = Census()
-            for path in walk_tree(roots, opts):
+            cx = Census(has=has, examples=examples)
+            for path in walk_tree(roots, opts, skipped=skipped):
                 cx.census_file(path, opts.fadvise, opts.noatime)
                 if progress and cx.files % 5000 == 0:
                     progress(cx.files, cx.riff_files, cx.errors)
@@ -543,7 +608,7 @@ def run_census(roots, opts=None, jobs="auto", io_hint="auto", limit=None,
         stop = object()
 
         def worker():
-            local = Census()
+            local = Census(has=has, examples=examples)
             while True:
                 path = q.get()
                 if path is stop:
@@ -559,7 +624,7 @@ def run_census(roots, opts=None, jobs="auto", io_hint="auto", limit=None,
         for t in threads:
             t.start()
         fed = 0
-        for path in walk_tree(roots, opts):
+        for path in walk_tree(roots, opts, skipped=skipped):
             q.put(path)
             fed += 1
             if progress and fed % 5000 == 0:
@@ -572,7 +637,7 @@ def run_census(roots, opts=None, jobs="auto", io_hint="auto", limit=None,
             q.put(stop)
         for t in threads:
             t.join()
-        merged = Census()
+        merged = Census(has=has, examples=examples)
         for local in workers_out:
             merged.merge(local)
         merged.limit = limit

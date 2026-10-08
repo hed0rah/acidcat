@@ -17,10 +17,10 @@ id, a u32 size, the payload, no pad byte observed. The walk degrades on any
 malformed input and never raises.
 """
 
-import os
-from acidcat.core.primitives.notes import coverage
+from acidcat.core.infra.findings import defect, error
+from acidcat.core.infra.limits import hit
 
-from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f
+from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open, _size
 
 _READ_CAP = 8 * 1024 * 1024
 _CHUNK_CAP = 64
@@ -30,12 +30,12 @@ _BITS_OFF = 0x00                                    # fmt field offsets (big-end
 
 def inspect_bfdlac(filepath):
     """Walk a BFD `.bfdlac` file, returning (chunks, file_warnings)."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         b = f.read(min(file_size, _READ_CAP))
     chunks, warns = [], []
     if len(b) < 12 or b[:4] != b"BFDC":
-        return chunks, ["not a BFDC (.bfdlac) file"]
+        return chunks, [defect("magic.mismatch", "not a BFDC (.bfdlac) file")]
 
     outer = _bu32(b, 4)
     hdr = {"id": "BFDC", "offset": 0, "size": 8, "payload_base": 0,
@@ -48,8 +48,9 @@ def inspect_bfdlac(filepath):
     expected = file_size - 8
     if outer != expected:
         hdr["warnings"].append(
-            f"outer_size {outer:,} != file length - 8 ({expected:,}); "
-            f"off by {expected - outer}")
+            defect("count.mismatch",
+                   f"outer_size {outer:,} != file length - 8 ({expected:,}); "
+                   f"off by {expected - outer}"))
     chunks.append(hdr)
 
     fmt = None
@@ -68,7 +69,8 @@ def inspect_bfdlac(filepath):
             chunk, fmt_out = {
                 "id": cid_s, "offset": pos, "size": size, "fields": [],
                 "summary": "unparsed chunk",
-                "warnings": [f"chunk decode error: {e.__class__.__name__}: {e}"]}, fmt
+                "warnings": [error("walker.error",
+                                   f"chunk decode error: {e.__class__.__name__}: {e}")]}, fmt
         fmt = fmt_out
         if avail < size:
             # distinguish a short FILE from a short READ. Comparing against the
@@ -76,25 +78,29 @@ def inspect_bfdlac(filepath):
             # outgrows _READ_CAP -- the same defect rx2 had, where 7 of 347 real
             # files were called corrupt because their audio exceeded the buffer.
             if payload + size <= file_size:
-                chunk.setdefault("warnings", []).append(
+                chunk.setdefault("warnings", []).append(hit(
+                    "read_bytes", _READ_CAP, payload + size,
                     f"chunk declares {size:,} bytes; only {avail:,} were read "
                     f"(the {_READ_CAP // (1024 * 1024)} MB read window, not a "
-                    f"short file)")
+                    f"short file)"))
             else:
-                chunk.setdefault("warnings", []).append(
+                chunk.setdefault("warnings", []).append(defect(
+                    "size.overrun",
                     f"chunk declares {size:,} bytes, only "
-                    f"{max(0, file_size - payload):,} present (truncated)")
+                    f"{max(0, file_size - payload):,} present (truncated)"))
         chunks.append(chunk)
         if cid == b"data":                              # data is the final, huge chunk
             break
         step = 8 + size
         if step <= 8:
-            warns.append(f"chunk at 0x{pos:08x} has size {size}; stopping the walk")
+            warns.append(defect("geometry.invalid",
+                                f"chunk at 0x{pos:08x} has size {size}; stopping the walk"))
             break
         pos += step
 
     if n >= _CHUNK_CAP:
-        warns.append(coverage(f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap"))
+        warns.append(hit("work_steps", _CHUNK_CAP, n,
+                         f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap"))
 
     # enrich the BFDC summary with the audio descriptor
     if fmt and fmt.get("rate"):
@@ -145,7 +151,8 @@ def _chunk(cid, cid_s, pos, size, p, avail, fmt, file_size):
         if fmt and block and fmt.get("samples"):
             approx = -(-fmt["samples"] // block)         # ceil(samples / block)
             if abs(approx - frames) > 1:
-                cwarns.append(f"frame_count {frames} != ceil(samples/block) {approx}")
+                cwarns.append(defect("field.inconsistent",
+                                     f"frame_count {frames} != ceil(samples/block) {approx}"))
 
     elif cid == b"data":
         summary = f"compressed audio (bfdlac codec), {size:,} bytes"

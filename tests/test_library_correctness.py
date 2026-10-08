@@ -47,7 +47,7 @@ def test_census_reads_past_a_0x1a_byte(tmp_path, capsys):
     main(["census", str(tmp_path), "--json"])
     out = json.loads(capsys.readouterr().out)
     assert out["riff_family_files"] == 1, "the file was dropped entirely"
-    assert out["chunk_histogram"].get("acid") == 1, (
+    assert out["chunk_histogram"].get("acid") == {"files": 1, "occurrences": 1}, (
         "the walk stopped at 0x1A before reaching the acid chunk")
 
 
@@ -61,7 +61,8 @@ def test_census_and_survey_agree_on_the_same_tree(tmp_path, capsys):
     census = json.loads(capsys.readouterr().out)["chunk_histogram"].get("acid")
     main(["survey", str(tmp_path), "-n", "99999"])
     survey_out = capsys.readouterr().out
-    assert census == 4, f"census counted {census} of 4"
+    assert census == {"files": 4, "occurrences": 4}, f"census counted {census} of 4"
+    # survey is `stats --by chunks` in 2.0: one engine, so one count
     assert "acid" in survey_out
 
 

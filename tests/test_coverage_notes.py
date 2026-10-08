@@ -27,9 +27,15 @@ import sys
 import pytest
 
 from acidcat.core.forensics import anomalies
+from acidcat.core.infra.limits import hit
 from acidcat.core.primitives.notes import (
-    COVERAGE, DEFECT, Note, coverage, is_coverage, kind_of,
+    COVERAGE, DEFECT, Note, is_coverage, kind_of,
 )
+
+
+def coverage(text):
+    """A coverage note for tests that only care about the kind."""
+    return hit("list_rows", 4, 9, text)
 
 
 class TestTheNoteItself:
@@ -57,6 +63,19 @@ class TestTheNoteItself:
         with pytest.raises(ValueError):
             Note("x", "probably-fine")
 
+    def test_a_coverage_note_names_the_limit_it_hit(self):
+        """By construction: there is no way to make a coverage note that does
+        not say which limit stopped the walk, so no finding lacks its cap."""
+        with pytest.raises(ValueError):
+            Note("stopped early", COVERAGE)
+        with pytest.raises(ValueError):
+            Note("size overruns", DEFECT, cap={"name": "list_rows",
+                                               "limit": 1, "used": 2})
+        with pytest.raises(ValueError):
+            hit("chunk_count", 4, 9, "stopped early")
+        n = hit("read_bytes", 512, 4096, "parsed the first 512")
+        assert n.cap == {"name": "read_bytes", "limit": 512, "used": 4096}
+
     def test_the_kind_survives_a_copy(self):
         """Structures get copied and pickled; a Note that silently downgrades
         to a defect on the way through is worse than no kind at all."""
@@ -66,6 +85,7 @@ class TestTheNoteItself:
         assert kind_of(copy.copy(n)) == COVERAGE
         assert kind_of(copy.deepcopy(n)) == COVERAGE
         assert kind_of(pickle.loads(pickle.dumps(n))) == COVERAGE
+        assert pickle.loads(pickle.dumps(n)).cap == n.cap
 
     def test_reformatting_drops_the_kind(self):
         """Documented, not accidental. str operations return plain str, so
@@ -88,10 +108,12 @@ class TestScanClassifies:
     def test_a_coverage_warning_does_not_become_a_structure_finding(self, tmp_path):
         p = _wav(tmp_path / "a.wav")
         out = anomalies.scan(p, "WAV", [], [coverage("stopped at the 4-chunk cap")])
-        cov = [f for f in out if f["rule"] == "coverage"]
-        assert len(cov) == 1
+        # a walker note's rule is "structure" and its kind says what it is
+        # (review V4); a coverage note is never a defect
+        cov = [f for f in out if f["kind"] == "coverage"]
+        assert len(cov) == 1 and cov[0]["rule"] == "structure"
         assert cov[0]["severity"] == "info"
-        assert not [f for f in out if f["rule"] == "structure"]
+        assert not [f for f in out if f["kind"] == "defect"]
 
     def test_a_defect_warning_still_becomes_one(self, tmp_path):
         p = _wav(tmp_path / "b.wav")
@@ -113,8 +135,8 @@ class TestScanClassifies:
         chunks = [{"id": "data", "offset": 12, "size": 8,
                    "warnings": [coverage("listing the first 10 rows")]}]
         out = anomalies.scan(p, "WAV", chunks, [])
-        cov = [f for f in out if f["rule"] == "coverage"]
-        assert len(cov) == 1, [f["rule"] for f in out]
+        cov = [f for f in out if f["kind"] == "coverage"]
+        assert len(cov) == 1, [f["kind"] for f in out]
         assert "data:" in cov[0]["message"]
 
 
@@ -126,7 +148,8 @@ class TestAuditExitCode:
         return _code(scanned=True, vios=[], findings=findings, integ=[])
 
     def test_a_capped_walk_of_a_clean_file_exits_zero(self):
-        assert self._code([{"rule": "coverage", "severity": "info",
+        assert self._code([{"rule": "structure", "kind": "coverage",
+                            "severity": "info",
                             "message": "stopped at the cap", "offset": 0}]) == 0
 
     def test_a_real_finding_still_exits_one(self):
@@ -136,7 +159,8 @@ class TestAuditExitCode:
     def test_coverage_alongside_a_real_finding_still_exits_one(self):
         """The coverage note must not mask a genuine defect."""
         assert self._code([
-            {"rule": "coverage", "severity": "info", "message": "cap", "offset": 0},
+            {"rule": "structure", "kind": "coverage", "severity": "info",
+             "message": "cap", "offset": 0},
             {"rule": "structure", "severity": "warn", "message": "bad", "offset": 0},
         ]) == 1
 
@@ -149,21 +173,25 @@ class TestTheWalkersActuallyUseIt:
         """Pins that the fourteen sites converted here stayed converted. A
         walker whose cap note reverts to a plain string silently returns to
         failing a clean file."""
+        import ast
         import pathlib
-        import re
         root = pathlib.Path(__file__).parent.parent / "src/acidcat/core/walk"
         expected = {
-            "ableton.py": 2, "bfdlac.py": 1, "flac.py": 1, "krz.py": 1,
-            "midi2.py": 1, "mpc.py": 2, "rmid.py": 1, "rx2.py": 1,
+            "ableton.py": 2, "flac.py": 1, "krz.py": 1,
+            "midi2.py": 1, "rmid.py": 1, "rx2.py": 1,
             # 5 since the preset/instrument tree landed: the sample list had one
             # cap and the file cap made two, and the preset, instrument and
             # per-instrument zone listings each added one. A number that
             # rises because a walker reads MORE is the ratchet working.
-            "sf2.py": 5, "sigmf.py": 2,
+            "sf2.py": 5,
+            # 2.0 converted the caps these reported as defects: bfdlac's read
+            # window, mpc's two PGM pad listings, sigmf's annotation listing
+            "bfdlac.py": 2, "mpc.py": 4, "sigmf.py": 3,
         }
         for fn, n in expected.items():
-            src = (root / fn).read_text(encoding="utf-8")
-            found = len(re.findall(r"append\(coverage\(", src))
+            tree = ast.parse((root / fn).read_text(encoding="utf-8"))
+            found = sum(1 for c in ast.walk(tree) if isinstance(c, ast.Call)
+                        and getattr(c.func, "id", None) == "hit")
             assert found == n, f"{fn}: expected {n} coverage sites, found {found}"
 
     @pytest.mark.parametrize("fn", [
@@ -173,7 +201,7 @@ class TestTheWalkersActuallyUseIt:
     def test_each_walker_imports_what_it_calls(self, fn):
         import importlib
         mod = importlib.import_module(f"acidcat.core.walk.{fn[:-3]}")
-        assert hasattr(mod, "coverage")
+        assert hasattr(mod, "hit")
 
 
 def test_a_capped_real_file_exits_zero_through_the_cli(tmp_path):

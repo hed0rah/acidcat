@@ -223,5 +223,5 @@ def test_a_cut_brstm_says_it_is_cut(tmp_path):
     assert [f["value"] for f in chunks[0]["fields"] if f["name"] == "file_size"] == [len(data)]
     struct.pack_into(">I", data, 0x08, len(data) * 45)
     _chunks, warns = streams.inspect_brstm(_write(tmp_path, "cut.brstm", bytes(data)))
-    assert len(warns) == 1
+    assert [getattr(w, "code", None) for w in warns] == ["size.overrun"]
     assert "the stream is cut" in str(warns[0])

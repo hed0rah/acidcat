@@ -26,11 +26,11 @@ end of the file, so a walker that advances by the padded size reports every
 well-formed Wave64 as running past EOF.
 """
 
-import os
 import struct
 
-from acidcat.core.primitives.notes import coverage
-from acidcat.core.walk.base import _PAYLOAD_CAP, _f
+from acidcat.core.infra.findings import defect, error
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import _PAYLOAD_CAP, _f, _open, _size
 from acidcat.core.walk.wav import _PARSERS, _parse_data
 
 from acidcat.core.formats.wave64 import (
@@ -47,29 +47,33 @@ _MAX_CHUNKS = 4096             # a forged size cannot make the walk spin
 
 def inspect_wave64(filepath):
     """Walk a Wave64 file: a 40-byte header, then GUID/u64 chunks."""
-    file_size = os.path.getsize(filepath)
+    file_size = _size(filepath)
     ctx = {"file_size": file_size}
     chunks, file_warns = [], []
 
-    with open(filepath, "rb") as f:
+    with _open(filepath) as f:
         hdr = f.read(_HEADER)
         if len(hdr) < _HEADER:
             # reachable through fmt_override, which promises to degrade like
             # any other walk; wav.py and rf64.py carry the same guard
-            return chunks, [f"file is {len(hdr)} bytes; a Wave64 header needs "
-                            f"{_HEADER}"]
+            return chunks, [defect("header.truncated",
+                                   f"file is {len(hdr)} bytes; a Wave64 header needs "
+                                   f"{_HEADER}")]
         if hdr[:16] != RIFF_GUID:
-            file_warns.append("missing the Wave64 RIFF GUID")
+            file_warns.append(defect("magic.mismatch", "missing the Wave64 RIFF GUID"))
         declared = struct.unpack_from("<Q", hdr, 16)[0]
         form = hdr[24:40]
         form_id, _note = _chunk_id(form)
         if form != WAVE_GUID:
-            file_warns.append(f"form GUID is {form_id!r}, expected 'wave'")
+            file_warns.append(defect(
+                "magic.mismatch",
+                f"form GUID is {form_id!r}, expected 'wave'"))
         # Unlike RIFF, this counts the whole file including its own 40-byte
         # header, so it is compared against the file size directly.
         if declared != file_size:
             file_warns.append(
-                f"header declares {declared:,} bytes, file is {file_size:,}")
+                defect("count.mismatch",
+                       f"header declares {declared:,} bytes, file is {file_size:,}"))
 
         chunks.append({
             "id": "wave64", "offset": 0, "size": _HEADER,
@@ -91,7 +95,8 @@ def inspect_wave64(filepath):
         seen = 0
         while pos + _CHUNK_HEADER <= file_size:
             if seen >= _MAX_CHUNKS:
-                file_warns.append(coverage(
+                file_warns.append(hit(
+                    "work_steps", _MAX_CHUNKS, seen,
                     f"stopped after {_MAX_CHUNKS} chunks; the file may continue"))
                 break
             f.seek(pos)
@@ -107,14 +112,16 @@ def inspect_wave64(filepath):
             # advancing by it would not move the cursor.
             if size < _CHUNK_HEADER:
                 file_warns.append(
-                    f"chunk {cid!r} at {pos} declares {size:,} bytes, less than "
-                    f"the {_CHUNK_HEADER}-byte header it counts; stopping")
+                    defect("geometry.invalid",
+                           f"chunk {cid!r} at {pos} declares {size:,} bytes, less than "
+                           f"the {_CHUNK_HEADER}-byte header it counts; stopping"))
                 chunks.append({
                     "id": cid, "offset": pos, "size": 0,
                     "payload_base": pos + _CHUNK_HEADER, "payload_len": 0,
                     "extent_len": max(0, file_size - pos),
                     "summary": "unusable size", "fields": [],
-                    "warnings": ["declared size is below the chunk header"],
+                    "warnings": [defect("geometry.invalid",
+                                        "declared size is below the chunk header")],
                 })
                 break
 
@@ -122,9 +129,10 @@ def inspect_wave64(filepath):
             avail = max(0, file_size - pos - _CHUNK_HEADER)
             truncated = payload_len > avail
             if truncated:
-                file_warns.append(
+                file_warns.append(defect(
+                    "size.overrun",
                     f"chunk {cid!r} claims {payload_len:,} payload bytes but "
-                    f"only {avail:,} remain")
+                    f"only {avail:,} remain"))
             real_len = min(payload_len, avail)
 
             payload = f.read(min(real_len, _PAYLOAD_CAP))
@@ -151,9 +159,11 @@ def inspect_wave64(filepath):
                                         f"{payload[:16].hex(' ')}")
             except Exception as e:                      # noqa: BLE001
                 entry["warnings"].append(
-                    f"parse error: {e.__class__.__name__}: {e}")
+                    error("walker.error", f"parse error: {e.__class__.__name__}: {e}"))
             if truncated:
-                entry["warnings"].append("payload runs past the end of the file")
+                entry["warnings"].append(defect(
+                    "size.overrun",
+                    "payload runs past the end of the file"))
             chunks.append(entry)
             seen += 1
 

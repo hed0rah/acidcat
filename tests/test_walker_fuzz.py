@@ -164,9 +164,10 @@ class TestWhatWeCanFuzzIsStated:
 class TestWalkBytesIsTheHarnessEntryPoint:
     """Fuzzing was a chore before it was a call.
 
-    Every walker takes a path, so each harness wrote its own carve-and-delete,
-    and each new target meant writing it again. That, not any judgement about
-    formats, is why the differential fuzzer covered one of 52.
+    Every walker used to take a path, so each harness wrote its own
+    carve-and-delete, and each new target meant writing it again. That, not
+    any judgement about formats, is why the differential fuzzer covered one of
+    52. Walkers read a Source now, and walk_bytes writes nothing to disk.
     """
 
     def test_it_agrees_with_walking_the_same_bytes_on_disk(self, tmp_path):

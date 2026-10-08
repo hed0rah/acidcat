@@ -66,20 +66,41 @@ def _swap(data, width):
     return bytes(out)
 
 
-def run(args):
-    if args.floating and args.bits not in (32, 64):
-        print("acidcat wrap: --float needs --bits 32 or 64", file=sys.stderr)
-        return 2
-    if args.channels < 1:
-        print("acidcat wrap: --channels must be at least 1", file=sys.stderr)
-        return 2
-    if not 1 <= args.rate <= 768000:
-        # the rate lands in a u32 byte_rate field; an absurd value there
-        # produces a header no player will accept
-        print("acidcat wrap: --rate must be between 1 and 768000",
+def pcm_to_wav(data, rate=44100, channels=1, bits=16, byte_order="le",
+               floating=False, prog="wrap"):
+    """(exit code, WAV bytes or None) for raw PCM `data`: checks the geometry,
+    drops a partial trailing frame (saying so on stderr), swaps big-endian
+    samples, and adds the header. The one implementation behind `wrap` and
+    `carve --as-wav`."""
+    if floating and bits not in (32, 64):
+        print(f"acidcat {prog}: --float needs --bits 32 or 64", file=sys.stderr)
+        return 2, None
+    if channels < 1:
+        print(f"acidcat {prog}: --channels must be at least 1", file=sys.stderr)
+        return 2, None
+    if not 1 <= rate <= 768000:
+        print(f"acidcat {prog}: --rate must be between 1 and 768000",
               file=sys.stderr)
-        return 2
+        return 2, None
+    if not data:
+        print(f"acidcat {prog}: no input bytes", file=sys.stderr)
+        return 2, None
+    block = channels * (bits // 8)
+    trimmed = len(data) - (len(data) % block) if block else len(data)
+    if trimmed != len(data):
+        print(f"acidcat {prog}: dropped {len(data) - trimmed} trailing byte(s) "
+              f"to land on a {block}-byte frame", file=sys.stderr)
+    data = data[:trimmed]
+    if not data:
+        print(f"acidcat {prog}: fewer than one {block}-byte frame of input",
+              file=sys.stderr)
+        return 1, None
+    if byte_order == "be":
+        data = _swap(data, bits)
+    return 0, _wav_wrap(data, rate, channels, bits, 3 if floating else 1)
 
+
+def run(args):
     try:
         if args.input == "-":
             data = sys.stdin.buffer.read()
@@ -87,30 +108,15 @@ def run(args):
             with open(args.input, "rb") as f:
                 data = f.read()
     except OSError as e:
-        print(f"acidcat wrap: {args.input}: {e}", file=sys.stderr)
+        print(f"acidcat carve: {args.input}: {e}", file=sys.stderr)
         return 2
-    if not data:
-        print("acidcat wrap: no input bytes", file=sys.stderr)
-        return 2
-
+    rc, wav = pcm_to_wav(data, args.rate, args.channels, args.bits, args.endian,
+                         args.floating)
+    if wav is None:
+        return rc
+    # what went in the file: the input less any partial trailing frame
     block = args.channels * (args.bits // 8)
-    trimmed = len(data) - (len(data) % block) if block else len(data)
-    if trimmed != len(data):
-        # a carved range rarely lands on a frame boundary; say so rather than
-        # writing a WAV whose final frame is half a sample
-        print(f"acidcat wrap: dropped {len(data) - trimmed} trailing byte(s) "
-              f"to land on a {block}-byte frame", file=sys.stderr)
-    data = data[:trimmed]
-    if not data:
-        print(f"acidcat wrap: fewer than one {block}-byte frame of input",
-              file=sys.stderr)
-        return 1
-
-    if args.endian == "be":
-        data = _swap(data, args.bits)
-
-    wav = _wav_wrap(data, args.rate, args.channels, args.bits,
-                    3 if args.floating else 1)
+    data = data[:len(data) - (len(data) % block)] if block else data
 
     if args.output:
         err = outpath.refuse_self_overwrite('wrap', args.input, args.output)
@@ -121,7 +127,7 @@ def run(args):
             with open(args.output, "wb") as f:
                 f.write(wav)
         except OSError as e:
-            print(f"acidcat wrap: {args.output}: {e}", file=sys.stderr)
+            print(f"acidcat carve: {args.output}: {e}", file=sys.stderr)
             return 2
         frames = len(data) // block if block else 0
         print(f"wrapped {len(data):,} bytes as {args.rate} Hz {args.channels}ch "
@@ -131,7 +137,7 @@ def run(args):
         if sys.stdout.isatty():
             # every other binary-emitting verb refuses this; dumping a WAV into
             # a terminal garbles the session and teaches nothing
-            print("acidcat wrap: refusing to write a WAV to the terminal -- "
+            print("acidcat carve: refusing to write a WAV to the terminal -- "
                   "redirect it or use -o FILE", file=sys.stderr)
             return 2
         sys.stdout.buffer.write(wav)

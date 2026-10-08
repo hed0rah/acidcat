@@ -1,22 +1,20 @@
 """
-acidcat CLI -- top-level argument parser and subcommand dispatcher.
+acidcat CLI -- the top-level parser, the 1.8 aliases, and dispatch.
 
-Usage:
-    acidcat file.wav                 # info for a single file (see `acidcat formats`)
-    acidcat /path/to/samples         # scan a directory
-    acidcat -                        # read from stdin
-    cat file.wav | acidcat           # piped input (implicit stdin)
-    acidcat info file.aif            # explicit info subcommand
-    acidcat scan DIR [-n N]          # batch scan (writes CSV)
-    acidcat chunks file.wav          # RIFF chunk walk
-    acidcat survey DIR               # chunk type census
-    acidcat detect file.wav          # librosa BPM/key estimation
-    acidcat features DIR             # ML feature extraction
-    acidcat dump file.wav acid       # hex dump a chunk
-    acidcat carve file.wav --trailing -o blob   # extract a byte range / appended blob
-    acidcat convert font.sf2                     # extract SoundFont samples to WAV
-    acidcat index DIR                # upsert DIR into the global SQLite index
-    acidcat query --bpm 120:130      # filter the global index
+    acidcat inspect FILE [--summary | --tags | --quiet]   # what is in it
+    acidcat od FILE [ADDR]                                 # its bytes, annotated
+    acidcat carve FILE ADDR [-o OUT]                       # take some out
+    acidcat edit FILE --set NAME=VALUE                     # change it
+    acidcat check FILE [--fix]                             # are its sizes right
+    acidcat audit FILE                                     # anything suspicious
+    acidcat stats DIR [--by meta|shape]                    # across a tree
+    acidcat lib index DIR ; acidcat lib query --bpm 120    # the sample index
+    acidcat FILE                                           # inspect --summary
+    acidcat DIR                                            # stats
+
+Seventeen verbs (docs/contract/cli-2.0.md). The 1.8 spellings still work
+through 2.x: each prints one line on stderr naming its 2.0 form and then runs
+exactly that (acidcat.cli_aliases).
 """
 
 import argparse
@@ -28,12 +26,10 @@ import traceback
 from acidcat import __version__
 from acidcat.commands._output import add_output_format_arg
 from acidcat.commands import (
-    info, scan, shape, od, chunks, survey, detect, features, similar, dump,
-    classify,
-    wrap,
-    index, query, inspect, convert, write, cover, explore, tui, carve, repair, validate, audit, probe,
-    census, locate, extract, formats,
+    inspect, od, carve, probe, classify, locate, audit, check, edit, stats,
+    analyze, lib, convert, extract, formats, explore, tui,
 )
+from acidcat import cli_aliases
 from acidcat.util.stdin import is_stdin_target
 
 # Filled from the parser once it is built. It used to be a hand-maintained
@@ -46,41 +42,16 @@ SUBCOMMANDS = set()
 def _build_parser():
     parser = argparse.ArgumentParser(
         prog="acidcat",
-        description="Audio metadata explorer and analysis tool.",
+        description="Byte-level dissection of audio, sampler, synth-preset and DAW files.",
     )
     parser.add_argument("--version", action="version", version=f"acidcat {__version__}")
 
     subparsers = parser.add_subparsers(dest="command")
 
-    info.register(subparsers)
-    scan.register(subparsers)
-    shape.register(subparsers)
-    od.register(subparsers)
-    chunks.register(subparsers)
-    survey.register(subparsers)
-    detect.register(subparsers)
-    features.register(subparsers)
-    similar.register(subparsers)
-    dump.register(subparsers)
-    index.register(subparsers)
-    query.register(subparsers)
-    inspect.register(subparsers)
-    convert.register(subparsers)
-    write.register(subparsers)
-    cover.register(subparsers)
-    explore.register(subparsers)
-    tui.register(subparsers)
-    carve.register(subparsers)
-    repair.register(subparsers)
-    validate.register(subparsers)
-    audit.register(subparsers)
-    probe.register(subparsers)
-    census.register(subparsers)
-    locate.register(subparsers)
-    extract.register(subparsers)
-    formats.register(subparsers)
-    classify.register(subparsers)
-    wrap.register(subparsers)
+    for module in (inspect, od, carve, probe, classify, locate, audit, check,
+                   edit, stats, analyze, lib, convert, extract, formats,
+                   explore, tui):
+        module.register(subparsers)
 
     # keep a handle to the subparser table so unrecognized arguments can be
     # reported against the chosen subcommand's usage, not the top-level one.
@@ -91,79 +62,22 @@ def _build_parser():
     return parser
 
 
-def _scan_default_format():
-    """`scan`'s own default rendering, read from its parser rather than copied.
-
-    Hard-coding "csv" here would just recreate the drift this exists to fix.
-    """
-    import argparse as _ap
-    from acidcat.commands import scan as _scan
-    p = _ap.ArgumentParser()
-    sub = p.add_subparsers()
-    _scan.register(sub)
-    for act in sub.choices["scan"]._actions:
-        if act.dest == "output_format" and act.default:
-            return act.default
-    return "csv"
-
-
-def _try_bare_path(argv):
-    """
-    If the first non-flag arg is a path (not a subcommand), auto-route to
-    info (file) or scan (directory).
-    """
-    if argv is None:
-        argv = sys.argv[1:]
-
-    # is the first positional arg a known subcommand?
-    # note: "-" (stdin) starts with "-" but is a positional, not a flag
+def _bare_path(argv):
+    """`acidcat FILE` is `acidcat inspect --summary FILE`, and `acidcat DIR`
+    is `acidcat stats DIR`: the argv with the verb put in, or None when the
+    first operand is a verb or not a path."""
     if not SUBCOMMANDS:                 # populate on first use
         _build_parser()
     positionals = [a for a in argv if not a.startswith("-") or a == "-"]
     if not positionals:
         return None
     first = positionals[0]
-    if first in SUBCOMMANDS:
-        return None  # let normal parsing handle it
-
-    # not a subcommand -- is it a path?
-    if os.path.exists(first) or is_stdin_target(first):
-        # build a lightweight fallback parser that accepts the bare-path form
-        fb = argparse.ArgumentParser(add_help=False)
-        fb.add_argument("target")
-        add_output_format_arg(fb, only=("table", "json", "csv"))
-        fb.add_argument("-o", "--output", default=None)
-        fb.add_argument("-q", "--quiet", action="store_true")
-        fb.add_argument("-v", "--verbose", action="store_true")
-        fb.add_argument("--deep", action="store_true")
-        fb.add_argument("-n", "--num", type=int, default=500)
-        fb.add_argument("--has", default=None)
-        fb.add_argument("--fallback", action="store_true")
-        fb.add_argument("--features", action="store_true")
-        fb_args, _ = fb.parse_known_args(argv)
-
-        if is_stdin_target(fb_args.target):
-            return info.run(fb_args)
-        elif os.path.isfile(fb_args.target):
-            return info.run(fb_args)
-        elif os.path.isdir(fb_args.target):
-            # This fallback parser is a SECOND declaration of flags the real
-            # verbs already declare, and the two drifted: it defaults
-            # output_format to "table" while `scan`'s own parser defaults to
-            # "csv". So `acidcat DIR` and `acidcat scan DIR` -- which the README
-            # presents as the same thing ("auto-detected") -- rendered
-            # completely differently, and the bare form emitted a twelve-line
-            # vertical record per file. Pointed at a 3,200-file library that is
-            # roughly 38,000 lines into the terminal.
-            #
-            # Only override when the user did not ASK for a rendering, so an
-            # explicit `acidcat DIR --json` still means what it says.
-            asked = any(a == "--output-format" or a.startswith("--output-format=")
-                        or a in ("--json", "--csv", "-f") for a in argv)
-            if not asked:
-                fb_args.output_format = _scan_default_format()
-            return scan.run(fb_args)
-
+    if first in SUBCOMMANDS or first in cli_aliases._VERBS:
+        return None
+    if is_stdin_target(first) or os.path.isfile(first):
+        return ["inspect", "--summary"] + list(argv)
+    if os.path.isdir(first):
+        return ["stats"] + list(argv)
     return None
 
 
@@ -176,7 +90,13 @@ def main(argv=None):
     tool treats it as "the reader left" and stops quietly, so we do too.
     """
     try:
-        return _dispatch(argv)
+        rc = _dispatch(argv)
+        # flushed here, where a closed pipe is handled. A whole report can sit
+        # in the buffer (3.14 buffers more), and then the write that meets the
+        # closed pipe is the interpreter's own at exit, which reports it and
+        # exits 120 however this function returned.
+        sys.stdout.flush()
+        return rc
     except OSError as e:
         if not _is_closed_pipe(e):
             # NOT a bare re-raise. `raise` here leaves main() entirely -- the
@@ -250,16 +170,28 @@ def _dispatch(argv=None):
         except (AttributeError, ValueError):
             pass
 
-    # try bare-path dispatch first (before argparse can error on unknown subcommand)
-    result = _try_bare_path(argv)
-    if result is not None:
-        return result
+    argv = list(argv) if argv is not None else sys.argv[1:]
+    # no arguments and piped input: summarise what is on stdin
+    if not argv and not sys.stdin.isatty():
+        argv = ["-"]
+    bare = _bare_path(argv)
+    if bare is not None:
+        argv = bare
 
-    # if no args and stdin is piped, read from stdin
-    effective = argv if argv is not None else sys.argv[1:]
-    if not effective and not sys.stdin.isatty():
-        return _try_bare_path(["-"])
+    try:
+        commands, note = cli_aliases.translate(argv)
+    except cli_aliases.Removed as e:
+        print(f"acidcat: {e}", file=sys.stderr)
+        return 2
+    if note:
+        print(note, file=sys.stderr)
+    rc = 0
+    for cmd in commands:
+        rc = max(rc, _run_one(cmd) or 0)
+    return rc
 
+
+def _run_one(argv):
     parser = _build_parser()
     args, extras = parser.parse_known_args(argv)
     if extras:
@@ -272,15 +204,37 @@ def _dispatch(argv=None):
             parser._sub.choices[cmd].error(msg)
         parser.error(msg)
 
-    if args.command is None:
-        parser.print_help()
-        return 1
-
-    if hasattr(args, 'func'):
-        return args.func(args)
-
-    parser.print_help()
-    return 1
+    if args.command is None or not hasattr(args, "func"):
+        # no verb is a usage error, the same class as a bad flag
+        parser.print_help(sys.stderr)
+        return 2
+    report_to = getattr(args, "report_to", None)
+    # an -o that names an input destroyed it: the report verbs open their
+    # output before reading, and carve's field path wrote its bytes over the
+    # file. edit and check --fix are exempt: there, -o naming the input is an
+    # in-place edit through the atomic writer, with a backup -- except
+    # `edit --get`, whose -o is a plain write of what it reads out.
+    out = report_to or getattr(args, "output", None)
+    in_place = (args.command == "check"
+                or (args.command == "edit" and not getattr(args, "get", None)))
+    if isinstance(out, str) and not in_place:
+        from acidcat.util import outpath
+        if outpath.input_named(out, argv):
+            print(f"acidcat {args.command}: {out}: output is the input; "
+                  f"refusing to overwrite the file being read", file=sys.stderr)
+            return 2
+    if report_to:
+        # -o on a verb whose -o only redirects its report (add_report_arg)
+        import contextlib
+        try:
+            fh = open(report_to, "w", encoding="utf-8", newline="")
+        except OSError as e:
+            print(f"acidcat {args.command}: {report_to}: {e.strerror or e}",
+                  file=sys.stderr)
+            return 2
+        with fh, contextlib.redirect_stdout(fh):
+            return args.func(args)
+    return args.func(args)
 
 
 if __name__ == "__main__":

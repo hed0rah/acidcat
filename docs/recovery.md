@@ -1,37 +1,41 @@
 # Recovery and rescue
 
-Five verbs turn acidcat into a forensic recovery tool for audio: find audio in a
-raw blob, cut it out, give a headerless region a header, pull samples out of a
-bank, and make an odd codec playable. They are built as coreutils would be, each
-doing one thing and piping into the next:
+Four verbs turn acidcat into a forensic recovery tool for audio: find audio in a
+raw blob, cut it out (with a header if it has none), pull samples out of a bank,
+and make an odd codec playable. They are built as coreutils would be, each doing
+one thing and piping into the next:
 
     locate   find the audio regions in a blob         (reports, never writes)
     carve    cut a byte range out to a file           (the extractor)
-    wrap     put a WAV header on raw PCM              (the filter)
     extract  pull every sample out of a known bank    (the bulk unpacker)
     convert  transcode a file to a friendlier format  (the transcoder)
 
-`locate` reports regions to stdout; a region's offset/length is exactly a `carve`
-range; `carve`'s output is `wrap`'s and `convert`'s input. So the verbs chain
-into a rescue pipeline. Records go to stdout and summaries to stderr, so
+`locate` reports regions to stdout; a region's offset and length are exactly a
+`carve` range (`@OFF+LEN`); `carve`'s output is `convert`'s input. So the verbs
+chain into a rescue pipeline. Records go to stdout and summaries to stderr, so
 `locate | carve` composes cleanly.
 
 A statistically-detected region has no header -- that is why it needed detecting.
-`wrap` supplies one, so the region is playable without a detour through Python or
-sox:
+`carve --as-wav` supplies one, so the region is playable without a detour through
+Python or sox:
 
-    acidcat carve disk.img --offset 0x8a000 --length 882000 | \
-      acidcat wrap --rate 44100 --channels 2 --bits 16 -o rescued.wav
+    acidcat carve disk.img @0x8a000+882000 --as-wav \
+      --rate 44100 --channels 2 --bits 16 -o rescued.wav
 
-For bulk work `carve --wrap` does the same inline, so every region `locate` finds
-lands as a playable WAV. The sample geometry comes from the record, so `locate`
-has to have run `--analyze`; without it there is nothing to build a header from
-and `carve` says so rather than quietly writing `.raw`:
+Bytes already cut out, or arriving on a pipe, take the same flags with `-` as the
+file:
+
+    cat raw.pcm | acidcat carve - --as-wav --rate 22050 --bits 8 -o raw.wav
+
+For bulk work `carve --batch --wrap` does the same inline, so every region
+`locate` finds lands as a playable WAV. The sample geometry comes from the
+record, so `locate` has to have run `--analyze`; without it there is nothing to
+build a header from and `carve` says so rather than quietly writing `.raw`:
 
     acidcat locate disk.img --analyze --json | \
       acidcat carve disk.img --batch - --wrap --rate 44100 -o recovered/
 
-Width, channel count and endianness are inferred from the bytes. Sample rate is
+Width, channel count and byte order are inferred from the bytes. Sample rate is
 not in the bytes at all, so `--rate` is yours to supply; without it acidcat
 assumes 44100 Hz and says that it assumed.
 
@@ -55,7 +59,7 @@ headerless compressed streams (MP3).
 | `normal` | the above, plus high-confidence raw-PCM blobs and streams (default) |
 | `aggressive` | every candidate, including marginal blobs |
 
-`--analyze` infers the geometry of each raw blob (width / channels / endianness),
+`--analyze` infers the geometry of each raw blob (width / channels / byte order),
 picking the smoothest interpretation. Sample rate is not in the bytes, so it is
 reported null with common candidates. `-v` shows the evidence (entropy,
 autocorrelation, byte distribution) and any tells (silence, DC offset, clipping):
@@ -63,8 +67,8 @@ autocorrelation, byte distribution) and any tells (silence, DC offset, clipping)
     acidcat locate dump.bin --mode aggressive --analyze
     acidcat locate dump.bin -v                    # why each region was flagged
 
-Output rendering for piping: `--output-format table` (default), `--json`, or
-`--output-format tsv`.
+Output rendering for piping: `--output-format table` (default), `--json`,
+`--csv`, or `--output-format tsv`.
 
     acidcat locate disk.img --json | jq '.[] | select(.kind=="blob")'
 
@@ -77,19 +81,26 @@ directory. This is the "recover my audio" move:
 
 `--batch` reads JSON or TSV records from a file or stdin (`-`), and writes each
 region to `recovered/NNNN_0xoffset_kind.ext`, naming the extension by detected
-format. The target file is never modified.
+format. The input file is never modified.
 
 Real run against a Dreamcast disc image (a Doom 64 port): `locate` found 341
 regions (92 WAV containers + 249 raw-PCM blobs); the pipeline carved the 92 WAVs
 in under two seconds.
 
-For a single known region, `carve` is also a surgical byte tool -- pull one chunk,
-the trailing data past a container's declared end, or an explicit range:
+For a single known region, `carve` is also a surgical byte tool -- pull one
+chunk, the trailing data past a container's declared end, an explicit range, or
+everything from a byte pattern on:
 
-    acidcat carve loop.wav --chunk data -o audio.raw       # one chunk payload
+    acidcat carve loop.wav RIFF/data -o audio.raw          # one chunk payload
     acidcat carve suspect.wav --trailing -o hidden.bin     # appended data past the end
-    acidcat carve blob.bin --offset 0x1200 --length 0x800  # an explicit range
-    acidcat carve blob.bin --at find:RIFF --end 0x4000     # anchored to a byte pattern
+    acidcat carve blob.bin @0x1200+0x800 -o range.bin      # an explicit range
+    acidcat carve blob.bin --at find:RIFF -o from-riff.bin # from a byte pattern to the end
+
+A search anchor runs to the end of the file. For a fixed length after a pattern,
+find its offset first and carve a range:
+
+    acidcat probe find s:RIFF blob.bin                     # every offset of "RIFF"
+    acidcat carve blob.bin @0x1000+0x3000 -o riff.bin      # then that offset, that length
 
 ## extract: unpack a whole sample bank
 
@@ -105,7 +116,7 @@ Formats with a sample extractor: tracker modules (`.mod`, `.xm`, `.it`, `.s3m`),
 Gravis UltraSound patches (`.pat`), IFF 8SVX (`.8svx`), NI Compressed Wave
 (`.ncw`), SoundFont (`.sf2`/`.sf3`), Bitwig `.multisample`, Kurzweil `.krz`,
 E-mu `.e4b`/`.e5b`, and MPC `.snd`. `--json` emits a manifest instead of writing
-files; reads from stdin with `-`.
+files; reads from stdin with `-`. `acidcat formats` lists the full set.
 
 ## convert --to-pcm: make an odd codec playable
 

@@ -11,13 +11,14 @@ Entries are therefore read by seeking past the local file header, bypassing the
 CRC check. zipfile + xml.etree are both stdlib, so this adds no dependency.
 """
 
-import os
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
 
+from acidcat.core.infra.findings import defect
+from acidcat.core.infra.source import zip_open
 from acidcat.core.primitives.zipio import zip_data_offset, zip_directory_extent
-from acidcat.core.walk.base import _f
+from acidcat.core.walk.base import _f, _size
 
 _ZONE_CAP = 48                                   # don't flood the view on big kits
 
@@ -43,8 +44,9 @@ def _safe_offset(z, zi, warns):
     try:
         return _data_offset(z, zi)
     except ValueError:
-        warns.append(f"{zi.filename}: unreadable local header, "
-                     "reported without a byte range")
+        warns.append(defect("parse.failed",
+                            f"{zi.filename}: unreadable local header, "
+                            "reported without a byte range"))
         return None
 
 
@@ -78,14 +80,15 @@ def _read_entry(z, name):
 
 
 def inspect_multisample(filepath):
-    size = os.path.getsize(filepath)
+    size = _size(filepath)
     try:
-        z = zipfile.ZipFile(filepath)
+        z = zip_open(filepath)
     except zipfile.BadZipFile:
         return ([{"id": "multisample", "offset": 0, "size": size,
                   "summary": "not a valid zip archive", "fields": [],
-                  "warnings": ["not a zip archive"], "payload_base": 0}],
-                ["not a zip archive"])
+                  "warnings": [defect("magic.mismatch", "not a zip archive")],
+                  "payload_base": 0}],
+                [defect("magic.mismatch", "not a zip archive")])
 
     warns = []
     with z:
@@ -93,13 +96,15 @@ def inspect_multisample(filepath):
         infos = {zi.filename: zi for zi in z.infolist()}
         root = None
         if "multisample.xml" not in names:
-            warns.append("no multisample.xml in the archive")
+            warns.append(defect("required.missing", "no multisample.xml in the archive"))
         else:
             try:
                 xml = _read_entry(z, "multisample.xml").decode("utf-8", "replace")
                 root = ET.fromstring(xml)
             except Exception as e:
-                warns.append(f"multisample.xml did not parse: {e.__class__.__name__}")
+                warns.append(defect(
+                    "parse.failed",
+                    f"multisample.xml did not parse: {e.__class__.__name__}"))
 
         name = gen = cat = creator = ""
         samples = []

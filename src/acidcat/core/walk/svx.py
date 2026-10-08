@@ -13,9 +13,10 @@ and a pad byte when the size is odd. Unknown chunks are surfaced by id and size
 without guessing at their bodies; the walk degrades on any malformed input.
 """
 
-import os
 
-from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f
+from acidcat.core.infra.findings import defect, error
+from acidcat.core.infra.limits import hit
+from acidcat.core.walk.base import _bu16, _bu32, _dtext, _f, _open, _size
 
 _READ_CAP = 64 * 1024 * 1024
 _CHUNK_CAP = 4096
@@ -28,12 +29,12 @@ _CHAN = {2: "left", 4: "right", 6: "stereo (left + right)"}
 
 def inspect_8svx(filepath):
     """Walk an IFF 8SVX file, returning (chunks, file_warnings)."""
-    file_size = os.path.getsize(filepath)
-    with open(filepath, "rb") as f:
+    file_size = _size(filepath)
+    with _open(filepath) as f:
         b = f.read(min(file_size, _READ_CAP))
     chunks, warns = [], []
     if len(b) < 12 or b[:4] != b"FORM" or b[8:12] != b"8SVX":
-        return chunks, ["not an IFF FORM 8SVX file"]
+        return chunks, [defect("magic.mismatch", "not an IFF FORM 8SVX file")]
 
     form_size = _bu32(b, 4)
     hdr = {"id": "FORM", "offset": 0, "size": 12, "payload_base": 0,
@@ -49,8 +50,9 @@ def inspect_8svx(filepath):
     expected = file_size - 8
     if form_size != expected:
         hdr["warnings"].append(
-            f"form_size {form_size:,} != file length - 8 ({expected:,}); "
-            f"off by {expected - form_size} (trust the chunks, not the FORM size)")
+            defect("count.mismatch",
+                   f"form_size {form_size:,} != file length - 8 ({expected:,}); "
+                   f"off by {expected - form_size} (trust the chunks, not the FORM size)"))
     chunks.append(hdr)
 
     vh = None                                          # VHDR fields, for BODY duration
@@ -71,7 +73,8 @@ def inspect_8svx(filepath):
         except Exception as e:                         # never raise on a bad chunk
             chunk = {"id": cid_s, "offset": pos, "size": size, "fields": [],
                      "summary": "unparsed chunk",
-                     "warnings": [f"chunk decode error: {e.__class__.__name__}: {e}"]}
+                     "warnings": [error("walker.error",
+                                        f"chunk decode error: {e.__class__.__name__}: {e}")]}
         if cid == b"VHDR":
             vh = chunk.get("_vh")
         elif cid == b"NAME" and not name:
@@ -80,18 +83,21 @@ def inspect_8svx(filepath):
             tool = _dtext(p)
         chunk.pop("_vh", None)
         if avail < size:
-            chunk.setdefault("warnings", []).append(
-                f"chunk declares {size:,} bytes, only {avail:,} present (truncated)")
+            chunk.setdefault("warnings", []).append(defect(
+                "size.overrun",
+                f"chunk declares {size:,} bytes, only {avail:,} present (truncated)"))
         kinds[cid_s] += 1
         chunks.append(chunk)
         step = 8 + size + (size & 1)                   # pad odd sizes to even
         if step <= 8:
-            warns.append(f"chunk at 0x{pos:08x} has size {size}; stopping the walk")
+            warns.append(defect("geometry.invalid",
+                                f"chunk at 0x{pos:08x} has size {size}; stopping the walk"))
             break
         pos += step
 
     if n >= _CHUNK_CAP:
-        warns.append(f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap")
+        warns.append(hit("work_steps", _CHUNK_CAP, n,
+                         f"chunk walk stopped at the {_CHUNK_CAP}-chunk cap"))
 
     # enrich the FORM summary with rate/duration, the voice name, and the tool
     bits = []
@@ -163,7 +169,7 @@ def _vhdr_chunk(cid_s, pos, size, p, avail):
     if avail < 20:
         return {"id": cid_s, "offset": pos, "size": size, "fields": [],
                 "summary": "truncated VHDR",
-                "warnings": [f"VHDR is {avail} bytes, spec is 20"]}
+                "warnings": [defect("chunk.short", f"VHDR is {avail} bytes, spec is 20")]}
     one = _bu32(p, 0)
     rep = _bu32(p, 4)
     cyc = _bu32(p, 8)
@@ -188,7 +194,7 @@ def _vhdr_chunk(cid_s, pos, size, p, avail):
     ]
     cwarns = []
     if comp not in _COMPRESSION:
-        cwarns.append(f"unknown sCompression {comp}")
+        cwarns.append(defect("id.unknown", f"unknown sCompression {comp}"))
     return {"id": cid_s, "offset": pos, "size": size, "_vh": vh,
             "summary": f"voice header: {rate} Hz, {octs} octave(s), "
                        f"{_COMPRESSION.get(comp, '?')}",

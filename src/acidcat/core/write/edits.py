@@ -16,8 +16,25 @@ import tempfile
 from typing import NamedTuple
 
 
+class Unmodelled(ValueError):
+    """Mixed into an error that means the verb has nothing for this kind of
+    file (no editor, no extractor, no walker): could not run, exit 2, as
+    `check` and `inspect` answer the same file (review V7)."""
+
+
 class EditError(ValueError):
     """A requested edit cannot be applied (unsupported field, wrong format, ...)."""
+
+
+class EditUnmodelled(EditError, Unmodelled):
+    """No editor for this file type."""
+
+
+class BadValue(EditError):
+    """A --set the editor cannot take as given: a field this kind of file does
+    not have, or a value its field cannot hold. A bad argument, so the edit
+    could not run (exit 2); a refused edit of a good argument is the answer
+    no (exit 1)."""
 
 
 class EditResult(NamedTuple):
@@ -48,6 +65,17 @@ def edit_metadata(path, changes):
     Raises EditError for an unsupported file type. The format dispatch lives here
     (not in the CLI) so any caller gets a stable public entry point; bytes are
     returned in memory (backup/commit policy is the caller's)."""
+    with open(path, "rb") as f:
+        data = f.read()
+    return edit_metadata_data(data, path, changes)
+
+
+def edit_metadata_data(data, name, changes, notes=None, cascade=True):
+    """`edit_metadata` on bytes already in memory. `name` is the file's name
+    (a path is fine): only its extension is read, for the formats whose
+    magic does not say which they are. `notes`, when a list, collects what a
+    writer stored differently from what was asked (the acid chunk drops the
+    mode of `key=Am`)."""
     # Fold every known spelling to its canonical name before dispatch, so a
     # caller may say `preset_name` to a WAV or `tempo` to a FLAC and reach the
     # same field. The ledger in core/metadata.py is the one place that knows
@@ -65,9 +93,7 @@ def edit_metadata(path, changes):
         _folded[_c] = _v
     changes = _folded
 
-    with open(path, "rb") as f:
-        data = f.read()
-    ext = os.path.splitext(path)[1].lower()
+    ext = os.path.splitext(name or "")[1].lower()
     head = data[:16]
     if head[:1] == b"{" and (b'"synth_version"' in data[:65536] or ext == ".vital"):
         return EditResult("Vital preset", *_spoken(edit_vital(data, changes), _spelling))
@@ -81,7 +107,9 @@ def edit_metadata(path, changes):
             from acidcat.core.write import edit_riff
         except ImportError:
             raise EditError("WAV editing is not available in this build")
-        return EditResult("WAV", *_spoken(edit_riff.edit_wav(data, changes), _spelling))
+        return EditResult("WAV", *_spoken(edit_riff.edit_wav(data, changes, notes,
+                                                             cascade=cascade),
+                                          _spelling))
     if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
         from acidcat.core.write import edit_aiff
         return EditResult("AIFF", *_spoken(edit_aiff.edit_aiff(data, changes), _spelling))
@@ -90,7 +118,7 @@ def edit_metadata(path, changes):
               or ext in (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".mp4"))
     if tagged:
         return EditResult("tagged audio", *_spoken(edit_tagged(data, ext or ".mp3", changes), _spelling))
-    raise EditError("no metadata editor for this file type")
+    raise EditUnmodelled("no metadata editor for this file type")
 
 
 # ── Vital (bare JSON) ──────────────────────────────────────────────
@@ -113,7 +141,7 @@ def edit_vital(data, changes):
     for field, value in changes.items():
         key = _VITAL_FIELDS.get(field.lower())
         if key is None:
-            raise EditError(f"Vital preset has no editable field {field!r}")
+            raise BadValue(f"Vital preset has no editable field {field!r}")
         old = obj.get(key)
         obj[key] = "" if value is None else str(value)
         applied.append((field, old, obj[key]))
@@ -148,11 +176,14 @@ def edit_bitwig(data, changes):
     for field, value in changes.items():
         key = _BITWIG_FIELDS.get(field.lower())
         if key is None:
-            raise EditError(f"Bitwig preset has no editable field {field!r}")
+            raise BadValue(f"Bitwig preset has no editable field {field!r}")
         marker = _struct.pack(">I", len(key)) + key + b"\x08"
         idx = out.find(marker)
         if idx < 0:
-            raise EditError(f"field {field!r} not present in this preset")
+            # a field is changed where it stands (metadata.IN_PLACE): one the
+            # file does not have is a --set it cannot take, not a refusal
+            raise BadValue(f"this preset has no {field!r} field; the Bitwig "
+                           f"editor changes a field in place and cannot add one")
         vp = idx + len(marker)
         vlen = _struct.unpack_from(">I", out, vp)[0]
         if vp + 4 + vlen > len(out):
@@ -181,6 +212,12 @@ def edit_ni(data, changes):
                 raise EditError("hsin (Massive/Absynth) writing is not available "
                                 "yet in this build")
             return ni.edit_hsin(data, changes)
+    except ni.NotHeld as e:
+        raise BadValue(str(e))
+    except ni.Unmapped as e:
+        # a frame tree the editor cannot follow is no editor for this
+        # variant (exit 2), the answer `inspect` gives a file it cannot walk
+        raise EditUnmodelled(f"no editor for this NI preset variant: {e}")
     except ValueError as e:
         raise EditError(str(e))
     raise EditError("unrecognized Native Instruments preset")
@@ -218,6 +255,29 @@ def _audio_digest(data):
                 h.update(mv[b["offset"] + b["hdr"]:b["offset"] + b["size"]])
                 found = True
         return "mp4", h.hexdigest() if found else None
+    if len(data) >= 12 and data[:4] in (b"RIFF", b"FORM"):
+        # WAV and AIFF: the sample chunk's payload. mutagen adds or rewrites
+        # an ID3 chunk after it; before this branch a RIFF file fell through
+        # to the mp3 rule, hashed whole, and every cover edit looked like
+        # changed audio
+        import io
+        from acidcat.core.formats.riff import pad_step
+        big = data[:4] == b"FORM"
+        order = "big" if big else "little"
+        want = b"SSND" if big else b"data"
+        f = io.BytesIO(data)
+        pos = 12
+        while pos + 8 <= len(data):
+            cid = data[pos:pos + 4]
+            size = int.from_bytes(data[pos + 4:pos + 8], order)
+            if cid == want:
+                h.update(mv[pos + 8:min(pos + 8 + size, len(data))])
+                return "iff", h.hexdigest()
+            pos += 8 + size
+            if size & 1:
+                # an odd chunk left unpadded, followed as the walker does
+                pos += pad_step(f, pos, len(data), order)
+        return "iff", None
     if data[:4] == b"OggS":
         from acidcat.core.formats import ogg as oggmod
         return "ogg", tuple((p["serial"], p["granule"], p["data_len"])
@@ -289,7 +349,18 @@ def _register_easyid3_comment():
         def _del(id3, _):
             id3.delall("COMM")
         EasyID3.RegisterKey("comment", _get, _set, _del)
+    _register_easymp4_key()
     _easyid3_ready = True
+
+
+def _register_easymp4_key():
+    """Teach EasyMP4 a `key`. iTunes defines no key atom; the freeform
+    ----:com.apple.iTunes:initialkey is what most tools write, and the first
+    place core/tagged.py's MP4 reader looks. Without it the ledger offered
+    `key` for mp4 and every --set of it was refused."""
+    from mutagen.easymp4 import EasyMP4Tags
+    if "key" not in EasyMP4Tags.Get:
+        EasyMP4Tags.RegisterFreeformKey("key", "initialkey")
 
 
 def _apply_custom_frames(tmp, suffix, changes):
@@ -301,7 +372,8 @@ def _apply_custom_frames(tmp, suffix, changes):
     import mutagen
     m = mutagen.File(tmp)
     if m is None:
-        raise EditError("mutagen could not read this audio file")
+        raise EditUnmodelled("the tag library cannot read this file, so it has "
+                                 "no editor")
     cls = m.__class__.__name__
     is_id3 = cls in ("MP3", "AIFF", "WAVE") or (
         getattr(m, "tags", None) is not None
@@ -372,7 +444,8 @@ def strip_tagged(data, suffix):
             os.fsync(f.fileno())
         audio = mutagen.File(tmp)
         if audio is None:
-            raise EditError("mutagen could not read this audio file")
+            raise EditUnmodelled("the tag library cannot read this file, so it has "
+                                 "no editor")
         removed = sorted(audio.tags.keys()) if audio.tags else []
         audio.delete()          # removes the tag block from the file on disk
         with open(tmp, "rb") as r:
@@ -412,11 +485,12 @@ def edit_tagged(data, suffix, changes):
         if easy:
             audio = mutagen.File(tmp, easy=True)
             if audio is None:
-                raise EditError("mutagen could not read this audio file")
+                raise EditUnmodelled("the tag library cannot read this file, so it has "
+                                 "no editor")
             for field, value in easy.items():
                 key = _EASY_FIELDS.get(field.lower())
                 if key is None:
-                    raise EditError(f"tagged audio has no editable field {field!r} "
+                    raise BadValue(f"tagged audio has no editable field {field!r} "
                                     f"(custom ID3 frames use txxx:NAME=value)")
                 old = audio.get(key)
                 old = old[0] if isinstance(old, list) and old else old
@@ -426,9 +500,12 @@ def edit_tagged(data, suffix, changes):
                     else:
                         audio[key] = [str(value)]
                 except (KeyError, ValueError, TypeError):
-                    raise EditError(
+                    # a field the container has no frame for, or a value its
+                    # frame cannot hold (a tempo of 120.5 in mp4's integer
+                    # tmpo): a --set the file cannot take as given
+                    raise BadValue(
                         f"{suffix.lstrip('.') or 'this format'} cannot store "
-                        f"field {field!r}")
+                        f"field {field!r} as given")
                 applied.append((field, old, value))
             audio.save()
         if custom:

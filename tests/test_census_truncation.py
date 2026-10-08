@@ -48,7 +48,8 @@ def _census(lib, *args):
 def test_json_says_whether_it_was_truncated(lib):
     full = json.loads(_census(lib, "--json").stdout)
     assert full["truncated"] is False
-    assert full["limit"] is None
+    # census is `stats --by chunks` in 2.0, whose --max-files is 10,000
+    assert full["limit"] == 10000
     assert full["files_opened"] == 12
 
     part = json.loads(_census(lib, "--limit", "3", "--json").stdout)
@@ -76,5 +77,5 @@ def test_the_full_run_sees_list_as_common(lib):
     truncation test above could pass against a corpus where LIST really is
     rare."""
     full = json.loads(_census(lib, "--json").stdout)
-    assert full["chunk_histogram"].get("LIST") == 12
+    assert full["chunk_histogram"].get("LIST") == {"files": 12, "occurrences": 12}
     assert "LIST" not in {c[0] for c in full["rare_chunks"]}

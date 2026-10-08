@@ -348,10 +348,8 @@ def test_the_unambiguous_chunk_outranks_a_merely_earlier_one():
     from acidcat.tui_app import AcidcatTUI
 
     class Stub:
-        _RATE_RANGE = AcidcatTUI._RATE_RANGE
-        _CH_RANGE = AcidcatTUI._CH_RANGE
-        _BITS_VALID = AcidcatTUI._BITS_VALID
-        _params_from = AcidcatTUI._params_from
+        # 2.0: the rule lives in core (capabilities.audio_params); the app
+        # asks it with its chunks
         _audio_params = AcidcatTUI._audio_params
 
     def chunk(cid, rate, bits):

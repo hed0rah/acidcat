@@ -33,13 +33,18 @@ def _wav(path, frames=2000):
 
 class _Probe:
     """The three methods under test, bound without standing up a Textual app --
-    they are pure functions of `self.chunks`."""
+    they are pure functions of `self.chunks` and the caps the model holds for
+    them (2.0: the audio chunk is the one with an `audio` cap)."""
     _audio_span = AcidcatTUI._audio_span
     _region_is_audio = AcidcatTUI._region_is_audio
     _chunk_name_at = AcidcatTUI._chunk_name_at
 
-    def __init__(self, chunks):
+    def __init__(self, chunks, label="RIFF/WAVE"):
+        from acidcat.core.infra import capabilities
+        from acidcat.tui_app.model import DocumentModel
         self.chunks = chunks
+        self.model = DocumentModel()
+        self.model.chunk_caps = capabilities.caps(None, label, chunks)
 
 
 @pytest.fixture

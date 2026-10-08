@@ -83,6 +83,45 @@ class TestInspectWav:
         acid = next(c for c in chunks if c["id"] == "acid")
         assert any("drift" in w for w in acid["warnings"])
 
+    def test_a_one_shots_beat_count_is_a_note_not_drift_damage(self, tmp_path):
+        # a 0.01 s one-shot carrying an exporter's default 8 beats at 120:
+        # nothing stretches a one-shot, so the mismatch is not damage (8 of
+        # 46 drift files in a real sample tree were one-shots like this)
+        path = _wav(tmp_path, _fmt(), _data(441), _acid(beats=8, flags=0x01))
+        chunks, _ = inspect_wav(path)
+        (w,) = next(c for c in chunks if c["id"] == "acid")["warnings"]
+        assert (w.kind, w.code) == ("info", "convention.noted")
+        assert "drift" in w and "one-shot" in w
+
+    @pytest.mark.parametrize("tempo", [1e-6, -1e-6, 1000.0])
+    def test_a_one_shots_tempo_out_of_range_is_a_note(self, tmp_path, tempo):
+        # a one-shot plays at its own speed and nothing reads its tempo; a
+        # near-zero float there printed as "acid tempo 0.00 outside sane
+        # range" and audit exited 1 on the file
+        path = _wav(tmp_path, _fmt(), _data(),
+                    _acid(beats=0, tempo=tempo, root=0, flags=0x01))
+        chunks, _ = inspect_wav(path)
+        (w,) = next(c for c in chunks if c["id"] == "acid")["warnings"]
+        assert (w.kind, w.code) == ("info", "convention.noted")
+        assert "tempo 0.00" not in w and "tempo -0.00" not in w
+        assert "one-shot" in w
+
+    @pytest.mark.parametrize("flags", [0x00, 0x02])
+    def test_a_loops_tempo_out_of_range_stays_a_defect(self, tmp_path, flags):
+        path = _wav(tmp_path, _fmt(), _data(),
+                    _acid(beats=0, tempo=1e-6, flags=flags))
+        chunks, _ = inspect_wav(path)
+        (w,) = next(c for c in chunks if c["id"] == "acid")["warnings"]
+        assert (w.kind, w.code) == ("defect", "value.invalid")
+        assert "outside sane range" in w and "1e-06" in w
+
+    def test_a_one_shot_with_tempo_zero_is_clean(self, tmp_path):
+        path = _wav(tmp_path, _fmt(), _data(),
+                    _acid(beats=0, tempo=0.0, root=0, flags=0x01))
+        chunks, warns = inspect_wav(path)
+        assert next(c for c in chunks if c["id"] == "acid")["warnings"] == []
+        assert warns == []
+
     def test_missing_fmt_is_flagged(self, tmp_path):
         path = _wav(tmp_path, _data())
         _, warns = inspect_wav(path)
@@ -1098,6 +1137,23 @@ class TestInspectMp3:
         vbr = next(f for f in frames["fields"] if f["name"] == "vbr")
         assert vbr["value"] is False
 
+    def test_an_info_frame_at_another_bitrate_is_not_counted(self, tmp_path):
+        # LAME writes the Info frame at its own bitrate; walked as audio it
+        # made a CBR stream read as VBR under --frames
+        from acidcat.core.walk.mp3 import inspect_mp3
+        tag = bytearray(b"\xff\xfb\x50\xc0" + b"\x00" * 204)    # 64 kbps
+        tag[21:25] = b"Info"
+        tag[25:29] = struct.pack(">I", 0x01)
+        tag[29:33] = struct.pack(">I", 3)
+        p = tmp_path / "cbr_tag.mp3"
+        p.write_bytes(bytes(tag) + _MP3_FRAME * 3)
+        chunks, _ = inspect_mp3(str(p), deep=True)
+        frames = next(c for c in chunks if c["id"] == "frames")
+        assert frames["summary"].startswith("3 frames")
+        assert "CBR" in frames["summary"] and "kbps" not in frames["summary"]
+        assert len(frames["rows"]) == 3
+        assert not frames["warnings"]
+
     def test_xing_tag_forces_vbr_even_with_uniform_bitrates(self, tmp_path):
         from acidcat.core.walk.mp3 import inspect_mp3
         fr = bytearray(_MP3_FRAME)
@@ -1146,7 +1202,8 @@ class TestInspectMp3:
         frames = next(c for c in chunks if c["id"] == "frames")
         assert "rows" in frames
         assert len(frames["rows"]) == 3
-        assert frames["rows"][0]["kbps"] == 128
+        assert frames["rows"][0]["bitrate_kbps"] == 128   # snake_case (review R6)
+        assert frames["rows"][0]["index"] == 0 and frames["rows"][0]["sample_rate"] == 44100
         assert frames["rows"][0]["offset"] == "0x00000000"
 
     def test_default_has_no_rows(self, tmp_path):
@@ -1183,8 +1240,9 @@ class TestRunCli:
         path = _wav(tmp_path, _fmt(), _data())
         assert run(self._args(path, output_format="json")) == 0
         doc = json.loads(capsys.readouterr().out)
-        assert doc["format"] == "RIFF/WAVE"
-        assert [c["id"] for c in doc["chunks"]] == ["fmt ", "data"]
+        assert doc["contract"] == 1 and doc["format"] == {"id": "wav",
+                                                          "label": "RIFF/WAVE"}
+        assert [c["name"] for c in doc["nodes"][0]["children"]] == ["fmt", "data"]
 
     def test_flac_dispatch(self, tmp_path, capsys):
         path = _flac(tmp_path, _flac_block(0, _streaminfo(), last=True))
@@ -1206,7 +1264,7 @@ class TestRunCli:
             + b"WAVE" + _fmt() + _data(4)
         p = tmp_path / "x.wav"
         p.write_bytes(_id3v2(_id3_text_frame(b"TIT2", "x")) + wav)
-        assert run(self._args(str(p))) == 1
+        assert run(self._args(str(p))) == 2   # no walker reads it: could not run (review R5)
         assert "not" in capsys.readouterr().err.lower()
 
     def test_adts_aac_not_dispatched_as_mp3(self, tmp_path, capsys):
@@ -1215,7 +1273,7 @@ class TestRunCli:
         aac = b"\xff\xf1\x50\x80" + b"\x00" * 380
         p = tmp_path / "t.aac"
         p.write_bytes(aac * 4)
-        assert run(self._args(str(p))) == 1
+        assert run(self._args(str(p))) == 2   # no walker reads it (review R5)
         assert "not a" in capsys.readouterr().err
 
     def test_frames_flag_renders_rows(self, tmp_path, capsys):
@@ -1231,10 +1289,10 @@ class TestRunCli:
         out = capsys.readouterr().out
         assert "no per-element structure" in out
 
-    def test_not_riff_exits_1(self, tmp_path, capsys):
+    def test_not_riff_exits_2(self, tmp_path, capsys):
         p = tmp_path / "x.bin"
         p.write_bytes(b"\x00" * 64)
-        assert run(self._args(str(p))) == 1
+        assert run(self._args(str(p))) == 2   # no walker: could not run (review R5)
 
     def test_missing_file_exits_1(self):
         assert run(self._args("does/not/exist.wav")) == 2
@@ -1280,7 +1338,8 @@ class TestRunCli:
         lines = [l for l in capsys.readouterr().out.splitlines() if l.strip()]
         assert len(lines) == 2
         docs = [json.loads(l) for l in lines]  # each line parses on its own
-        assert [d["format"] for d in docs] == ["RIFF/WAVE", "RIFF/WAVE"]
+        assert [d["format"]["label"] for d in docs] == ["RIFF/WAVE", "RIFF/WAVE"]
+        assert [d["file"]["path"] for d in docs] == [a, b]
 
     def test_missing_among_present_keeps_going_exit_1(self, tmp_path, capsys):
         a = _wav(tmp_path, _fmt(), _data(), name="a.wav")
@@ -1315,10 +1374,33 @@ class TestRunCli:
         assert "showing 1 of 3 chunks" in out
         assert "PCM" in out and "acid @" not in out
 
-    def test_only_is_case_and_space_insensitive(self, tmp_path, capsys):
+    def test_only_takes_an_id_a_glob_or_a_name(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data(), _acid())
+        for pat in ("RIFF/fmt_", "fmt", "RIFF/f*", " fmt "):
+            assert run(self._args(p, only=pat)) == 0, pat
+            assert "showing 1 of 3 chunks" in capsys.readouterr().out
+
+    def test_only_that_names_nothing_is_an_error(self, tmp_path, capsys):
+        """An empty table read as "the file has no such chunk" when the
+        pattern was simply wrong (review R3)."""
         p = _wav(tmp_path, _fmt(), _data())
-        assert run(self._args(p, only="FMT")) == 0  # matches the "fmt " id
-        assert "showing 1 of 2 chunks" in capsys.readouterr().out
+        assert run(self._args(p, only="FMT")) == 1   # ADDR names are exact
+        got = capsys.readouterr()
+        assert got.out == ""
+        assert "'FMT' names no chunk here; its ids: RIFF/fmt_, RIFF/data" in got.err
+
+    def test_exclude_that_names_nothing_is_an_error(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data())
+        assert run(self._args(p, exclude="bext")) == 1
+        assert "'bext' names no chunk" in capsys.readouterr().err
+
+    def test_the_table_prints_the_ids_an_address_takes(self, tmp_path, capsys):
+        p = _wav(tmp_path, _fmt(), _data())
+        assert run(self._args(p)) == 0
+        out = capsys.readouterr().out
+        assert "RIFF/fmt_ @ 0x" in out                  # the field-detail header
+        row = next(l for l in out.splitlines() if l.strip().startswith("[ 1]"))
+        assert row.split("]", 1)[1].split()[0] == "RIFF/data"
 
     def test_exclude_drops_chunks(self, tmp_path, capsys):
         p = _wav(tmp_path, _fmt(), _data(), _acid())
@@ -1332,8 +1414,9 @@ class TestRunCli:
         p = _wav(tmp_path, _fmt(), _data(), _acid())
         assert run(self._args(p, only="acid", output_format="json")) == 0
         doc = json.loads(capsys.readouterr().out)
-        assert [c["id"] for c in doc["chunks"]] == ["acid"]
-        assert "_idx" not in doc["chunks"][0]  # helper key stays internal
+        # the tree cut to the node and its ancestors
+        assert [n["id"] for n in doc["nodes"]] == ["RIFF"]
+        assert [c["id"] for c in doc["nodes"][0]["children"]] == ["RIFF/acid"]
 
 
 class TestParseFmtExtensible:
@@ -2153,3 +2236,43 @@ class TestFlacPadding:
                    for w in pad["warnings"]), pad["warnings"]
         readable = next(f for f in pad["fields"] if f["name"] == "readable")
         assert "ISFT was here" in readable["value"]
+
+
+class TestCouldNotRunIsTwo:
+    """A walker crash, a sandbox failure and a walk that cannot be described
+    as a Document are acidcat failing, not the file: exit 2. They exited 1,
+    the code for a defect, and the crash and sandbox paths assigned rather
+    than max()ed, so they also erased an earlier file's 2."""
+
+    def _wav(self, tmp_path):
+        return _wav(tmp_path, _fmt(), _data())
+
+    def test_a_walker_crash_is_2_and_keeps_an_earlier_2(self, tmp_path,
+                                                         monkeypatch):
+        from acidcat.cli import main
+        from acidcat.commands import inspect as insp
+
+        def boom(*_a, **_k):
+            raise RuntimeError("walker bug")
+
+        monkeypatch.setattr(insp, "walk_file", boom)
+        p = self._wav(tmp_path)
+        assert main(["inspect", p]) == 2
+        assert main(["inspect", str(tmp_path / "missing.wav"), p]) == 2
+
+    def test_a_sandbox_failure_is_2(self, tmp_path, monkeypatch):
+        from acidcat.cli import main
+        from acidcat.core.infra import sandbox
+
+        def fail(*_a, **_k):
+            raise sandbox.SandboxError("worker died")
+
+        monkeypatch.setattr(sandbox, "resolve_profile", lambda _p: "limits")
+        monkeypatch.setattr(sandbox, "run_walk", fail)
+        assert main(["inspect", "--sandbox", "-q", self._wav(tmp_path)]) == 2
+
+    def test_no_document_is_2(self, tmp_path, monkeypatch):
+        from acidcat.cli import main
+        from acidcat.commands import inspect as insp
+        monkeypatch.setattr(insp, "_node_ids", lambda *_a, **_k: (None, {}))
+        assert main(["inspect", "--json", self._wav(tmp_path)]) == 2

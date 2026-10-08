@@ -33,7 +33,7 @@ class _DeprecatedOutputFormat(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
-def add_output_format_arg(parser, default="table", only=None, deprecated_f=True):
+def add_output_format_arg(parser, default="table", only=None, deprecated_f=False):
     """Add the standard output-rendering flags to ``parser``.
 
     Adds ``--output-format`` (choices from the render registry, or the ``only``
@@ -107,3 +107,46 @@ def out_stream(path):
     finally:
         if stream is not sys.stdout:
             stream.close()
+
+
+# ── the one JSON rule (cli-2.0.md section 4.1) ─────────────────────────
+
+def format_of(path):
+    """{"format": registry id, "label": its display label} for the file at
+    `path`, both None when nothing recognises it. Every verb's JSON names a
+    format this way: `format` is what `acidcat formats` lists and
+    `--force-format` takes, `label` what a person reads."""
+    from acidcat.core.infra import sniff as sniffmod
+    from acidcat.core.walk import _WALKERS
+    try:
+        fid = sniffmod.sniff(path)
+    except (OSError, ValueError):
+        fid = None
+    if not fid:
+        return {"format": None, "label": None}
+    entry = _WALKERS.get(fid)
+    return {"format": fid, "label": entry[0] if entry else fid}
+
+
+def snake(key):
+    """A display label as a JSON key: `ACID Root` -> `acid_root`."""
+    import re
+    return re.sub(r"[^a-z0-9]+", "_", str(key).lower()).strip("_") or "_"
+
+
+def add_report_arg(parser):
+    """`-o/--output PATH` for a verb whose -o means only "the report goes
+    here": the dispatcher sends stdout to PATH for the run (cli._run_one), so
+    the verb's own printing needs no change. Verbs whose -o names something
+    else (carve's bytes, convert's file, edit's copy) keep their own."""
+    parser.add_argument("-o", "--output", dest="report_to", metavar="PATH",
+                        help="Write the report here instead of stdout.")
+    return parser
+
+
+def checked_formats():
+    """The format ids `check` models, as `acidcat formats` lists them in its
+    repair column, for the message that says a file is not one of them."""
+    from acidcat.commands.formats import _REPAIR
+    return ", ".join(sorted(_REPAIR))
+

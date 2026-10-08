@@ -25,6 +25,8 @@ from acidcat.core.infra.render import output as _render
 from acidcat.core.infra import sniff as sniffmod
 from acidcat.core.walk import walk_file, _WALKERS
 from acidcat.core.walk.base import Unsupported
+from acidcat.util.paths import under
+from acidcat.util.stdin import as_given
 
 # chunk/block ids whose summary is the file's headline (first match wins)
 _HEADER_IDS = ("fmt", "STREAMINFO", "COMM", "MThd", "ftyp")
@@ -64,7 +66,7 @@ def _iter_files(targets):
         elif os.path.isdir(t):
             for root, _dirs, names in os.walk(t):
                 for name in names:
-                    yield os.path.join(root, name), False
+                    yield under(t, root, name), False
 
 
 def _ids(seq):
@@ -121,7 +123,11 @@ def _full_fingerprint(path, want_anomalies):
         from acidcat.core.forensics import anomalies
         try:
             findings = anomalies.scan(path, label, chunks, warns) or []
-            flag = ",".join(sorted({f["rule"] for f in findings}))
+            # a walker note flags by its kind, as it did when the kinds
+            # were rules: a coverage-only file is `coverage`, not `structure`
+            flag = ",".join(sorted({f["rule"] if f["rule"] != "structure"
+                                    or f.get("kind") in (None, "defect", "error")
+                                    else f["kind"] for f in findings}))
         except Exception:
             # a scan that crashed is not a file with no anomalies, and
             # --warn-only filters on this flag -- so the empty string dropped
@@ -143,8 +149,8 @@ def run(args):
             for t in args.targets
         ]
         if any(t is None for t in args.targets):
-            print("acidcat shape: no data on stdin", file=sys.stderr)
-            return 1
+            print("acidcat stats: no data on stdin", file=sys.stderr)
+            return 2
         return _run(args)
 
 
@@ -153,12 +159,19 @@ def _run(args):
     # 0 -- indistinguishable from "scanned it, matched nothing"
     missing = [t for t in args.targets if not os.path.exists(t)]
     for t in missing:
-        print(f"acidcat shape: {t}: No such file or directory", file=sys.stderr)
+        print(f"acidcat stats: {t}: No such file or directory", file=sys.stderr)
     if missing and len(missing) == len(args.targets):
         return 2
     emitted = 0
     rows = []
+    cap = getattr(args, "max_files", None)       # stats --max-files; 0 or None: none
+    seen = 0
+    capped = False
     for path, named in _iter_files(args.targets):
+        if cap and seen >= cap:
+            capped = True
+            break
+        seen += 1
         fp = (_fast_fingerprint(path) if args.fast
               else _full_fingerprint(path, args.anomalies))
         if fp is None:
@@ -175,9 +188,24 @@ def _run(args):
         emitted += 1
         row = {"format": label, "summary": summary, "chunks": ids, "flag": flag}
         if not args.no_path:
-            row["path"] = path
+            row["path"] = as_given(path)
+        row["_path"] = path
         rows.append(row)
+    if capped:
+        from acidcat.commands.stats import cap_note
+        cap_note(cap)
     fmt = getattr(args, "output_format", "tsv")
+    if fmt in ("json", "csv"):
+        # machine rows: `format` the registry id, `label` the walker's
+        # (cli-2.0.md section 4.1); tsv and the table keep the label column
+        from acidcat.commands._output import format_of
+        rows = [dict({"path": r["path"]} if "path" in r else {},
+                     format=format_of(r["_path"])["format"], label=r["format"],
+                     summary=r["summary"], chunks=r["chunks"], flag=r["flag"])
+                for r in rows]
+    else:
+        for r in rows:
+            r.pop("_path", None)
     if rows:
         if fmt == "tsv":
             # Hand-rolled rather than through the renderer, deliberately: the
@@ -185,8 +213,20 @@ def _run(args):
             # is `sort | uniq -c`, which would count a header as a data line.
             for r in rows:
                 print("\t".join(str(v) for v in r.values()))
+        elif fmt == "table":
+            from acidcat.core.infra.render import format_columns
+            # the chunk list last: it is the one column with no useful width
+            cols = [("format", "format"), ("flag", "flag"), ("summary", "summary")]
+            if not args.no_path:
+                cols.append(("path", "path"))
+            format_columns(rows, cols + [("chunks", "chunks")])
         else:
             _render(rows, fmt=fmt)
+    elif fmt == "json":
+        print("[]")        # no rows is still an array
     # a filter that matched nothing is a negative result, not a success --
-    # `shape lib --format flac && ...` used to proceed on an empty listing
-    return 0 if emitted else 1
+    # `shape lib --format flac && ...` used to proceed on an empty listing;
+    # and so is a listing of files no walker reads, the answer --by meta and
+    # --by chunks give the same targets (review V7)
+    walked = any(r.get("label", r.get("format")) != _UNWALKED for r in rows)
+    return 0 if emitted and walked else 1
