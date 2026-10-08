@@ -33,6 +33,16 @@ from acidcat.core.infra.findings import defect, info
 MAGICS = (b"YM2!", b"YM3!", b"YM3b", b"YM5!", b"YM6!")
 LEONARD = b"LeOnArD!"
 END = b"End!"
+# bytes a file with no End! may still carry after its frames (a cut-off
+# marker) before they count as stray data
+_END_SLACK = 4
+
+
+def _stray_frames(tail, frame):
+    """True when the bytes after the frames of a file with no End! can be
+    more frames: past the slack, and either data or zeros a whole frame long
+    (zero fill shorter than a frame, seen on real rips, holds none)."""
+    return len(tail) > _END_SLACK and (any(tail) or len(tail) >= frame)
 ATTR_INTERLEAVED = 0x01
 
 
@@ -120,7 +130,8 @@ def parse(image):
              frames=frames, attributes=attrs, clock=clock, rate=rate, loop=loop,
              drums=drums, strings=strings, data_at=pos, extra_at=34 if extra else None,
              extra_len=extra)
-    if pos + data_len > len(image):
+    short = pos + data_len > len(image)
+    if short:
         have = (len(image) - pos) // 16
         r["warnings"].append(defect("size.overrun",
                                     "the header says %d frames; %d fit in the file"
@@ -144,6 +155,14 @@ def parse(image):
                 "count.mismatch",
                 "the End! marker is at 0x%x, not where the %d frames end (0x%x)"
                 % (later, frames, end)))
+        elif not short and _stray_frames(image[end:], 16):
+            # no marker AND more data after the frames: the convention below
+            # cannot explain them, and a count that is too small leaves real
+            # frames there (in an interleaved dump it scrambles every stream)
+            r["warnings"].append(defect(
+                "bytes.stray",
+                "%d bytes follow the last frame and there is no End! marker; "
+                "the frame count may be wrong" % (len(image) - end)))
         else:
             # players stop at the frame count and never read the marker, so a
             # file without one plays the same: a spec breach, not damage

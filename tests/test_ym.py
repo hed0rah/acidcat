@@ -158,6 +158,25 @@ def test_no_end_marker_is_a_note_but_a_misplaced_one_is_a_defect():
         ("defect", "count.mismatch")]
 
 
+def test_no_end_marker_with_data_after_the_frames_is_a_defect():
+    """The note covers a file whose frames end the file. With no End! and
+    more data after the frames, the count is likely too small: 8 frames of
+    data, a header that says 4, passed as the convention (review F7)."""
+    img = bytearray(seeds.SEEDS["ym"][0](frames=8)[:-4])
+    struct.pack_into(">I", img, 12, 4)
+    y = ymmod.parse(bytes(img))
+    assert [(w.kind, w.code) for w in y["warnings"]] == [("defect", "bytes.stray")]
+    assert "64 bytes follow the last frame" in y["warnings"][0]
+    # a cut-off marker, or zero fill shorter than a frame (6 bytes, on a
+    # real rip), is still the convention; a whole frame of zeros is not
+    y = ymmod.parse(seeds.SEEDS["ym"][0](frames=4)[:-4] + bytes(16))
+    assert [w.code for w in y["warnings"]] == ["bytes.stray"]
+    for tail in (b"End", bytes(4), bytes(6)):
+        y = ymmod.parse(seeds.SEEDS["ym"][0](frames=4)[:-4] + tail)
+        assert [(w.kind, w.code) for w in y["warnings"]] == [
+            ("info", "convention.noted")], tail
+
+
 # -- the walk --------------------------------------------------------------
 
 def _walk(tmp_path, raw, name="a.ym"):
