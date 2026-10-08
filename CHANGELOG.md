@@ -1,8 +1,8 @@
 # Changelog
 
 All notable changes to acidcat. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project will
-adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
+follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
@@ -18,8 +18,13 @@ stderr (aliases are removed in 3.0); a handful of flags are gone (`-f`,
 `probe --no-color`, `formats --format-out`, `carve --format`, `--length` or
 `--end` beside a search anchor); exit codes mean one thing everywhere (0 ok, 1
 the answer is no, 2 could not run), and only a defect exits 1; `inspect
---json` is the versioned Document (docs/contract/node-v1.md). The full 1.8 to
-2.0 table is docs/contract/cli-2.0.md.
+--json` is the versioned Document (docs/contract/node-v1.md). `inspect
+--summary --json` keys and types changed (see [2.0.0rc2] Changed and
+docs/contract/cli-2.0.md section 4.1), and `inspect --chunks --csv` names its
+file column `path`. The full 1.8 to 2.0 table is docs/contract/cli-2.0.md.
+
+2.x is the supported line; fixes land in the latest 2.x release. 1.8.7 stays
+installable with `pip install "acidcat<2"` but gets no further releases.
 
 2.0.0 is 2.0.0rc2 plus the two fixes below, both found by running it over a
 real sample library of 3,229 files (every reading verb, damaged copies, and
@@ -344,7 +349,8 @@ The aliases go in 3.0. What does not alias:
 
 Every other verb's JSON follows one rule (cli-2.0.md section 4.1): keys are
 snake_case (`inspect --summary`'s `File`, `Format`, `Duration` are `path`,
-`description`, `duration`), a file is `path` (`scan`'s and `features`'
+`description`, `duration_sec`; since 2.0.0rc2 the values are typed, a number
+in seconds and `null` for an absent value), a file is `path` (`scan`'s and `features`'
 `filename`, `audit`'s and `classify`'s `file`), and `format` is the registry
 id with `label` beside it. Row verbs always give an array, `audit` and
 `inspect --summary` included.
