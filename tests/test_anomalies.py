@@ -335,6 +335,31 @@ def test_id3_zero_padding_not_flagged(tmp_path):
                    for f in anomalies.scan(path, label, chunks, warns))
 
 
+_FRAME = b"\xff\xfb\x90\x00" + bytes(413)        # MPEG-1 L3 128k 44.1k: 417 bytes
+
+
+def test_id3_padding_holding_frames_is_a_defect(tmp_path):
+    """A tag size grown over three audio frames: the "padding" is audio every
+    reader skips, not filler, so it is not the info note (review F6)."""
+    from acidcat.cli import main
+    from acidcat.core.walk import walk_file
+    data = _mp3_with_id3_padding(bytes(20) + _FRAME * 3)
+    path = _write(tmp_path, "swallow.mp3", data)
+    label, chunks, warns = walk_file(path)
+    rules = [f["rule"] for f in anomalies.scan(path, label, chunks, warns)]
+    assert "id3_swallows_frames" in rules and "id3_padding_nonzero" not in rules
+    assert main(["audit", path]) == 1
+
+
+def test_id3_padding_with_a_lone_sync_word_stays_a_note(tmp_path):
+    # one header-shaped word with no frame after it is junk, not audio
+    from acidcat.core.walk import walk_file
+    data = _mp3_with_id3_padding(bytes(3) + b"\xff\xfb\x90\x00junk" + bytes(3))
+    path = _write(tmp_path, "lone.mp3", data)
+    label, chunks, warns = walk_file(path)
+    rules = [f["rule"] for f in anomalies.scan(path, label, chunks, warns)]
+    assert "id3_padding_nonzero" in rules and "id3_swallows_frames" not in rules
+
 def _mp4_moov_last(sample_size, count, mdat_payload):
     # non-faststart layout: mdat before moov (moov at/near EOF)
     stsz = _mp4_box(b"stsz", bytes(4) + struct.pack(">I", sample_size)

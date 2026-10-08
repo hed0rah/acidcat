@@ -14,7 +14,8 @@ _INFO = {"trailing_data", "polyglot", "embedded_standalone_media",
          "mp4_mdat_coverage", "dual_endianness", "cavity_content",
          "application_block", "ogg_multistream", "lsb_entropy",
          "nonprintable_text", "nonzero_pad", "id3_padding_nonzero"}
-_DEFECT = {"wrong_format_tag", "duplicate_chunk", "duplicate_frame"}
+_DEFECT = {"wrong_format_tag", "duplicate_chunk", "duplicate_frame",
+           "id3_swallows_frames"}
 
 
 def test_every_rule_has_its_kind():

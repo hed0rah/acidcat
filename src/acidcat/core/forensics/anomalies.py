@@ -103,6 +103,27 @@ def _entropy_note(blob):
     return ""
 
 
+# bytes read past an ID3v2 tag so a frame that straddles its end can be
+# chained into the audio (no MPEG audio frame with a table bitrate reaches 2 KB)
+_MPEG_LOOKAHEAD = 4096
+
+
+def _mpeg_frame_in(pad, after=b""):
+    """Offset in ``pad`` of an MPEG audio frame header whose frame ends on a
+    second valid header (in ``pad`` or the bytes ``after`` it), else None.
+    The second header keeps a lone sync-shaped word in junk from counting."""
+    from acidcat.core.formats.mp3 import decode_frame_header
+    buf = bytes(pad) + bytes(after)
+    p = buf.find(b"\xff")
+    while 0 <= p < len(pad):
+        hdr = decode_frame_header(buf[p:p + 4])
+        nxt = p + hdr["frame_length"] if hdr else 0
+        if hdr and nxt > p and decode_frame_header(buf[nxt:nxt + 4]):
+            return p
+        p = buf.find(b"\xff", p + 1)
+    return None
+
+
 def _json_object_end(data):
     """Index just past the top-level JSON object, or None.
 
@@ -653,6 +674,8 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 tag_size = (((th[6] & 0x7F) << 21) | ((th[7] & 0x7F) << 14)
                             | ((th[8] & 0x7F) << 7) | (th[9] & 0x7F))
                 body = f.read(tag_size)
+                # the audio after the tag, to chain a frame across its end
+                after = f.read(_MPEG_LOOKAHEAD)
             # whole-tag unsynchronisation (v2.2/2.3) escapes $FF00; de-escape
             # before reading sizes.
             if flags & 0x80 and ver != 4:
@@ -681,7 +704,18 @@ def scan(filepath, fmt_label=None, chunks=None, warns=None):
                 if pos > len(body):
                     break
             pad = body[pad_start:]
-            if any(pad):
+            hit = _mpeg_frame_in(pad, after) if any(pad) else None
+            if hit is not None:
+                # not filler: the tag size runs over audio frames, which every
+                # reader then skips as part of the tag
+                findings.append({"severity": "warn", "offset": 10 + pad_start + hit,
+                                 "rule": "id3_swallows_frames",
+                                 "message": f"the ID3v2 padding holds MPEG audio "
+                                            f"frames (a frame header {hit:,} bytes "
+                                            f"into its {len(pad):,} bytes): the tag "
+                                            f"size is too large and swallows audio "
+                                            f"every reader skips"})
+            elif any(pad):
                 findings.append({"severity": "notice", "offset": 10 + pad_start,
                                  "rule": "id3_padding_nonzero",
                                  "message": f"non-zero bytes in ID3v2 padding "

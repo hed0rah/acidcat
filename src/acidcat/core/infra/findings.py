@@ -126,6 +126,7 @@ ANOMALY_RULES = (
     "id3_padding_nonzero", "dual_endianness", "nonzero_pad", "duplicate_chunk",
     "wrong_format_tag", "embedded_standalone_media", "json_trailing_data",
     "json_unknown_key", "unaccounted_bytes", "lsb_entropy",
+    "id3_swallows_frames",
 )
 # Each rule's kind is what it says about the file. A suspicion (bytes a
 # reader never sees, a second payload, an odd but legal layout) is info: the
@@ -147,6 +148,8 @@ _ANOMALY_KIND = {
     "duplicate_frame": DEFECT,
     # harmless filler, like nonzero_pad (decisions.md, 2026-10-07)
     "id3_padding_nonzero": INFO,
+    # not filler: "padding" holding MPEG frames is a tag size over the audio
+    "id3_swallows_frames": DEFECT,
 }
 assert set(_ANOMALY_KIND) == set(ANOMALY_RULES)
 REGISTRY.update({f"anomaly.{r}": (_ANOMALY_KIND[r], "notice", f"forensic rule {r}")
