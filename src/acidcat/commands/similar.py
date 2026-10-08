@@ -64,7 +64,7 @@ def run(args):
     if target_feats is None:
         from acidcat.util.deps import require
         if not require("librosa", "numpy", group="analysis"):
-            return 1
+            return 2      # a missing extra is could-not-run, as analyze says
         from acidcat.core.analysis.features import extract_audio_features
         target_feats = extract_audio_features(target)
         if target_feats is None:
