@@ -212,9 +212,12 @@ def _run_one(argv):
     # an -o that names an input destroyed it: the report verbs open their
     # output before reading, and carve's field path wrote its bytes over the
     # file. edit and check --fix are exempt: there, -o naming the input is an
-    # in-place edit through the atomic writer, with a backup.
+    # in-place edit through the atomic writer, with a backup -- except
+    # `edit --get`, whose -o is a plain write of what it reads out.
     out = report_to or getattr(args, "output", None)
-    if isinstance(out, str) and args.command not in ("edit", "check"):
+    in_place = (args.command == "check"
+                or (args.command == "edit" and not getattr(args, "get", None)))
+    if isinstance(out, str) and not in_place:
         from acidcat.util import outpath
         if outpath.input_named(out, argv):
             print(f"acidcat {args.command}: {out}: output is the input; "
