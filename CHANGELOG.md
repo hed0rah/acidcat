@@ -6,6 +6,31 @@ adopt [Semantic Versioning](https://semver.org/spec/v2.0.0.html) at 1.0.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-07
+
+acidcat 2.0. From this release `pip install acidcat` installs 2.0; 1.8.x
+stays available as `pip install "acidcat<2"`. 2.0 needs Python 3.11 or newer:
+on 3.10, pip keeps installing 1.8.7.
+
+**Coming from 1.8:** read "Migrating from 1.x" under [2.0.0a1] below. In
+short: every 1.8 verb still runs, as an alias that prints its 2.0 spelling on
+stderr (aliases are removed in 3.0); a handful of flags are gone (`-f`,
+`probe --no-color`, `formats --format-out`, `carve --format`, `--length` or
+`--end` beside a search anchor); exit codes mean one thing everywhere (0 ok, 1
+the answer is no, 2 could not run), and only a defect exits 1; `inspect
+--json` is the versioned Document (docs/contract/node-v1.md). The full 1.8 to
+2.0 table is docs/contract/cli-2.0.md.
+
+2.0.0 is 2.0.0rc2 plus the two fixes below, both found by running it over a
+real sample library of 3,229 files (every reading verb, damaged copies, and
+500 edits on copies, with no crash and the library untouched). The work since
+1.8.7 is in the sections after it: the breaking pass (2.0.0a1), then rounds of
+hunting bugs over real files and a review of the whole release (a2, rc1, rc2).
+
+If 2.0.0 breaks something for you, open an issue: a release that breaks users
+is yanked from PyPI and a 2.0.1 follows; until then `pip install "acidcat<2"`
+gets 1.8.7.
+
 ### Fixed
 
 - **A directory walk takes every format acidcat reads.** `audit DIR`,
