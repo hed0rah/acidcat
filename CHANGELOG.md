@@ -14,6 +14,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **MCP: a misspelt tool argument is an error.** `search_samples` with
+  `query` (the argument is `text`) dropped it and returned every sample,
+  unfiltered; the error now names the unknown argument and the ones the tool
+  takes.
+
 - **Builds keep working after 2027-02-18.** The license metadata is the SPDX
   form (`license = "MIT"`, `license-files`); setuptools drops the old table
   and the license classifier on that date.

@@ -25,6 +25,13 @@ def dispatch(name, arguments):
     returns dict."""
     for t in TOOLS:
         if t["name"] == name:
+            # a misspelt argument was ignored, so search_samples(query="808")
+            # quietly returned every sample: name it and the ones that exist
+            known = set((t["input_schema"].get("properties") or {}))
+            unknown = sorted(set(arguments or {}) - known)
+            if unknown:
+                raise ToolError(f"{name}: unknown argument(s) {', '.join(unknown)}; "
+                                f"it takes: {', '.join(sorted(known)) or 'none'}")
             return t["handler"](arguments or {})
     raise ToolError(f"unknown tool: {name}")
 

@@ -167,6 +167,12 @@ class TestSearchSamplesFanOut:
         with pytest.raises(mcp_server.ToolError, match="invalid search text"):
             mcp_server.dispatch("search_samples", {"text": "foo)"})
 
+    def test_a_misspelt_argument_is_an_error_not_ignored(self, two_lib_setup):
+        # `query` is not an argument (`text` is): it was dropped silently and
+        # the call returned every sample, unfiltered
+        with pytest.raises(mcp_server.ToolError, match=r"unknown argument\(s\) query.*text"):
+            mcp_server.dispatch("search_samples", {"query": "808"})
+
     def test_root_label_scope(self, two_lib_setup):
         r = mcp_server.dispatch("search_samples", {"root": "A"})
         paths = {s["path"] for s in r["samples"]}
