@@ -6,6 +6,18 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`-q` also drops a 1.8 alias's note.** A 1.8 spelling prints its 2.0 form
+  on stderr; with `-q`, which asks for a quiet stderr, it no longer does, so
+  a script running 1.8 commands quietly stays quiet.
+
+### Fixed
+
+- **Builds keep working after 2027-02-18.** The license metadata is the SPDX
+  form (`license = "MIT"`, `license-files`); setuptools drops the old table
+  and the license classifier on that date.
+
 ## [2.0.0] - 2026-10-07
 
 acidcat 2.0. From this release `pip install acidcat` installs 2.0; 1.8.x

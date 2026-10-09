@@ -13,8 +13,9 @@ when a 2.0 flag is not named here.
   row, and `formats`, `explore` and `tui` are counted separately); this page
   follows the table.
 - **Aliases through 2.x.** An old verb or flag marked *alias* keeps working for
-  every 2.x release: it prints one line to stderr naming the new spelling, then
-  runs exactly the new form. Aliases are removed in 3.0. A flag already
+  every 2.x release: it prints one line to stderr naming the new spelling
+  (not under `-q`, which asks for a quiet stderr), then runs exactly the new
+  form. Aliases are removed in 3.0. A flag already
   deprecated in 1.x (`-f`, `--no-color`, `carve --format`, `formats
   --format-out`) is removed in 2.0, and so is `--length` or `--end` beside a
   search anchor, which has no 2.0 spelling; both are marked *removed*.

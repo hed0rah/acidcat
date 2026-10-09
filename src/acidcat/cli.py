@@ -183,7 +183,8 @@ def _dispatch(argv=None):
     except cli_aliases.Removed as e:
         print(f"acidcat: {e}", file=sys.stderr)
         return 2
-    if note:
+    # -q drops what goes to stderr; the alias note is part of that
+    if note and not {"-q", "--quiet"} & set(argv):
         print(note, file=sys.stderr)
     rc = 0
     for cmd in commands:
