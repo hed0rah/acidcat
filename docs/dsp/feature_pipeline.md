@@ -13,7 +13,7 @@ Last updated: 2026-04-23
 `extract_audio_features(filepath)` takes one audio file path and
 returns a flat Python dict of roughly 50 scalar features. That dict
 becomes the row stored in the SQLite `features` table (as a JSON
-blob) or serialized into a CSV row for the `acidcat features`
+blob) or serialized into a CSV row for `acidcat analyze --features`
 command.
 
 The features are used for:
@@ -288,7 +288,7 @@ normalized = scaler.transform(feature_vectors)
 sim = cosine_similarity(normalized_a, normalized_b)
 ```
 
-This is what `acidcat features --ml-ready` does: runs the extraction,
+This is what `acidcat analyze --features` does: runs the extraction,
 then fits and applies a StandardScaler to produce a normalized CSV.
 The MCP `find_similar` tool does not currently do this. Adding
 scaler state to the index (or computing a per-query scaler from the
@@ -415,7 +415,7 @@ JIT compilation. Subsequent calls in the same process are fast.
 This is why the MCP server benefits from the pre-warm pattern
 documented in `architecture.md`.
 
-For batch CLI use (`acidcat features ~/Samples -n 500`), the cold
+For batch CLI use (`acidcat analyze --features ~/Samples --max-files 500`), the cold
 cost amortizes over the batch. For one-off MCP calls it matters.
 
 ---

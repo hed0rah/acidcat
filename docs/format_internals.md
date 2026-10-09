@@ -14,7 +14,7 @@ acidcat has two independent code paths, and they see formats differently:
 - **inspect path** (`acidcat inspect`): from-scratch, zero-dependency walkers in
   `core/walk/*`, dispatched by the canonical sniffer in `core/infra/sniff.py`
   (`sniff_bytes` reads 16 bytes). This path never touches mutagen.
-- **index/extract path** (`acidcat info`/`scan`/`index`): metadata via mutagen
+- **index/extract path** (`acidcat inspect --summary`, `stats --by meta`, `lib index`): metadata via mutagen
   plus the native preset parsers, dispatched by `_sniff_format` in
   `core/catalogue/indexing.py` (also 16 bytes, but a smaller format set: midi, aiff, wav,
   serum, flac, ogg, mp3, mp4, and content-sniffed presets).

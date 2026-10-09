@@ -3776,7 +3776,7 @@ from real discs and verified by decoding to coherent audio.
 
 ### Added
 
-- **Amiga music-format walkers** (`core/walk/amiga.py`), from the acidcat-cassie
+- **Amiga music-format walkers** (`core/walk/amiga.py`), from a real Amiga
   corpus: **SMUS** (IFF `FORM/SMUS`, the Sonix score and Deluxe Music
   Construction Set save format -- SHDR tempo/volume/tracks, NAME, INS1
   instruments, TRAK tracks); **Oktalyzer** (`OKTASONG` -- CMOD channel-split

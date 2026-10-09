@@ -1,5 +1,5 @@
 """Amiga music-format walkers: the formats the MOD/XM/IT tracker walker does not
-cover, harvested from the acidcat-cassie Amiga corpus. All big-endian (68000).
+cover, harvested from a real Amiga corpus. All big-endian (68000).
 
   * SMUS -- IFF `FORM/SMUS`, the Sonix "simple musical score": a sibling of
     8SVX/AIFF. SHDR (tempo/volume/track count), NAME, INS1 instruments, TRAK
