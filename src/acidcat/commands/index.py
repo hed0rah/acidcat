@@ -170,6 +170,13 @@ def _run(args):
         )
         return 2
 
+    if getattr(args, "features", False):
+        # --features without the extra indexed the files and reported every one
+        # as "produced no features", exit 0: say why up front, as could-not-run
+        from acidcat.util.deps import require
+        if not require("librosa", "numpy", group="analysis"):
+            return 2
+
     # registry-management modes (no target required)
     if args.list_libs:
         return _cmd_list(registry_path)

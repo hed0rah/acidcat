@@ -14,6 +14,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A flag that needs a missing extra is exit 2.** `audit --signal` without
+  numpy skipped its checks and exited on the structural answer, and `lib
+  index --features` without the analysis extra indexed every file and called
+  each one "produced no features", exit 0. Both now stop up front with the
+  install hint, as every missing extra does.
+
 - **MCP: a misspelt tool argument is an error.** `search_samples` with
   `query` (the argument is `text`) dropped it and returned every sample,
   unfiltered; the error now names the unknown argument and the ones the tool

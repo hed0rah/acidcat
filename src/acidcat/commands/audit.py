@@ -302,6 +302,12 @@ def run(args):
     and it took a single file while `inspect` next to it took a list."""
     from acidcat.util import targets
     quiet = getattr(args, "quiet", False)
+    if getattr(args, "signal", False):
+        # the signal checks were asked for; without numpy they cannot run,
+        # and a missing extra is could-not-run, not a quiet skip
+        from acidcat.util.deps import require
+        if not require("numpy", group="analysis"):
+            return 2
     if chosen_format(args) != "json":
         return targets.each(args, "input", _run_one, verb="audit",
                             header=not quiet, quiet=quiet)
