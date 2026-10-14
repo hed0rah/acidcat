@@ -6,6 +6,12 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-14
+
+Small fixes after 2.0.0, checked by running the library index and the MCP
+server on a real sample library. No behaviour a 2.0.0 script relies on
+changes, except that `-q` now also silences a 1.8 alias's note.
+
 ### Changed
 
 - **`-q` also drops a 1.8 alias's note.** A 1.8 spelling prints its 2.0 form
@@ -28,6 +34,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Builds keep working after 2027-02-18.** The license metadata is the SPDX
   form (`license = "MIT"`, `license-files`); setuptools drops the old table
   and the license classifier on that date.
+- **Docs** spell every command the 2.0 way (the architecture and DSP notes
+  still used 1.8 verbs, which run as aliases until 3.0).
 
 ## [2.0.0] - 2026-10-07
 
