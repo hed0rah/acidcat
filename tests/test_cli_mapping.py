@@ -192,6 +192,10 @@ def test_an_old_spelling_is_exactly_its_new_form(files, old):
         c, o, e = _run(n)
         want_code, want_out, want_err = max(want_code, c), want_out + o, want_err + e
     assert (code, out) == (want_code, want_out)
+    if {"-q", "--quiet"} & set(old):
+        # -q asks for a quiet stderr, and the note is part of it
+        assert err == want_err
+        return
     # one line more on stderr, first, and nothing else different
     assert err.splitlines()[0] == line
     assert err.split("\n", 1)[1] == want_err
@@ -466,3 +470,17 @@ def test_classify_stops_the_chain_on_a_file_no_walker_reads(tmp_path):
     code, out, _err = _run(["classify", str(txt)])
     assert code == 1 and "unwalked" in out
     assert _run(["inspect", str(txt)])[0] == 2
+
+
+def test_quiet_drops_the_alias_note(tmp_path, capsys):
+    """A 1.8 spelling prints its 2.0 form on stderr; -q is the request for a
+    quiet stderr, so a cron job running 1.8 commands with -q gets none."""
+    from acidcat.cli import main
+    p = tmp_path / "t.wav"
+    p.write_bytes(b"RIFF" + (36).to_bytes(4, "little") + b"WAVEfmt "
+                  + (16).to_bytes(4, "little") + bytes.fromhex("01000100401f0000803e000002001000")
+                  + b"data" + bytes(4))
+    main(["info", str(p)])
+    assert capsys.readouterr().err.strip()
+    main(["info", "-q", str(p)])
+    assert "acidcat" not in capsys.readouterr().err

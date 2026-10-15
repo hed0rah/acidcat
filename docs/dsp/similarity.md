@@ -13,7 +13,7 @@ Last updated: 2026-04-23
 
 **Similarity search**: given a reference sample, return the N
 closest other samples by some distance measure. Implemented against
-the per-library index (features stored by `acidcat index --features`)
+the per-library index (features stored by `acidcat lib index --features`)
 and exposed via the MCP `find_similar` tool.
 
 **Clustering**: given the full feature matrix, partition samples
@@ -72,7 +72,7 @@ std across the indexed population), then cosine.
 ```
 
 Each feature contributes equally to the angle. This is what
-`acidcat features --ml-ready` outputs. The MCP `find_similar`
+`acidcat analyze --features` outputs. The MCP `find_similar`
 tool does NOT currently do this, which is a known gap.
 
 ### Weighted distance

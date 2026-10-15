@@ -62,7 +62,7 @@ per-library storage layout is unchanged since v0.5.0.
 Five layers, each replaceable: scanner, parsers, per-library indexes, registry,
 transports. The DSP subsystem (`detect.py`, `features.py`) hangs off the parser
 layer as an optional extension. Transports share the same query API so that
-`acidcat query --bpm 120:140` and the MCP `search_samples` tool run the same SQL
+`acidcat lib query --bpm 120:140` and the MCP `search_samples` tool run the same SQL
 against every registered library and merge the results.
 
 The v0.4 architecture had a single global `~/.acidcat/index.db` with a
@@ -186,13 +186,13 @@ older 8-char filenames keep working.
 
 ## Data flow: indexing a directory
 
-`acidcat index DIR --label NAME` or its MCP equivalent
+`acidcat lib index DIR --label NAME` or its MCP equivalent
 `register_library` + `reindex`.
 
 ```
 caller                    walker                parser              index
   │                         │                      │                   │
-  │  acidcat index DIR      │                      │                   │
+  │  acidcat lib index DIR  │                      │                   │
   │────────────────────────▶│                      │                   │
   │                         │  os.walk(DIR)        │                   │
   │                         │──────────────┐       │                   │
@@ -231,7 +231,7 @@ matches the one we just walked gets pruned. See the docstring on
 file added near the end of a long walk could be wrongly pruned; re-running
 the index always recovers it.
 
-Bulk registration is available via `acidcat index --discover ROOT
+Bulk registration is available via `acidcat lib index --discover ROOT
 [--min-samples N --max-depth D]` which walks a tree and registers every
 qualifying subfolder as its own library. The MCP equivalent is
 `discover_libraries`, which defaults to `dry_run=true` so a forgetful
@@ -241,7 +241,7 @@ LLM cannot bulk-mutate the registry by omission.
 
 ## Data flow: a query
 
-`acidcat query --bpm 120:140 --key F` and MCP `search_samples` take the
+`acidcat lib query --bpm 120:140 --key F` and MCP `search_samples` take the
 same path through the layers, with fan-out over every registered library.
 
 ```
@@ -311,7 +311,7 @@ handler, annotations)`. The handlers call into the same `core/` functions
 as the CLI counterparts, so no logic is duplicated. For example:
 
 ```
-CLI:   acidcat query --bpm 120:140 --key F --json
+CLI:   acidcat lib query --bpm 120:140 --key F --json
 MCP:   search_samples({ bpm_min: 120, bpm_max: 140, key: "F" })
 ```
 
@@ -492,7 +492,7 @@ CREATE TABLE features (
 );
 ```
 
-Optional. Populated by `acidcat index --features` or the MCP
+Optional. Populated by `acidcat lib index --features` or the MCP
 `reindex_features` tool. Stored as JSON on purpose: the column schema
 for a feature vector changes as librosa versions and extractor choices
 evolve. JSON preserves whatever shape was written, and a version number
@@ -509,7 +509,7 @@ CREATE TABLE scan_roots (
 );
 ```
 
-One row per directory ever passed to `acidcat index`. Tracks provenance:
+One row per directory ever passed to `acidcat lib index`. Tracks provenance:
 when a sample row's `scan_root` points here, the user can remove the
 whole root in one call.
 

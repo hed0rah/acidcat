@@ -126,7 +126,7 @@ pip install acidcat[analysis]
 ```
 
 This pulls in `librosa`, `numpy`, and `scipy`. Without these, `acidcat
-detect`, `acidcat features`, and the MCP `analyze_sample` /
+analyze --bpm-key`, `acidcat analyze --features`, and the MCP `analyze_sample` /
 `detect_bpm_key` / `find_similar` tools return a structured error
 pointing to the install step.
 

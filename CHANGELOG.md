@@ -6,6 +6,44 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-14
+
+Small fixes after 2.0.0, checked by running the library index and the MCP
+server on a real sample library. No behaviour a 2.0.0 script relies on
+changes, except that `-q` now also silences a 1.8 alias's note.
+
+### Changed
+
+- **`-q` also drops a 1.8 alias's note.** A 1.8 spelling prints its 2.0 form
+  on stderr; with `-q`, which asks for a quiet stderr, it no longer does, so
+  a script running 1.8 commands quietly stays quiet.
+
+### Fixed
+
+- **An ACID root note counts as a key only when the chunk says it is set.**
+  Writers leave 60 (C3) in the root field with the "root set" flag (0x02)
+  clear, and acidcat read that default as the key: every such loop indexed as
+  "C" (in a real library, 120 of 120 loops whose file names carried a key had
+  the flag clear and the default root). Re-run `acidcat lib index` on a
+  library to correct its stored keys.
+
+- **A flag that needs a missing extra is exit 2.** `audit --signal` without
+  numpy skipped its checks and exited on the structural answer, and `lib
+  index --features` without the analysis extra indexed every file and called
+  each one "produced no features", exit 0. Both now stop up front with the
+  install hint, as every missing extra does.
+
+- **MCP: a misspelt tool argument is an error.** `search_samples` with
+  `query` (the argument is `text`) dropped it and returned every sample,
+  unfiltered; the error now names the unknown argument and the ones the tool
+  takes.
+
+- **Builds keep working after 2027-02-18.** The license metadata is the SPDX
+  form (`license = "MIT"`, `license-files`); setuptools drops the old table
+  and the license classifier on that date.
+- **Docs** spell every command the 2.0 way (the architecture and DSP notes
+  still used 1.8 verbs, which run as aliases until 3.0).
+
 ## [2.0.0] - 2026-10-07
 
 acidcat 2.0. From this release `pip install acidcat` installs 2.0; 1.8.x
@@ -3753,7 +3791,7 @@ from real discs and verified by decoding to coherent audio.
 
 ### Added
 
-- **Amiga music-format walkers** (`core/walk/amiga.py`), from the acidcat-cassie
+- **Amiga music-format walkers** (`core/walk/amiga.py`), from a real Amiga
   corpus: **SMUS** (IFF `FORM/SMUS`, the Sonix score and Deluxe Music
   Construction Set save format -- SHDR tempo/volume/tracks, NAME, INS1
   instruments, TRAK tracks); **Oktalyzer** (`OKTASONG` -- CMOD channel-split

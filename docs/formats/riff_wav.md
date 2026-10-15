@@ -5,8 +5,8 @@ including ACID loop metadata and SMPL sampler chunks.
 
 Tools in this repo: `acidcat inspect FILE` walks the chunks and lints spec
 violations, `acidcat inspect --hex` prints the raw bytes beside each decoded
-field, `acidcat chunks FILE` gives the chunk table, and
-`acidcat dump FILE acid smpl` hex-dumps named chunks.
+field, `acidcat inspect --chunks FILE` gives the chunk table, and
+`acidcat od FILE acid smpl` hex-dumps named chunks.
 
 ---
 

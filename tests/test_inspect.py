@@ -2276,3 +2276,25 @@ class TestCouldNotRunIsTwo:
         from acidcat.commands import inspect as insp
         monkeypatch.setattr(insp, "_node_ids", lambda *_a, **_k: (None, {}))
         assert main(["inspect", "--json", self._wav(tmp_path)]) == 2
+
+
+def test_an_acid_root_without_the_root_set_flag_is_not_a_key(tmp_path, capsys):
+    """Writers leave 60 (C3) in the root field when the 'root set' flag
+    (0x02) is clear; reading it put "C" on every such loop in a library."""
+    import json
+    from acidcat.cli import main
+    from acidcat.core.walk.wav import inspect_wav as iw
+    path = _wav(tmp_path, _fmt(), _data(), _acid(root=60, flags=0x04))
+    chunks, _ = iw(path)
+    acid = next(c for c in chunks if c["id"] == "acid")
+    assert "root" not in acid["summary"]
+    note = next(f for f in acid["fields"] if f["name"] == "root_note")["note"]
+    assert "not set" in note
+    main(["inspect", "--summary", "--json", path])
+    (row,) = json.loads(capsys.readouterr().out)
+    assert row["key"] is None
+    # with the flag set, the root is the key
+    path2 = _wav(tmp_path, _fmt(), _data(), _acid(root=65, flags=0x02))
+    main(["inspect", "--summary", "--json", path2])
+    (row,) = json.loads(capsys.readouterr().out)
+    assert row["key"] == "F"

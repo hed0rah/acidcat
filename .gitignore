@@ -22,6 +22,8 @@ wheels/
 
 # Virtual environments
 venv/
+.venv/
+.claude/
 ENV/
 env/
 
