@@ -115,7 +115,7 @@ class TestWavWalker:
         parser unpacked '<IHHIII f' and reported acid_beats=0 on every
         spec-conformant file; real loops must surface their beat count.
         """
-        acid_payload = struct.pack("<IHHfIHHf", 0x05, 60, 0x8000, 0.0, 15, 4, 4, 122.0)
+        acid_payload = struct.pack("<IHHfIHHf", 0x07, 60, 0x8000, 0.0, 15, 4, 4, 122.0)  # 0x02: root set
         acid_chunk = b"acid" + struct.pack("<I", 24) + acid_payload
         wav = tmp_path / "acid_loop.wav"
         wav.write_bytes(_wav_bytes(_fmt_chunk(), _data_chunk(), acid_chunk))
@@ -138,7 +138,7 @@ class TestWavWalker:
         beats, and root were silently lost. trailing bytes are ignored.
         """
         acid_payload = struct.pack(
-            "<IHHfIHHf", 0x05, 60, 0x8000, 0.0, 8, 4, 4, 120.0,
+            "<IHHfIHHf", 0x07, 60, 0x8000, 0.0, 8, 4, 4, 120.0,  # 0x02: root set
         ) + b"\x00" * 4  # 28 bytes: 24-byte layout + 4 pad bytes
         acid_chunk = b"acid" + struct.pack("<I", len(acid_payload)) + acid_payload
         wav = tmp_path / "padded_acid.wav"

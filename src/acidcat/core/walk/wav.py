@@ -245,7 +245,14 @@ def _parse_acid(b, ctx):
     flags, root, q1, q2, beats, denom, numer, tempo = struct.unpack_from("<IHHfIHHf", b, 0)
     fields.append(_f(0x00, 4, "type_flags", f"0x{flags:08x}",
                      _flag_names(flags, _ACID_FLAGS), enc="<I", raw=flags))
-    fields.append(_f(0x04, 2, "root_note", root, midi_note_to_name(root) if root else "unset"))
+    # the root is meaningful only with the "root set" flag (0x02): writers
+    # leave 60 (C3) there otherwise, and reading it as the key put "C" on
+    # every such loop in the library (120 of 120 named-key files measured)
+    root_set = bool(flags & 0x02)
+    fields.append(_f(0x04, 2, "root_note", root,
+                     midi_note_to_name(root) if root and root_set
+                     else "unset" if not root
+                     else f"{midi_note_to_name(root)}, not set (flag 0x02 clear)"))
     fields.append(_f(0x06, 2, "unknown1", f"0x{q1:04x}", enc="<H", raw=q1))
     fields.append(_f(0x08, 4, "unknown2", round(q2, 4)))
     fields.append(_f(0x0C, 4, "num_beats", beats))
@@ -254,7 +261,7 @@ def _parse_acid(b, ctx):
     fields.append(_f(0x14, 4, "tempo", round(tempo, 2), "BPM"))
 
     ctx["acid_bpm"] = round(tempo, 2) if tempo else None
-    ctx["acid_root"] = root
+    ctx["acid_root"] = root if root_set else 0
     ctx["acid_beats"] = beats
     ctx["acid_one_shot"] = bool(flags & 0x01)
     if tempo and not (40 <= tempo <= 300):
@@ -286,7 +293,7 @@ def _parse_acid(b, ctx):
                 warns.append(defect("field.inconsistent", said))
     kind = "one-shot" if flags & 0x01 else "loop"
     summary = f"{kind}, {beats} beats, {numer}/{denom}, {tempo:.2f} bpm"
-    if root:
+    if root and root_set:
         summary += f", root {midi_note_to_name(root)}"
     return summary, fields, warns
 

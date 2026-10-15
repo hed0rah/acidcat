@@ -20,6 +20,13 @@ changes, except that `-q` now also silences a 1.8 alias's note.
 
 ### Fixed
 
+- **An ACID root note counts as a key only when the chunk says it is set.**
+  Writers leave 60 (C3) in the root field with the "root set" flag (0x02)
+  clear, and acidcat read that default as the key: every such loop indexed as
+  "C" (in a real library, 120 of 120 loops whose file names carried a key had
+  the flag clear and the default root). Re-run `acidcat lib index` on a
+  library to correct its stored keys.
+
 - **A flag that needs a missing extra is exit 2.** `audit --signal` without
   numpy skipped its checks and exited on the structural answer, and `lib
   index --features` without the analysis extra indexed every file and called
