@@ -65,21 +65,35 @@ def inspect_fxp(filepath):
         fields.append(_f(0x1C, 28, "preset_name", name or "(unnamed)"))
         if name:
             summary = f"'{name}', VST {kind}, plugin {id_str}"
+    if is_bank and len(head) >= 156:
+        current = struct.unpack_from(">I", head, 28)[0]
+        fields.append(_f(0x1C, 4, "current_program", current, enc=">I", raw=current))
+        fields.append(_f(0x20, 124, "reserved", "124 bytes", "reserved by the SDK"))
 
-    chunks = [{"id": "CcnK", "offset": 0, "size": size, "summary": summary,
-               "fields": fields, "warnings": [], "payload_base": 0}]
+    cs_off = 156 if is_bank else 56                   # bank has 128 reserved bytes first
+    chunk_size = None
+    if fx_magic in (b"FPCh", b"FBCh") and len(head) >= cs_off + 4:
+        chunk_size = struct.unpack_from(">I", head, cs_off)[0]
+        fields.append(_f(cs_off, 4, "chunk_size", f"{chunk_size:,}",
+                         "bytes of plugin chunk that follow", enc=">I", raw=chunk_size))
+
+    # the header is the node's own: its payload starts where the described
+    # fields end, so the normaliser does not fill the header in as unwalked
+    hdr = max(fl["off"] + fl["len"] for fl in fields)
+    for fl in fields:
+        fl["off"] -= hdr
+    chunks = [{"id": "CcnK", "offset": 0, "size": size - hdr, "summary": summary,
+               "fields": fields, "warnings": [], "payload_base": hdr,
+               "payload_len": size - hdr, "extent_len": size}]
 
     # opaque-chunk variants carry a length-prefixed plugin blob
-    if fx_magic in (b"FPCh", b"FBCh"):
-        cs_off = 156 if is_bank else 56               # bank has 128 reserved bytes first
-        if len(head) >= cs_off + 4:
-            chunk_size = struct.unpack_from(">I", head, cs_off)[0]
-            data_off = cs_off + 4
-            # data_off already points past the 4-byte size field, so the
-            # payload begins there and `size` is all of it.
-            chunks.append({"id": "chunk", "offset": data_off,
-                           "size": max(0, min(chunk_size, size - data_off)),
-                           "payload_base": data_off,
-                           "summary": f"opaque plugin chunk, {chunk_size:,} bytes",
-                           "fields": [], "warnings": []})
+    if chunk_size is not None:
+        data_off = cs_off + 4
+        # data_off already points past the 4-byte size field, so the
+        # payload begins there and `size` is all of it.
+        chunks.append({"id": "chunk", "offset": data_off,
+                       "size": max(0, min(chunk_size, size - data_off)),
+                       "payload_base": data_off,
+                       "summary": f"opaque plugin chunk, {chunk_size:,} bytes",
+                       "fields": [], "warnings": []})
     return chunks, warns

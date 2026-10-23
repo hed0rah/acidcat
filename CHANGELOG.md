@@ -175,6 +175,13 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   format is `wav`. Other containers behind a tag are still refused, and
   `check` still leaves these files alone.
 
+- **An `.fxp` header counts as walked.** The `CcnK` node's fields describe
+  the 60-byte header, but its payload started at byte 0, so the Document
+  filled the header in as `unwalked` and every `.fxp` scored 0% of its bytes
+  read. The header now sits before the node's payload, as a RIFF root's
+  does, and the opaque chunk's length and a bank's current program and
+  reserved bytes are fields of their own.
+
 ## [2.0.1] - 2026-10-14
 
 Small fixes after 2.0.0, checked by running the library index and the MCP

@@ -130,6 +130,42 @@ def test_fxp_vst_preset(tmp_path):
     assert "My Preset" in str(_field(chunks, "preset_name"))
 
 
+def _fxp(fx_magic=b"FPCh", count=1, body=struct.pack(">I", 8) + bytes(8)):
+    head = (b"CcnK" + struct.pack(">I", 0) + fx_magic + struct.pack(">I", 1)
+            + b"XfsX" + struct.pack(">I", 1) + struct.pack(">I", count))
+    if fx_magic in (b"FxCk", b"FPCh"):
+        head += b"My Preset".ljust(28, b"\x00")
+    else:
+        head += struct.pack(">I", 0) + bytes(124)       # current program, reserved
+    data = head + body
+    return data[:4] + struct.pack(">I", len(data) - 8) + data[8:]
+
+
+def test_fxp_header_bytes_are_walked(tmp_path):
+    """The census scored every .fxp at 0% walked: the CcnK node's fields
+    describe its 60-byte header, but the node's payload started at 0, so the
+    normaliser filled the header in as `unwalked`, 60 bytes no node
+    describes. The header is the node's own, before its payload."""
+    from acidcat.core.infra import contract
+    from acidcat.core.infra.source import BytesSource
+    for magic, body, header in ((b"FPCh", struct.pack(">I", 8) + bytes(8), 60),
+                                (b"FBCh", struct.pack(">I", 8) + bytes(8), 160),
+                                (b"FxCk", struct.pack(">f", 0.5), 56)):
+        data = _fxp(magic, body=body)
+        doc = contract.walk(BytesSource(data, name="p.fxp"))
+        root = doc["nodes"][0]
+        assert root["name"] == "CcnK"
+        assert root["extent"] == {"layer": 0, "off": 0, "len": len(data)}
+        assert root["payload"]["off"] == header, magic
+        at = {f["key"]: f["at"]["off"] for f in root["fields"] if "at" in f}
+        assert at["magic"] == 0 and at["plugin_id"] == 16, magic
+        if magic != b"FxCk":
+            assert at["chunk_size"] == header - 4
+        gaps = [(n["extent"]["off"], n["extent"]["len"])
+                for n in contract.iter_nodes(doc) if n["kind"] == "unwalked"]
+        assert gaps == [], (magic, gaps)
+
+
 def test_rx2_recycle_loop(tmp_path):
     # RX2: CAT/REX2 group; slice markers (SLCE) live in a nested CAT/SLCL group
     def bu32(n):
