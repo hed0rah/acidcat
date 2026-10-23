@@ -362,6 +362,32 @@ def _id3_wraps_other_container(filepath):
     return nxt in _ID3_WRAPPED_MAGICS
 
 
+def id3_wrapped(filepath):
+    """(tag length, format id of what follows it) for a file whose leading
+    ID3v2 tag wraps another container, or None. The id is what `sniff_bytes`
+    calls the bytes after the tag, and may be None."""
+    from acidcat.core.formats import mp3 as mp3mod
+    hdr = mp3mod.read_id3v2(filepath)
+    if not hdr:
+        return None
+    with open_input(filepath) as f:
+        f.seek(hdr["total"])
+        nxt = f.read(20)
+    if nxt[:4] not in _ID3_WRAPPED_MAGICS:
+        return None
+    return hdr["total"], sniff_bytes(nxt)
+
+
+def walked_format(filepath, fmt):
+    """The format id a walk of `filepath` reads it as, given its sniff `fmt`:
+    the same id, except that an ID3v2 tag around a WAV walks as that WAV."""
+    if fmt == "id3-wrapped":
+        wrapped = id3_wrapped(filepath)
+        if wrapped is not None and wrapped[1] == "wav":
+            return "wav"
+    return fmt
+
+
 def _second_frame_follows(filepath, head):
     """Corroborate a bare MPEG frame sync with the next frame.
 

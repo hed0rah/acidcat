@@ -235,7 +235,7 @@ def _walk(filepath, deep, fmt_override):
     else:
         fmt = sniffmod.sniff(filepath)
         if fmt == "id3-wrapped":
-            raise Unsupported("ID3 tag wraps a non-MP3 container; not supported")
+            return _walk_id3_wrapped(filepath, deep)
         entry = _WALKERS.get(fmt)
     if entry is None:
         # no specific walker: try generic structural triage before giving up, so
@@ -296,6 +296,71 @@ def _walk(filepath, deep, fmt_override):
                 list(file_warns)
                 + [error("geometry.error",
                          f"geometry error ({fmt}): {e.__class__.__name__}: {e}")])
+
+
+def _walk_id3_wrapped(src, deep):
+    """An ID3v2 tag in front of a RIFF/WAVE (a sample pack shipped ~100 of
+    them): the tag is a chunk at 0, and the WAV is walked from where the tag
+    ends with its offsets moved onto the file's. Sniff keeps the
+    `id3-wrapped` sentinel, so nothing that reads RIFF at offset 0 (the
+    editor, check --fix) is handed one. Any other wrapped container is still
+    refused."""
+    from acidcat.core.infra import contract
+    from acidcat.core.infra.findings import info
+    from acidcat.core.formats import mp3 as mp3mod
+    wrapped = sniffmod.id3_wrapped(src)
+    if wrapped is None or wrapped[1] != "wav":
+        raise Unsupported("ID3 tag wraps a non-MP3 container; not supported")
+    tag = wrapped[0]
+    inner = BytesSource(src.view(tag, src.size - tag), name=src.name)
+    label, chunks, warns = walk_file(inner, deep)
+    # the RIFF root the Document would give a WAV at offset 0, with the keys
+    # a walker's chunk carries (size is the payload, as geometry reads it)
+    walked = len(chunks)
+    chunks = contract._iff_root(inner.buffer(), chunks)
+    for c in chunks[walked:]:
+        c.setdefault("size", c["payload_len"])
+        c.setdefault("warnings", [])
+        c["fields"] = [dict(f, note=f.get("note", "")) for f in c["fields"]]
+    # the root first, as the tree reads: tag, RIFF, then the RIFF's chunks
+    moved = [_moved(c, tag) for c in chunks[walked:] + chunks[:walked]]
+    fields, id3_warns = mp3._id3v2_frames(src, mp3mod.read_id3v2(src))
+    head = {"id": "ID3v2", "offset": 0, "size": tag,
+            "summary": f"ID3v2 tag, {tag:,} bytes, in front of the RIFF",
+            "fields": fields, "warnings": id3_warns,
+            "payload_base": 0}            # ID3 field offsets are absolute
+    geometry.normalize([head], src.size)
+    note = info("convention.noted",
+                f"an ID3v2 tag ({tag:,} bytes) precedes the RIFF container; "
+                f"the WAV is walked from {tag:#x}")
+    return label, [head] + moved, [note] + list(warns)
+
+
+def _moved(chunk, by):
+    """A walked chunk with its file positions moved `by` bytes. Field offsets
+    are relative to payload_base and move with it; a decoded layer's chunks
+    live in the layer and stay."""
+    c = dict(chunk)
+    for key in ("offset", "payload_base"):
+        if isinstance(c.get(key), int):
+            c[key] += by
+    if c.get("fields"):
+        c["fields"] = [dict(f, xref=f["xref"] + by)
+                       if isinstance(f.get("xref"), int) else f for f in c["fields"]]
+    if c.get("rows"):
+        rows = []
+        for r in c["rows"]:
+            off = r.get("offset")
+            if isinstance(off, int):
+                r = dict(r, offset=off + by)
+            elif isinstance(off, str):
+                try:
+                    r = dict(r, offset=hex(int(off, 0) + by))
+                except ValueError:
+                    pass
+            rows.append(r)
+        c["rows"] = rows
+    return c
 
 
 def walk_bytes(data, deep=False, fmt_override=None, suffix=".bin",

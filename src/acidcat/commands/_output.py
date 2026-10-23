@@ -119,7 +119,7 @@ def format_of(path):
     from acidcat.core.infra import sniff as sniffmod
     from acidcat.core.walk import _WALKERS
     try:
-        fid = sniffmod.sniff(path)
+        fid = sniffmod.walked_format(path, sniffmod.sniff(path))
     except (OSError, ValueError):
         fid = None
     if not fid:

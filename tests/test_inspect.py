@@ -1259,13 +1259,40 @@ class TestRunCli:
         assert "MP3/MPEG audio" in out
 
     def test_id3_wrapped_wav_not_dispatched_as_mp3(self, tmp_path, capsys):
-        # an ID3v2 tag prepended to a RIFF/WAVE must not be claimed as MP3.
+        # an ID3v2 tag prepended to a RIFF/WAVE must not be claimed as MP3;
+        # it walks as the WAV it holds
         wav = b"RIFF" + struct.pack("<I", 4 + len(_fmt()) + len(_data(4))) \
             + b"WAVE" + _fmt() + _data(4)
         p = tmp_path / "x.wav"
         p.write_bytes(_id3v2(_id3_text_frame(b"TIT2", "x")) + wav)
-        assert run(self._args(str(p))) == 2   # no walker reads it: could not run (review R5)
-        assert "not" in capsys.readouterr().err.lower()
+        assert run(self._args(str(p))) == 0
+        out = capsys.readouterr().out
+        assert "MP3" not in out and "RIFF/WAVE" in out
+
+    def test_id3_wrapped_wav_walks_at_true_offsets(self, tmp_path):
+        """A sample pack shipped ~100 WAVs with an ID3v2 tag in front of a
+        plain RIFF/WAVE; inspect refused every one. The tag is its own node at
+        0 and the RIFF is walked after it, every locator a file offset."""
+        from acidcat.core.infra import contract
+        wav = b"RIFF" + struct.pack("<I", 4 + len(_fmt()) + len(_data(4))) \
+            + b"WAVE" + _fmt(rate=48000) + _data(4)
+        tag = _id3v2(_id3_text_frame(b"TIT2", "wrapped"))
+        p = tmp_path / "x.wav"
+        p.write_bytes(tag + wav)
+        doc = contract.walk(str(p))
+        assert doc["format"]["id"] == "wav"
+        roots = {n["name"]: n for n in doc["nodes"]}
+        assert roots["ID3v2"]["extent"] == {"layer": 0, "off": 0, "len": len(tag)}
+        riff = roots["RIFF"]
+        assert riff["extent"] == {"layer": 0, "off": len(tag), "len": len(wav)}
+        fmt = next(n for n in riff["children"] if n["name"] == "fmt")
+        rate = next(f for f in fmt["fields"] if f["key"] == "sample_rate")
+        assert rate["value"] == 48000
+        off = rate["at"]["off"]
+        assert struct.unpack_from("<I", p.read_bytes(), off)[0] == 48000
+        assert not [n for n in contract.iter_nodes(doc) if n["kind"] == "unwalked"]
+        assert any(f["code"] == "convention.noted" and "ID3v2" in f["message"]
+                   for f in doc["findings"])
 
     def test_adts_aac_not_dispatched_as_mp3(self, tmp_path, capsys):
         # raw ADTS AAC: sync 0xFFF but layer bits 00. the old 11-bit-sync

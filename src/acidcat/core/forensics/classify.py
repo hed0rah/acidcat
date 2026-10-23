@@ -163,7 +163,7 @@ def classify(path, *, deep=True):
     with open(path, "rb") as f:
         head = f.read(64)
 
-    fmt = sniffmod.sniff(path)
+    fmt = sniffmod.walked_format(path, sniffmod.sniff(path))
     ev = {"size": size, "sniff": fmt}
 
     # 1. a format we walk. Disc images and sector dumps are containers by nature.

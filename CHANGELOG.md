@@ -167,6 +167,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `RTKR` domain included) and notes that the metadata is absent; the item
   data stays undecoded and reads as unwalked.
 
+- **A WAV behind an ID3v2 tag walks.** A sample pack shipped about 100 WAVs
+  with an ID3v2 tag written in front of a plain RIFF/WAVE, and `inspect`
+  refused each one ("ID3 tag wraps a non-MP3 container; not supported").
+  The tag is now a node at offset 0 and the RIFF is walked after it, every
+  offset a file offset, with a note that the tag is there; the Document's
+  format is `wav`. Other containers behind a tag are still refused, and
+  `check` still leaves these files alone.
+
 ## [2.0.1] - 2026-10-14
 
 Small fixes after 2.0.0, checked by running the library index and the MCP
