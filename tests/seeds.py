@@ -1351,6 +1351,17 @@ def ni_hsin(name="Seed", author="Nobody", vendor="Seeds", description="",
     return _hsin_frame(118, children=[(domain, info)])
 
 
+def ni_reaktor_module(body=b"\x07" * 64, tail=b"\x01\x00\x00\x00" * 8,
+                      old_layout=False, **info):
+    """A Reaktor instrument (.ism): an `NRKT` header (or the older layout's
+    0x3a lead), the class record `[`, u32 7, `KSModul`, an opaque module
+    body, an hsin frame holding the NI metadata (`info` as for ni_hsin), then
+    Reaktor's own trailing bytes."""
+    record = b"\x5b" + struct.pack("<I", 7) + b"KSModul"
+    head = (b"\x3a\x01\x01\x00\x00" if old_layout else b"NRKT" + bytes(42)) + record
+    return head + body + ni_hsin(**info) + tail
+
+
 def ni_ksd(**tags):
     """An old .ksd (Absynth / KORE): `-in-`, then compSize and uncompSize
     ahead of a zlib stream holding the NI_DOC_HEADER and its XML. `tags`

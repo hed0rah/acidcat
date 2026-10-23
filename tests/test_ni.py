@@ -213,6 +213,61 @@ def test_an_hsin_tree_without_metadata_still_walks():
     assert sum(n["extent"]["len"] for n in gaps) == 40 + 3 * 12
 
 
+def test_a_reaktor_instrument_sniffs_by_its_class_record():
+    """497 Reaktor .ism read as unknown: the sniff looked for hsin at 0x0C,
+    and an instrument opens with `NRKT` (or an older 0x3a lead) and the
+    KSModul class record, its NI metadata kilobytes before the end."""
+    import seeds
+    from acidcat.core.infra.sniff import sniff
+    from acidcat.core.infra.source import BytesSource
+    for old in (False, True):
+        data = seeds.ni_reaktor_module(old_layout=old)
+        assert sniff(BytesSource(data, name="x.ism")) == "ni", old
+    # the class record is the evidence; neither half alone claims a file
+    record = b"\x5b" + struct.pack("<I", 7) + b"KSModul"
+    for data in (b"NRKT" + bytes(200),                       # no class record
+                 b"\x00" * 46 + record + bytes(200),         # not a Reaktor lead
+                 b"NRKT" + bytes(200) + record + bytes(64)):  # record too far in
+        assert sniff(BytesSource(data, name="x.ism")) is None, data[:8]
+
+
+def test_a_reaktor_instrument_surfaces_its_trailing_metadata():
+    import seeds
+    from acidcat.core.infra import contract
+    from acidcat.core.infra.source import BytesSource
+    from acidcat.core.walk import walk_bytes
+    data = seeds.ni_reaktor_module(name="Init Snapshot", author="Nobody")
+    frame_at = data.index(b"hsin") - 12
+    label, chunks, warns = walk_bytes(data, suffix=".ism")
+    assert label == "Native Instruments preset"
+    assert [c["id"] for c in chunks[:2]] == ["NRKT", "class"]
+    assert chunks[1]["offset"] == 46
+    assert "Reaktor instrument" in chunks[0]["summary"]
+    meta = next(c for c in chunks if c["offset"] == frame_at and c["id"] == "hsin")
+    vals = {f["name"]: f["value"] for f in meta["fields"]}
+    assert vals["name"] == "Init Snapshot" and vals["author"] == "Nobody"
+    assert vals["frame_size"] == len(seeds.ni_hsin(name="Init Snapshot",
+                                                   author="Nobody"))
+    from acidcat.util import targets
+    assert {".ism", ".ens"} <= targets.KNOWN_EXTS     # a directory walk takes them
+    doc = contract.walk(BytesSource(data, name="x.ism"))
+    assert doc["format"]["id"] == "ni"
+    gaps = [(n["extent"]["off"], n["extent"]["len"])
+            for n in doc["nodes"] if n["kind"] == "unwalked"]
+    # the header's middle, the module body and Reaktor's tail stay unread
+    assert gaps == [(4, 42), (58, 64), (frame_at + meta["extent_len"], 32)]
+
+
+def test_a_reaktor_instrument_without_a_metadata_frame_still_walks():
+    import seeds
+    from acidcat.core.walk import walk_bytes
+    data = seeds.ni_reaktor_module()
+    data = data[:data.index(b"hsin") - 12]
+    _label, chunks, warns = walk_bytes(data, suffix=".ism")
+    assert [c["id"] for c in chunks] == ["NRKT", "class"]
+    assert any("no hsin metadata frame" in w for w in warns)
+
+
 def test_garbage_behind_the_hsin_magic_is_still_refused():
     from acidcat.core.walk import Unsupported, walk_bytes
     data = bytearray(_reaktor_like_tree())

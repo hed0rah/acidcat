@@ -32,6 +32,11 @@ _KONTAKT_TRAILER_CAP = 1 << 20
 # ensemble's outer tree is under a dozen frames (the rest is compressed)
 _HSIN_FRAME_CAP = 512
 _HSIN_DEPTH_CAP = 128
+# how much of a Reaktor instrument's end is searched for its NI metadata
+# frame (the furthest of 497 real ones began 7 MB from the end), and how many
+# hsin magics in it are tried as a frame
+_REAKTOR_TAIL_CAP = 16 * 1024 * 1024
+_REAKTOR_SCAN_CAP = 1 << 14
 
 _NCW_MAGIC = b"\x01\xa8\x9e\xd6"
 _MAGIC_OF = {name: magic for magic, (name, _l, _h) in ncmod.OBJECTS.items()}
@@ -49,6 +54,9 @@ def inspect_ni(filepath, deep=False):
         return _inspect_kontakt(filepath, file_size, head, deep)
     if ncmod.is_container(head):
         return _inspect_container(filepath, file_size, 0, deep)
+    at = nimod.reaktor_module_at(head)
+    if at is not None:
+        return _inspect_reaktor(filepath, file_size, head, at)
     with _open(filepath) as f:
         data = f.read(min(file_size, 16 * 1024 * 1024))
     if nimod.is_ni_ksd(data):
@@ -179,6 +187,89 @@ def _frame_chunks(frames, problem, warns, root_id="hsin"):
     elif problem:
         warns.append(defect("parse.failed", f"frame tree: {problem}"))
     return chunks
+
+
+# ── Reaktor instruments (.ism) ──
+
+_META_ORDER = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
+               "description", "device_type", "version", "tempo", "genre", "key"]
+
+
+def _inspect_reaktor(filepath, file_size, head, at):
+    """A Reaktor instrument: its header and class record, and the NI metadata
+    frame near the end of the file. The module body between them is
+    Reaktor's own structure graph and is not decoded."""
+    chunks = []
+    if head[:4] == nimod.REAKTOR_MAGIC:
+        chunks.append({"id": "NRKT", "offset": 0, "size": 4, "payload_base": 0,
+                       "summary": "Reaktor instrument (KSModul)",
+                       "fields": [_f(0, 4, "magic", "NRKT")], "warnings": []})
+    chunks.append({"id": "class", "offset": at, "size": 12, "payload_base": at,
+                   "summary": "class record: KSModul, a Reaktor instrument",
+                   "fields": [_f(0, 1, "tag", "0x5b"),
+                              _f(1, 4, "length", 7, enc="<I", raw=7),
+                              _f(5, 7, "class", "KSModul")],
+                   "warnings": []})
+    if len(chunks) == 1:
+        chunks[0]["summary"] = "Reaktor instrument (KSModul), older layout"
+    warns = []
+    f, read_at = _reader(filepath)
+    with f:
+        found = _trailing_frames(read_at, file_size, warns)
+    if not found:
+        warns.append(info("decode.partial",
+                          "no hsin metadata frame was found; the module body is "
+                          "not decoded"))
+        return chunks, warns
+    warns.append(info("decode.partial",
+                      "the module body (Reaktor's structure graph) is not decoded"))
+    for frames, problem, meta in found:
+        fchunks = _frame_chunks(frames, problem, warns)
+        top = fchunks[0]
+        top["summary"] = "NI metadata frame" + (f": '{meta['name']}'"
+                                                if meta.get("name") else "")
+        top["fields"] += [_f(None, 0, k, str(meta[k])) for k in _META_ORDER
+                          if meta.get(k)]
+        top["fields"] += [_f(None, 0, k, str(v)) for k, v in meta.items()
+                          if k not in _META_ORDER]
+        chunks += fchunks
+        if meta.get("version"):
+            chunks[0]["summary"] += f", written by Reaktor {meta['version']}"
+    return chunks, warns
+
+
+def _trailing_frames(read_at, file_size, warns):
+    """The outermost hsin trees in the last _REAKTOR_TAIL_CAP bytes, each as
+    (frames, problem, metadata), in file order. A magic counts only where a
+    whole frame tree reads from it."""
+    window = min(file_size, _REAKTOR_TAIL_CAP)
+    base = file_size - window
+    tail = read_at(base, window)
+    if window < file_size:
+        warns.append(hit("read_bytes", _REAKTOR_TAIL_CAP, file_size,
+                         f"the NI metadata frame was looked for in the last "
+                         f"{_REAKTOR_TAIL_CAP:,} of {file_size:,} bytes"))
+    found, looked = [], 0
+    pos = tail.rfind(nimod.MAGIC)
+    while pos >= 12:
+        looked += 1
+        if looked > _REAKTOR_SCAN_CAP:
+            warns.append(hit("work_steps", _REAKTOR_SCAN_CAP, looked,
+                             f"the search for the NI metadata frame stopped after "
+                             f"{_REAKTOR_SCAN_CAP:,} hsin magics"))
+            break
+        fo = base + pos - 12
+        frames, problem = nimod.read_frames(read_at, fo, file_size, _HSIN_FRAME_CAP,
+                                            _HSIN_DEPTH_CAP)
+        if frames and problem in (None, "frames", "depth"):
+            end = fo + frames[0]["size"]
+            # a tree found earlier that this one holds is one of its frames
+            found = [t for t in found if not fo < t[0][0]["at"] < end]
+            meta = nimod.parse_hsin(tail[fo - base:end - base]) or {}
+            found.append((frames, problem, meta))
+        pos = tail.rfind(nimod.MAGIC, 0, pos)
+    found.reverse()
+    return found
 
 
 # ── Kontakt 2-4 patches ──

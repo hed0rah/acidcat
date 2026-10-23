@@ -694,6 +694,22 @@ def _hsin_deep(tmp_path, n):
     return str(p)
 
 
+def _reaktor_long(tmp_path, n):
+    """A Reaktor instrument longer than n bytes."""
+    import seeds
+    p = tmp_path / "long.ism"
+    p.write_bytes(seeds.ni_reaktor_module(body=b"\x07" * n))
+    return str(p)
+
+
+def _reaktor_many_magics(tmp_path, n):
+    """A Reaktor instrument whose tail holds n stray hsin magics."""
+    import seeds
+    p = tmp_path / "magics.ism"
+    p.write_bytes(seeds.ni_reaktor_module(tail=b"hsin" * n))
+    return str(p)
+
+
 def _kontakt_nested(tmp_path, n):
     """Kontakt patches nested n deep inside each other's containers."""
     import test_kontakt as tk
@@ -1541,6 +1557,10 @@ SWEPT = [
     ("acidcat.core.walk.ni", "_HSIN_FRAME_CAP", 4, _hsin_many_frames,
      "have a chunk each"),
     ("acidcat.core.walk.ni", "_HSIN_DEPTH_CAP", 4, _hsin_deep, "nest more than"),
+    ("acidcat.core.walk.ni", "_REAKTOR_TAIL_CAP", 64, _reaktor_long,
+     "looked for in the last"),
+    ("acidcat.core.walk.ni", "_REAKTOR_SCAN_CAP", 4, _reaktor_many_magics,
+     "hsin magics"),
     ("acidcat.core.walk.dsd", "_MARKER_CAP", 4, _dff_many_markers,
      "listing the first"),
 ]

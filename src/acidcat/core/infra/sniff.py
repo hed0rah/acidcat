@@ -486,6 +486,14 @@ def sniff(filepath):
         # A real stream has a second frame exactly frame_length away; one lucky
         # byte pair does not. Costs one 4-byte read, and only on this path.
         fmt = None
+    # a Reaktor instrument (.ism) has no hsin at 0x0C: it opens `NRKT` (or
+    # 0x3a) and names its class, KSModul, within the first 128 bytes, past
+    # the shared head; its NI metadata frame sits near the end of the file
+    if fmt is None and (head[:4] == b"NRKT" or head[:1] == b"\x3a"):
+        from acidcat.core.formats import ni as nimod
+        with open_input(filepath) as f:
+            if nimod.reaktor_module_at(f.read(128)) is not None:
+                return "ni"
     # An LHA archive is how nearly every .ym ships, but LHA holds anything:
     # an .lzh of NSF files has the same five bytes at offset 2. The level
     # byte sits just past the shared head, so this reads the member header

@@ -46,6 +46,7 @@ TRACKER_EXTS = frozenset({
 PRESET_EXTS = frozenset({
     ".bwpreset", ".bwclip", ".bwproject",
     ".vital", ".nmsv", ".nabs", ".nksf", ".nkm", ".nki", ".nrkt", ".nbkt",
+    ".ens", ".ism",
     ".ncw", ".nfm8", ".fxp", ".fxb", ".adg", ".adv", ".alc", ".als", ".amxd",
     ".asd", ".agr", ".krz", ".akp", ".e4b", ".e5b", ".pgm", ".snd",
 })

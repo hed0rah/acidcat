@@ -157,6 +157,26 @@ def is_ni_ksd(data):
     return data[:4] == KSD_MAGIC
 
 
+# ── Reaktor instruments (.ism) ──
+
+# the class record: a 0x5b tag, u32 length 7, "KSModul". In 497 real .ism it
+# sits at 46-49 behind an `NRKT` header, or at 5 or 13 in the older layout
+# that opens 0x3a; it is also in Reaktor's .mdl and .rcc, and in nothing else
+# across a 64,743-file synth library
+REAKTOR_MODULE_CLASS = b"\x5b\x07\x00\x00\x00KSModul"
+REAKTOR_MAGIC = b"NRKT"
+_REAKTOR_CLASS_WINDOW = 128
+
+
+def reaktor_module_at(head):
+    """Offset of the KSModul class record in a Reaktor instrument's first
+    bytes, or None when the head is not one."""
+    if head[:4] != REAKTOR_MAGIC and head[:1] != b"\x3a":
+        return None
+    at = bytes(head[:_REAKTOR_CLASS_WINDOW]).find(REAKTOR_MODULE_CLASS)
+    return at if at >= 0 else None
+
+
 # ── hsin frame tree, read for its structure ──
 
 FRAME_HEADER = 0x30

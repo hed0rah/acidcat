@@ -182,6 +182,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   does, and the opaque chunk's length and a bank's current program and
   reserved bytes are fields of their own.
 
+- **Reaktor instruments (`.ism`) are recognised.** All 497 in a synth
+  library read as unknown: the sniff looked for `hsin` at 0x0C, and an
+  instrument opens with `NRKT` (or an older 0x3a lead) and its `KSModul`
+  class record, its NI metadata in an hsin frame kilobytes before the end.
+  The class record in the first 128 bytes is the sniff (it matched only
+  Reaktor files across 64,743); `inspect` shows the header, the class
+  record and the metadata frame (name, product, version), searched for in
+  the last 16 MB, and says the module body is not decoded. A directory walk
+  now takes `.ism` and `.ens`.
+
 ## [2.0.1] - 2026-10-14
 
 Small fixes after 2.0.0, checked by running the library index and the MCP
