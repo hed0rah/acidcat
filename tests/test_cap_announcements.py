@@ -674,6 +674,26 @@ def _tal_many(tmp_path, n):
     return str(p)
 
 
+def _hsin_many_frames(tmp_path, n):
+    """An hsin tree with no SoundInfoItem and n child frames."""
+    import seeds
+    kids = [(b"RTKR", seeds._hsin_frame(5)) for _ in range(n)]
+    p = tmp_path / "many.ens"
+    p.write_bytes(seeds._hsin_frame(118, children=kids))
+    return str(p)
+
+
+def _hsin_deep(tmp_path, n):
+    """An hsin tree with no SoundInfoItem, its frames nested n deep."""
+    import seeds
+    tree = seeds._hsin_frame(5)
+    for _ in range(n):
+        tree = seeds._hsin_frame(5, children=[(b"RTKR", tree)])
+    p = tmp_path / "deep.ens"
+    p.write_bytes(tree)
+    return str(p)
+
+
 def _kontakt_nested(tmp_path, n):
     """Kontakt patches nested n deep inside each other's containers."""
     import test_kontakt as tk
@@ -1518,6 +1538,9 @@ SWEPT = [
      "stopped there"),
     ("acidcat.core.walk.ni", "_NI_OBJECT_CHUNK_CAP", 4, _nkx_many_files,
      "summarised"),
+    ("acidcat.core.walk.ni", "_HSIN_FRAME_CAP", 4, _hsin_many_frames,
+     "have a chunk each"),
+    ("acidcat.core.walk.ni", "_HSIN_DEPTH_CAP", 4, _hsin_deep, "nest more than"),
     ("acidcat.core.walk.dsd", "_MARKER_CAP", 4, _dff_many_markers,
      "listing the first"),
 ]

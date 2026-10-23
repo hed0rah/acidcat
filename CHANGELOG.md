@@ -157,6 +157,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   any of its 32. Checked on 9,648 real dumps: every header, byte count and
   checksum agrees, and the INIT VOICE decodes to its published values.
 
+### Fixed
+
+- **An hsin file with no preset metadata walks.** A Reaktor 6 ensemble's
+  frame tree holds no SoundInfoItem, so there was no name to read, and
+  `inspect` refused it ("not a recognized Native Instruments preset") while
+  `classify` called it walkable: 14 of 40 sampled `.ens`. The walker now
+  shows every frame (its reference, header and item records, Reaktor's
+  `RTKR` domain included) and notes that the metadata is absent; the item
+  data stays undecoded and reads as unwalked.
+
 ## [2.0.1] - 2026-10-14
 
 Small fixes after 2.0.0, checked by running the library index and the MCP

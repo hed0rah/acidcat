@@ -28,6 +28,10 @@ _NI_OBJECT_CHUNK_CAP = 512
 _NI_NEST_CAP = 4
 # the soundinfo trailer read after a patch body; real ones are a few hundred bytes
 _KONTAKT_TRAILER_CAP = 1 << 20
+# hsin frames given a chunk each, and how deep they may nest; a Reaktor 6
+# ensemble's outer tree is under a dozen frames (the rest is compressed)
+_HSIN_FRAME_CAP = 512
+_HSIN_DEPTH_CAP = 128
 
 _NCW_MAGIC = b"\x01\xa8\x9e\xd6"
 _MAGIC_OF = {name: magic for magic, (name, _l, _h) in ncmod.OBJECTS.items()}
@@ -53,6 +57,9 @@ def inspect_ni(filepath, deep=False):
         meta, kind = nimod.parse_nksf(data), "nksf"
     else:
         meta, kind = nimod.parse_hsin(data), "hsin"
+    if not meta and kind == "hsin" and nimod.is_ni_hsin(data):
+        # a tree with no SoundInfoItem (a Reaktor 6 ensemble) is still a tree
+        return _hsin_structure(filepath, file_size)
     if not meta:
         raise _Unsupported("not a recognized Native Instruments preset")
     order = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
@@ -78,6 +85,100 @@ def inspect_ni(filepath, deep=False):
                                          if nested else "opaque")],
                            "warnings": []})
     return chunks, []
+
+
+# ── the hsin frame tree, walked for its structure ──
+
+def _hsin_structure(filepath, file_size):
+    """An hsin tree whose metadata could not be read: every frame as a chunk,
+    with its header and item records, and a note that there is no metadata."""
+    f, read_at = _reader(filepath)
+    with f:
+        frames, problem = nimod.read_frames(read_at, 0, file_size, _HSIN_FRAME_CAP,
+                                           _HSIN_DEPTH_CAP)
+    if not frames:
+        raise _Unsupported("not a recognized Native Instruments preset")
+    warns = [info("decode.partial",
+                  "the frame tree holds no SoundInfoItem (name, author, vendor); "
+                  "its frames are walked, their item data is not decoded")]
+    chunks = _frame_chunks(frames, problem, warns)
+    end = frames[0]["size"]
+    if end < file_size:
+        warns.append(info("container.trailing",
+                          f"{file_size - end:,} bytes follow the root frame"))
+    return chunks, warns
+
+
+def _frame_chunks(frames, problem, warns, root_id="hsin"):
+    """Chunks for frames from formats/ni.read_frames: a chunk per frame, its
+    reference and header as fields before its payload, and an `items` chunk
+    for the item records opening its data section."""
+    chunks = []
+    for fr in frames:
+        at = fr["at"]
+        base = at + nimod.FRAME_HEADER
+        start = fr["ref"] if fr["ref"] is not None else at
+        fs, hv, c1, c2, uuid, ds = fr["header"]
+        fields = []
+        if fr["ref_fields"] is not None:
+            word, dom, iid = fr["ref_fields"]
+            fields += [_f(-0x3C, 4, "ref_word", word, "uninterpreted", enc="<I", raw=word),
+                       _f(-0x38, 4, "ref_domain", dom),
+                       _f(-0x34, 4, "ref_item_id", iid, enc="<I", raw=iid)]
+        fields += [_f(-0x30, 8, "frame_size", fs, "this frame, children included",
+                      enc="<Q", raw=fs),
+                   _f(-0x28, 4, "header_version", hv, enc="<I", raw=hv),
+                   _f(-0x24, 4, "magic", "hsin"),
+                   _f(-0x20, 4, "const", c1, "uninterpreted", enc="<I", raw=c1),
+                   _f(-0x1C, 4, "const", c2, "uninterpreted", enc="<I", raw=c2),
+                   _f(-0x18, 16, "uuid", uuid.hex()),
+                   _f(-0x08, 8, "data_size", ds, "the item records and their data",
+                      enc="<Q", raw=ds)]
+        items = fr["items"]
+        if items:
+            dom, iid = items[0][1], items[0][2]
+        elif fr["ref_fields"] is not None:
+            dom, iid = fr["ref_fields"][1], fr["ref_fields"][2]
+        else:
+            dom, iid = "?", None
+        # item 1 ends a stack; a frame opening on it is named by number
+        what = nimod.ITEM_NAMES.get(iid, "") if iid != 1 else ""
+        what = what or f"item {iid}"
+        cid = root_id if fr["ref"] is None else f"{dom} {iid}"
+        chunks.append({"id": cid, "offset": start, "size": at + fs - base,
+                       "summary": f"hsin frame: {dom} {what}, {fs:,} bytes",
+                       "fields": fields, "warnings": [], "payload_base": base,
+                       "payload_len": at + fs - base, "extent_len": at + fs - start})
+        if items:
+            ifields = []
+            for pos, idom, i, ver, inner in items:
+                rel = pos - base
+                ifields += [_f(rel, 4, "domain", idom),
+                            _f(rel + 4, 4, "item_id", i, nimod.ITEM_NAMES.get(i, ""),
+                               enc="<I", raw=i),
+                            _f(rel + 8, 4, "version", ver, enc="<I", raw=ver)]
+                if inner is not None:
+                    ifields.append(_f(rel + 12, 8, "inner_size", inner,
+                                      "the records nested inside this one",
+                                      enc="<Q", raw=inner))
+            last = items[-1]
+            stop = last[0] + (12 if last[4] is None else 20)
+            chunks.append({"id": "items", "offset": base, "size": stop - base,
+                           "summary": f"{len(items)} item record(s)",
+                           "fields": ifields, "warnings": [], "payload_base": base,
+                           "payload_len": stop - base, "extent_len": stop - base})
+    if problem == "frames":
+        warns.append(hit("list_rows", _HSIN_FRAME_CAP, _HSIN_FRAME_CAP + 1,
+                         f"the tree holds more than {_HSIN_FRAME_CAP:,} frames; "
+                         f"the first {_HSIN_FRAME_CAP:,} have a chunk each and the "
+                         f"rest are not walked"))
+    elif problem == "depth":
+        warns.append(hit("depth", _HSIN_DEPTH_CAP, _HSIN_DEPTH_CAP + 1,
+                         f"frames nest more than {_HSIN_DEPTH_CAP} deep; the walk "
+                         f"stops there"))
+    elif problem:
+        warns.append(defect("parse.failed", f"frame tree: {problem}"))
+    return chunks
 
 
 # ── Kontakt 2-4 patches ──

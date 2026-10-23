@@ -157,6 +157,93 @@ def is_ni_ksd(data):
     return data[:4] == KSD_MAGIC
 
 
+# ── hsin frame tree, read for its structure ──
+
+FRAME_HEADER = 0x30
+# the reference ahead of a child frame: u32, a domain tag, u32 item id
+CHILD_REF = 12
+# the item ids the anatomy page names (docs/formats/ni-anatomy.html)
+ITEM_NAMES = {1: "end of the item stack", 101: "Authoring Application",
+              108: "SoundInfoItem", 115: "SubtreeItem", 116: "EncryptionItem",
+              118: "RepositoryRoot", 121: "ControllerAssignments"}
+
+
+def _domain(tag):
+    return len(tag) == 4 and tag.isalnum()
+
+
+def read_frames(read_at, off, end, max_frames, max_depth=128):
+    """The hsin frame tree at `off`, depth first, read through read_at(off, n)
+    so a large frame need not be in memory. Unlike the editor's walk, any
+    four-letter domain tag is accepted: Reaktor writes RTKR beside DSIN.
+
+    Returns (frames, problem). A frame is {at, size, data_size, depth, ref,
+    ref_fields, items, header}: `ref` is where the 12-byte reference before a
+    child frame starts and `ref_fields` its (u32, domain, item id), both None
+    for the root; `items` the item records of its data section as
+    (offset, domain, item_id, version, inner_size or None for the stack's end),
+    `header` the six header words. `problem` is None when the tree fills its
+    root exactly, "frames" or "depth" when a bound stopped the walk, else why
+    the bytes stop being a frame tree. An unreadable root is ([], reason)."""
+    frames = []
+    # (frame offset, reference offset, depth, end of the parent frame, reference)
+    todo = [(off, None, 0, end, None)]
+    while todo:
+        at, ref, depth, limit, ref_bytes = todo.pop()
+        if len(frames) >= max_frames:
+            return frames, "frames"
+        if depth > max_depth:
+            return frames, "depth"
+        head = read_at(at, FRAME_HEADER)
+        if len(head) < FRAME_HEADER or head[12:16] != MAGIC:
+            return frames, f"no hsin frame at {at:#x}"
+        fs, hv = struct.unpack_from("<QI", head, 0)
+        c1, c2 = struct.unpack_from("<II", head, 16)
+        ds = struct.unpack_from("<Q", head, 0x28)[0]
+        if fs < FRAME_HEADER or FRAME_HEADER + ds > fs:
+            return frames, f"the frame at {at:#x} has sizes that do not nest"
+        if at + fs > limit:
+            return frames, (f"the frame at {at:#x} claims {fs:,} bytes and "
+                            f"{limit - at:,} remain")
+        data_start, data_end, frame_end = at + FRAME_HEADER, at + FRAME_HEADER + ds, at + fs
+        items, pos = [], data_start
+        while pos + 12 <= data_end:
+            rec = read_at(pos, 20)
+            if len(rec) < 12 or not _domain(rec[:4]):
+                break
+            iid, ver = struct.unpack_from("<II", rec, 4)
+            if iid == 1:
+                items.append((pos, rec[:4].decode("ascii"), iid, ver, None))
+                break
+            if len(rec) < 20 or pos + 20 > data_end:
+                break
+            inner = struct.unpack_from("<Q", rec, 12)[0]
+            if pos + 20 + inner > data_end:
+                break
+            items.append((pos, rec[:4].decode("ascii"), iid, ver, inner))
+            pos += 20
+        frames.append({"at": at, "size": fs, "data_size": ds, "depth": depth,
+                       "ref": ref, "items": items,
+                       "header": (fs, hv, c1, c2, bytes(head[24:40]), ds),
+                       "ref_fields": None if ref_bytes is None else (
+                           struct.unpack_from("<I", ref_bytes, 0)[0],
+                           ref_bytes[4:8].decode("ascii"),
+                           struct.unpack_from("<I", ref_bytes, 8)[0])})
+        kids, pos = [], data_end
+        while pos < frame_end:
+            r = read_at(pos, CHILD_REF + 8)
+            if len(r) < CHILD_REF + 8 or not _domain(r[4:8]):
+                return frames, f"no child frame reference at {pos:#x}"
+            cfs = struct.unpack_from("<Q", r, CHILD_REF)[0]
+            if cfs < FRAME_HEADER or pos + CHILD_REF + cfs > frame_end:
+                return frames, f"the child frame at {pos + CHILD_REF:#x} overruns its parent"
+            kids.append((pos + CHILD_REF, pos, depth + 1, frame_end, bytes(r[:CHILD_REF])))
+            pos += CHILD_REF + cfs
+        # depth first, in file order
+        todo.extend(reversed(kids))
+    return frames, None
+
+
 class NotHeld(ValueError):
     """A field this preset cannot take: not one its container's editor maps,
     or (an in-place edit) not present in this file. A bad --set, not a

@@ -170,3 +170,52 @@ def test_an_hsin_value_past_the_count_field_is_refused():
     import seeds
     with pytest.raises(ni.NotHeld, match="at most"):
         ni.edit_hsin(seeds.ni_hsin(), {"description": "x" * 0x10001})
+
+
+def _reaktor_like_tree():
+    """An hsin tree the way a Reaktor 6 ensemble writes one: a root frame
+    whose child sits behind an RTKR reference, and no SoundInfoItem
+    anywhere, so there is no name, author or vendor to read."""
+    import seeds
+    inner = seeds._hsin_frame(115, payload=b"\x07" * 40)
+    return seeds._hsin_frame(118, children=[(b"RTKR", seeds._hsin_frame(
+        5, children=[(b"DSIN", inner)]))])
+
+
+def test_an_hsin_tree_without_metadata_still_walks():
+    """14 of 40 Reaktor ensembles sniffed as `ni` and then inspect refused
+    them, "not a recognized Native Instruments preset": the walker raised
+    when the tree held no SoundInfoItem. A valid tree is a walk; the frames
+    are its structure and the missing metadata is a note, not a refusal."""
+    from acidcat.core.infra import contract
+    from acidcat.core.infra.source import BytesSource
+    from acidcat.core.walk import walk_bytes
+    data = _reaktor_like_tree()
+    assert not ni.parse_hsin(data)
+    label, chunks, warns = walk_bytes(data, suffix=".ens")
+    assert label == "Native Instruments preset"
+    root = chunks[0]
+    assert (root["id"], root["offset"], root["extent_len"]) == ("hsin", 0, len(data))
+    names = {f["name"]: f["value"] for f in root["fields"]}
+    assert names["frame_size"] == len(data) and names["magic"] == "hsin"
+    # every frame of the tree, the reference before a child included
+    frames = [c for c in chunks if c["id"] != "items"]
+    assert len(frames) == 3
+    rtkr = frames[1]
+    assert rtkr["offset"] == data.index(b"RTKR") - 4
+    assert {f["name"]: f["value"] for f in rtkr["fields"]}["ref_domain"] == "RTKR"
+    assert any(w.code == "decode.partial" and "SoundInfoItem" in w for w in warns)
+    doc = contract.walk(BytesSource(data, name="x.ens"))
+    assert doc["format"]["id"] == "ni"
+    # the headers and the item records are described; what is left is the
+    # item data (40 bytes) and the 12 uninterpreted bytes ending each stack
+    gaps = [n for n in contract.iter_nodes(doc) if n["kind"] in ("unwalked", "padding")]
+    assert sum(n["extent"]["len"] for n in gaps) == 40 + 3 * 12
+
+
+def test_garbage_behind_the_hsin_magic_is_still_refused():
+    from acidcat.core.walk import Unsupported, walk_bytes
+    data = bytearray(_reaktor_like_tree())
+    data[0:8] = (0x20).to_bytes(8, "little")     # a frame smaller than its header
+    with pytest.raises(Unsupported, match="not a recognized"):
+        walk_bytes(bytes(data), suffix=".ens")
