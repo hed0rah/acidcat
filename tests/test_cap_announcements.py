@@ -1211,6 +1211,15 @@ def _cmf_many_instruments(tmp_path, n):
     return str(q)
 
 
+def _syx_many_messages(tmp_path, n):
+    """n + 2 short Roland messages after one DX7 voice, to cross the listing cap."""
+    import seeds
+    q = tmp_path / "many.syx"
+    roland = bytes([0xF0, 0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7F, 0x00, 0x41, 0xF7])
+    q.write_bytes(seeds.SEEDS["syx"][0](single=True) + roland * (n + 2))
+    return str(q)
+
+
 def _spc_over_cap(tmp_path, n):
     """An .spc longer than n bytes: the base image plus a padded tail."""
     import seeds
@@ -1402,6 +1411,9 @@ SWEPT = [
     ("acidcat.core.walk.cmf", "_CMF_READ_CAP", 512, _cmf_over_cap,
      "parsed the first"),
     ("acidcat.core.walk.cmf", "_CMF_INSTRUMENT_LIST_CAP", 2, _cmf_many_instruments,
+     "listing the first"),
+    ("acidcat.core.walk.syx", "_SYX_READ_CAP", 512, _seed("syx"), "parsed the first"),
+    ("acidcat.core.walk.syx", "_SYX_MESSAGE_LIST_CAP", 2, _syx_many_messages,
      "listing the first"),
     ("acidcat.core.walk.s98", "_S98_READ_CAP", 512, _s98_over_cap,
      "parsed the first"),

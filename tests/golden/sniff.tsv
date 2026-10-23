@@ -719,6 +719,14 @@ stm	head256	.stm	stm
 stm	sniff_bytes	-	-
 stm	zero-pad-front	.stm	-
 stm	zero-pad-tail	.stm	stm
+syx	as-built	.bin	syx
+syx	as-built	.syx	syx
+syx	first-byte-flipped	.syx	-
+syx	head16	.syx	syx
+syx	head256	.syx	syx
+syx	sniff_bytes	-	syx
+syx	zero-pad-front	.syx	-
+syx	zero-pad-tail	.syx	syx
 talsmpl	as-built	.bin	-
 talsmpl	as-built	.cu8	iq
 talsmpl	as-built	.cue	cue

@@ -1,7 +1,7 @@
 """Unified preset-metadata extraction for indexing and search.
 
-The per-format walkers (Bitwig, Native Instruments, Vital) each return their own
-key names. This normalizes them into one shape so the index, query, and MCP can
+The per-format walkers (Bitwig, Native Instruments, Vital, DX7 SysEx) each return
+their own key names. This normalizes them into one shape so the index, query, and MCP can
 treat every preset the same way:
 
     {preset_name, device, product, creator, category, description, tags}
@@ -12,6 +12,7 @@ for bytes that are not a recognized preset.
 
 from acidcat.core.formats import bitwig as bwmod
 from acidcat.core.formats import ni as nimod
+from acidcat.core.formats import syx as syxmod
 from acidcat.core.formats import vital as vitalmod
 
 
@@ -54,6 +55,22 @@ def extract(data):
             "category": m.get("device_type") or m.get("genre"),
             "description": m.get("comment") or m.get("description"),
             "tags": _split_tags(m.get("bank")),
+        }
+
+    names = syxmod.dx7_voices(data)
+    if names:  # Yamaha DX7 SysEx: one voice, or a bank of 32
+        names = [n.strip() for n in names]
+        single = len(names) == 1
+        return {
+            "preset_name": names[0] if single else None,
+            "device": "DX7",
+            "product": "Yamaha DX7",
+            "creator": None,
+            "category": None,
+            # a bank has no name of its own; its voices are what a search wants
+            "description": None if single else "%d voices: %s" % (
+                len(names), ", ".join(names)),
+            "tags": [],
         }
 
     if data[:1] == b"{" and b'"synth_version"' in data:  # Vital

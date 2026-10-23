@@ -30,6 +30,7 @@ from acidcat.core.formats import pdx as pdxmod
 from acidcat.core.formats import pmd as pmdmod
 from acidcat.core.formats import psf as psfmod
 from acidcat.core.formats import sid as sidmod
+from acidcat.core.formats import syx as syxmod
 from acidcat.core.formats import dsd as dsdmod
 from acidcat.core.formats import tracker as trackermod
 from acidcat.core.formats import wave64 as wave64mod
@@ -51,7 +52,7 @@ KNOWN_FORMATS = frozenset({
     "id3-wrapped", "iq", "it", "krz", "kss", "labx", "med", "midi", "midi2", "mod",
     "mdx", "mp3", "mp4", "mpcpattern", "multisample", "n64rom", "ncw", "ni",
     "nsf", "nsfe", "ogg",
-    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sfz", "sigmf", "smus", "sndh", "spc", "stc", "talsmpl", "uvip", "vgm", "ym",
+    "okt", "pdx", "pgm", "pmd", "psf", "pt3", "rf64", "rmid", "rx2", "s3m", "s3p", "s98", "sap", "serum", "sf2", "sfz", "sigmf", "smus", "sndh", "spc", "stc", "syx", "talsmpl", "uvip", "vgm", "ym",
     "dmx", "dff", "dsf", "sid", "stm", "snd", "snesrom", "vag", "vital", "voc", "w64", "wav", "wii", "wt", "xm", "xpm",
     "xpn", "xtd",
 })
@@ -279,6 +280,12 @@ def sniff_bytes(head):
     if head[:4] == b"\x12\x90\xa8\x7f" or (
             head[:4] == b"\x54\xac\x70\x5e" and head[4:6] in (b"\x10\x01", b"\x11\x01")):
         return "ni"
+    # F0 and then nothing but data bytes up to the F7 or the end of the head: a
+    # System Exclusive message as a synth sent it. After NI, whose hsin preset
+    # opens with a little-endian size: one real .nki's size was 0x19F0, so its
+    # head read F0 19 00 00 ..., every byte a valid SysEx data byte.
+    if syxmod.looks_like_syx(head):
+        return "syx"                                   # MIDI SysEx dump (DX7 voices)
     if head[:1] == b"{":
         return "vital"
     if head[4:8] == b"ftyp":
@@ -660,7 +667,6 @@ def _is_albank(filepath):
     """An N64 libultra .ctl: revision 0x4231, a small bankCount, and a first bank
     offset that lands on an ALBank whose sampleRate is a sane audio rate. The
     sample-rate gate cheaply rejects the many false 0x4231 hits in random data."""
-    import os
     import struct
     try:
         with open_input(filepath) as f:

@@ -21,7 +21,7 @@ from acidcat.core.walk import (
     gf1pat, voc, emu, flac, fxp, krz, labx,
     mdx, midi, midi2, mp3,
     mp4, mpc, multisample, ncw, ni, ogg, pdx, pmd, psf, pt3, s98, rf64, rmid, rx2, serum, sf2,
-    sigmf, sndh, spc, stc, svx, vgm, ym,
+    sigmf, sndh, spc, stc, svx, syx, vgm, ym,
     tracker,
     dsd, sid, streams, vital, wav, wave64, wt,
 )
@@ -143,6 +143,8 @@ _WALKERS = {
             lambda path, deep: pmd.inspect_pmd(path, deep=deep)),
     "s3p": ("Akai S1000/S3000 program (SysEx dump)",
             lambda path, deep: akai.inspect_s3p(path)),
+    "syx": ("MIDI System Exclusive dump (SysEx; Yamaha DX7 voices decoded)",
+            lambda path, deep: syx.inspect_syx(path, deep=deep)),
     "sid": ("Commodore 64 SID tune (PSID/RSID)",
             lambda path, deep: sid.inspect_sid(path, deep=deep)),
     "wt": ("Surge/Bitwig wavetable", lambda path, deep: wt.inspect_wt(path)),

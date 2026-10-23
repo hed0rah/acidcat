@@ -283,7 +283,6 @@ def s3p(keygroups=2, name="SEED PROG"):
     ever wrote.
     """
     import acidcat.core.formats.akai as A
-    SPACE = A.CHARSET.index(" ")
 
     def put_name(buf, at, text):
         for i in range(A.NAME_LEN):
@@ -321,6 +320,71 @@ def s3p(keygroups=2, name="SEED PROG"):
         kd = frame(A.KDATA, [0, k, 0], kg)
         out += struct.pack(">I", len(kd)) + kd
     return bytes(out)
+
+
+def dx7_vced(i=0, name=None):
+    """One DX7 voice as its 155 unpacked parameter bytes (VCED), different per
+    `i` so a decoder that reads the wrong voice or the wrong operator shows it.
+    Operators are stored OP6 first, 21 bytes each."""
+    out = []
+    for op in range(6, 0, -1):
+        out += [99 - op, 80 - op, 70, 60,              # EG rates 1-4
+                99, 90 - op, 80, 0,                    # EG levels 1-4
+                39, 10, 20, op % 4, 3 - op % 4,        # break point, depths, curves
+                op % 8, op % 4, (op + i) % 8,          # rate scaling, AMS, velocity
+                99 if op == 1 else 90 - 10 * op,       # output level
+                1 if op == 6 else 0,                   # mode: OP6 fixed
+                (op + i) % 32, (op * 11 + i) % 100,    # coarse, fine
+                (op + i) % 15]                         # detune 0-14
+    out += [99, 98, 97, 96, 50, 51, 52, 53,            # pitch EG
+            i % 32, i % 8, i % 2,                      # algorithm, feedback, OKS
+            35, 1, 2, 3, (i + 1) % 2,                  # LFO speed/delay/PMD/AMD/sync
+            i % 6, i % 8, 12 + i % 25]                 # LFO wave, PMS, transpose
+    label = name if name is not None else "SEED %02d" % i
+    out += list(label.ljust(10)[:10].encode("ascii"))
+    return bytes(out)
+
+
+def dx7_pack(v):
+    """A VCED voice packed into its 128-byte cartridge form (VMEM), written
+    here from the owner's manual table rather than from acidcat's decoder."""
+    out = bytearray()
+    for o in range(6):
+        p = v[o * 21:(o + 1) * 21]
+        out += bytes(p[0:11])
+        out.append(p[11] | p[12] << 2)                 # left curve, right curve
+        out.append(p[13] | p[20] << 3)                 # rate scaling, detune
+        out.append(p[14] | p[15] << 2)                 # AMS, key velocity
+        out.append(p[16])                              # output level
+        out.append(p[17] | p[18] << 1)                 # mode, coarse
+        out.append(p[19])                              # fine
+    g = v[126:]
+    out += bytes(g[0:8])                               # pitch EG
+    out.append(g[8])                                   # algorithm
+    out.append(g[9] | g[10] << 3)                      # feedback, OKS
+    out += bytes(g[11:15])                             # LFO speed, delay, PMD, AMD
+    out.append(g[15] | g[16] << 1 | g[17] << 4)        # sync, wave, PMS
+    out.append(g[18])                                  # transpose
+    out += bytes(g[19:29])                             # name
+    return bytes(out)
+
+
+def dx7_message(fmt, data, device=0, checksum=None):
+    """A Yamaha bulk dump: F0 43 0n ff mm ll, the data, checksum, F7."""
+    chk = (-sum(data) & 0x7F) if checksum is None else checksum
+    n = len(data)
+    return (bytes([0xF0, 0x43, device & 0x0F, fmt, n >> 7, n & 0x7F])
+            + bytes(data) + bytes([chk, 0xF7]))
+
+
+@seed("syx", ".syx")
+def syx(single=False, device=0, checksum=None):
+    """A Yamaha DX7 SysEx dump: 32 packed voices (4,104 bytes, format 9), or
+    with `single` one unpacked voice (163 bytes, format 0)."""
+    if single:
+        return dx7_message(0, dx7_vced(0), device, checksum)
+    bank = b"".join(dx7_pack(dx7_vced(i)) for i in range(32))
+    return dx7_message(9, bank, device, checksum)
 
 
 @seed("psf", ".minigsf")

@@ -3,7 +3,6 @@ metadata, and upsert it into the SQLite index. Shared by the `index`
 command and the MCP server, so it lives in core (not commands) to keep the
 dependency direction right (mcp -> core, never mcp -> commands)."""
 
-import json
 import os
 import sqlite3
 import sys
@@ -52,6 +51,7 @@ PRESET_EXTENSIONS = {
     ".bwpreset", ".bwclip", ".bwmodulator",       # Bitwig
     ".nmsv", ".nabs", ".nki", ".nkm", ".ksd", ".nksf",  # Native Instruments
     ".vital",                                       # Vital
+    ".syx",                                         # Yamaha DX7 SysEx voices
 }
 
 # What a directory walk will open. This was a private 24-entry list while
@@ -267,6 +267,9 @@ def _sniff_format(filepath):
     if head[0:4] == b"BtWg" or head[0:4] == b"-in-" \
             or head[12:16] == b"hsin" \
             or (head[0:4] == b"RIFF" and head[8:12] == b"NIKS"):
+        return "preset"
+    # a Yamaha SysEx bulk dump: a DX7 voice or bank, indexed by its voice names
+    if head[0:2] == b"\xf0\x43":
         return "preset"
     if head[0:4] == b"MThd":
         return "midi"

@@ -103,11 +103,11 @@ the new bytes; `commit()` writes atomically with a `_original` backup.
    `aiff`, `mp3`, `mp4`, `flac`, `ni`, `tracker`, `sf2`, ...),
    `core/primitives/` (shared byte readers), `core/codecs/` (ADPCM, BRR, VADPCM
    and friends), `core/containers/` (disc images and archives),
-   `core/infra/` (`sniff.py` -- 98 recognized formats, `fieldcodec.py` -- the
+   `core/infra/` (`sniff.py` -- 99 recognized formats, `fieldcodec.py` -- the
    enc-language, `geometry.py` -- which bytes a chunk occupies, `source.py`,
    `limits.py`, `findings.py`, `layers.py`, `contract.py`, `addr.py`,
    `capabilities.py`, `render.py`).
-2. **Walkers** -- `core/walk/*.py`: 62 walkers behind one dispatcher, serving 94
+2. **Walkers** -- `core/walk/*.py`: 63 walkers behind one dispatcher, serving 95
    registered format labels, each emitting the field model. **The correctness oracle and the
    default.** Dispatch: `core/walk/__init__.py::walk_file`.
 3. **Document and edit** -- `core/document.py` (`acidcat.open()`, the views),

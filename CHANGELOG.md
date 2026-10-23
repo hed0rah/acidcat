@@ -142,6 +142,21 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   2.0 builds will refuse a migrated index, so upgrade every acidcat that
   shares one.
 
+- **SysEx dumps (.syx), with Yamaha DX7 voices decoded.** A .syx is the
+  System Exclusive messages a synth sent, written down as they arrived; each
+  message is a chunk, named by its manufacturer id. A DX7 voice dump is
+  decoded in both of its shapes, the 32-voice cartridge bank (4,104 bytes,
+  parameters packed several to a byte) and the single unpacked voice (163
+  bytes): every voice's name, algorithm, feedback, transpose, LFO, pitch
+  envelope, and per operator the envelope, output level, ratio or fixed
+  frequency, detune and velocity sensitivity. The bulk dump's checksum is
+  checked and a mismatch is a finding, not a refusal; a cut-short bank keeps
+  its whole voices; a parameter above its maximum is named. Any other
+  message, a TX81Z bank or a Roland patch, is named and measured rather than
+  decoded. The library index reads the voice names, so a bank is found by
+  any of its 32. Checked on 9,648 real dumps: every header, byte count and
+  checksum agrees, and the INIT VOICE decodes to its published values.
+
 ## [2.0.1] - 2026-10-14
 
 Small fixes after 2.0.0, checked by running the library index and the MCP
