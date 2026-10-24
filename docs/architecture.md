@@ -512,6 +512,33 @@ with a tunability and a NULL note is an answer, not a gap. Kept apart from
 `samples` so a metadata re-read leaves it alone; a file whose size or mtime
 changed is estimated again. Every query SELECT left-joins it.
 
+### `profile` table
+
+```sql
+CREATE TABLE profile (
+    path            TEXT PRIMARY KEY,
+    profile_version INTEGER,     -- core/analysis/profile.py PROFILE_VERSION
+    envelope        TEXT,        -- hit, decay, sustain, pulse
+    attack_ms       REAL,        -- 10% to 90% rise of the first hit
+    decay_ms        REAL,        -- first peak to 20 dB under it (or the end)
+    sustain         REAL,        -- share of the sounding time within 12 dB of peak
+    reattacks       INTEGER,     -- attacks after the first
+    centroid_hz     REAL,        -- energy-weighted spectral centroid
+    band            TEXT,        -- the band holding the most energy
+    band_sub        REAL,        -- share of energy, 20-60 Hz
+    band_low        REAL,        -- 60-250 Hz
+    band_lowmid     REAL,        -- 250 Hz-1 kHz
+    band_mid        REAL,        -- 1-4 kHz
+    band_high       REAL,        -- 4-11 kHz
+    extracted_at    REAL
+);
+```
+
+Optional. Populated by `acidcat lib index --profile` (or the MCP `reindex`
+tool's `with_profile`) for wav, aiff, flac, ogg, opus, mp3 and m4a files of
+any length; the first 30 s is measured. Kept apart from `samples` for the
+same reason as `pitch`, and left-joined the same way.
+
 ### `features` blob table
 
 ```sql

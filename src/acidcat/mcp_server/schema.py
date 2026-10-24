@@ -74,6 +74,28 @@ def _register_all():
                                    "one-shot has one pitch. 0.6 keeps "
                                    "clearly pitched hits; lower admits "
                                    "found sounds with a usable centre."},
+                "envelope": {"type": "array",
+                             "items": {"type": "string",
+                                       "enum": ["hit", "decay", "sustain", "pulse"]},
+                             "description": "For files indexed with profile: "
+                             "hit (over within half a second), decay (one "
+                             "attack, long tail), sustain (holds its level: "
+                             "pads, drones, beds), pulse (attacks again and "
+                             "again: loops, rolls). Any of the given."},
+                "band": {"type": "array",
+                         "items": {"type": "string",
+                                   "enum": ["sub", "low", "lowmid", "mid", "high"]},
+                         "description": "Where most of the energy sits: sub "
+                         "under 60 Hz, low 60-250, lowmid 250-1k, mid 1k-4k, "
+                         "high over 4k. Use it to find a sound for an empty "
+                         "band. Results carry each band's share as "
+                         "band_sub..band_high, and centroid_hz."},
+                "centroid_min": {"type": "number",
+                                 "description": "Spectral centroid floor in "
+                                 "Hz (3000 for bright)."},
+                "centroid_max": {"type": "number",
+                                 "description": "Spectral centroid ceiling in "
+                                 "Hz (300 for dark)."},
                 "tags": {"type": "array", "items": {"type": "string"},
                          "description": "AND semantics across tags."},
                 "text": {"type": "string",
@@ -300,6 +322,10 @@ def _register_all():
                                "description": "Estimate the note of every "
                                               "file under 4 s (fast, numpy "
                                               "only)."},
+                "with_profile": {"type": "boolean", "default": False,
+                               "description": "Measure every audio file's "
+                                              "envelope and band energy "
+                                              "(numpy only)."},
                 "force": {"type": "boolean", "default": False,
                           "description": "Re-extract metadata even for "
                                          "unchanged files (after parser "

@@ -9,21 +9,27 @@ drawn from a fixed set here, never from user input.
 """
 
 
-# every SELECT carries the file's pitch (core/analysis/pitch.py) when it has
-# one. the join is on the pitch table's primary key, so SQLite drops it from a
-# query that never reads a pitch column.
-PITCH_JOIN = "LEFT JOIN pitch p ON p.path = s.path"
-PITCH_COLUMNS = "p.pitch_hz, p.pitch_note, p.pitch_cents, p.tunability, p.glide_cents"
+# every SELECT carries the file's pitch (core/analysis/pitch.py) and profile
+# (core/analysis/profile.py) when it has them. both joins are on a primary key,
+# so SQLite drops them from a query that never reads their columns.
+PITCH_JOIN = ("LEFT JOIN pitch p ON p.path = s.path "
+              "LEFT JOIN profile pf ON pf.path = s.path")
+PITCH_COLUMNS = ("p.pitch_hz, p.pitch_note, p.pitch_cents, p.tunability, p.glide_cents, "
+                 "pf.envelope, pf.attack_ms, pf.decay_ms, pf.sustain, pf.reattacks, "
+                 "pf.centroid_hz, pf.band, pf.band_sub, pf.band_low, pf.band_lowmid, "
+                 "pf.band_mid, pf.band_high")
 
 
 def build_filter(*, bpm_min=None, bpm_max=None, duration_min=None,
                  duration_max=None, key=None, file_format=None, device=None,
                  category=None, creator=None, product=None, tags=(), text=None,
-                 note=None, tunability_min=None, tunability_max=None):
+                 note=None, tunability_min=None, tunability_max=None,
+                 envelope=(), band=(), centroid_min=None, centroid_max=None):
     """Return (where_clauses, params, joins) for the given filters.
 
     `note` is "F#" (any octave) or "F#1" (that MIDI note); ValueError when it
-    is neither."""
+    is neither. `envelope` and `band` are names from core/analysis/profile.py,
+    any of several; ValueError on a name that is not one."""
     where, params, joins = [], [], []
 
     if bpm_min is not None:
@@ -82,6 +88,26 @@ def build_filter(*, bpm_min=None, bpm_max=None, duration_min=None,
     if tunability_max is not None:
         where.append("p.tunability <= ?")
         params.append(float(tunability_max))
+
+    for col, vals, allowed in (("envelope", envelope, "ENVELOPES"),
+                               ("band", band, "BAND_NAMES")):
+        vals = [v.strip().lower() for v in (vals or ()) if v and v.strip()]
+        if not vals:
+            continue
+        from acidcat.core.analysis import profile
+        names = getattr(profile, allowed)
+        bad = [v for v in vals if v not in names]
+        if bad:
+            raise ValueError(f"not a {col}: {', '.join(bad)} "
+                             f"(want {', '.join(names)})")
+        where.append(f"pf.{col} IN ({','.join('?' for _ in vals)})")
+        params.extend(vals)
+    if centroid_min is not None:
+        where.append("pf.centroid_hz >= ?")
+        params.append(float(centroid_min))
+    if centroid_max is not None:
+        where.append("pf.centroid_hz <= ?")
+        params.append(float(centroid_max))
 
     if text:
         joins.append("JOIN samples_fts fts ON fts.path = s.path")

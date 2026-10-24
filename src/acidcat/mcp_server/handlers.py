@@ -263,7 +263,10 @@ def search_samples(args):
             device=args.get("device"), category=args.get("category"),
             creator=args.get("creator"), product=args.get("product"),
             tags=args.get("tags"), text=args.get("text"),
-            note=args.get("note"), tunability_min=args.get("tunability_min"))
+            note=args.get("note"), tunability_min=args.get("tunability_min"),
+            envelope=_as_list(args.get("envelope")), band=_as_list(args.get("band")),
+            centroid_min=args.get("centroid_min"),
+            centroid_max=args.get("centroid_max"))
     except ValueError as e:
         raise ToolError(str(e))
     limit = _limit(args, "limit", 50)
@@ -316,6 +319,13 @@ def search_samples(args):
             "samples": merged}
 
 
+def _as_list(v):
+    """A tool argument that may be one name or a list of them."""
+    if v is None:
+        return ()
+    return [v] if isinstance(v, str) else list(v)
+
+
 def _with_pitch_name(d):
     """Name the MIDI pitch_note ("F#1") so a reader need not do the sum."""
     if d.get("pitch_note") is not None:
@@ -353,6 +363,13 @@ def get_sample(args):
         ).fetchone()
         if pitch is not None:
             out.update(_with_pitch_name(dict(pitch)))
+        prof = conn.execute(
+            "SELECT envelope, attack_ms, decay_ms, sustain, reattacks, centroid_hz, "
+            "band, band_sub, band_low, band_lowmid, band_mid, band_high "
+            "FROM profile WHERE path = ?", (resolved,)
+        ).fetchone()
+        if prof is not None:
+            out.update(dict(prof))
         # "has features" has to mean "features find_similar can actually use".
         # An unversioned check reported True for stale rows that find_similar
         # filters out, so get_sample said "has features" about the same file
@@ -699,6 +716,7 @@ def reindex(args):
         raise ToolError("path or label is required")
     with_features = bool(args.get("with_features", False))
     with_pitch = bool(args.get("with_pitch", False))
+    with_profile = bool(args.get("with_profile", False))
     force = bool(args.get("force", False))
 
     rconn = reg.open_registry(_REGISTRY_PATH)
@@ -728,6 +746,7 @@ def reindex(args):
             quiet=True,
             force=force,
             do_pitch=with_pitch,
+            do_profile=with_profile,
         )
         conn.commit()
         sample_count = conn.execute(

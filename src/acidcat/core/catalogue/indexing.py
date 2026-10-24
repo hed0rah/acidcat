@@ -81,16 +81,20 @@ _COMMIT_EVERY_N_FILES = 100
 
 
 def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
-                     quiet=False, force=False, jobs=None, do_pitch=False):
+                     quiet=False, force=False, jobs=None, do_pitch=False,
+                     do_profile=False):
     walk_start = time.time()
     feature_queue = []          # (filepath, path_key) to feature-extract in parallel
     pitch_queue = []            # (filepath, path_key) for the pitch estimator
+    profile_queue = []            # and for the profile pass
     cur_feat_version = None
     if do_features:
         from acidcat.core.analysis.features import FEATURE_SET_VERSION
         cur_feat_version = FEATURE_SET_VERSION
     if do_pitch:
         from acidcat.core.analysis.pitch import MAX_DURATION, PITCH_VERSION
+    if do_profile:
+        from acidcat.core.analysis.profile import PROFILE_VERSION
     # ensure the query-layer expression indexes exist (existing DBs never get
     # them via _apply_schema, which returns early at the current version).
     try:
@@ -138,6 +142,8 @@ def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
                     if do_pitch and idx.pitch_due(conn, norm, PITCH_VERSION,
                                                   MAX_DURATION):
                         pitch_queue.append((filepath, norm))
+                    if do_profile and idx.profile_due(conn, norm, PROFILE_VERSION):
+                        profile_queue.append((filepath, norm))
                     skipped += 1
                     seen_paths += 1
                     since_commit += 1
@@ -175,10 +181,14 @@ def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
                 # after the walk (the CPU-bound librosa work is what we scale).
                 feature_queue.append((filepath, row["path"]))
 
+            # a changed file gets a fresh estimate; a re-read of an unchanged
+            # one keeps its pitch and profile unless the estimator moved on
+            changed = existing is None or existing[:2] != (st.st_mtime, st.st_size)
+            if do_profile and ((changed and idx.profile_eligible(row.get("format"),
+                                                              row.get("duration")))
+                             or idx.profile_due(conn, row["path"], PROFILE_VERSION)):
+                profile_queue.append((filepath, row["path"]))
             if do_pitch:
-                # a changed file gets a fresh estimate; a re-read of an
-                # unchanged one keeps its pitch unless the estimator moved on
-                changed = existing is None or existing[:2] != (st.st_mtime, st.st_size)
                 if (changed and idx.pitch_eligible(row.get("format"),
                                                    row.get("duration"),
                                                    MAX_DURATION)) or \
@@ -207,6 +217,9 @@ def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
         conn.commit()
     if pitch_queue:
         _estimate_pitch_parallel(conn, pitch_queue, quiet=quiet, jobs=jobs)
+        conn.commit()
+    if profile_queue:
+        _estimate_profile_parallel(conn, profile_queue, quiet=quiet, jobs=jobs)
         conn.commit()
 
     pruned = idx.prune_missing(conn, scan_root, walk_start)
@@ -688,7 +701,7 @@ def _extract_features_parallel(conn, queue, quiet=False, jobs=None):
               file=sys.stderr)
 
 
-# ── pitch ───────────────────────────────────────────────────────────
+# ── pitch and profile ───────────────────────────────────────────────────────────
 # numpy-only and about 17 ms a file, so the pool pays off sooner than the
 # librosa one: a spawned worker costs a numpy import, not a numba warm-up.
 
@@ -707,45 +720,82 @@ def _pitch_worker(item):
         return path_key, None
 
 
-def _estimate_pitch_parallel(conn, queue, quiet=False, jobs=None):
-    """Estimate the pitch of every (filepath, path_key) in `queue` and store it.
-    A file that cannot be decoded stores nothing and is tried again next run."""
-    from acidcat.core.analysis.pitch import PITCH_VERSION
+def _profile_worker(item):
+    """(path_key, profile-or-None) for one file; never raises."""
+    filepath, path_key = item
+    try:
+        from acidcat.core.analysis.profile import estimate_profile
+        return path_key, estimate_profile(filepath)
+    except Exception:
+        return path_key, None
+
+
+def _estimate_parallel(conn, queue, label, worker, store, quiet=False, jobs=None):
+    """Run `worker` over every (filepath, path_key) in `queue`, in a pool once
+    there are enough of them, and `store(conn, path_key, result)` each result
+    that is not None. A file that cannot be decoded stores nothing and is
+    tried again next run. Returns the stored results."""
     n = len(queue)
     workers = _resolve_jobs(jobs, n)
     if not quiet:
-        print(f"  [pitch] {n} short files"
+        print(f"  [{label}] {n} files"
               + (f" on {workers} workers" if workers > 1 and n >= _PITCH_POOL_MIN
                  else ""), file=sys.stderr)
     if workers <= 1 or n < _PITCH_POOL_MIN:
-        results = map(_pitch_worker, queue)
+        results = map(worker, queue)
         pool = None
     else:
         import multiprocessing as mp
         pool = mp.get_context("spawn").Pool(workers, initializer=_feature_worker_init)
-        results = pool.imap_unordered(_pitch_worker, queue, chunksize=16)
-    stored = pitched = done = since_commit = 0
+        results = pool.imap_unordered(worker, queue, chunksize=16)
+    stored = []
+    done = since_commit = 0
     try:
         for path_key, est in results:
             done += 1
             if est is not None:
-                idx.upsert_pitch(conn, path_key, est, PITCH_VERSION)
-                stored += 1
-                pitched += est.get("midi_note") is not None
+                store(conn, path_key, est)
+                stored.append(est)
             since_commit += 1
             if since_commit >= _COMMIT_EVERY_N_FILES:
                 conn.commit()
                 since_commit = 0
             if not quiet and done % 1000 == 0:
-                print(f"  [pitch] {done}/{n}", file=sys.stderr)
+                print(f"  [{label}] {done}/{n}", file=sys.stderr)
     finally:
         if pool is not None:
             pool.close()
             pool.join()
     conn.commit()
+    return stored
+
+
+def _estimate_pitch_parallel(conn, queue, quiet=False, jobs=None):
+    """Estimate the pitch of every (filepath, path_key) in `queue` and store it."""
+    from acidcat.core.analysis.pitch import PITCH_VERSION
+    stored = _estimate_parallel(
+        conn, queue, "pitch", _pitch_worker,
+        lambda c, p, est: idx.upsert_pitch(c, p, est, PITCH_VERSION),
+        quiet=quiet, jobs=jobs)
     if not quiet:
-        print(f"  [pitch] {pitched} pitched, {stored - pitched} with no one "
-              f"pitch, {n - stored} unreadable", file=sys.stderr)
+        pitched = sum(est.get("midi_note") is not None for est in stored)
+        print(f"  [pitch] {pitched} pitched, {len(stored) - pitched} with no one "
+              f"pitch, {len(queue) - len(stored)} unreadable", file=sys.stderr)
+
+
+def _estimate_profile_parallel(conn, queue, quiet=False, jobs=None):
+    """Measure the profile of every (filepath, path_key) in `queue` and store it."""
+    from acidcat.core.analysis.profile import ENVELOPES, PROFILE_VERSION
+    stored = _estimate_parallel(
+        conn, queue, "profile", _profile_worker,
+        lambda c, p, d: idx.upsert_profile(c, p, d, PROFILE_VERSION),
+        quiet=quiet, jobs=jobs)
+    if not quiet:
+        counts = {e: 0 for e in ENVELOPES}
+        for d in stored:
+            counts[d["envelope"]] += 1
+        print("  [profile] " + ", ".join(f"{v} {k}" for k, v in counts.items())
+              + f", {len(queue) - len(stored)} unreadable", file=sys.stderr)
 
 
 def _refuses_as_root(path):

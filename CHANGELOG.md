@@ -8,6 +8,22 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **How a sound moves, and where its energy sits.** `lib index --profile`
+  measures every audio file's envelope and names it `hit` (over within
+  half a second), `decay` (one attack and a long tail), `sustain` (holds
+  its level: pads, drones, beds) or `pulse` (attacks again and again:
+  loops, rolls, gated pads), with its attack and decay times, and the
+  share of its energy in five bands: sub (under 60 Hz), low, low-mid, mid
+  and high (over 4 kHz), and its spectral centroid. `lib query --envelope
+  hit`, `--band sub,low` and `--centroid 3000:` filter on it, the MCP
+  `search_samples` tool takes `envelope`, `band`, `centroid_min` and
+  `centroid_max`, and `analyze --profile FILE` answers for one file. On
+  2,074 files whose names or folders said what they were, drum one-shots
+  came out as hits on 95%, pads as sustained on 87% and loops as pulses on
+  81%; most of the rest were names that were wrong. 808s put 89% of their
+  energy under 60 Hz and hats theirs above 4 kHz. numpy only, about 50 ms
+  a file, and a second index measures only files that changed.
+
 - **The note a one-shot plays, and how far off it is.** `lib index --pitch`
   estimates the pitch of every file under 4 s: the nearest note, the offset
   in cents, the fundamental in Hz, a 0 to 1 tunability (how clearly the

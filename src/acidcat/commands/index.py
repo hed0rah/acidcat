@@ -53,8 +53,11 @@ def register(subparsers):
                    help="Extract librosa audio features during indexing.")
     p.add_argument("--pitch", action="store_true",
                    help="Estimate the note of every file under 4 s.")
+    p.add_argument("--profile", action="store_true",
+                   help="Measure every audio file's envelope (hit, decay, "
+                        "sustain, pulse) and where its energy sits.")
     p.add_argument("--jobs", "-j", type=int, default=None,
-                   help="Worker processes for feature extraction and pitch "
+                   help="Worker processes for feature extraction, pitch and profile "
                         "(default: CPU count - 1; 1 = serial).")
     p.add_argument("--deep", action="store_true",
                    help="Use librosa for BPM/key when metadata is absent.")
@@ -178,7 +181,7 @@ def _run(args):
         from acidcat.util.deps import require
         if not require("librosa", "numpy", group="analysis"):
             return 2
-    if getattr(args, "pitch", False):
+    if getattr(args, "pitch", False) or getattr(args, "profile", False):
         from acidcat.util.deps import require
         if not require("numpy", group="analysis"):
             return 2
@@ -212,6 +215,7 @@ def _run(args):
             quiet=quiet,
             verbose=getattr(args, "verbose", False),
             do_pitch=getattr(args, "pitch", False),
+            do_profile=getattr(args, "profile", False),
         )
 
     # main index mode requires a target dir
@@ -291,6 +295,7 @@ def _run(args):
             force=getattr(args, "force", False),
             jobs=getattr(args, "jobs", None),
             do_pitch=getattr(args, "pitch", False),
+            do_profile=getattr(args, "profile", False),
         )
 
         if args.import_tags:
@@ -401,6 +406,7 @@ def _cmd_stats(target, registry_path):
     print(f"Total:        {stats['total_samples']}")
     print(f"With features:{stats['with_features']:>6}")
     print(f"With pitch:   {stats['with_pitch']:>6}")
+    print(f"With profile:  {stats['with_profile']:>6}")
     print(f"Unique tags:  {stats['unique_tags']}")
     print(f"Descriptions: {stats['with_descriptions']}")
     if stats["by_format"]:
@@ -532,7 +538,7 @@ def _cmd_refresh_stats(target, registry_path, quiet=False):
 # nonsense library boundaries and pull in massive unrelated content.
 def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
                    dry_run, do_features, do_deep, quiet, verbose,
-                   do_pitch=False):
+                   do_pitch=False, do_profile=False):
     """Walk `root`, register every qualifying subdir as its own library."""
     if not os.path.isdir(root):
         print(f"acidcat lib: --discover ROOT must be a directory: {root}",
@@ -623,7 +629,7 @@ def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
         rconn.close()
 
     # optionally walk-and-upsert (full index pass) per registered library
-    if do_features or do_deep or do_pitch or verbose:
+    if do_features or do_deep or do_pitch or do_profile or verbose:
         if not quiet:
             print(f"[discover] indexing {registered} new libraries...",
                   file=sys.stderr)
@@ -648,6 +654,7 @@ def _cmd_discover(root, registry_path, min_samples, max_depth, label_prefix,
                     do_deep=do_deep,
                     quiet=quiet,
                     do_pitch=do_pitch,
+                    do_profile=do_profile,
                 )
                 sample_count = conn.execute(
                     "SELECT COUNT(*) AS c FROM samples"

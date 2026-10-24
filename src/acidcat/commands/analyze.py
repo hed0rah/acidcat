@@ -32,6 +32,9 @@ def register(subparsers):
     p.add_argument("--pitch", action="store_true",
                    help="The note a one-shot settles on, its offset in cents, "
                         "and how clearly it has one pitch.")
+    p.add_argument("--profile", action="store_true",
+                   help="The envelope (hit, decay, sustain, pulse), attack "
+                        "and decay times, and the energy in each band.")
     p.add_argument("--max-files", type=int, default=None, metavar="N",
                    help="Stop after N files (no limit by default).")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"), deprecated_f=False)
@@ -42,9 +45,9 @@ def register(subparsers):
 
 
 def run(args):
-    if not (args.bpm_key or args.features or args.pitch):
+    if not (args.bpm_key or args.features or args.pitch or args.profile):
         print("acidcat analyze: say what to analyze: --bpm-key, --features, "
-              "--pitch, or several", file=sys.stderr)
+              "--pitch, --profile, or several", file=sys.stderr)
         return 2
     import importlib.util
     if (args.bpm_key or args.features) and importlib.util.find_spec("librosa") is None:
@@ -68,11 +71,12 @@ def run(args):
             with contextlib.redirect_stdout(out):
                 rc = max(rc, _legacy.run(module, module_name, argv) or 0)
             parts.append(out.getvalue())
-    if args.pitch:
+    if args.pitch or args.profile:
         from acidcat.util.deps import require
         if not require("numpy", group="analysis"):
             return 2
-        rc = max(rc, _pitch(targets, n, fmt, args.quiet, parts))
+        rc = max(rc, _sound(targets, n, fmt, args.quiet, parts,
+                            pitch=args.pitch, profile=args.profile))
     text = _merge(parts, fmt)
     if args.output:
         with open(args.output, "w", encoding="utf-8", newline="") as fh:
@@ -82,27 +86,43 @@ def run(args):
     return rc
 
 
-def _pitch(targets, n, fmt, quiet, parts):
-    """--pitch: one row per file (core/analysis/pitch.py)."""
+_PROFILE_FIELDS = ("envelope", "attack_ms", "decay_ms", "sustain", "reattacks",
+                 "centroid_hz", "band")
+
+
+def _sound(targets, n, fmt, quiet, parts, pitch=False, profile=False):
+    """--pitch and --profile: one row per file with the columns asked for
+    (core/analysis/pitch.py, core/analysis/profile.py)."""
     from acidcat.core.analysis.pitch import estimate_pitch
+    from acidcat.core.analysis.profile import BAND_NAMES, estimate_profile
     from acidcat.core.infra.render import output
     from acidcat.util import targets as tg
     files, skipped = tg.expand(targets)
     rows, failed = [], 0
     for path in files[:n]:
-        row = {"path": path, "note": None, "cents": None, "f0_hz": None,
-               "tunability": None, "glide_cents": None}
+        row = {"path": path}
+        if pitch:
+            row.update(note=None, cents=None, f0_hz=None, tunability=None,
+                       glide_cents=None)
+        if profile:
+            row.update({k: None for k in _PROFILE_FIELDS})
+            row.update({"band_" + b: None for b in BAND_NAMES})
         try:
-            est = estimate_pitch(path)
+            est = estimate_pitch(path) if pitch else None
+            d = estimate_profile(path) if profile else None
         except Exception as e:
             failed += 1
             if not quiet:
                 print(f"acidcat analyze: {path}: could not decode the audio "
                       f"({e.__class__.__name__})", file=sys.stderr)
         else:
-            row.update(note=est["note_name"], cents=est["cents"],
-                       f0_hz=est["f0_hz"], tunability=est["tunability"],
-                       glide_cents=est["glide_cents"])
+            if est is not None:
+                row.update(note=est["note_name"], cents=est["cents"],
+                           f0_hz=est["f0_hz"], tunability=est["tunability"],
+                           glide_cents=est["glide_cents"])
+            if d is not None:
+                row.update({k: d[k] for k in _PROFILE_FIELDS})
+                row.update({"band_" + b: v for b, v in d["bands"].items()})
         rows.append(row)
     if not quiet:
         note = tg.skip_note(skipped)

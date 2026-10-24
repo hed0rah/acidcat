@@ -45,8 +45,11 @@ def register(subparsers):
     ix.add_argument("--pitch", action="store_true",
                     help="Estimate the note of every file under 4 s "
                          "(one-shots; needs numpy).")
+    ix.add_argument("--profile", action="store_true",
+                    help="Measure each audio file's envelope (hit, decay, "
+                         "sustain, pulse) and its energy by band (needs numpy).")
     ix.add_argument("--jobs", "-j", type=int, default=None,
-                    help="Worker processes for features and pitch "
+                    help="Worker processes for features, pitch and profile "
                          "(default CPU-1).")
     ix.add_argument("--analyze", action="store_true",
                     help="Estimate BPM/key with librosa where the metadata has "
@@ -98,6 +101,12 @@ def register(subparsers):
                                  "(lib index --pitch)."),
                       ("--tunability", "How clearly it has one pitch, 0 to 1 "
                                        "(0.6: for clearly pitched)."),
+                      ("--envelope", "hit, decay, sustain or pulse; several "
+                                     "with commas (lib index --profile)."),
+                      ("--band", "Where most of the energy sits: sub, low, "
+                                 "lowmid, mid, high; several with commas."),
+                      ("--centroid", "Spectral centroid in Hz, a range "
+                                     "(:300 dark, 3000: bright)."),
                       ("--device", "A device or plugin name."),
                       ("--category", "A category."),
                       ("--creator", "A creator."),
@@ -163,6 +172,7 @@ def _index(args):
     _legacy.switch(argv, "--force", args.reread)
     _legacy.switch(argv, "--features", args.features)
     _legacy.switch(argv, "--pitch", args.pitch)
+    _legacy.switch(argv, "--profile", args.profile)
     _legacy.flag(argv, "--jobs", args.jobs)
     _legacy.switch(argv, "--deep", args.analyze)
     _legacy.flag(argv, "--import-tags", args.import_tags)
@@ -208,7 +218,7 @@ def _query(args):
     argv = ["--output-format", chosen_format(args), "--limit", str(args.top),
             "--bpm-tolerance", str(args.bpm_tolerance)]
     for name in ("registry", "bpm", "key", "duration", "note", "tunability",
-                 "device", "category",
+                 "envelope", "band", "centroid", "device", "category",
                  "creator", "product", "text", "root", "compatible_with", "kind",
                  "output"):
         _legacy.flag(argv, "--" + name.replace("_", "-") if name != "output" else "-o",

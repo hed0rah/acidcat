@@ -229,6 +229,7 @@ def _migrate(conn, cur, on_disk):
             _migrate_v3(conn, cur)
         if on_disk < 4:
             cur.execute(_PITCH_DDL)
+            cur.execute(_PROFILE_DDL)
             # rows keep their key; its mode and source were never recorded,
             # so they stay NULL until the file is read again. a NULL reader
             # marks the row stale, so the next index does that by itself.
@@ -369,6 +370,30 @@ def _create_sample_indexes(cur):
     ensure_query_indexes(cur)
 
 
+# one row per file the profile pass ran on (core/analysis/profile.py): envelope,
+# attack/decay, and the share of energy in five bands. apart from samples for
+# the same reason as pitch.
+_PROFILE_DDL = """
+    CREATE TABLE IF NOT EXISTS profile (
+        path TEXT PRIMARY KEY,
+        profile_version INTEGER,
+        envelope TEXT,
+        attack_ms REAL,
+        decay_ms REAL,
+        sustain REAL,
+        reattacks INTEGER,
+        centroid_hz REAL,
+        band TEXT,
+        band_sub REAL,
+        band_low REAL,
+        band_lowmid REAL,
+        band_mid REAL,
+        band_high REAL,
+        extracted_at REAL
+    )
+"""
+
+
 def _create_tables(cur):
     cur.execute(f"CREATE TABLE IF NOT EXISTS samples (\n{_SAMPLES_TABLE_COLS}\n)")
     _create_sample_indexes(cur)
@@ -411,6 +436,7 @@ def _create_tables(cur):
     """)
 
     cur.execute(_PITCH_DDL)
+    cur.execute(_PROFILE_DDL)
 
 
 def normalize_path(p):
@@ -572,6 +598,42 @@ def upsert_pitch(conn, path, est, version):
     )
 
 
+def profile_due(conn, path, version):
+    """True when `path` is audio the profile pass reads and has no profile from
+    pass `version`."""
+    row = conn.execute(
+        "SELECT s.format, s.duration, pf.profile_version FROM samples s "
+        "LEFT JOIN profile pf ON pf.path = s.path WHERE s.path = ?", (path,)
+    ).fetchone()
+    return (row is not None and profile_eligible(row["format"], row["duration"])
+            and row["profile_version"] != version)
+
+
+def profile_eligible(fmt, duration):
+    return fmt in PITCH_FORMATS and duration is not None and duration > 0
+
+
+PROFILE_COLUMNS = ("envelope", "attack_ms", "decay_ms", "sustain", "reattacks",
+                 "centroid_hz", "band", "band_sub", "band_low", "band_lowmid",
+                 "band_mid", "band_high")
+
+
+def upsert_profile(conn, path, d, version):
+    """Store one profile (the dict estimate_profile returns)."""
+    bands = d.get("bands") or {}
+    values = [d.get(c) if not c.startswith("band_") else bands.get(c[5:])
+              for c in PROFILE_COLUMNS]
+    cols = ", ".join(PROFILE_COLUMNS)
+    updates = ", ".join(f"{c}=excluded.{c}" for c in
+                        ("profile_version",) + PROFILE_COLUMNS + ("extracted_at",))
+    conn.execute(
+        f"INSERT INTO profile (path, profile_version, {cols}, extracted_at) "
+        f"VALUES (?, ?, {', '.join('?' for _ in PROFILE_COLUMNS)}, ?) "
+        f"ON CONFLICT(path) DO UPDATE SET {updates}",
+        [path, version, *values, time.time()],
+    )
+
+
 def get_features(conn, path):
     row = conn.execute(
         "SELECT features_json FROM features WHERE path = ?", (path,)
@@ -686,6 +748,7 @@ def remove_root(conn, root):
         conn.execute("DELETE FROM descriptions WHERE path = ?", (r["path"],))
         conn.execute("DELETE FROM features WHERE path = ?", (r["path"],))
         conn.execute("DELETE FROM pitch WHERE path = ?", (r["path"],))
+        conn.execute("DELETE FROM profile WHERE path = ?", (r["path"],))
     conn.execute("DELETE FROM scan_roots WHERE path = ?", (root,))
     return len(rows)
 
@@ -714,6 +777,7 @@ def prune_missing(conn, scan_root, before_ts):
         conn.execute("DELETE FROM descriptions WHERE path = ?", (r["path"],))
         conn.execute("DELETE FROM features WHERE path = ?", (r["path"],))
         conn.execute("DELETE FROM pitch WHERE path = ?", (r["path"],))
+        conn.execute("DELETE FROM profile WHERE path = ?", (r["path"],))
     return len(rows)
 
 
@@ -730,6 +794,7 @@ def index_stats(conn):
     pitch_count = conn.execute(
         "SELECT COUNT(*) AS c FROM pitch WHERE pitch_note IS NOT NULL"
     ).fetchone()["c"]
+    profile_count = conn.execute("SELECT COUNT(*) AS c FROM profile").fetchone()["c"]
     tag_count = conn.execute(
         "SELECT COUNT(DISTINCT tag) AS c FROM tags"
     ).fetchone()["c"]
@@ -743,6 +808,7 @@ def index_stats(conn):
         "total_samples": total,
         "with_features": feat_count,
         "with_pitch": pitch_count,
+        "with_profile": profile_count,
         "unique_tags": tag_count,
         "with_descriptions": desc_count,
         "last_indexed_at": last_root,

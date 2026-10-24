@@ -23,7 +23,7 @@ from acidcat.core.infra.render import format_json, output
 
 DEFAULT_FIELDS = [
     "path", "format", "bpm", "key", "key_mode", "key_source", "duration",
-    "pitch", "pitch_cents", "tunability",
+    "pitch", "pitch_cents", "tunability", "envelope", "band",
     "title", "artist", "album",
     "preset_name", "device", "product", "creator", "category",
     "scan_root",
@@ -46,6 +46,13 @@ def register(subparsers):
                    "--pitch: F# (any octave) or F#1 (that note).")
     p.add_argument("--tunability", help="How clearly a one-shot has one "
                    "pitch, 0 to 1. Exact or range (0.6: for clearly pitched).")
+    p.add_argument("--envelope", help="Envelope filter for files indexed with "
+                   "--profile: hit, decay, sustain or pulse; several with commas.")
+    p.add_argument("--band", help="Where most of a file's energy sits: sub "
+                   "(under 60 Hz), low, lowmid, mid, high (over 4 kHz); "
+                   "several with commas.")
+    p.add_argument("--centroid", help="Spectral centroid in Hz, exact or "
+                   "range (:300 for dark, 3000: for bright).")
     p.add_argument("--tag", action="append", default=[],
                    help="Tag filter. Repeat for AND semantics.")
     p.add_argument("--format", dest="file_format",
@@ -363,6 +370,9 @@ def _build_sql(args):
     tun_lo = tun_hi = None
     if getattr(args, "tunability", None):
         tun_lo, tun_hi = _parse_range(args.tunability, field_name="tunability")
+    cen_lo = cen_hi = None
+    if getattr(args, "centroid", None):
+        cen_lo, cen_hi = _parse_range(args.centroid, field_name="centroid")
     try:
         where, params, joins = query_sql.build_filter(
             bpm_min=bpm_lo, bpm_max=bpm_hi,
@@ -374,11 +384,18 @@ def _build_sql(args):
             product=getattr(args, "product", None),
             tags=args.tag, text=args.text,
             note=getattr(args, "note", None),
-            tunability_min=tun_lo, tunability_max=tun_hi)
+            tunability_min=tun_lo, tunability_max=tun_hi,
+            envelope=_csv(getattr(args, "envelope", None)),
+            band=_csv(getattr(args, "band", None)),
+            centroid_min=cen_lo, centroid_max=cen_hi)
     except ValueError as e:
-        raise QueryUsageError(f"bad --note value: {e}")
+        raise QueryUsageError(f"bad filter value: {e}")
     return (query_sql.assemble(where, joins, order="s.path"),
             query_sql.assemble_count(where, joins), params)
+
+
+def _csv(value):
+    return [v for v in (value or "").split(",") if v.strip()]
 
 
 def _shape_row(row):
