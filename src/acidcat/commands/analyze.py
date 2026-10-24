@@ -3,9 +3,11 @@
     acidcat analyze --bpm-key FILE|DIR...
     acidcat analyze --features FILE|DIR...
     acidcat analyze --bpm-key --features FILE      # both, one after the other
+    acidcat analyze --pitch FILE|DIR...            # the note a one-shot plays
 
-Needs the `analysis` extra (librosa); without it, exit 2. Unlike `stats`,
-there is no default --max-files: an analysis runs over what it is given.
+Needs the `analysis` extra (librosa; --pitch needs only numpy); without it,
+exit 2. Unlike `stats`, there is no default --max-files: an analysis runs over
+what it is given.
 """
 
 import contextlib
@@ -27,6 +29,9 @@ def register(subparsers):
                    help="Estimate tempo and key (what `detect` did).")
     p.add_argument("--features", action="store_true",
                    help="Extract the feature vector (what `features` did).")
+    p.add_argument("--pitch", action="store_true",
+                   help="The note a one-shot settles on, its offset in cents, "
+                        "and how clearly it has one pitch.")
     p.add_argument("--max-files", type=int, default=None, metavar="N",
                    help="Stop after N files (no limit by default).")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"), deprecated_f=False)
@@ -37,12 +42,12 @@ def register(subparsers):
 
 
 def run(args):
-    if not (args.bpm_key or args.features):
-        print("acidcat analyze: say what to analyze: --bpm-key, --features, or "
-              "both", file=sys.stderr)
+    if not (args.bpm_key or args.features or args.pitch):
+        print("acidcat analyze: say what to analyze: --bpm-key, --features, "
+              "--pitch, or several", file=sys.stderr)
         return 2
     import importlib.util
-    if importlib.util.find_spec("librosa") is None:
+    if (args.bpm_key or args.features) and importlib.util.find_spec("librosa") is None:
         # could not run (2), said once, not a row of Nones per file
         print("acidcat analyze: needs the analysis extra (librosa): "
               "pip install acidcat[analysis]", file=sys.stderr)
@@ -63,6 +68,11 @@ def run(args):
             with contextlib.redirect_stdout(out):
                 rc = max(rc, _legacy.run(module, module_name, argv) or 0)
             parts.append(out.getvalue())
+    if args.pitch:
+        from acidcat.util.deps import require
+        if not require("numpy", group="analysis"):
+            return 2
+        rc = max(rc, _pitch(targets, n, fmt, args.quiet, parts))
     text = _merge(parts, fmt)
     if args.output:
         with open(args.output, "w", encoding="utf-8", newline="") as fh:
@@ -70,6 +80,41 @@ def run(args):
     else:
         sys.stdout.write(text)
     return rc
+
+
+def _pitch(targets, n, fmt, quiet, parts):
+    """--pitch: one row per file (core/analysis/pitch.py)."""
+    from acidcat.core.analysis.pitch import estimate_pitch
+    from acidcat.core.infra.render import output
+    from acidcat.util import targets as tg
+    files, skipped = tg.expand(targets)
+    rows, failed = [], 0
+    for path in files[:n]:
+        row = {"path": path, "note": None, "cents": None, "f0_hz": None,
+               "tunability": None, "glide_cents": None}
+        try:
+            est = estimate_pitch(path)
+        except Exception as e:
+            failed += 1
+            if not quiet:
+                print(f"acidcat analyze: {path}: could not decode the audio "
+                      f"({e.__class__.__name__})", file=sys.stderr)
+        else:
+            row.update(note=est["note_name"], cents=est["cents"],
+                       f0_hz=est["f0_hz"], tunability=est["tunability"],
+                       glide_cents=est["glide_cents"])
+        rows.append(row)
+    if not quiet:
+        note = tg.skip_note(skipped)
+        if note:
+            print(f"  {note}", file=sys.stderr)
+    out = io.StringIO()
+    if len(rows) == 1 and fmt == "table":
+        output(rows[0], fmt="table", stream=out)
+    else:
+        output(rows, fmt="csv" if fmt == "table" else fmt, stream=out)
+    parts.append(out.getvalue())
+    return 2 if rows and failed == len(rows) else 0
 
 
 def _merge(parts, fmt):

@@ -42,8 +42,12 @@ def register(subparsers):
                          "(after a parser upgrade).")
     ix.add_argument("--features", action="store_true",
                     help="Extract librosa features while indexing.")
+    ix.add_argument("--pitch", action="store_true",
+                    help="Estimate the note of every file under 4 s "
+                         "(one-shots; needs numpy).")
     ix.add_argument("--jobs", "-j", type=int, default=None,
-                    help="Worker processes for features (default CPU-1).")
+                    help="Worker processes for features and pitch "
+                         "(default CPU-1).")
     ix.add_argument("--analyze", action="store_true",
                     help="Estimate BPM/key with librosa where the metadata has "
                          "none.")
@@ -90,6 +94,10 @@ def register(subparsers):
     for name, hlp in (("--bpm", "A tempo or range (120, 120:130)."),
                       ("--key", "A key (Am, F#)."),
                       ("--duration", "A duration range in seconds (0:2)."),
+                      ("--note", "The note a one-shot plays, F# or F#1 "
+                                 "(lib index --pitch)."),
+                      ("--tunability", "How clearly it has one pitch, 0 to 1 "
+                                       "(0.6: for clearly pitched)."),
                       ("--device", "A device or plugin name."),
                       ("--category", "A category."),
                       ("--creator", "A creator."),
@@ -154,6 +162,7 @@ def _index(args):
     _legacy.switch(argv, "--rebuild", args.rebuild)
     _legacy.switch(argv, "--force", args.reread)
     _legacy.switch(argv, "--features", args.features)
+    _legacy.switch(argv, "--pitch", args.pitch)
     _legacy.flag(argv, "--jobs", args.jobs)
     _legacy.switch(argv, "--deep", args.analyze)
     _legacy.flag(argv, "--import-tags", args.import_tags)
@@ -198,7 +207,8 @@ def _query(args):
     from acidcat.commands import query
     argv = ["--output-format", chosen_format(args), "--limit", str(args.top),
             "--bpm-tolerance", str(args.bpm_tolerance)]
-    for name in ("registry", "bpm", "key", "duration", "device", "category",
+    for name in ("registry", "bpm", "key", "duration", "note", "tunability",
+                 "device", "category",
                  "creator", "product", "text", "root", "compatible_with", "kind",
                  "output"):
         _legacy.flag(argv, "--" + name.replace("_", "-") if name != "output" else "-o",

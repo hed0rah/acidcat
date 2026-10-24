@@ -254,14 +254,18 @@ def _analysis_unavailable():
 
 
 def search_samples(args):
-    where, params, joins = query_sql.build_filter(
-        bpm_min=args.get("bpm_min"), bpm_max=args.get("bpm_max"),
-        duration_min=args.get("duration_min"),
-        duration_max=args.get("duration_max"),
-        key=args.get("key"), file_format=args.get("format"),
-        device=args.get("device"), category=args.get("category"),
-        creator=args.get("creator"), product=args.get("product"),
-        tags=args.get("tags"), text=args.get("text"))
+    try:
+        where, params, joins = query_sql.build_filter(
+            bpm_min=args.get("bpm_min"), bpm_max=args.get("bpm_max"),
+            duration_min=args.get("duration_min"),
+            duration_max=args.get("duration_max"),
+            key=args.get("key"), file_format=args.get("format"),
+            device=args.get("device"), category=args.get("category"),
+            creator=args.get("creator"), product=args.get("product"),
+            tags=args.get("tags"), text=args.get("text"),
+            note=args.get("note"), tunability_min=args.get("tunability_min"))
+    except ValueError as e:
+        raise ToolError(str(e))
     limit = _limit(args, "limit", 50)
     sql = query_sql.assemble(where, joins, order="s.path", limit_placeholder=True)
     count_sql = query_sql.assemble_count(where, joins)
@@ -291,7 +295,7 @@ def search_samples(args):
             except Exception:
                 counted_all = False
             for r in rows:
-                d = dict(r)
+                d = _with_pitch_name(dict(r))
                 d.pop("id", None)     # internal rowid alias, not part of the API
                 d["library_label"] = lib["label"]
                 merged.append(d)
@@ -310,6 +314,14 @@ def search_samples(args):
     return {"count": len(merged), "total_matched": matched,
             "truncated": (matched is not None and matched > len(merged)),
             "samples": merged}
+
+
+def _with_pitch_name(d):
+    """Name the MIDI pitch_note ("F#1") so a reader need not do the sum."""
+    if d.get("pitch_note") is not None:
+        from acidcat.core.analysis.pitch import note_name
+        d["pitch_name"] = note_name(d["pitch_note"])
+    return d
 
 
 def get_sample(args):
@@ -335,6 +347,12 @@ def get_sample(args):
             "SELECT description FROM descriptions WHERE path = ?", (resolved,)
         ).fetchone()
         out["description"] = desc["description"] if desc else None
+        pitch = conn.execute(
+            "SELECT pitch_hz, pitch_note, pitch_cents, tunability, glide_cents "
+            "FROM pitch WHERE path = ?", (resolved,)
+        ).fetchone()
+        if pitch is not None:
+            out.update(_with_pitch_name(dict(pitch)))
         # "has features" has to mean "features find_similar can actually use".
         # An unversioned check reported True for stale rows that find_similar
         # filters out, so get_sample said "has features" about the same file
@@ -680,6 +698,7 @@ def reindex(args):
     if not target:
         raise ToolError("path or label is required")
     with_features = bool(args.get("with_features", False))
+    with_pitch = bool(args.get("with_pitch", False))
     force = bool(args.get("force", False))
 
     rconn = reg.open_registry(_REGISTRY_PATH)
@@ -708,6 +727,7 @@ def reindex(args):
             do_deep=False,
             quiet=True,
             force=force,
+            do_pitch=with_pitch,
         )
         conn.commit()
         sample_count = conn.execute(

@@ -81,13 +81,16 @@ _COMMIT_EVERY_N_FILES = 100
 
 
 def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
-                     quiet=False, force=False, jobs=None):
+                     quiet=False, force=False, jobs=None, do_pitch=False):
     walk_start = time.time()
     feature_queue = []          # (filepath, path_key) to feature-extract in parallel
+    pitch_queue = []            # (filepath, path_key) for the pitch estimator
     cur_feat_version = None
     if do_features:
         from acidcat.core.analysis.features import FEATURE_SET_VERSION
         cur_feat_version = FEATURE_SET_VERSION
+    if do_pitch:
+        from acidcat.core.analysis.pitch import MAX_DURATION, PITCH_VERSION
     # ensure the query-layer expression indexes exist (existing DBs never get
     # them via _apply_schema, which returns early at the current version).
     try:
@@ -132,6 +135,9 @@ def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
                     # (e.g. after a FEATURE_SET_VERSION change) without re-parsing.
                     if do_features and idx.feature_version(conn, norm) != cur_feat_version:
                         feature_queue.append((filepath, norm))
+                    if do_pitch and idx.pitch_due(conn, norm, PITCH_VERSION,
+                                                  MAX_DURATION):
+                        pitch_queue.append((filepath, norm))
                     skipped += 1
                     seen_paths += 1
                     since_commit += 1
@@ -169,6 +175,16 @@ def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
                 # after the walk (the CPU-bound librosa work is what we scale).
                 feature_queue.append((filepath, row["path"]))
 
+            if do_pitch:
+                # a changed file gets a fresh estimate; a re-read of an
+                # unchanged one keeps its pitch unless the estimator moved on
+                changed = existing is None or existing[:2] != (st.st_mtime, st.st_size)
+                if (changed and idx.pitch_eligible(row.get("format"),
+                                                   row.get("duration"),
+                                                   MAX_DURATION)) or \
+                        idx.pitch_due(conn, row["path"], PITCH_VERSION, MAX_DURATION):
+                    pitch_queue.append((filepath, row["path"]))
+
             seen_paths += 1
             since_commit += 1
             if since_commit >= _COMMIT_EVERY_N_FILES:
@@ -188,6 +204,9 @@ def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
     # be spread across a process pool (see _extract_features_parallel).
     if feature_queue:
         _extract_features_parallel(conn, feature_queue, quiet=quiet, jobs=jobs)
+        conn.commit()
+    if pitch_queue:
+        _estimate_pitch_parallel(conn, pitch_queue, quiet=quiet, jobs=jobs)
         conn.commit()
 
     pruned = idx.prune_missing(conn, scan_root, walk_start)
@@ -657,6 +676,66 @@ def _extract_features_parallel(conn, queue, quiet=False, jobs=None):
         print(f"  [features] {stored}/{n} stored; {n - stored} produced no "
               f"features (unreadable, too short, or decode failed)",
               file=sys.stderr)
+
+
+# ── pitch ───────────────────────────────────────────────────────────
+# numpy-only and about 17 ms a file, so the pool pays off sooner than the
+# librosa one: a spawned worker costs a numpy import, not a numba warm-up.
+
+_PITCH_POOL_MIN = 200
+
+
+def _pitch_worker(item):
+    """(path_key, estimate-or-None) for one file; never raises."""
+    filepath, path_key = item
+    try:
+        from acidcat.core.analysis.pitch import estimate_pitch
+        est = estimate_pitch(filepath)
+        est.pop("method", None)
+        return path_key, est
+    except Exception:
+        return path_key, None
+
+
+def _estimate_pitch_parallel(conn, queue, quiet=False, jobs=None):
+    """Estimate the pitch of every (filepath, path_key) in `queue` and store it.
+    A file that cannot be decoded stores nothing and is tried again next run."""
+    from acidcat.core.analysis.pitch import PITCH_VERSION
+    n = len(queue)
+    workers = _resolve_jobs(jobs, n)
+    if not quiet:
+        print(f"  [pitch] {n} short files"
+              + (f" on {workers} workers" if workers > 1 and n >= _PITCH_POOL_MIN
+                 else ""), file=sys.stderr)
+    if workers <= 1 or n < _PITCH_POOL_MIN:
+        results = map(_pitch_worker, queue)
+        pool = None
+    else:
+        import multiprocessing as mp
+        pool = mp.get_context("spawn").Pool(workers, initializer=_feature_worker_init)
+        results = pool.imap_unordered(_pitch_worker, queue, chunksize=16)
+    stored = pitched = done = since_commit = 0
+    try:
+        for path_key, est in results:
+            done += 1
+            if est is not None:
+                idx.upsert_pitch(conn, path_key, est, PITCH_VERSION)
+                stored += 1
+                pitched += est.get("midi_note") is not None
+            since_commit += 1
+            if since_commit >= _COMMIT_EVERY_N_FILES:
+                conn.commit()
+                since_commit = 0
+            if not quiet and done % 1000 == 0:
+                print(f"  [pitch] {done}/{n}", file=sys.stderr)
+    finally:
+        if pool is not None:
+            pool.close()
+            pool.join()
+    conn.commit()
+    if not quiet:
+        print(f"  [pitch] {pitched} pitched, {stored - pitched} with no one "
+              f"pitch, {n - stored} unreadable", file=sys.stderr)
 
 
 def _refuses_as_root(path):

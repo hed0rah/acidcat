@@ -62,6 +62,18 @@ def _register_all():
                         "source that stated one."},
                 "duration_min": {"type": "number", "description": "Minimum duration in seconds."},
                 "duration_max": {"type": "number", "description": "Maximum duration in seconds."},
+                "note": {"type": "string",
+                         "description": "The note a one-shot plays, for "
+                         "files indexed with pitch: 'F#' any octave, 'F#1' "
+                         "that note. Results carry pitch_name, pitch_cents "
+                         "(+ is sharp; retune by minus this), pitch_hz, "
+                         "tunability and glide_cents (+ is a pitch that "
+                         "falls, as an 808 does)."},
+                "tunability_min": {"type": "number",
+                                   "description": "0 to 1, how clearly a "
+                                   "one-shot has one pitch. 0.6 keeps "
+                                   "clearly pitched hits; lower admits "
+                                   "found sounds with a usable centre."},
                 "tags": {"type": "array", "items": {"type": "string"},
                          "description": "AND semantics across tags."},
                 "text": {"type": "string",
@@ -284,6 +296,10 @@ def _register_all():
                 "path": {"type": "string",
                          "description": "Library root path (alternative)."},
                 "with_features": {"type": "boolean", "default": False},
+                "with_pitch": {"type": "boolean", "default": False,
+                               "description": "Estimate the note of every "
+                                              "file under 4 s (fast, numpy "
+                                              "only)."},
                 "force": {"type": "boolean", "default": False,
                           "description": "Re-extract metadata even for "
                                          "unchanged files (after parser "

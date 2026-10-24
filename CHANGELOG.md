@@ -8,6 +8,20 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The note a one-shot plays, and how far off it is.** `lib index --pitch`
+  estimates the pitch of every file under 4 s: the nearest note, the offset
+  in cents, the fundamental in Hz, a 0 to 1 tunability (how clearly the
+  sound has one pitch), and the glide (how far above its settled pitch it
+  starts, as an 808 does). `lib query --note F#` (any octave) or `--note
+  F#1`, and `--tunability 0.6:`, filter on it, and the MCP `search_samples`
+  tool takes `note` and `tunability_min` and returns the pitch with every
+  row. `analyze --pitch FILE` answers for one file. On 1,817 one-shots whose
+  names gave a note, it matched the name on 28 of 28 tuned 808s and on 82%
+  of everything it answered for, and it declines on hats, claps and most
+  chords rather than guess. It needs numpy only, runs in parallel, takes
+  about 17 ms a file, and a second index re-estimates only files that
+  changed.
+
 - **A key says where it came from and whether its mode is known.** A file
   can state its key in a tag, an ACID chunk, a smpl chunk, a basc chunk, a
   MIDI key signature, its file name or its folders, and acidcat now reads

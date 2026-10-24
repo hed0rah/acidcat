@@ -228,6 +228,7 @@ def _migrate(conn, cur, on_disk):
         if on_disk < 3:
             _migrate_v3(conn, cur)
         if on_disk < 4:
+            cur.execute(_PITCH_DDL)
             # rows keep their key; its mode and source were never recorded,
             # so they stay NULL until the file is read again. a NULL reader
             # marks the row stale, so the next index does that by itself.
@@ -341,6 +342,23 @@ _SAMPLES_TABLE_COLS = """
 """
 
 
+# one row per file the pitch estimator ran on (core/analysis/pitch.py), kept
+# apart from samples so a metadata re-read cannot wipe it. pitch_note NULL with
+# a tunability is an answer: the sound has no one pitch.
+_PITCH_DDL = """
+    CREATE TABLE IF NOT EXISTS pitch (
+        path TEXT PRIMARY KEY,
+        pitch_version INTEGER,
+        pitch_hz REAL,
+        pitch_note INTEGER,
+        pitch_cents REAL,
+        tunability REAL,
+        glide_cents REAL,
+        extracted_at REAL
+    )
+"""
+
+
 def _create_sample_indexes(cur):
     """(Re)create every index on `samples`. Shared by fresh creation and the v3
     rebuild, which drops the table and must restore its indexes."""
@@ -391,6 +409,8 @@ def _create_tables(cur):
             extracted_at REAL
         )
     """)
+
+    cur.execute(_PITCH_DDL)
 
 
 def normalize_path(p):
@@ -517,6 +537,41 @@ def upsert_features(conn, path, features, version=None):
     )
 
 
+def pitch_due(conn, path, version, max_duration):
+    """True when `path` is short enough to have a pitch and has none from
+    estimator `version`."""
+    row = conn.execute(
+        "SELECT s.duration, s.format, p.pitch_version FROM samples s "
+        "LEFT JOIN pitch p ON p.path = s.path WHERE s.path = ?", (path,)
+    ).fetchone()
+    return (row is not None and pitch_eligible(row["format"], row["duration"],
+                                               max_duration)
+            and row["pitch_version"] != version)
+
+
+PITCH_FORMATS = frozenset({"wav", "aiff", "flac", "ogg", "opus", "mp3", "m4a"})
+
+
+def pitch_eligible(fmt, duration, max_duration):
+    return (fmt in PITCH_FORMATS and duration is not None
+            and 0 < duration <= max_duration)
+
+
+def upsert_pitch(conn, path, est, version):
+    """Store one pitch estimate (the dict estimate_pitch returns)."""
+    conn.execute(
+        "INSERT INTO pitch (path, pitch_version, pitch_hz, pitch_note, "
+        "pitch_cents, tunability, glide_cents, extracted_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(path) DO UPDATE SET pitch_version=excluded.pitch_version, "
+        "pitch_hz=excluded.pitch_hz, pitch_note=excluded.pitch_note, "
+        "pitch_cents=excluded.pitch_cents, tunability=excluded.tunability, "
+        "glide_cents=excluded.glide_cents, extracted_at=excluded.extracted_at",
+        (path, version, est.get("f0_hz"), est.get("midi_note"), est.get("cents"),
+         est.get("tunability"), est.get("glide_cents"), time.time()),
+    )
+
+
 def get_features(conn, path):
     row = conn.execute(
         "SELECT features_json FROM features WHERE path = ?", (path,)
@@ -630,6 +685,7 @@ def remove_root(conn, root):
         conn.execute("DELETE FROM tags WHERE path = ?", (r["path"],))
         conn.execute("DELETE FROM descriptions WHERE path = ?", (r["path"],))
         conn.execute("DELETE FROM features WHERE path = ?", (r["path"],))
+        conn.execute("DELETE FROM pitch WHERE path = ?", (r["path"],))
     conn.execute("DELETE FROM scan_roots WHERE path = ?", (root,))
     return len(rows)
 
@@ -657,6 +713,7 @@ def prune_missing(conn, scan_root, before_ts):
         conn.execute("DELETE FROM tags WHERE path = ?", (r["path"],))
         conn.execute("DELETE FROM descriptions WHERE path = ?", (r["path"],))
         conn.execute("DELETE FROM features WHERE path = ?", (r["path"],))
+        conn.execute("DELETE FROM pitch WHERE path = ?", (r["path"],))
     return len(rows)
 
 
@@ -670,6 +727,9 @@ def index_stats(conn):
         ).fetchall()
     ]
     feat_count = conn.execute("SELECT COUNT(*) AS c FROM features").fetchone()["c"]
+    pitch_count = conn.execute(
+        "SELECT COUNT(*) AS c FROM pitch WHERE pitch_note IS NOT NULL"
+    ).fetchone()["c"]
     tag_count = conn.execute(
         "SELECT COUNT(DISTINCT tag) AS c FROM tags"
     ).fetchone()["c"]
@@ -682,6 +742,7 @@ def index_stats(conn):
     return {
         "total_samples": total,
         "with_features": feat_count,
+        "with_pitch": pitch_count,
         "unique_tags": tag_count,
         "with_descriptions": desc_count,
         "last_indexed_at": last_root,

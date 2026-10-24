@@ -490,6 +490,28 @@ rather than the old `WHERE path = ?`, where `path` is an FTS column, not the
 rowid, so the delete scanned the whole index. On a 32k-row library that turned
 a `--force` full rebuild from minutes (O(n^2)) into under a second (O(n)).
 
+### `pitch` table
+
+```sql
+CREATE TABLE pitch (
+    path          TEXT PRIMARY KEY,
+    pitch_version INTEGER,       -- core/analysis/pitch.py PITCH_VERSION
+    pitch_hz      REAL,          -- settled fundamental; NULL = no one pitch
+    pitch_note    INTEGER,       -- nearest MIDI note, 60 = C4
+    pitch_cents   REAL,          -- detected minus that note, + = sharp
+    tunability    REAL,          -- 0..1, how clearly it has one pitch
+    glide_cents   REAL,          -- early minus settled pitch, + = falls
+    extracted_at  REAL
+);
+```
+
+Optional. Populated by `acidcat lib index --pitch` (or the MCP `reindex`
+tool's `with_pitch`) for wav, aiff, flac, ogg, opus, mp3 and m4a files of
+4 s or less: one-shots, since a loop's several notes have no one pitch. A row
+with a tunability and a NULL note is an answer, not a gap. Kept apart from
+`samples` so a metadata re-read leaves it alone; a file whose size or mtime
+changed is estimated again. Every query SELECT left-joins it.
+
 ### `features` blob table
 
 ```sql

@@ -9,10 +9,21 @@ drawn from a fixed set here, never from user input.
 """
 
 
+# every SELECT carries the file's pitch (core/analysis/pitch.py) when it has
+# one. the join is on the pitch table's primary key, so SQLite drops it from a
+# query that never reads a pitch column.
+PITCH_JOIN = "LEFT JOIN pitch p ON p.path = s.path"
+PITCH_COLUMNS = "p.pitch_hz, p.pitch_note, p.pitch_cents, p.tunability, p.glide_cents"
+
+
 def build_filter(*, bpm_min=None, bpm_max=None, duration_min=None,
                  duration_max=None, key=None, file_format=None, device=None,
-                 category=None, creator=None, product=None, tags=(), text=None):
-    """Return (where_clauses, params, joins) for the given filters."""
+                 category=None, creator=None, product=None, tags=(), text=None,
+                 note=None, tunability_min=None, tunability_max=None):
+    """Return (where_clauses, params, joins) for the given filters.
+
+    `note` is "F#" (any octave) or "F#1" (that MIDI note); ValueError when it
+    is neither."""
     where, params, joins = [], [], []
 
     if bpm_min is not None:
@@ -53,6 +64,25 @@ def build_filter(*, bpm_min=None, bpm_max=None, duration_min=None,
         params.extend(t.lower() for t in tags)
         params.append(len({t.lower() for t in tags}))
 
+    if note:
+        from acidcat.core.analysis.pitch import parse_note
+        parsed = parse_note(note)
+        if parsed is None:
+            raise ValueError(f"not a note: {note!r} (want e.g. F#, Bb, C2)")
+        pc, midi = parsed
+        if midi is None:
+            where.append("p.pitch_note % 12 = ?")
+            params.append(pc)
+        else:
+            where.append("p.pitch_note = ?")
+            params.append(midi)
+    if tunability_min is not None:
+        where.append("p.tunability >= ?")
+        params.append(float(tunability_min))
+    if tunability_max is not None:
+        where.append("p.tunability <= ?")
+        params.append(float(tunability_max))
+
     if text:
         joins.append("JOIN samples_fts fts ON fts.path = s.path")
         where.append("samples_fts MATCH ?")
@@ -73,7 +103,7 @@ def assemble_count(where, joins):
     refuses to register a library whose root overlaps another, so a given file
     belongs to exactly one library and cannot be counted twice.
     """
-    sql = "SELECT COUNT(*) FROM samples s " + " ".join(joins)
+    sql = f"SELECT COUNT(*) FROM samples s {PITCH_JOIN} " + " ".join(joins)
     if where:
         sql += " WHERE " + " AND ".join(where)
     return sql
@@ -81,7 +111,8 @@ def assemble_count(where, joins):
 
 def assemble(where, joins, *, order="s.path", limit_placeholder=False):
     """Assemble a full SELECT from build_filter fragments."""
-    sql = "SELECT s.* FROM samples s " + " ".join(joins)
+    sql = (f"SELECT s.*, {PITCH_COLUMNS} FROM samples s {PITCH_JOIN} "
+           + " ".join(joins))
     if where:
         sql += " WHERE " + " AND ".join(where)
     if order:

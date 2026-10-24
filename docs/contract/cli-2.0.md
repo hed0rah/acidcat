@@ -375,7 +375,7 @@ today) or an ADDR naming a typed field.
 
 ### `features`
 
-`analyze --features TARGET`.
+`analyze --features TARGET`. New in 2.1, with no 1.8 form: `analyze --pitch TARGET`, the note a one-shot plays.
 
 | 1.8 | 2.0 | |
 |---|---|---|
@@ -393,6 +393,7 @@ The action flags become `lib` sub-verbs.
 |---|---|---|
 | `index DIR` | `lib index DIR` | alias |
 | `--label`, `--in-tree`, `--rebuild`, `--features`, `--jobs`, `-j`, `--import-tags` | same, on `lib index` | |
+| - | `lib index --pitch`: the note of every file under 4 s (2.1) | new |
 | `--force` | `lib index --reread` (`--force` means "overwrite" elsewhere) | alias |
 | `--deep` | `lib index --analyze` (librosa; `--deep` means decode) | alias |
 | `--registry` | same, on every `lib` sub-verb | |
@@ -416,6 +417,7 @@ The action flags become `lib` sub-verbs.
 | `--bpm`, `--key`, `--duration`, `--tag`, `--device`, `--category`, `--creator`, `--product`, `--text`, `--root` | same | |
 | `--format` | `--only-format` | alias |
 | `--compatible-with`, `--bpm-tolerance`, `--same-key`, `--no-half-double`, `--kind` | same | |
+| - | `--note`, `--tunability`: filter on `lib index --pitch` (2.1) | new |
 | `--limit` | `--top` | alias |
 | `--output-format`, `--json`, `--csv` | same | |
 | `-f` | `--output-format` | removed |
