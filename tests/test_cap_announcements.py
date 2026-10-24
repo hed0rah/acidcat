@@ -169,6 +169,14 @@ EXEMPT = {
                               "the editor refuses the file; a value past it "
                               "is refused before it is written. Pinned in "
                               "tests/test_ni.py"),
+    ("acidcat.core.formats.ni", "_HSIN_LIST_MAX"):
+        (Reason.FIELD_SANITY, "the largest bank-chain or tag count read after "
+                              "a SoundInfoItem's description. A larger count "
+                              "is not a list cut short: the tail is not the "
+                              "mapped layout, and the bank and tags are left "
+                              "out while the name, author, vendor and "
+                              "description still read. Pinned in "
+                              "tests/test_fm8.py"),
     ("acidcat.core.walk.ni", "_KONTAKT_FASTLZ_CAP"):
         (Reason.RESOURCE_LIMIT, "a decompression bound on a Kontakt 4.2 patch "
                                 "body, so a crafted stream cannot expand "

@@ -258,6 +258,14 @@ flac	head256	.flac	flac
 flac	sniff_bytes	-	flac
 flac	zero-pad-front	.flac	-
 flac	zero-pad-tail	.flac	flac
+fm8	as-built	.bin	ni
+fm8	as-built	.nfm8	ni
+fm8	first-byte-flipped	.nfm8	ni
+fm8	head16	.nfm8	ni
+fm8	head256	.nfm8	ni
+fm8	sniff_bytes	-	ni
+fm8	zero-pad-front	.nfm8	-
+fm8	zero-pad-tail	.nfm8	ni
 fxp	as-built	.bin	fxp
 fxp	as-built	.fxp	fxp
 fxp	first-byte-flipped	.fxp	-

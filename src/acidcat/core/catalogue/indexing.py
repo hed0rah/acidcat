@@ -28,8 +28,9 @@ from acidcat.core.tagged import is_tagged_format
 # reader produced, with no --reread and no rereading of anything else. A row
 # stores "wav:2"; a row with no reader predates the stamp and is stale.
 #   2: key sources (core/analysis/keysource.py), ID3-in-RIFF key and tempo
+#   preset 2: an NI hsin preset's bank chain and attribute tags
 READER_VERSIONS = {"wav": 3, "aiff": 3, "midi": 3, "tagged": 3,
-                   "serum": 1, "preset": 1}
+                   "serum": 1, "preset": 2}
 
 
 def reader_is_current(stamp):

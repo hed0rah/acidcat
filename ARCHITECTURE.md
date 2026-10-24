@@ -100,7 +100,7 @@ the new bytes; `commit()` writes atomically with a `_original` backup.
 ## Layer stack (bottom to top)
 
 1. **Format primitives** -- `core/formats/` (per-format byte decoders: `riff`,
-   `aiff`, `mp3`, `mp4`, `flac`, `ni`, `tracker`, `sf2`, ...),
+   `aiff`, `mp3`, `mp4`, `flac`, `ni`, `fm8`, `tracker`, `sf2`, ...),
    `core/primitives/` (shared byte readers), `core/codecs/` (ADPCM, BRR, VADPCM
    and friends), `core/containers/` (disc images and archives),
    `core/infra/` (`sniff.py` -- 99 recognized formats, `fieldcodec.py` -- the
@@ -159,8 +159,8 @@ the new bytes; `commit()` writes atomically with a `_original` backup.
 
 ```
 src/acidcat/
-  core/            221 modules
-    formats/       per-format byte decoders (43)
+  core/            222 modules
+    formats/       per-format byte decoders (44)
     walk/          63 walker modules -> 95 format labels (64)
     primitives/    shared byte readers (6)
     codecs/        sample-data decoders, unpackers, the 6510/SID and SPC700/S-DSP players and their registry (22)
@@ -180,7 +180,7 @@ src/acidcat/
                    Document, no Textual; state.py what it remembers between
                    runs (tui.json)
   util/            small shared helpers
-  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (289 modules in total)
+  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (290 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,

@@ -47,6 +47,14 @@ def extract(data):
             m = nimod.parse_hsin(data)
         if not m:
             return None
+        if nimod.is_ni_hsin(data):
+            # an hsin SoundInfoItem's bank chain is whole names, product
+            # first ("FM8", "-SETUP-.SYX"), and its attribute tags are whole
+            # tags ("Synth Lead"): kept whole, not split into words
+            chain = [s.strip() for s in (m.get("bank") or "").split(" / ")]
+            tags = [s for s in chain[1:] if s] + list(m.get("attributes") or [])
+        else:
+            tags = _split_tags(m.get("bank"))
         return {
             "preset_name": m.get("name"),
             "device": m.get("plugin") or m.get("product"),
@@ -54,7 +62,7 @@ def extract(data):
             "creator": m.get("author") or m.get("vendor"),
             "category": m.get("device_type") or m.get("genre"),
             "description": m.get("comment") or m.get("description"),
-            "tags": _split_tags(m.get("bank")),
+            "tags": tags,
         }
 
     names = syxmod.dx7_voices(data)

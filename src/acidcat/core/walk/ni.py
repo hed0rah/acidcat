@@ -4,6 +4,7 @@ patches (formats/kontakt.py) and the Kontakt sample container .nkx/.nkr
 (formats/ni_container.py)."""
 
 
+from acidcat.core.formats import fm8 as fm8mod
 from acidcat.core.formats import kontakt as ktmod
 from acidcat.core.formats import ni as nimod
 from acidcat.core.formats import ni_container as ncmod
@@ -72,14 +73,21 @@ def inspect_ni(filepath, deep=False):
         raise _Unsupported("not a recognized Native Instruments preset")
     order = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
              "description", "device_type", "version", "tempo", "genre", "key"]
-    fields = [_f(None, 0, k, str(meta[k])) for k in order if meta.get(k)]
+    fields = [_f(None, 0, k, _text(meta[k])) for k in order if meta.get(k)]
     for k in meta:
         if k not in order:
-            fields.append(_f(None, 0, k, str(meta[k])))
+            fields.append(_f(None, 0, k, _text(meta[k])))
     prod = meta.get("product") or meta.get("plugin") or "NI"
     summary = f"{prod} preset '{meta.get('name', '(unnamed)')}'"
     chunks = [{"id": kind, "offset": 0, "size": file_size, "summary": summary,
                "fields": fields, "warnings": [], "payload_base": 0}]
+    warns = []
+    if kind == "hsin" and len(data) >= 8:
+        root = int.from_bytes(data[:8], "little")
+        if nimod.FRAME_HEADER <= root < file_size:
+            warns.append(info("container.trailing",
+                              f"{file_size - root:,} bytes follow the root frame"))
+    fm8 = prod == "FM8"
     if deep and kind == "hsin":
         inner = nimod.decompress_subtree(data)
         if inner is not None:
@@ -92,7 +100,147 @@ def inspect_ni(filepath, deep=False):
                                          "nested hsin (synth parameter state)"
                                          if nested else "opaque")],
                            "warnings": []})
-    return chunks, []
+            loc = fm8mod.locate(inner, nimod._hsin_walk) if nested else None
+            if loc is not None:
+                at, n = loc
+                chunks += _fm8_chunks(inner[at:at + n], warns)
+    elif deep and kind == "ksd" and fm8:
+        blob = _ksd_fm8_block(data)
+        if blob is not None:
+            chunks += _fm8_chunks(blob, warns)
+    elif fm8 and kind in ("hsin", "ksd"):
+        warns.append(info("decode.partial",
+                          "the FM8 sound state (operators, envelopes, matrix) "
+                          "is compressed; --deep decodes it"))
+    return chunks, warns
+
+
+def _text(v):
+    return ", ".join(v) if isinstance(v, list) else str(v)
+
+
+# ── FM8 sound state (formats/fm8.py) ──
+
+# zlib streams tried in a .ksd for the one holding the FM8 state
+_KSD_FM8_TRIES = 32
+
+
+def _ksd_fm8_block(data):
+    """The inflated `prst` stream of a KORE sound, when it is an FM8 state."""
+    tries = 0
+    pos = data.find(b"\x78", 0)
+    while 0 <= pos and tries < _KSD_FM8_TRIES:
+        if data[pos + 1:pos + 2] in (b"\x01", b"\x9c", b"\xda"):
+            tries += 1
+            out = nimod._safe_inflate(data[pos:])
+            if out and out[:4] == fm8mod.MAGIC:
+                return out
+        pos = data.find(b"\x78", pos + 1)
+    return None
+
+
+def _num(x):
+    return "%.6g" % x
+
+
+def _row(values):
+    return " ".join(_num(v) for v in values)
+
+
+def _onoff(x):
+    return "on" if x else "off"
+
+
+def _fm8_chunks(blob, warns):
+    """The FM8 state as chunks: the voice-wide settings, one chunk per
+    operator, the pitch envelope and the matrix. The state is inflated, not
+    file bytes, so the chunks are unpositioned."""
+    try:
+        st = fm8mod.parse(blob)
+    except fm8mod.Short as e:
+        warns.append(defect("size.overrun", f"FM8 state: {e}"))
+        return []
+    except ValueError as e:
+        warns.append(defect("parse.failed", f"FM8 state: {e}"))
+        return []
+    head = {"id": "fm8", "offset": None, "size": None, "warnings": [],
+            "summary": f"FM8 sound state, version {st['version']}",
+            "fields": [_f(None, 0, "magic", "E8MF"),
+                       _f(None, 0, "state_version", st["version"]),
+                       _f(None, 0, "names", " | ".join(st["names"]),
+                          "four names, stored like the rest of the state")]}
+    if not st["laid_out"]:
+        warns.append(info("layout.unmeasured",
+                          f"FM8 state version {st['version']}: only versions "
+                          f"{', '.join(map(str, fm8mod.VERSIONS))} are laid out; "
+                          f"the header is decoded"))
+        return [head]
+    fl = head["fields"]
+    fl.append(_f(None, 0, "transpose", "%+g" % st["transpose"], "semitones"))
+    for i, lfo in enumerate(st["lfo"], 1):
+        fl += [_f(None, 0, f"lfo{i}_wave", fm8mod.lfo_wave(lfo["wave"])),
+               _f(None, 0, f"lfo{i}_rate", _num(lfo["rate"]), "as stored, not Hz"),
+               _f(None, 0, f"lfo{i}_delay", _num(lfo["delay"])),
+               _f(None, 0, f"lfo{i}_sync", _onoff(lfo["sync"]))]
+    if not (st["blocks_agree"] and st["cells_agree"]):
+        warns.append(info("decode.partial",
+                          "the four stored copies of the operator block or the "
+                          "matrix differ; the first is shown"))
+    m = st["matrix"]
+    on = [i for i in range(6) if st["on"][i]]
+    head["summary"] += ": operators %s on" % ("".join(fm8mod.OPERATORS[i] for i in on)
+                                              or "none")
+    chunks = [head]
+    for i, letter in enumerate(fm8mod.OPERATORS):
+        ratio, off = st["ratio"][i], st["offset"][i]
+        freq = (f"fixed {_num(off)} Hz" if ratio == 0
+                else f"ratio {_num(ratio)}" + (f" {off:+.3g} Hz" if off else ""))
+        times, levels, slopes = st["env"][i]
+        keys, kvals, kslopes = st["keyscale"][i]
+        mods = ", ".join(f"{fm8mod.OPERATORS[c]} {m[i][c]}" for c in range(6)
+                         if c != i and m[i][c])
+        fields = [_f(None, 0, "on", _onoff(st["on"][i])),
+                  _f(None, 0, "ratio", _num(ratio), "0 for a fixed frequency"),
+                  _f(None, 0, "offset", _num(off), "Hz"),
+                  _f(None, 0, "frequency", freq, derived_from=["ratio", "offset"]),
+                  _f(None, 0, "output", m[i][fm8mod.MATRIX_OUT], "matrix amount to the output, 0-100"),
+                  _f(None, 0, "feedback", m[i][i], "matrix amount to itself, 0-100"),
+                  _f(None, 0, "modulates", mods or "none", "matrix amounts, 0-100"),
+                  _f(None, 0, "velocity", st["velocity"][i], "0-100"),
+                  _f(None, 0, "rate_scaling", st["rate_scaling"][i], "0-100"),
+                  _f(None, 0, "key_sync", _onoff(st["key_sync"][i])),
+                  _f(None, 0, "env_points", len(times)),
+                  _f(None, 0, "env_times", _row(times), "as stored"),
+                  _f(None, 0, "env_levels", _row(levels), "0-1"),
+                  _f(None, 0, "env_slopes", _row(slopes), "as stored"),
+                  _f(None, 0, "keyscale_keys", _row(keys), "key positions 0-127"),
+                  _f(None, 0, "keyscale_values", _row(kvals), "as stored")]
+        chunks.append({"id": f"op[{letter}]", "offset": None, "size": None,
+                       "warnings": [], "fields": fields,
+                       "summary": f"operator {letter}: {_onoff(st['on'][i])}, {freq}, "
+                                  f"output {m[i][fm8mod.MATRIX_OUT]}"})
+    times, levels, slopes = st["env"][fm8mod.PITCH_ENV]
+    chunks.append({"id": "pitch_env", "offset": None, "size": None,
+                   "warnings": [], "summary": f"pitch envelope, {len(times)} points",
+                   "fields": [_f(None, 0, "env_times", _row(times), "as stored"),
+                              _f(None, 0, "env_levels", _row(levels), "as stored"),
+                              _f(None, 0, "env_slopes", _row(slopes), "as stored")]})
+    links = [(r, c) for r in range(6) for c in range(6) if r != c and m[r][c]]
+    other = sum(1 for r in range(fm8mod.MATRIX) for c in range(fm8mod.MATRIX)
+                if m[r][c] and not (r < 6 and (c < 6 or c == fm8mod.MATRIX_OUT)))
+    mfields = [_f(None, 0, f"{fm8mod.OPERATORS[r]}>{fm8mod.OPERATORS[c]}", m[r][c])
+               for r, c in links]
+    mfields.append(_f(None, 0, "carriers", "".join(
+        fm8mod.OPERATORS[r] for r in range(6) if m[r][fm8mod.MATRIX_OUT]) or "none",
+        "operators with an output amount"))
+    if other:
+        mfields.append(_f(None, 0, "other_cells", other,
+                          "nonzero cells in rows or columns not decoded"))
+    chunks.append({"id": "matrix", "offset": None, "size": None,
+                   "warnings": [], "fields": mfields,
+                   "summary": f"modulation matrix: {len(links)} connection(s), "
+                              f"carriers {mfields[len(links)]['value']}"})
+    return chunks
 
 
 # ── the hsin frame tree, walked for its structure ──

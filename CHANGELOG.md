@@ -128,6 +128,38 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the last 16 MB, and says the module body is not decoded. A directory walk
   now takes `.ism` and `.ens`.
 
+- **FM8 presets are decoded: operators, envelopes and the matrix.** An
+  `.nfm8` is an NI hsin container whose compressed subtree inflates to FM8's
+  sound state, a block of about 3 KB laid out by position. `inspect --deep`
+  decodes it: for each operator A to F, whether it is on, its ratio and its
+  offset in Hz (or its fixed frequency), velocity sensitivity, rate scaling,
+  key sync, envelope points (time, level, slope) and key-scaling curve; the
+  pitch envelope; both LFOs' waveform, rate, delay and sync; the transpose;
+  and the modulation matrix, every connection, feedback and output as FM8's
+  0-100 amount. A KORE sound (`.ksd`) for FM8 is decoded the same way from
+  its own zlib stream. The layout was measured on 58,736 `.nfm8` files,
+  FM8's imports of DX7 voices: every one reads to the byte, and on 1,915 of
+  them, paired with the DX7 SysEx they were imported from, each decoded field
+  is the exact image of its DX7 parameter (DX7 operator 6 lands on A). The
+  init patch FM8 installs and 9 sounds saved from FM8 itself read the same
+  way. Without `--deep` the walker says the state is there to decode; a
+  state version other than 206 or 207 has only its header read, and says so.
+
+- **An NI preset's bank and attribute tags are read.** After the
+  description, the SoundInfoItem of a Massive, Absynth or FM8 preset holds
+  the bank chain ("Massive / Massive Exp. 2", "FM8 / -SETUP-.SYX") and the
+  sound's attribute tags ("Synth Lead", "Dry"). Both are shown, and the
+  index takes the bank and the tags as whole tags, not split into words. Of
+  6,854 hsin presets in a synth library, 6,631 gain a bank and 4,285 tags,
+  and every field read before reads the same. The preset reader is version
+  2, so the next `lib index` re-reads presets. Bytes after an hsin root
+  frame are a `container.trailing` finding: 1,849 of the 58,736 FM8
+  imports carry 1 to 314 of them, the end of a longer file the preset was
+  written over, FM8's own init patch 656, and 387 of 6,854 Massive and
+  Absynth presets some. The NI anatomy page said
+  item 108 closes with the app name; it closes with the bank chain (the app
+  name first), the tags and a list of key/value properties.
+
 ### Fixed
 
 - **A TEMPOMAP in a JUNK chunk is not overwritten padding.** 1,079 healthy

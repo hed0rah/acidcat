@@ -209,11 +209,11 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
     <details class="region" open>
       <summary><span class="chev">&#9656;</span><span class="rname">UTF-16LE metadata strings</span><span class="rspan">items 101 + 108 . no decompression</span></summary>
       <div class="rbody">
-        <p class="note">The metadata is stored as pascal strings: a u32 character count, then that many UTF-16LE code units. Item 101 holds the app ID (7 = Massive, 6 = Absynth) and the writing version string; item 108 holds the preset name, author, vendor, description, and finally the app name. Drawn below: the name field of nicecombo.nmsv.</p>
+        <p class="note">The metadata is stored as pascal strings: a u32 character count, then that many UTF-16LE code units. Item 101 holds the app ID (7 = Massive, 6 = Absynth) and the writing version string; item 108 holds the preset name, author, vendor and description, nine u32 words, then three counted lists: the bank chain (the app name first, then the bank), the sound's attribute tags, and key/value properties. Drawn below: the name field of nicecombo.nmsv.</p>
         <div id="block-pascal"></div>
         <div class="kv">
           <div><span class="k">item 101 layout</span><span class="v">u32 appID, u32, version pascal string, e.g. 7 . "1.3.1.0"</span></div>
-          <div><span class="k">item 108 layout</span><span class="v">name . author . vendor . description . app name, in that order; empty fields are a bare zero count</span></div>
+          <div><span class="k">item 108 layout</span><span class="v">name . author . vendor . description . nine u32 words . bank chain (app name first) . attribute tags . u32 0 . key/value properties . u32 1 . u32 0; empty fields are a bare zero count</span></div>
           <div><span class="k">readable fields</span><span class="v">name, product, version, author, vendor; positional, so every count must be bounds-checked</span></div>
         </div>
       </div>
@@ -484,7 +484,7 @@ footer{margin-top:3.5rem;padding-top:0.9rem;border-top:1px solid var(--ink);disp
        body:"u32 little-endian: the number of UTF-16LE code units that follow, not bytes. An empty field is a bare zero count, four bytes and gone.",
        note:"bounds-check every count before reading; binary noise can decode as UTF-16, so a printable-text test keeps it out of the metadata."},
       {label:"chars",k:"enum",r:[4,21],val:"\"nicecombo\"",
-       body:"Nine UTF-16LE code units: the preset name as the browser shows it. Author, vendor, and description follow positionally in item 108, then the app name closes the run."}
+       body:"Nine UTF-16LE code units: the preset name as the browser shows it. Author, vendor, and description follow positionally in item 108; the bank chain after them opens with the app name."}
     ]);
 
   // SubtreeItem payload header: item 115, in front of the FastLZ stream

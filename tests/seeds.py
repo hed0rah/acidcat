@@ -1339,16 +1339,119 @@ def _hsin_frame(item_id, payload=b"", children=()):
             + bytes(16) + struct.pack("<Q", len(data)) + data + body)
 
 
+def _u16s(*strings):
+    return b"".join(struct.pack("<I", len(s)) + s.encode("utf-16-le")
+                    for s in strings)
+
+
+def hsin_info_tail(chain, tags=(), props=()):
+    """What a SoundInfoItem holds after the description: seven u32 words
+    (the second -1, as Massive writes), u32 0, u32 1, the bank chain, the
+    attribute tags, u32 0, the key/value properties, u32 1, u32 0."""
+    return (struct.pack("<9I", 0, 0xFFFFFFFF, 0, 0, 0, 0, 0, 0, 1)
+            + struct.pack("<I", len(chain)) + _u16s(*chain)
+            + struct.pack("<I", len(tags)) + _u16s(*tags)
+            + struct.pack("<II", 0, len(props))
+            + b"".join(_u16s(k, v) for k, v in props)
+            + struct.pack("<II", 1, 0))
+
+
 def ni_hsin(name="Seed", author="Nobody", vendor="Seeds", description="",
-            domain=b"DSIN"):
+            domain=b"DSIN", chain=None, tags=(), children=()):
     """An hsin preset (Massive, Absynth, Kontakt 5+): a root frame holding
     one SoundInfoItem(108), whose payload is u32 1, u32 0, then name, author,
     vendor and description as u32-counted UTF-16LE. `domain` is the root's
-    child reference tag."""
-    strings = b"".join(struct.pack("<I", len(s)) + s.encode("utf-16-le")
-                       for s in (name, author, vendor, description))
+    child reference tag. With `chain` the item goes on to the bank chain and
+    `tags` (hsin_info_tail); `children` are further (domain, frame) pairs
+    under the root."""
+    strings = _u16s(name, author, vendor, description)
+    if chain is not None:
+        strings += hsin_info_tail(chain, tags)
     info = _hsin_frame(108, struct.pack("<II", 1, 0) + strings)
-    return _hsin_frame(118, children=[(domain, info)])
+    return _hsin_frame(118, children=[(domain, info)] + list(children))
+
+
+def fastlz_literals(data):
+    """FastLZ level 1 with no back-references: runs of up to 32 literals,
+    each behind a control byte of its length - 1. Valid input for any
+    FastLZ decoder, and enough for a fixture."""
+    return b"".join(bytes([len(data[i:i + 32]) - 1]) + data[i:i + 32]
+                    for i in range(0, len(data), 32))
+
+
+# the FM8 state (core/formats/fm8.py), offsets from the end of its names
+_FM8_LFOS = (0x48, 0x68)
+
+
+def fm8_state(version=207, names=("default",) * 4, transpose=0.0,
+              lfo=(4.0, 52.0, 10.0, 1.0), on=(1,) * 6, ratio=(1.0,) * 6,
+              offset=(0.0,) * 6, velocity=(0,) * 6, rate_scaling=(0,) * 6,
+              key_sync=1, points=3, matrix=None, copies_equal=True,
+              tail=475):
+    """An FM8 sound state block, `E8MF` version 207 by default, laid out as
+    formats/fm8.py reads it: the float block (transpose, two LFO records of
+    on/wave/rate/delay/sync), the per-slot byte arrays, the operator block
+    four times, 51 point lists and the 11 x 11 matrix with every cell
+    stored four times. `lfo` is (wave id, rate, delay, sync); `matrix` maps
+    (source, destination) slots to amounts, destination 8 being the output."""
+    head = b"E8MF" + struct.pack("<II", version, 9148) + b"".join(
+        struct.pack("<I", len(n)) + n.encode("latin-1") for n in names)
+    floats = [0.0] * 214
+    floats[0x24 // 4] = transpose
+    for at in _FM8_LFOS:
+        floats[at // 4:at // 4 + 5] = [1.0, lfo[0], lfo[1], lfo[2], lfo[3]]
+    body = bytearray(struct.pack("<214f", *floats))
+    body += b"\x00"                                       # S+0x358
+    for d in (2, 3, 1):                                   # the three index arrays
+        body += bytes([points - d] * 9)
+    pad9 = (0, 0, 0)
+    body += bytes([key_sync] * 6 + [0] * 3)
+    body += bytes(list(velocity) + list(pad9))
+    body += bytes(list(rate_scaling) + list(pad9))
+    body += bytes(0x479 - len(body))
+    block = (bytes(list(on) + list(pad9)) + bytes(9)
+             + struct.pack("<9f", *(list(ratio) + [1.0] * 3))
+             + struct.pack("<9f", *(list(offset) + [0.0] * 3)))
+    other = bytes([1 - on[0]]) + block[1:]
+    body += block + (block if copies_equal else other) + block + block
+    assert len(body) == 0x5E1
+    for count, value in ((9, [1.0, 100.0, 4.0]), (9, [1.0, 1.0, 1e-12]),
+                         (9, [0.25, 0.5, 0.9]), (8, [0.0, 17.0, 127.0]),
+                         (8, [0.0, 0.0, 0.0]), (8, [0.5, 0.5, 0.5])):
+        n = points if count == 9 else 3
+        vals = (value + [value[-1]] * n)[:n]
+        for _ in range(count):
+            body += bytes([n - 1]) + struct.pack("<%df" % n, *vals)
+    cells = [0] * 121
+    for (src, dst), amount in (matrix or {(5, 8): 71}).items():
+        cells[11 * src + dst] = amount
+    body += b"".join(bytes([v] * 4) for v in cells)
+    return head + bytes(body) + bytes(tail)
+
+
+def ni_fm8(state=None, name="Seed", bank="SEED.SYX", tags=()):
+    """An FM8 preset (.nfm8): the hsin root with a SoundInfoItem whose bank
+    chain is FM8 and `bank`, and a subtree frame holding the FastLZ header
+    (u32 1, u8 1, u32 inflated size, u32 compressed size) and stream. The
+    stream inflates to a second hsin tree whose item 109 payload is u32 1, a
+    u64 length and the FM8 state."""
+    state = fm8_state() if state is None else state
+    inner = _hsin_frame(118, children=[(b"DSIN", _hsin_frame(
+        109, struct.pack("<IQ", 1, len(state)) + state + bytes(16)))])
+    comp = fastlz_literals(inner)
+    sub = _hsin_frame(116, struct.pack("<IB", 1, 1)
+                      + struct.pack("<II", len(inner), len(comp)) + comp)
+    return ni_hsin(name=name, author="", vendor="", chain=["FM8", bank],
+                   tags=tags, children=[(b"DSIN", sub)])
+
+
+def ni_ksd_fm8(state=None, name="Seed"):
+    """A KORE sound (.ksd) for FM8: ni_ksd with the FM8 plugin tag, then the
+    FM8 state as its own zlib stream, as a `prst` chunk holds it."""
+    import zlib
+    state = fm8_state(version=206, names=(name,) * 4) if state is None else state
+    head = ni_ksd(doc_name=name, Author="Nobody", Plugin="FM8")
+    return head + b"atad" + struct.pack("<I", 2) + b"tsrpbilz" + zlib.compress(state, 9)
 
 
 def ni_reaktor_module(body=b"\x07" * 64, tail=b"\x01\x00\x00\x00" * 8,
@@ -1426,6 +1529,13 @@ def kontakt():
     trailer. The Kontakt 2 zlib body is the same walker's other branch and is
     covered by tests/test_kontakt.py."""
     return _call("test_kontakt", "k42_patch")
+
+
+@seed("fm8", ".nfm8", sniffs_as="ni")
+def fm8():
+    """FM8 preset: the hsin metadata with its bank chain, and a subtree whose
+    literal-only FastLZ stream inflates to the FM8 state (ni_fm8)."""
+    return ni_fm8()
 
 
 @seed("nkx", ".nkx", sniffs_as="ni")

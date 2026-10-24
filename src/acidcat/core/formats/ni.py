@@ -338,16 +338,19 @@ def _hsin_walk(data, off, fields, depth=0):
     return frames
 
 
-def _hsin_info(data, fields=None):
+def _hsin_info(data, fields=None, bounds=None):
     """The SoundInfoItem(108) strings, located through the frame walk:
     [(offset, count), ...] for name, author, vendor and description, as many
-    as the item holds. `fields`, when a list, collects the walk's size fields.
+    as the item holds. `fields`, when a list, collects the walk's size fields;
+    `bounds`, when a list, gets the end of the item's data appended.
     Raises Unmapped when the tree or the item is not the mapped layout."""
     frames = _hsin_walk(data, 0, [] if fields is None else fields)
     info = [f for f in frames if f[0] == 108]
     if len(info) != 1:
         raise Unmapped(f"expected one SoundInfoItem(108), found {len(info)}")
     _, _, _, d_end, payload = info[0]
+    if bounds is not None:
+        bounds.append(d_end)
     if payload + 8 > d_end or struct.unpack_from("<I", data, payload)[0] != 1:
         raise Unmapped("unexpected SoundInfoItem payload")
     out, off = [], payload + 8
@@ -360,12 +363,55 @@ def _hsin_info(data, fields=None):
     return out
 
 
+# after the description the SoundInfoItem holds seven u32 words (the second is
+# -1 or 2 in Massive, the rest 0; not decoded), a u32 0 or 1, a u32 1, then
+# three counted lists: the bank chain (product first: "FM8", "-SETUP-.SYX"),
+# the sound's attribute tags ("Bass", "Dry"), and after a u32 0 the
+# key/value properties ("\@verl" "1.7.8"); a u32 1 and a u32 0 close it. Read
+# to the byte on 58,736 FM8 and 100 Massive and Absynth presets
+_HSIN_TAIL_WORDS = 9
+_HSIN_LIST_MAX = 4096
+
+
+def _hsin_strings(data, off, end, count):
+    out = []
+    for _ in range(count):
+        if off + 4 > end:
+            return None, off
+        n = struct.unpack_from("<I", data, off)[0]
+        if n > _HSIN_STR_MAX or off + 4 + n * 2 > end:
+            return None, off
+        out.append(data[off + 4:off + 4 + n * 2].decode("utf-16-le", "replace"))
+        off += 4 + n * 2
+    return out, off
+
+
+def _hsin_tail(data, off, end):
+    """(bank chain, attribute tags) after the description, or None when the
+    bytes are not that layout. Every count is bounded by the item's end."""
+    off += 4 * _HSIN_TAIL_WORDS
+    lists = []
+    for _ in range(2):
+        if off + 4 > end:
+            return None
+        n = struct.unpack_from("<I", data, off)[0]
+        if n > _HSIN_LIST_MAX:
+            return None
+        got, off = _hsin_strings(data, off + 4, end, n)
+        if got is None:
+            return None
+        lists.append(got)
+    return lists[0], lists[1]
+
+
 def read_hsin_info(data):
-    """{name, author, vendor, description} read exactly out of the
-    SoundInfoItem, the bytes the editor writes, or None when the frame tree
-    is not the mapped layout. Empty strings are left out."""
+    """{name, author, vendor, description, bank, attributes} read exactly out
+    of the SoundInfoItem, the bytes the editor writes, or None when the frame
+    tree is not the mapped layout. Empty strings are left out; `bank` is the
+    bank chain joined with " / ", `attributes` a list of the sound's tags."""
+    bounds = []
     try:
-        strings = _hsin_info(data)
+        strings = _hsin_info(data, None, bounds)
     except (Unmapped, struct.error):
         return None
     meta = {}
@@ -374,6 +420,16 @@ def read_hsin_info(data):
             "utf-16-le", errors="replace").strip()
         if val:
             meta[label] = val
+    if len(strings) == len(_HSIN_INFO):
+        off, count = strings[-1]
+        tail = _hsin_tail(data, off + 4 + count * 2, bounds[0])
+        if tail is not None:
+            chain = [s.strip() for s in tail[0] if s.strip()]
+            tags = [s.strip() for s in tail[1] if s.strip()]
+            if chain:
+                meta["bank"] = " / ".join(chain)
+            if tags:
+                meta["attributes"] = tags
     return meta
 
 
