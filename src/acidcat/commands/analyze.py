@@ -34,7 +34,8 @@ def register(subparsers):
                         "and how clearly it has one pitch.")
     p.add_argument("--profile", action="store_true",
                    help="The envelope (hit, decay, sustain, pulse), attack "
-                        "and decay times, and the energy in each band.")
+                        "and decay times, the energy in each band, and how "
+                        "wet it is (reverb or room, 0 to 1).")
     p.add_argument("--max-files", type=int, default=None, metavar="N",
                    help="Stop after N files (no limit by default).")
     add_output_format_arg(p, only=("table", "json", "csv", "tsv"), deprecated_f=False)
@@ -87,7 +88,7 @@ def run(args):
 
 
 _PROFILE_FIELDS = ("envelope", "attack_ms", "decay_ms", "sustain", "reattacks",
-                 "centroid_hz", "band")
+                 "centroid_hz", "band", "wetness")
 
 
 def _sound(targets, n, fmt, quiet, parts, pitch=False, profile=False):

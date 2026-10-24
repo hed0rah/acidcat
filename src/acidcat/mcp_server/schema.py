@@ -96,6 +96,17 @@ def _register_all():
                 "centroid_max": {"type": "number",
                                  "description": "Spectral centroid ceiling in "
                                  "Hz (300 for dark)."},
+                "wetness_min": {"type": "number",
+                                "description": "For files indexed with "
+                                "profile: how much reverb or room a sound "
+                                "carries, 0 dry to 1 wet. 0.6 keeps clearly "
+                                "wet sounds. A rough reading: a slow natural "
+                                "decay (a piano note, a long 808) reads wetter "
+                                "than it is, a reversed sound drier. Results "
+                                "carry it as wetness."},
+                "wetness_max": {"type": "number",
+                                "description": "Wetness ceiling, 0 to 1 "
+                                "(0.3 for dry sounds)."},
                 "tags": {"type": "array", "items": {"type": "string"},
                          "description": "AND semantics across tags."},
                 "text": {"type": "string",
@@ -324,8 +335,8 @@ def _register_all():
                                               "only)."},
                 "with_profile": {"type": "boolean", "default": False,
                                "description": "Measure every audio file's "
-                                              "envelope and band energy "
-                                              "(numpy only)."},
+                                              "envelope, band energy and "
+                                              "wetness (numpy only)."},
                 "force": {"type": "boolean", "default": False,
                           "description": "Re-extract metadata even for "
                                          "unchanged files (after parser "

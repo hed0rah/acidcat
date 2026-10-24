@@ -47,7 +47,8 @@ def register(subparsers):
                          "(one-shots; needs numpy).")
     ix.add_argument("--profile", action="store_true",
                     help="Measure each audio file's envelope (hit, decay, "
-                         "sustain, pulse) and its energy by band (needs numpy).")
+                         "sustain, pulse), its energy by band and how wet "
+                         "it is (needs numpy).")
     ix.add_argument("--jobs", "-j", type=int, default=None,
                     help="Worker processes for features, pitch and profile "
                          "(default CPU-1).")
@@ -107,6 +108,9 @@ def register(subparsers):
                                  "lowmid, mid, high; several with commas."),
                       ("--centroid", "Spectral centroid in Hz, a range "
                                      "(:300 dark, 3000: bright)."),
+                      ("--wet", "Wetness, how much reverb or room a sound "
+                                "carries, 0 dry to 1 wet: a range (:0.3 dry, "
+                                "0.6: wet)."),
                       ("--device", "A device or plugin name."),
                       ("--category", "A category."),
                       ("--creator", "A creator."),
@@ -218,7 +222,7 @@ def _query(args):
     argv = ["--output-format", chosen_format(args), "--limit", str(args.top),
             "--bpm-tolerance", str(args.bpm_tolerance)]
     for name in ("registry", "bpm", "key", "duration", "note", "tunability",
-                 "envelope", "band", "centroid", "device", "category",
+                 "envelope", "band", "centroid", "wet", "device", "category",
                  "creator", "product", "text", "root", "compatible_with", "kind",
                  "output"):
         _legacy.flag(argv, "--" + name.replace("_", "-") if name != "output" else "-o",

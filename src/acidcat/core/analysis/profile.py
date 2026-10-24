@@ -24,13 +24,39 @@ the misses were the names being wrong (stems of a construction kit called
 of their energy under 60 Hz, kicks and basses sit in 60-250 Hz, pads and keys
 in 250 Hz-1 kHz, claps in 1-4 kHz and hats above 4 kHz.
 
-numpy only, about 50 ms a file. The first MAX_SECONDS of a file is enough to
+Wetness, 0 to 1, is how much of a sound is its room: reverb or ambience
+baked into the file. A room cannot let a sound fall faster than the room
+itself decays, so the first measure is the steepest fall the sound ever
+makes: the most it drops within 200 ms, starting within 20 dB of its peak.
+A dry note's release falls 50 dB in that time. A wet one falls only as far
+as its direct sound stands above the room, then at the room's own rate,
+8 dB in 200 ms for a 1.5 s hall. The end of a file counts as silence (a
+one-shot stops there) unless the envelope is a pulse, a loop, whose end
+runs back into its start. The second measure is stereo: a reverb tail is
+decorrelated between the ears, so the quieter frames (12 dB and more under
+the peak) of a wet file carry side energy a dry centred source does not.
+Mono files, and stereo ones whose channels are identical, are judged on the
+fall alone.
+
+On 930 pairs of the same sound shipped dry and wet (18 packs, mostly
+vocals), the wet twin read wetter on 82%. Against names alone (1,494 files
+from 81 packs: names or folders saying wet, reverb, verb, tail, hall or
+room, against dry-named files and drum one-shots) the AUC is 0.73, and 0.78
+for the reverb, verb, tail and hall names alone; 0.5 splits them with 69%
+of the wet over it and 77% of the dry under. Most of the misses are the
+names: "wet" in a pack often means "with effects" (a sidechained bass, a
+distorted kick), and many dry one-shots carry a room. The rest are real
+limits: a slow natural decay (a piano note, a long 808, a crash) falls no
+faster than a room would, so in mono it reads wet; and a reversed sound,
+which swells and stops dead, reads dry.
+
+numpy only, about 60 ms a file. The first MAX_SECONDS of a file is enough to
 tell.
 """
 
 # bump when the answers change; `lib index --profile` re-runs files whose
-# stored version differs
-PROFILE_VERSION = 1
+# stored version differs. 2: wetness
+PROFILE_VERSION = 2
 
 MAX_SECONDS = 30.0
 RATE_MAX = 24000             # decimate under this: nyquist stays above 11 kHz
@@ -52,20 +78,40 @@ HIT_ACTIVE_S = 1.5
 SUSTAIN_ACTIVE_S = 2.0          # sounding for longer than this
 SUSTAIN_FRACTION = 0.5          # and within 12 dB of its peak for more than half of it
 
+WET_WINDOW_S = 0.2           # the steepest fall within this long
+WET_FROM_DB = 20.0           # that starts within this far of the peak
+WET_FLOOR_DB = 50.0          # and lands no lower than this under it
+WET_DRY_DB = 50.0            # a fall this deep is dry (0)
+WET_WET_DB = 10.0            # and one this shallow is wet (1)
+WET_QUIET_DB = 12.0          # the stereo evidence: frames this far under the peak
+WET_SIDE_FULL = 0.4          # whose median side share this high is wet (0.5 = no correlation)
+WET_FALL_WEIGHT = 0.6        # the fall's share of the answer when there is stereo
+
 
 def _np():
     from acidcat.core.analysis.pcm import _np as np
     return np()
 
 
-def curves(x, sr):
+def _frame_energy(np, x, n, q):
+    """sum of squares over the n analysis frames, on a signal q times the
+    analysis rate. No filter: the energy of a frame does not need one"""
+    c = np.concatenate([[0.0], np.cumsum(x * x)])
+    starts = HOP * q * np.arange(n)
+    ends = np.minimum(starts + FRAME * q, len(x))
+    return c[ends] - c[starts]
+
+
+def curves(x, sr, side=None):
     """Per-frame curves for a mono signal: level in dB, per-band power, and
-    the power-weighted spectral centroid. None for a signal too short to
-    frame, or silent."""
+    the power-weighted spectral centroid; with `side` ((left - right) / 2 at
+    the same rate) also each frame's share of side energy. None for a signal
+    too short to frame, or silent."""
     np = _np()
     from acidcat.core.analysis.pitch import decimate
-    x = np.asarray(x, dtype=np.float64)[: int(MAX_SECONDS * sr)]
-    x, sr = decimate(x, sr, RATE_MAX)
+    x0 = np.asarray(x, dtype=np.float64)[: int(MAX_SECONDS * sr)]
+    rate = sr
+    x, sr = decimate(x0, sr, RATE_MAX)
     if len(x) < FRAME or not np.any(x):
         return None
     n = 1 + (len(x) - FRAME) // HOP
@@ -73,13 +119,47 @@ def curves(x, sr):
     power = np.abs(np.fft.rfft(x[idx] * np.hanning(FRAME)[None, :], axis=1)) ** 2
     total = power.sum(axis=1)
     freqs = np.fft.rfftfreq(FRAME, 1.0 / sr)
-    return {
+    out = {
         "fps": sr / HOP,
         "level_db": 10 * np.log10(np.maximum(total, 1e-20)),
         "bands": np.stack([power[:, (freqs >= lo) & (freqs < hi)].sum(axis=1)
                            for _, lo, hi in BANDS], axis=1),
         "centroid": (power * freqs[None, :]).sum(axis=1) / np.maximum(total, 1e-20),
     }
+    if side is not None:
+        q = max(1, rate // sr)
+        es = _frame_energy(np, np.asarray(side, dtype=np.float64)[:len(x0)], n, q)
+        em = _frame_energy(np, x0, n, q)
+        # identical channels are mono, not a dry stereo image
+        if es.max() > 1e-12 * em.max():
+            out["side_share"] = es / np.maximum(em + es, 1e-30)
+    return out
+
+
+def wetness(c, ends_silent=True):
+    """0 (dry) to 1 (wet) from `curves` output; see the module doc.
+    `ends_silent` says the file's end is silence (a one-shot stops there);
+    False holds the last level past it (a loop goes round again)."""
+    np = _np()
+    lv = c["level_db"]
+    peak = float(lv.max())
+    k = max(2, int(round(WET_WINDOW_S * c["fps"])))
+    sm = np.convolve(np.pad(lv, 1, mode="edge"), np.ones(3) / 3, mode="valid")
+    sm = np.maximum(sm, peak - WET_FLOOR_DB)
+    after = peak - WET_FLOOR_DB if ends_silent else sm[-1]
+    ext = np.concatenate([sm, np.full(k, after)])
+    n = len(sm)
+    lowest = np.min(np.stack([ext[j:j + n] for j in range(1, k + 1)]), axis=0)
+    start = sm > peak - WET_FROM_DB
+    fall = float((sm - lowest)[start].max()) if start.any() else 0.0
+    w = min(1.0, max(0.0, (WET_DRY_DB - fall) / (WET_DRY_DB - WET_WET_DB)))
+    share = c.get("side_share")
+    if share is not None:
+        quiet = (lv > peak - ACTIVE_DB) & (lv <= peak - WET_QUIET_DB)
+        if quiet.any():
+            st = min(1.0, float(np.median(share[quiet])) / WET_SIDE_FULL)
+            w = WET_FALL_WEIGHT * w + (1 - WET_FALL_WEIGHT) * st
+    return round(w, 3)
 
 
 def reattacks(level_db, fps):
@@ -138,6 +218,8 @@ def describe(c, duration):
         "duration": duration,
     }
     d["envelope"] = envelope(d)
+    # a pulse is a loop, and a loop's end runs back into its start
+    d["wetness"] = wetness(c, ends_silent=d["envelope"] != "pulse")
     return d
 
 
@@ -153,21 +235,26 @@ def envelope(d):
 
 
 def estimate_profile(path_or_array, sr=None):
-    """The profile of a file or a mono array, or None when there is nothing to
-    measure (empty, silent, non-finite, shorter than one frame)."""
+    """The profile of a file or an array (mono, or channels on the shorter
+    axis), or None when there is nothing to measure (empty, silent,
+    non-finite, shorter than one frame)."""
     np = _np()
     if isinstance(path_or_array, (str, bytes)) or hasattr(path_or_array, "__fspath__"):
-        from acidcat.core.analysis.pitch import load_mono
-        x, sr = load_mono(path_or_array)
+        from acidcat.core.analysis.pitch import load_planes
+        planes, sr = load_planes(path_or_array)
     else:
         if sr is None:
             raise ValueError("sr is required with an array")
         x = np.asarray(path_or_array, dtype=np.float64)
-        if x.ndim == 2:
-            x = x.mean(axis=1 if x.shape[1] < x.shape[0] else 0)
+        if x.ndim == 2 and x.shape[1] < x.shape[0]:
+            x = x.T
+        planes = list(x) if x.ndim == 2 else [x]
+    x = np.mean(np.stack(planes), axis=0) if len(planes) > 1 else planes[0]
     if len(x) == 0 or not np.all(np.isfinite(x)):
         return None
-    c = curves(x, sr)
+    # side is (left - right) / 2 so that it and the mono mix share a scale
+    side = (planes[0] - planes[1]) / 2 if len(planes) == 2 else None
+    c = curves(x, sr, side)
     if c is None:
         return None
     return describe(c, round(len(x) / sr, 4))

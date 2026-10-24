@@ -52,6 +52,19 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   energy under 60 Hz and hats theirs above 4 kHz. numpy only, about 50 ms
   a file, and a second index measures only files that changed.
 
+- **How wet a sound is.** The profile gains `wetness`, 0 (dry) to 1 (wet):
+  how much reverb or room a file carries. It is the steepest fall the sound
+  ever makes (a room cannot let a sound die faster than the room does),
+  with, in stereo, how decorrelated the ears are in its quieter frames.
+  `lib query --wet :0.3` and `--wet 0.6:`, the MCP `search_samples`
+  `wetness_min` and `wetness_max`, `get_sample` and `analyze --profile`
+  carry it. On 930 pairs of the same sound shipped dry and wet, the wet
+  twin read wetter on 82%; against names alone (1,494 files from 81 packs)
+  the AUC is 0.73, and most misses are names, "wet" in a pack often meaning
+  "with effects". A slow natural decay reads wetter than it is in mono, and
+  a reversed sound drier. The profile pass is version 2, so `lib index
+  --profile` measures every file again; about 12 ms more a file.
+
 - **The note a one-shot plays, and how far off it is.** `lib index --pitch`
   estimates the pitch of every file under 4 s: the nearest note, the offset
   in cents, the fundamental in Hz, a 0 to 1 tunability (how clearly the
@@ -186,9 +199,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **The library index is schema v4.** It migrates on first open, in place;
+- **The library index is schema v5.** It migrates on first open, in place;
   2.0 builds will refuse a migrated index, so upgrade every acidcat that
-  shares one.
+  shares one. An index already at v4 keeps every row and gains the
+  profile's `wetness` column, empty until the next `lib index --profile`.
 
 ## [2.0.1] - 2026-10-14
 

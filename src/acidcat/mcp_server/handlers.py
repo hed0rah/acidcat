@@ -266,7 +266,9 @@ def search_samples(args):
             note=args.get("note"), tunability_min=args.get("tunability_min"),
             envelope=_as_list(args.get("envelope")), band=_as_list(args.get("band")),
             centroid_min=args.get("centroid_min"),
-            centroid_max=args.get("centroid_max"))
+            centroid_max=args.get("centroid_max"),
+            wetness_min=args.get("wetness_min"),
+            wetness_max=args.get("wetness_max"))
     except ValueError as e:
         raise ToolError(str(e))
     limit = _limit(args, "limit", 50)
@@ -365,7 +367,7 @@ def get_sample(args):
             out.update(_with_pitch_name(dict(pitch)))
         prof = conn.execute(
             "SELECT envelope, attack_ms, decay_ms, sustain, reattacks, centroid_hz, "
-            "band, band_sub, band_low, band_lowmid, band_mid, band_high "
+            "band, band_sub, band_low, band_lowmid, band_mid, band_high, wetness "
             "FROM profile WHERE path = ?", (resolved,)
         ).fetchone()
         if prof is not None:

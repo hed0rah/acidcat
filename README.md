@@ -114,7 +114,7 @@ Seventeen verbs. `acidcat VERB --help` has the rest.
 | `check FILE\|DIR` | Recompute every derived field (sizes, offsets, counts, pad bytes, rates) and report the ones that disagree with the data. `--fix` rewrites the ones it can witness, never touching audio, with a `_original` backup; `--deep` also verifies the checksums a format carries (FLAC frame CRCs, MP3 frame validity) |
 | `edit FILE... --set NAME=VALUE` | Change a tag (`title`, `bpm`, `key`, `root`), a typed field by ADDR (`RIFF/fmt_#sample_rate=48000`, bytes as `hex:0100`), or the cover (`cover=@art.jpg`). The fields an edit ties to follow it (a WAV's `avg_bytes_per_sec` after its `sample_rate`; `--no-cascade` refuses instead). The result is verified by re-reading it before anything is written. `--unset`, `--get cover -o art.jpg`, `--strip`, `--dry-run`, `-o COPY` |
 | `stats DIR... --by meta\|shape\|chunks` | Over a tree: one row per file of format, tempo, key and duration (`meta`, the default); one structural fingerprint per file (`shape`, built for `sort \| uniq -c`); or a chunk-id histogram with the rare ones flagged (`chunks`). Stops at 10,000 files unless `--max-files` says otherwise |
-| `analyze FILE\|DIR --bpm-key\|--features\|--pitch\|--profile` | Estimate tempo and key from the audio, extract 50+ features for ML, find the note a one-shot plays and its offset in cents, or measure its envelope (hit, decay, sustain, pulse) and where its energy sits. Needs `[analysis]` |
+| `analyze FILE\|DIR --bpm-key\|--features\|--pitch\|--profile` | Estimate tempo and key from the audio, extract 50+ features for ML, find the note a one-shot plays and its offset in cents, or measure its envelope (hit, decay, sustain, pulse), where its energy sits and how wet it is. Needs `[analysis]` |
 | `lib index\|list\|stats\|forget\|query\|similar` | The sample library index (below) |
 | `convert FILE` | Bitwig clip to MIDI; NCW, 8SVX and AU to WAV; SF2/SF3 to a folder of samples; `--to-pcm` decodes ADPCM or a mistagged WAV to plain 16-bit PCM |
 | `extract BANK` | Every embedded sample of a bank or module as its own WAV (MOD/XM/IT/S3M, Gravis `.pat`, 8SVX, NCW, SF2/SF3, Bitwig `.multisample`, Kurzweil, E-mu, MPC), and the soundtracks off console discs and ROMs (PlayStation/CD-XA, CD-DA `.cue`, GameCube, Wii with `[crypto]`, N64 VADPCM, SNES BRR) |
@@ -321,8 +321,9 @@ them. By default a library's DB lives at `~/.acidcat/libraries/<label>_<hash>.db
     acidcat lib index ~/Samples/Loops --label loops --features   # vectors for lib similar
     acidcat lib index ~/Samples/Hits --label hits --pitch        # the note each one-shot plays
     acidcat lib query --note F# --tunability 0.6:                # tuned hits that fit F#
-    acidcat lib index ~/Samples --label all --profile            # envelope + band energy
+    acidcat lib index ~/Samples --label all --profile            # envelope, band energy, wetness
     acidcat lib query --envelope sustain --band lowmid           # a bed for the low-mids
+    acidcat lib query --envelope hit --wet :0.3                  # dry one-shots
     acidcat lib index --discover ~/Samples --dry-run   # one library per pack
     acidcat lib list
     acidcat lib stats loops

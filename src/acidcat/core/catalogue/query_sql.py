@@ -17,14 +17,15 @@ PITCH_JOIN = ("LEFT JOIN pitch p ON p.path = s.path "
 PITCH_COLUMNS = ("p.pitch_hz, p.pitch_note, p.pitch_cents, p.tunability, p.glide_cents, "
                  "pf.envelope, pf.attack_ms, pf.decay_ms, pf.sustain, pf.reattacks, "
                  "pf.centroid_hz, pf.band, pf.band_sub, pf.band_low, pf.band_lowmid, "
-                 "pf.band_mid, pf.band_high")
+                 "pf.band_mid, pf.band_high, pf.wetness")
 
 
 def build_filter(*, bpm_min=None, bpm_max=None, duration_min=None,
                  duration_max=None, key=None, file_format=None, device=None,
                  category=None, creator=None, product=None, tags=(), text=None,
                  note=None, tunability_min=None, tunability_max=None,
-                 envelope=(), band=(), centroid_min=None, centroid_max=None):
+                 envelope=(), band=(), centroid_min=None, centroid_max=None,
+                 wetness_min=None, wetness_max=None):
     """Return (where_clauses, params, joins) for the given filters.
 
     `note` is "F#" (any octave) or "F#1" (that MIDI note); ValueError when it
@@ -108,6 +109,12 @@ def build_filter(*, bpm_min=None, bpm_max=None, duration_min=None,
     if centroid_max is not None:
         where.append("pf.centroid_hz <= ?")
         params.append(float(centroid_max))
+    if wetness_min is not None:
+        where.append("pf.wetness >= ?")
+        params.append(float(wetness_min))
+    if wetness_max is not None:
+        where.append("pf.wetness <= ?")
+        params.append(float(wetness_max))
 
     if text:
         joins.append("JOIN samples_fts fts ON fts.path = s.path")

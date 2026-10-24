@@ -23,7 +23,7 @@ from acidcat.core.infra.render import format_json, output
 
 DEFAULT_FIELDS = [
     "path", "format", "bpm", "bpm_source", "key", "key_mode", "key_source", "duration",
-    "pitch", "pitch_cents", "tunability", "envelope", "band",
+    "pitch", "pitch_cents", "tunability", "envelope", "band", "wetness",
     "title", "artist", "album",
     "preset_name", "device", "product", "creator", "category",
     "scan_root",
@@ -53,6 +53,9 @@ def register(subparsers):
                    "several with commas.")
     p.add_argument("--centroid", help="Spectral centroid in Hz, exact or "
                    "range (:300 for dark, 3000: for bright).")
+    p.add_argument("--wet", help="Wetness, how much reverb or room a sound "
+                   "carries, 0 (dry) to 1 (wet). Exact or range (:0.3 for "
+                   "dry, 0.6: for wet).")
     p.add_argument("--tag", action="append", default=[],
                    help="Tag filter. Repeat for AND semantics.")
     p.add_argument("--format", dest="file_format",
@@ -373,6 +376,9 @@ def _build_sql(args):
     cen_lo = cen_hi = None
     if getattr(args, "centroid", None):
         cen_lo, cen_hi = _parse_range(args.centroid, field_name="centroid")
+    wet_lo = wet_hi = None
+    if getattr(args, "wet", None):
+        wet_lo, wet_hi = _parse_range(args.wet, field_name="wet")
     try:
         where, params, joins = query_sql.build_filter(
             bpm_min=bpm_lo, bpm_max=bpm_hi,
@@ -387,7 +393,8 @@ def _build_sql(args):
             tunability_min=tun_lo, tunability_max=tun_hi,
             envelope=_csv(getattr(args, "envelope", None)),
             band=_csv(getattr(args, "band", None)),
-            centroid_min=cen_lo, centroid_max=cen_hi)
+            centroid_min=cen_lo, centroid_max=cen_hi,
+            wetness_min=wet_lo, wetness_max=wet_hi)
     except ValueError as e:
         raise QueryUsageError(f"bad filter value: {e}")
     return (query_sql.assemble(where, joins, order="s.path"),

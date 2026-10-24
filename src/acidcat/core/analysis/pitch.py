@@ -54,20 +54,28 @@ def _np():
     return np()
 
 
-def load_mono(path):
-    """(mono float64 array, rate). acidcat's PCM reader first, soundfile for
-    anything it does not decode (compressed codecs, odd sample formats)."""
+def load_planes(path):
+    """(list of float64 channel arrays, rate). acidcat's PCM reader first,
+    soundfile for anything it does not decode (compressed codecs, odd sample
+    formats)."""
     np = _np()
     from acidcat.core.analysis import pcm
     try:
         planes, rate = pcm.load(path)
-        x = np.mean(np.stack(planes), axis=0) if len(planes) > 1 else planes[0]
-        return np.asarray(x, dtype=np.float64), int(rate)
+        return [np.asarray(p, dtype=np.float64) for p in planes], int(rate)
     except pcm.Unsupported:
         pass
     import soundfile as sf
     x, rate = sf.read(path, dtype="float64", always_2d=True)
-    return x.mean(axis=1), int(rate)
+    return [np.ascontiguousarray(x[:, i]) for i in range(x.shape[1])], int(rate)
+
+
+def load_mono(path):
+    """(mono float64 array, rate): the channels of `load_planes` averaged."""
+    np = _np()
+    planes, rate = load_planes(path)
+    x = np.mean(np.stack(planes), axis=0) if len(planes) > 1 else planes[0]
+    return x, rate
 
 
 def decimate(x, sr, max_rate=ANALYSIS_SR_MAX):

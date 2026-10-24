@@ -19,7 +19,7 @@ import sys
 import time
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 # preset-metadata columns added in schema v2 (Bitwig/NI/Vital/etc.)
@@ -28,6 +28,9 @@ PRESET_COLUMNS = ("device", "product", "creator", "category", "preset_name")
 # added in schema v4: key provenance (core/analysis/keysource.py) and the
 # reader that produced the row (indexing.READER_VERSIONS)
 V4_COLUMNS = ("key_mode", "key_source", "key_claims", "reader", "bpm_source")
+
+# added in schema v5: the profile's wetness (core/analysis/profile.py)
+V5_PROFILE_COLUMNS = ("wetness",)
 
 SAMPLE_COLUMNS = (
     "path", "scan_root", "mtime", "size",
@@ -237,6 +240,15 @@ def _migrate(conn, cur, on_disk):
             for col in V4_COLUMNS:
                 if col not in have:
                     cur.execute(f"ALTER TABLE samples ADD COLUMN {col} TEXT")
+        if on_disk < 5:
+            # existing profiles keep every value and read NULL wetness; their
+            # profile_version is older than the pass that measures it, so the
+            # next `lib index --profile` measures them again
+            cur.execute(_PROFILE_DDL)
+            have = {r["name"] for r in cur.execute("PRAGMA table_info(profile)")}
+            for col in V5_PROFILE_COLUMNS:
+                if col not in have:
+                    cur.execute(f"ALTER TABLE profile ADD COLUMN {col} REAL")
         cur.execute(
             "UPDATE meta SET v = ? WHERE k = 'schema_version'",
             (str(SCHEMA_VERSION),))
@@ -372,8 +384,8 @@ def _create_sample_indexes(cur):
 
 
 # one row per file the profile pass ran on (core/analysis/profile.py): envelope,
-# attack/decay, and the share of energy in five bands. apart from samples for
-# the same reason as pitch.
+# attack/decay, the share of energy in five bands, and wetness (schema v5).
+# apart from samples for the same reason as pitch.
 _PROFILE_DDL = """
     CREATE TABLE IF NOT EXISTS profile (
         path TEXT PRIMARY KEY,
@@ -390,6 +402,7 @@ _PROFILE_DDL = """
         band_lowmid REAL,
         band_mid REAL,
         band_high REAL,
+        wetness REAL,
         extracted_at REAL
     )
 """
@@ -616,7 +629,7 @@ def profile_eligible(fmt, duration):
 
 PROFILE_COLUMNS = ("envelope", "attack_ms", "decay_ms", "sustain", "reattacks",
                  "centroid_hz", "band", "band_sub", "band_low", "band_lowmid",
-                 "band_mid", "band_high")
+                 "band_mid", "band_high", "wetness")
 
 
 def upsert_profile(conn, path, d, version):

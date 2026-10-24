@@ -534,6 +534,7 @@ CREATE TABLE profile (
     band_lowmid     REAL,        -- 250 Hz-1 kHz
     band_mid        REAL,        -- 1-4 kHz
     band_high       REAL,        -- 4-11 kHz
+    wetness         REAL,        -- schema v5: reverb or room carried, 0 dry to 1 wet
     extracted_at    REAL
 );
 ```
@@ -542,6 +543,14 @@ Optional. Populated by `acidcat lib index --profile` (or the MCP `reindex`
 tool's `with_profile`) for wav, aiff, flac, ogg, opus, mp3 and m4a files of
 any length; the first 30 s is measured. Kept apart from `samples` for the
 same reason as `pitch`, and left-joined the same way.
+
+`wetness` arrived in schema v5. The v4 -> v5 step adds the column to an
+existing table (guarded, like every ADD COLUMN) and touches no row, so a
+profile from before reads NULL wetness; its `profile_version` is 1, older
+than the pass that measures wetness (2), so the next `lib index --profile`
+measures it again. A fresh index creates the column with the table, so on a
+migrated index it sits after `extracted_at` and on a fresh one before it;
+nothing reads the table by position.
 
 ### `features` blob table
 

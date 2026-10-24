@@ -55,7 +55,8 @@ def register(subparsers):
                    help="Estimate the note of every file under 4 s.")
     p.add_argument("--profile", action="store_true",
                    help="Measure every audio file's envelope (hit, decay, "
-                        "sustain, pulse) and where its energy sits.")
+                        "sustain, pulse), where its energy sits and how "
+                        "wet it is.")
     p.add_argument("--jobs", "-j", type=int, default=None,
                    help="Worker processes for feature extraction, pitch and profile "
                         "(default: CPU count - 1; 1 = serial).")
