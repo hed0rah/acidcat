@@ -6,6 +6,70 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A key says where it came from and whether its mode is known.** A file
+  can state its key in a tag, an ACID chunk, a smpl chunk, a basc chunk, a
+  MIDI key signature, its file name or its folders, and acidcat now reads
+  them all and keeps every claim. The library index gains `key_mode`
+  (`major`, `minor` or empty), `key_source` (`tag`, `name`, `acid`,
+  `name+folder` when the root came from one place and the mode from
+  another, ...) and `key_claims` (`name=Am acid=B?`), so two sources that
+  disagree stay visible instead of one silently winning. ACID, smpl and
+  basc store a root and never a mode; a loop named "Fm" with an ACID root of
+  F is now Fm, not F. With nothing to supply a mode, `inspect --summary` prints `F?` and the
+  JSON says `"key_mode": null`, where it used to say F and mean F major.
+  `query` and the MCP `search_samples` results carry the new fields, and
+  `list_keys` counts a mode-unknown root apart from its major.
+
+- **An ID3 tag inside a WAV gives its key and tempo.** A `TKEY` or `TBPM`
+  frame in a RIFF `id3 ` chunk was listed by `inspect` and ignored by the
+  index.
+
+- **`lib index` re-reads a file when acidcat reads it differently.** Each
+  row records the reader that produced it, and a reader that changes re-reads
+  its own files on the next run, without `--reread` and without touching the
+  rest. The first index after upgrading re-reads every sample, once, which is
+  what picks up the key fixes below.
+
+### Fixed
+
+- **A smpl root of 60 is not a key.** Writers fill in middle C when nobody
+  set a root, and the smpl chunk has no flag to say so. Over 2,736 files in
+  a real library whose only key source was such a note, the file name agreed
+  on 14% (near chance); over 59 with any other note, on all 11 that named a
+  key. `inspect` still shows the note, marked as the writer default.
+
+- **A MIDI key signature of C major is not a key either.** It is what a
+  sequencer writes when nobody chose one: of 29 such files whose names gave a
+  key, none matched.
+
+- **A key in brackets counts.** `808 Alert (C).wav` names its key, and the
+  file-name reader skipped tokens in parentheses or square brackets.
+
+- **A bare note letter in a name has no mode.** `Bass_A_123BPM` names a root
+  of A and says nothing about major or minor; it used to index as A major.
+
+- **A key in the file name outranks an ACID root.** Even with its root-set
+  flag on, an ACID root matched the name on 94 of 363 files (26%), and on 27
+  of 274 (10%) where the name states a mode or an accidental; packs stamp
+  one root on every file. The order is now ID3 `TKEY` (right on 39 of 39,
+  mode included), MIDI key signature, file name, folder name, basc, ACID,
+  smpl, audio. A set ACID root still outranks a smpl root, and still gives
+  the key of a file that names none.
+
+- **An ACID tempo of 120 yields to a tempo in the name.** 120 is what ACID
+  writers leave behind: where the name gives a tempo, it disagrees with a
+  stored 120 two times in three, and on those loops beats over duration
+  backs the name 164 times to 13. Any other stored tempo still wins, and an
+  ID3 `TBPM` in the WAV, right on 677 of 681, now outranks the ACID tempo.
+
+### Changed
+
+- **The library index is schema v4.** It migrates on first open, in place;
+  2.0 builds will refuse a migrated index, so upgrade every acidcat that
+  shares one.
+
 ## [2.0.1] - 2026-10-14
 
 Small fixes after 2.0.0, checked by running the library index and the MCP

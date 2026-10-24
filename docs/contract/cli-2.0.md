@@ -506,8 +506,8 @@ Every verb's `--json` (and csv/tsv, where the verb offers them) follows it:
   two verbs report the same fact they give it one name and one type:
   `inspect --summary` and `stats --by meta` both say `duration_sec`, `bpm`,
   `acid_beats`, `expected_duration` and `duration_diff`. A summary line that
-  carries two facts is two keys (`Key C (from SMPL)` is `key: "C"`,
-  `key_source: "smpl"`; `SMPL` is `smpl_root`, `smpl_loop_start`,
+  carries two facts is two keys (`Key D? (from SMPL, mode unknown)` is
+  `key: "D"`, `key_mode: null`, `key_source: "smpl"`; `SMPL` is `smpl_root`, `smpl_loop_start`,
   `smpl_loop_end`; a MIDI `Division` is `ticks_per_beat`, or `smpte_fps` and
   `ticks_per_frame`).
 - **A file is named by `path`**: the path as given (`<stdin>` for `-`, never

@@ -170,9 +170,21 @@ def parse_key_from_path(filepath, max_parent_depth=3):
 
     Whole-token matching avoids false positives like "Analog" matching 'A'.
     """
+    hit = key_from_path_detail(filepath, max_parent_depth)
+    return hit[0] if hit else None
+
+
+def key_from_path_detail(filepath, max_parent_depth=3):
+    """parse_key_from_path with provenance: (key, where, mode_known) or None.
+
+    `where` is "name" for the file's own name and "folder" for a parent
+    directory. `mode_known` is False for a bare letter ("Bass_A_123BPM"):
+    that names a root and says nothing about major or minor, though the key
+    string reads "A" either way.
+    """
     existing = parse_key_from_filename(filepath)
     if existing is not None:
-        return existing
+        return existing, "name", True
 
     # walk filename basename + parent dirs outward
     segments = []
@@ -190,19 +202,24 @@ def parse_key_from_path(filepath, max_parent_depth=3):
             break
         cur = new_cur
 
-    token_re = re.compile(r"[_\-\.\s]+")
-    for seg in segments:
+    # brackets split too: "808 Alert (C)" names its key in parentheses
+    token_re = re.compile(r"[_\-\.\s()\[\]]+")
+    for n, seg in enumerate(segments):
+        where = "name" if n == 0 else "folder"
         tokens = [t for t in token_re.split(seg) if t]
         for i, token in enumerate(tokens):
             key = parse_bare_key_token(token)
             if key is None:
                 continue
+            if key.endswith("m"):
+                return key, where, True
             # parse_bare_key_token yields a bare major letter here (minor tokens
             # like 'Am' are caught earlier by parse_key_from_filename). A chord-
             # quality marker beside it fixes the mode: 'min_C' -> 'Cm'.
-            if not key.endswith("m") and _mode_from_neighbour(tokens, i) == "min":
-                return key + "m"
-            return key
+            mode = _mode_from_neighbour(tokens, i)
+            if mode == "min":
+                return key + "m", where, True
+            return key, where, mode == "maj"
     return None
 
 

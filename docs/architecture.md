@@ -370,14 +370,21 @@ CREATE TABLE samples (
     format           TEXT,       -- wav, aiff, mp3, flac, ogg, m4a, midi, serum
     duration         REAL,
     bpm              REAL,
-    key              TEXT,       -- "Am", "C#", "F", etc. (sharps preferred)
+    key              TEXT,       -- "Am", "C#", "F", etc. (sharps preferred);
+                                 -- "F" is F major OR an F root of unknown mode
+    key_mode         TEXT,       -- schema v4: major, minor, or NULL = unknown
+    key_source       TEXT,       -- where the root came from, best first: tag,
+                                 -- midi, name, folder, basc, acid, smpl, audio;
+                                 -- "name+folder" when the mode came from a
+                                 -- second source
+    key_claims       TEXT,       -- every source's claim: "name=Am acid=B?"
     title            TEXT,
     artist           TEXT,
     album            TEXT,
     genre            TEXT,
     comment          TEXT,
     acid_beats       INTEGER,    -- from ACID chunk
-    root_note        INTEGER,    -- MIDI note, from smpl or acid chunk
+    root_note        INTEGER,    -- MIDI note, from acid or smpl (not smpl's default 60)
     sample_rate      INTEGER,
     channels         INTEGER,
     bits_per_sample  INTEGER,
@@ -388,7 +395,9 @@ CREATE TABLE samples (
     category         TEXT,
     preset_name      TEXT,
     indexed_at       REAL,
-    last_seen_at     REAL
+    last_seen_at     REAL,
+    reader           TEXT        -- schema v4: the reader that wrote the row,
+                                 -- "wav:2"; a stale one is re-read on index
 );
 
 CREATE INDEX idx_samples_bpm       ON samples(bpm);

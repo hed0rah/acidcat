@@ -451,17 +451,21 @@ def list_tags(args):
 
 
 def list_keys(_args):
+    # "A" is stored for A major and for a root of A whose mode nobody knows;
+    # key_mode tells them apart, so they are counted apart
     counts = {}
     with _fanout_conns() as pairs:
         for _, conn in pairs:
             for r in conn.execute(
-                "SELECT key, COUNT(*) AS c FROM samples "
-                "WHERE key IS NOT NULL GROUP BY key"
+                "SELECT key, key_mode, COUNT(*) AS c FROM samples "
+                "WHERE key IS NOT NULL GROUP BY key, key_mode"
             ).fetchall():
-                counts[r["key"]] = counts.get(r["key"], 0) + r["c"]
+                mode = r["key_mode"] or ("minor" if r["key"].endswith("m") else None)
+                k = (r["key"], mode)
+                counts[k] = counts.get(k, 0) + r["c"]
     out = sorted(
-        ({"key": k, "count": c} for k, c in counts.items()),
-        key=lambda d: (-d["count"], d["key"]),
+        ({"key": k, "mode": m, "count": c} for (k, m), c in counts.items()),
+        key=lambda d: (-d["count"], d["key"], d["mode"] or ""),
     )
     return {"keys": out}
 

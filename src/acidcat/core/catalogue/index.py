@@ -19,11 +19,15 @@ import sys
 import time
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 # preset-metadata columns added in schema v2 (Bitwig/NI/Vital/etc.)
 PRESET_COLUMNS = ("device", "product", "creator", "category", "preset_name")
+
+# added in schema v4: key provenance (core/analysis/keysource.py) and the
+# reader that produced the row (indexing.READER_VERSIONS)
+V4_COLUMNS = ("key_mode", "key_source", "key_claims", "reader")
 
 SAMPLE_COLUMNS = (
     "path", "scan_root", "mtime", "size",
@@ -34,6 +38,7 @@ SAMPLE_COLUMNS = (
     "chunks",
     "device", "product", "creator", "category", "preset_name",
     "indexed_at", "last_seen_at",
+    "key_mode", "key_source", "key_claims", "reader",
 )
 
 
@@ -222,6 +227,14 @@ def _migrate(conn, cur, on_disk):
             # no id column yet, and rebuild_fts_for_path now keys on it.
         if on_disk < 3:
             _migrate_v3(conn, cur)
+        if on_disk < 4:
+            # rows keep their key; its mode and source were never recorded,
+            # so they stay NULL until the file is read again. a NULL reader
+            # marks the row stale, so the next index does that by itself.
+            have = {r["name"] for r in cur.execute("PRAGMA table_info(samples)")}
+            for col in V4_COLUMNS:
+                if col not in have:
+                    cur.execute(f"ALTER TABLE samples ADD COLUMN {col} TEXT")
         cur.execute(
             "UPDATE meta SET v = ? WHERE k = 'schema_version'",
             (str(SCHEMA_VERSION),))
@@ -244,7 +257,10 @@ def _migrate_v3(conn, cur):
     so this is the expensive step of the migration: one full copy of the table.
     It runs inside the caller's single transaction, so an interruption rolls back
     cleanly and re-opens at v2."""
-    cols = ",".join(SAMPLE_COLUMNS)
+    # copy only what the old table has: columns from later schema steps are
+    # created here by _SAMPLES_TABLE_COLS and start NULL
+    have = {r["name"] for r in cur.execute("PRAGMA table_info(samples)")}
+    cols = ",".join(c for c in SAMPLE_COLUMNS if c in have)
     cur.execute(f"CREATE TABLE samples_new (\n{_SAMPLES_TABLE_COLS}\n)")
     cur.execute(f"INSERT INTO samples_new ({cols}) SELECT {cols} FROM samples")
     cur.execute("DROP TABLE samples")
@@ -317,7 +333,11 @@ _SAMPLES_TABLE_COLS = """
     category TEXT,
     preset_name TEXT,
     indexed_at REAL,
-    last_seen_at REAL
+    last_seen_at REAL,
+    key_mode TEXT,
+    key_source TEXT,
+    key_claims TEXT,
+    reader TEXT
 """
 
 
@@ -379,13 +399,13 @@ def normalize_path(p):
 
 
 def get_sample_stat(conn, path):
-    """Return (mtime, size) stored for path, or None if not indexed."""
+    """Return (mtime, size, reader) stored for path, or None if not indexed."""
     row = conn.execute(
-        "SELECT mtime, size FROM samples WHERE path = ?", (path,)
+        "SELECT mtime, size, reader FROM samples WHERE path = ?", (path,)
     ).fetchone()
     if row is None:
         return None
-    return (row["mtime"], row["size"])
+    return (row["mtime"], row["size"], row["reader"])
 
 
 def upsert_sample(conn, row):

@@ -80,7 +80,7 @@ def test_schema_migration_v1_to_current(tmp_path):
     assert "id" in cols                                   # v3 integer primary key
     ver = conn.execute(
         "SELECT v FROM meta WHERE k='schema_version'").fetchone()[0]
-    assert ver == str(idx.SCHEMA_VERSION) == "3"
+    assert ver == str(idx.SCHEMA_VERSION) == "4"
     # original data preserved and FTS rebuilt with the new (wider) column set
     assert conn.execute(
         "SELECT title FROM samples WHERE path='/x.wav'").fetchone()[0] == "kick"

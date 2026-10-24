@@ -737,6 +737,12 @@ def _parse_riff_id3(b, ctx, whole=None):
     for fid, text in frames[:_ID3_FRAME_CAP]:
         fields.append(_f(None, 0, fid, str(text)[:160],
                          text=mp3mod.id3_is_text(fid)))
+    # key and tempo frames reach the index as they would from an MP3
+    for fid, text in frames:
+        if fid == "TKEY" and text:
+            ctx.setdefault("id3_key", str(text).strip())
+        elif fid == "TBPM" and text:
+            ctx.setdefault("id3_bpm", str(text).strip())
     if len(frames) > _ID3_FRAME_CAP:
         warns = list(warns) + [hit(
             "list_rows", _ID3_FRAME_CAP, len(frames),

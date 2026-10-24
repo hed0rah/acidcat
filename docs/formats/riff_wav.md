@@ -376,6 +376,13 @@ Common flag values:
 Defines root key and loop points for samplers. Written by most DAWs
 when exporting loops or instrument samples.
 
+`midi_unity_note` is the note at which the sample plays back unpitched,
+not a statement of the material's key. Writers that emit the chunk
+without a root to record fill in 60 (middle C), and nothing in the chunk
+says whether the value was set: unlike the ACID chunk's root-set flag,
+there is no bit for it. Read a unity note of 60 as "unset or default",
+and any other value as a deliberate root with no mode.
+
 ```
 "smpl"
 uint32_t size       // 36 + (num_loops * 24) + sampler_data
@@ -402,7 +409,8 @@ struct smpl_chunk {
        +---------------------------+
  0x08  |   sample_period (u32)     |  ns per sample = 1e9 / rate
        +---------------------------+
- 0x0C  |  midi_unity_note (u32)    |  root key; 0 = unset sentinel
+ 0x0C  |  midi_unity_note (u32)    |  root key; 0 = unset sentinel,
+       |                           |  60 = the common writer default
        +---------------------------+
  0x10  |  midi_pitch_frac (u32)    |  fine tune, fraction of semitone
        +---------------------------+

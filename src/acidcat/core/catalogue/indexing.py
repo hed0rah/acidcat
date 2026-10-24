@@ -17,9 +17,32 @@ from acidcat.core.formats.riff import (
     smpl_root_or_none, acid_root_or_none, effective_acid_beats,
 )
 from acidcat.core.formats.mp3 import decode_frame_header
+from acidcat.core.analysis import keysource as ks
 from acidcat.core.tagged import is_tagged_format
 
 
+
+
+# The row each reader produces, versioned. Bump a reader when what it
+# extracts changes, and the next `lib index` re-reads exactly the files that
+# reader produced, with no --reread and no rereading of anything else. A row
+# stores "wav:2"; a row with no reader predates the stamp and is stale.
+#   2: key sources (core/analysis/keysource.py), ID3-in-RIFF key and tempo
+READER_VERSIONS = {"wav": 2, "aiff": 2, "midi": 2, "tagged": 2,
+                   "serum": 1, "preset": 1}
+
+
+def reader_is_current(stamp):
+    """True when a stored reader stamp matches this build's reader."""
+    family, _, version = (stamp or "").partition(":")
+    return (family in READER_VERSIONS
+            and version == str(READER_VERSIONS[family]))
+
+
+def _stamped(row, family):
+    if row is not None:
+        row["reader"] = f"{family}:{READER_VERSIONS[family]}"
+    return row
 
 
 # synth/DAW preset formats whose metadata we index (device, product, creator,
@@ -96,11 +119,14 @@ def walk_and_upsert(conn, scan_root, do_features=False, do_deep=False,
 
             existing = idx.get_sample_stat(conn, norm)
             # force bypasses the mtime+size short-circuit: the files
-            # did not change but the parser may have. annotations are
-            # safe either way; they live in separate tables by path.
+            # did not change but the parser may have. a reader newer than
+            # the one that wrote the row does the same for its own files.
+            # annotations are safe either way; they live in separate
+            # tables by path.
             if existing is not None and not force:
-                old_mtime, old_size = existing
-                if old_mtime == st.st_mtime and old_size == st.st_size:
+                old_mtime, old_size, old_reader = existing
+                if (old_mtime == st.st_mtime and old_size == st.st_size
+                        and reader_is_current(old_reader)):
                     idx.touch_last_seen(conn, norm, walk_start)
                     # metadata unchanged, but top up features if missing or stale
                     # (e.g. after a FEATURE_SET_VERSION change) without re-parsing.
@@ -261,19 +287,19 @@ def _extract_for_index(filepath, scan_root, mtime, size, walk_start,
 
     try:
         if sniffed == "midi" or (sniffed is None and ext in (".mid", ".midi")):
-            return _from_midi(filepath, row)
+            return _stamped(_from_midi(filepath, row), "midi")
         if sniffed == "aiff" or (sniffed is None and ext in (".aif", ".aiff")):
-            return _from_aiff(filepath, row)
+            return _stamped(_from_aiff(filepath, row), "aiff")
         if sniffed == "serum" or (sniffed is None and ext == ".serumpreset"):
-            return _from_serum(filepath, row)
+            return _stamped(_from_serum(filepath, row), "serum")
         if sniffed == "preset" or (sniffed is None and ext in PRESET_EXTENSIONS):
-            return _from_preset(filepath, row)
+            return _stamped(_from_preset(filepath, row), "preset")
         if sniffed in ("flac", "ogg", "mp3", "mp4"):
-            return _from_tagged(filepath, row, do_deep=do_deep)
+            return _stamped(_from_tagged(filepath, row, do_deep=do_deep), "tagged")
         if sniffed is None and is_tagged_format(filepath) and ext != ".wav":
-            return _from_tagged(filepath, row, do_deep=do_deep)
+            return _stamped(_from_tagged(filepath, row, do_deep=do_deep), "tagged")
         # default: WAV/RIFF (sniffed == "wav" or sniffed is None and ext is .wav or unknown)
-        return _from_wav(filepath, row, do_deep=do_deep)
+        return _stamped(_from_wav(filepath, row, do_deep=do_deep), "wav")
     except Exception as e:
         # swallowing is deliberate (a bad file must not kill the walk),
         # but silence is not: without the class+message a programming
@@ -284,12 +310,19 @@ def _extract_for_index(filepath, scan_root, mtime, size, walk_start,
         return None
 
 
+ACID_DEFAULT_BPM = 120.0
+
+
+def _set_key(row, claims):
+    """Resolve the claims into the row's key columns."""
+    row.update(ks.resolve(claims))
+
+
 def _from_wav(filepath, row, do_deep=False):
     """WAV row extraction, driven by the inspect walker (the single WAV
     decoder since the 2026-07-10 unification): one walk fills a semantic
     ctx dict; the legacy core/riff parse is no longer run here."""
-    from acidcat.util.midi import midi_note_to_pitch_class
-    from acidcat.core.analysis.detect import parse_key_from_path, parse_bpm_from_filename
+    from acidcat.core.analysis.detect import parse_bpm_from_filename
     from acidcat.core.walk.wav import inspect_wav
 
     ctx = {}
@@ -300,20 +333,30 @@ def _from_wav(filepath, row, do_deep=False):
 
     row["format"] = "wav"
     row["duration"] = duration
-    row["bpm"] = ctx.get("acid_bpm")
+    # an ID3 TBPM matched the name on 677 of 681 files, the ACID tempo on
+    # 82%. 120 is the tempo ACID writers leave behind: where the name gives
+    # one, it says something else for two stored 120s in three, and on the
+    # loops among them beats/duration backs the name 164 times to 13.
+    fname_bpm = parse_bpm_from_filename(filepath)
+    acid_bpm = ctx.get("acid_bpm")
+    if acid_bpm == ACID_DEFAULT_BPM and fname_bpm is not None:
+        acid_bpm = None
+    row["bpm"] = _coerce_bpm(ctx.get("id3_bpm")) or acid_bpm
 
-    # SMPL/ACID root_note = 0 (MIDI C-1) is the documented "unset" value.
-    # Treat it as missing so we can fall back to filename parsing.
+    # SMPL/ACID root_note = 0 (MIDI C-1) is the documented "unset" value, the
+    # walker zeroes an ACID root whose root-set flag is clear, and a smpl
+    # note of 60 is the writer default (see core/analysis/keysource.py)
     smpl = smpl_root_or_none(ctx.get("smpl_root"))
     acid = acid_root_or_none(ctx.get("acid_root"))
+    smpl_claim = ks.smpl_claim(smpl)
 
     # key stores pitch class only (no octave); full MIDI int lives in root_note.
-    row["key"] = midi_note_to_pitch_class(smpl) or midi_note_to_pitch_class(acid)
+    _set_key(row, ks.wav_claims(ctx, filepath))
     row["acid_beats"] = effective_acid_beats(
         {"acid_beats": ctx.get("acid_beats"),
          "acid_one_shot": ctx.get("acid_one_shot"),
          "bpm": ctx.get("acid_bpm")}, duration)
-    row["root_note"] = smpl or acid
+    row["root_note"] = acid or (smpl if smpl_claim else None)
     # unique ids in first-seen order (a file can carry two LIST chunks;
     # the legacy path listed each id once and queries substring-match)
     row["chunks"] = ",".join(dict.fromkeys(
@@ -326,12 +369,8 @@ def _from_wav(filepath, row, do_deep=False):
         row["channels"] = ctx.get("channels")
         row["bits_per_sample"] = ctx.get("bits")
 
-    if row["key"] is None:
-        row["key"] = parse_key_from_path(filepath)
-    if row["bpm"] is None:
-        fname_bpm = parse_bpm_from_filename(filepath)
-        if fname_bpm is not None:
-            row["bpm"] = float(fname_bpm)
+    if row["bpm"] is None and fname_bpm is not None:
+        row["bpm"] = float(fname_bpm)
 
     if do_deep and row["bpm"] is None:
         _fill_from_librosa(filepath, row)
@@ -342,8 +381,7 @@ def _from_wav(filepath, row, do_deep=False):
 def _from_aiff(filepath, row, do_deep=False):
     """AIFF/AIFC row extraction, driven by the inspect walker (the single
     AIFF decoder since the 2026-07-10 unification)."""
-    from acidcat.core.analysis.detect import parse_key_from_path, parse_bpm_from_filename
-    from acidcat.util.midi import midi_note_to_pitch_class
+    from acidcat.core.analysis.detect import parse_bpm_from_filename
     from acidcat.core.walk.aiff import inspect_aiff
 
     with open(filepath, "rb") as f:
@@ -368,12 +406,11 @@ def _from_aiff(filepath, row, do_deep=False):
     # same convention as the WAV smpl root.
     if row.get("bpm") is None and ctx.get("basc_beats") and row["duration"]:
         row["bpm"] = round(ctx["basc_beats"] / row["duration"] * 60, 2)
-    if row.get("key") is None and 0 < (ctx.get("basc_root_key") or 0) < 128:
-        row["key"] = midi_note_to_pitch_class(ctx["basc_root_key"])
-
-    # otherwise fall back to filename/folder tokens.
-    if row.get("key") is None:
-        row["key"] = parse_key_from_path(filepath)
+    basc = ctx.get("basc_root_key") or 0
+    _set_key(row, [
+        ks.claim("basc", note=basc) if 0 < basc < 128 else None,
+        ks.path_claim(filepath),
+    ])
     if row.get("bpm") is None:
         fname_bpm = parse_bpm_from_filename(filepath)
         if fname_bpm is not None:
@@ -396,7 +433,7 @@ def _from_midi(filepath, row):
     row["format"] = "midi"
     row["duration"] = ctx.get("duration")
     row["bpm"] = ctx.get("tempo_bpm")
-    row["key"] = ctx.get("key_sig")
+    _set_key(row, [ks.midi_claim(ctx.get("key_sig")), ks.path_claim(filepath)])
     if ctx.get("track_name"):
         row["title"] = ctx["track_name"]
     if ctx.get("copyright"):
@@ -454,7 +491,7 @@ def _from_preset(filepath, row):
 
 def _from_tagged(filepath, row, do_deep=False):
     from acidcat.core.tagged import parse_tagged
-    from acidcat.core.analysis.detect import parse_key_from_path, parse_bpm_from_filename
+    from acidcat.core.analysis.detect import parse_bpm_from_filename
 
     meta = parse_tagged(filepath)
     if meta is None:
@@ -470,7 +507,8 @@ def _from_tagged(filepath, row, do_deep=False):
     row["genre"] = meta.get("genre")
     row["comment"] = meta.get("comment")
     row["bpm"] = _coerce_bpm(meta.get("bpm"))
-    row["key"] = meta.get("key")
+    _set_key(row, [ks.claim("tag", meta.get("key")) if meta.get("key") else None,
+                   ks.path_claim(filepath)])
 
     # genre frames feed the tags table the same way serum preset tags
     # do, so `query --tag house` works against tagged-format
@@ -481,8 +519,6 @@ def _from_tagged(filepath, row, do_deep=False):
                  genre.replace(";", ",").replace("/", ",").split(",")]
         row["_tags"] = [g for g in parts if g]
 
-    if row["key"] is None:
-        row["key"] = parse_key_from_path(filepath)
     if row["bpm"] is None:
         fname_bpm = parse_bpm_from_filename(filepath)
         if fname_bpm is not None:
@@ -513,7 +549,7 @@ def _fill_from_librosa(filepath, row):
         if isinstance(bpm, (int, float)):
             row["bpm"] = float(bpm)
     if est.get("estimated_key") and row.get("key") is None:
-        row["key"] = est["estimated_key"]
+        _set_key(row, [ks.claim("audio", est["estimated_key"])])
     if est.get("duration_sec") and row.get("duration") is None:
         row["duration"] = est["duration_sec"]
 

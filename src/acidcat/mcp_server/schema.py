@@ -55,7 +55,11 @@ def _register_all():
                 "bpm_min": {"type": "number", "description": "Minimum BPM (inclusive)."},
                 "bpm_max": {"type": "number", "description": "Maximum BPM (inclusive)."},
                 "key": {"type": "string",
-                        "description": "Exact key (e.g. 'Am', 'C#')."},
+                        "description": "Exact key (e.g. 'Am', 'C#'). 'C#' "
+                        "matches C# major AND a C# root of unknown mode; "
+                        "each result's key_mode says which, key_source "
+                        "where the key came from, and key_claims every "
+                        "source that stated one."},
                 "duration_min": {"type": "number", "description": "Minimum duration in seconds."},
                 "duration_max": {"type": "number", "description": "Maximum duration in seconds."},
                 "tags": {"type": "array", "items": {"type": "string"},

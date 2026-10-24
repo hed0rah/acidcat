@@ -21,7 +21,7 @@ from acidcat.core.tagged import is_tagged_format
 from acidcat.core.analysis.detect import estimate_librosa_metadata
 from acidcat.core.analysis.features import extract_audio_features
 from acidcat.core.infra.render import output
-from acidcat.util.midi import midi_note_to_name, midi_note_to_pitch_class
+from acidcat.util.midi import midi_note_to_name
 from acidcat.util.stdin import is_stdin_target, stdin_to_tempfile
 
 
@@ -173,26 +173,26 @@ def _info_wav(filepath, args):
         rec["BPM"] = "-"
         _typed(rec, "BPM", bpm=None)
 
-    if smpl_root is not None:
-        rec["Key"] = f"{midi_note_to_pitch_class(smpl_root)} (from SMPL)"
-        _typed(rec, "Key", key=midi_note_to_pitch_class(smpl_root),
-               key_source="smpl")
-        _vlog(args, f"[key] smpl_root={smpl_root} -> {midi_note_to_pitch_class(smpl_root)}")
-    elif acid_root is not None:
-        rec["Key"] = f"{midi_note_to_pitch_class(acid_root)} (from ACID)"
-        _typed(rec, "Key", key=midi_note_to_pitch_class(acid_root),
-               key_source="acid")
-        _vlog(args, f"[key] acid_root={acid_root} -> {midi_note_to_pitch_class(acid_root)}")
+    # the same resolution the library index stores, so the card and a query
+    # cannot disagree about a file's key
+    from acidcat.core.analysis import keysource as ks
+    resolved = ks.resolve(ks.wav_claims(ctx, filepath))
+    if resolved["key"]:
+        rec["Key"] = ks.describe(resolved)
+        _vlog(args, f"[key] claims: {resolved['key_claims']}")
     else:
         rec["Key"] = "-"
-        _typed(rec, "Key", key=None, key_source=None)
-        _vlog(args, "[key] no SMPL/ACID root, unset")
+        _vlog(args, "[key] no claim from tag, ACID, SMPL or the file name")
+    _typed(rec, "Key", key=resolved["key"], key_mode=resolved["key_mode"],
+           key_source=resolved["key_source"], key_claims=resolved["key_claims"])
 
     rec["ACID"] = "yes" if bpm is not None else "no"
     _typed(rec, "ACID", acid=bpm is not None)
 
     if smpl_root is not None:
-        smpl_parts = [f"root={midi_note_to_name(smpl_root)}"]
+        smpl_parts = [f"root={midi_note_to_name(smpl_root)}"
+                      + (" (writer default, not a key)"
+                         if smpl_root == ks.SMPL_DEFAULT_NOTE else "")]
         if ctx.get("smpl_loop_start") is not None:
             smpl_parts.append(f"loop={ctx['smpl_loop_start']}-{ctx['smpl_loop_end']}")
         else:

@@ -7,12 +7,11 @@ import os
 import sys
 
 from acidcat.core.formats.riff import (
-    smpl_root_or_none, acid_root_or_none, effective_acid_beats,
+    effective_acid_beats,
 )
 from acidcat.commands._output import add_output_format_arg, out_stream
 from acidcat.core.formats.aiff import is_aiff
 from acidcat.core.tagged import is_tagged_format
-from acidcat.util.midi import midi_note_to_name
 from acidcat.util.csv_helpers import safe_basename_for_csv
 from acidcat.util.paths import under
 
@@ -59,13 +58,10 @@ def _scan_wav(filepath):
         expected = round((beats / bpm) * 60, 4)
         diff = round(duration - expected, 4) if duration else None
 
-    # SMPL/ACID root_key = 0 is the documented "unset" sentinel
-    # (MIDI C-1). Coerce to None before formatting so the CSV key
-    # column does not ship `C-1` for files whose SMPL chunk is
-    # present but unset.
-    smpl_root = smpl_root_or_none(ctx.get("smpl_root"))
-    acid_root = acid_root_or_none(ctx.get("acid_root"))
-    key = midi_note_to_name(smpl_root) or midi_note_to_name(acid_root)
+    # the resolution the library index stores (core/analysis/keysource.py):
+    # a pitch class, not a note with an octave, and no writer defaults
+    from acidcat.core.analysis import keysource as ks
+    key = ks.resolve(ks.wav_claims(ctx, filepath))["key"]
 
     return {
         "path": filepath,

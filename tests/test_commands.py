@@ -264,16 +264,17 @@ class TestScanSmplSentinel:
         # that it must NOT be C-1.
         assert rows[0]["key"] != "C-1"
 
-    def test_scan_smpl_root_60_renders_pitch_class(self, tmp_path):
+    def test_scan_smpl_root_renders_pitch_class(self, tmp_path):
         scan_dir = tmp_path / "scan_target"
         scan_dir.mkdir()
-        _riff_wav_with_smpl(scan_dir / "c4.wav", smpl_root_key=60)
+        _riff_wav_with_smpl(scan_dir / "d4.wav", smpl_root_key=62)
         out_csv = str(tmp_path / "out.csv")
         code, out, err = run_cli("scan", str(scan_dir), "-o", out_csv, "-q")
         assert code == 0 or code is None
         with open(out_csv, encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
-        assert rows[0]["key"] == "C3"  # MIDI 60 = C3 (DAW convention)
+        # a key is a pitch class, the index's form; 60 would be the default
+        assert rows[0]["key"] == "D"
 
 
 class TestSurveyCommand:
@@ -301,21 +302,33 @@ class TestInfoSmplKeyDisplay:
         (data,) = json.loads(out_j)            # rows, one per file
         assert data["key"] is None and data["key_source"] is None
 
-    def test_smpl_root_60_renders_as_pitch_class(self, tmp_path):
-        path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
+    def test_smpl_root_renders_as_pitch_class(self, tmp_path):
+        path = _riff_wav_with_smpl(tmp_path / "d4.wav", smpl_root_key=62)
         code, out, err = run_cli(path)
         assert code == 0 or code is None
-        # pitch class only in the Key line; octave suffix must not appear there
-        assert "C (from SMPL)" in out
-        assert "C4 (from SMPL)" not in out
+        # pitch class only in the Key line; octave suffix must not appear
+        # there. smpl stores a root and no mode, so the mode is unknown.
+        assert "D? (from SMPL, mode unknown)" in out
+        assert "D3 (from SMPL" not in out
 
-    def test_smpl_root_60_json_has_pitch_class(self, tmp_path):
-        path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
+    def test_smpl_root_json_has_pitch_class(self, tmp_path):
+        path = _riff_wav_with_smpl(tmp_path / "d4.wav", smpl_root_key=62)
         code, out, err = run_cli(path, "--json")
         assert code == 0 or code is None
         (data,) = json.loads(out)
-        assert (data["key"], data["key_source"]) == ("C", "smpl")
-        assert data["smpl_root"] == "C3"
+        assert (data["key"], data["key_mode"], data["key_source"]) == (
+            "D", None, "smpl")
+        assert data["smpl_root"] == "D3"
+
+    def test_smpl_root_60_is_not_a_key(self, tmp_path):
+        # middle C is what writers leave when nobody set a root
+        path = _riff_wav_with_smpl(tmp_path / "c4.wav", smpl_root_key=60)
+        code, out, err = run_cli(path)
+        assert code == 0 or code is None
+        assert "root=C3 (writer default, not a key)" in out
+        code, out, err = run_cli(path, "--json")
+        (data,) = json.loads(out)
+        assert data["key"] is None and data["smpl_root"] == "C3"
 
     def test_no_smpl_no_acid_renders_as_unset(self, tmp_path):
         path = _riff_wav_with_smpl(tmp_path / "nokey.wav", smpl_root_key=None)

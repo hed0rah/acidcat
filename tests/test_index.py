@@ -111,10 +111,44 @@ class TestWavRowExtraction:
         assert row["bpm"] == 120.0
         assert row["sample_rate"] == rate and row["channels"] == 1
         assert row["bits_per_sample"] == 16
-        assert row["root_note"] == 60          # smpl wins over acid
-        assert row["key"] == "C"
+        # smpl's 60 is the writer default, so the set ACID root (D) is the key
+        assert row["root_note"] == 62
+        assert row["key"] == "D"
+        assert row["key_mode"] is None         # acid stores a root, not a mode
+        assert row["key_source"] == "acid"
+        assert row["key_claims"] == "acid=D?"
         assert row["acid_beats"] == 2          # one-shot flag clear: trusted
         assert row["chunks"] == "smpl,acid"
+
+    @staticmethod
+    def _acid_wav(path, tempo, root=71):
+        rate, align = 8000, 2
+        fmt = b"fmt " + struct.pack("<I", 16) + struct.pack(
+            "<HHIIHH", 1, 1, rate, rate * align, align, 16)
+        data = b"data" + struct.pack("<I", rate * align) + b"\x00" * (rate * align)
+        acid = b"acid" + struct.pack("<I", 24) + struct.pack(
+            "<IHHfIHHf", 0x02, root, 0x8000, 0.0, 2, 4, 4, tempo)
+        body = b"WAVE" + fmt + data + acid
+        path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+        return str(path)
+
+    def test_acid_default_tempo_yields_to_the_name(self, tmp_path):
+        from acidcat.core.catalogue.indexing import _from_wav
+        row = _from_wav(self._acid_wav(tmp_path / "bass_124bpm.wav", 120.0), {})
+        assert row["bpm"] == 124.0
+
+    def test_acid_tempo_other_than_120_outranks_the_name(self, tmp_path):
+        from acidcat.core.catalogue.indexing import _from_wav
+        row = _from_wav(self._acid_wav(tmp_path / "bass_124bpm.wav", 128.0), {})
+        assert row["bpm"] == 128.0
+
+    def test_name_key_outranks_a_set_acid_root(self, tmp_path):
+        from acidcat.core.catalogue.indexing import _from_wav
+        row = _from_wav(self._acid_wav(tmp_path / "pad_Am.wav", 120.0), {})
+        assert (row["key"], row["key_mode"], row["key_source"]) == (
+            "Am", "minor", "name")
+        assert row["key_claims"] == "name=Am acid=B?"
+        assert row["root_note"] == 71      # the chunk's note is still kept
 
     def test_aiff_walker_backed_row(self, tmp_path):
         # AIFF row also comes from the inspect walker's ctx since the
@@ -489,11 +523,11 @@ class TestSmplRootKey:
         assert row["key"] != "C-1"
         assert row["root_note"] is None
 
-    def test_nonzero_yields_pitch_class(self, tmp_path, central_root,
-                                         registry_path):
+    @staticmethod
+    def _index_one(tmp_path, registry_path, name, note):
         lib = tmp_path / "lib"
         lib.mkdir()
-        (lib / "c4.wav").write_bytes(_make_riff_wav(smpl_root_key=60))
+        (lib / name).write_bytes(_make_riff_wav(smpl_root_key=note))
         index_cmd.run(_Args(target=str(lib), label="x", registry=registry_path))
         rconn = reg.open_registry(registry_path)
         try:
@@ -502,13 +536,35 @@ class TestSmplRootKey:
             rconn.close()
         conn = idx.open_db(db_path)
         try:
-            row = conn.execute(
-                "SELECT key, root_note FROM samples"
-            ).fetchone()
+            return dict(conn.execute(
+                "SELECT key, key_mode, key_source, root_note FROM samples"
+            ).fetchone())
         finally:
             conn.close()
-        assert row["key"] == "C"
-        assert row["root_note"] == 60
+
+    def test_nonzero_yields_pitch_class(self, tmp_path, central_root,
+                                         registry_path):
+        row = self._index_one(tmp_path, registry_path, "d4.wav", 62)
+        assert row["key"] == "D"
+        assert row["key_mode"] is None        # smpl holds a root, never a mode
+        assert row["key_source"] == "smpl"
+        assert row["root_note"] == 62
+
+    def test_sixty_is_the_writer_default(self, tmp_path, central_root,
+                                         registry_path):
+        # writers fill in middle C when nobody set a root, and the chunk has
+        # no flag to say so: measured, a smpl 60 matched the named key on 14%
+        # of files, near chance. it is not a key.
+        row = self._index_one(tmp_path, registry_path, "loop.wav", 60)
+        assert row["key"] is None
+        assert row["root_note"] is None
+
+    def test_name_fills_in_after_a_default(self, tmp_path, central_root,
+                                           registry_path):
+        row = self._index_one(tmp_path, registry_path, "pad_Fm.wav", 60)
+        assert row["key"] == "Fm"
+        assert row["key_mode"] == "minor"
+        assert row["key_source"] == "name"
 
 
 class TestFTSCommitBudget:
