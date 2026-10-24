@@ -90,6 +90,31 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rest. The first index after upgrading re-reads every sample, once, which is
   what picks up the key fixes below.
 
+- **SysEx dumps (.syx), with Yamaha DX7 voices decoded.** A .syx is the
+  System Exclusive messages a synth sent, written down as they arrived; each
+  message is a chunk, named by its manufacturer id. A DX7 voice dump is
+  decoded in both of its shapes, the 32-voice cartridge bank (4,104 bytes,
+  parameters packed several to a byte) and the single unpacked voice (163
+  bytes): every voice's name, algorithm, feedback, transpose, LFO, pitch
+  envelope, and per operator the envelope, output level, ratio or fixed
+  frequency, detune and velocity sensitivity. The bulk dump's checksum is
+  checked and a mismatch is a finding, not a refusal; a cut-short bank keeps
+  its whole voices; a parameter above its maximum is named. Any other
+  message, a TX81Z bank or a Roland patch, is named and measured rather than
+  decoded. The library index reads the voice names, so a bank is found by
+  any of its 32. Checked on 9,648 real dumps: every header, byte count and
+  checksum agrees, and the INIT VOICE decodes to its published values.
+
+- **Reaktor instruments (`.ism`) are recognised.** All 497 in a synth
+  library read as unknown: the sniff looked for `hsin` at 0x0C, and an
+  instrument opens with `NRKT` (or an older 0x3a lead) and its `KSModul`
+  class record, its NI metadata in an hsin frame kilobytes before the end.
+  The class record in the first 128 bytes is the sniff (it matched only
+  Reaktor files across 64,743); `inspect` shows the header, the class
+  record and the metadata frame (name, product, version), searched for in
+  the last 16 MB, and says the module body is not decoded. A directory walk
+  now takes `.ism` and `.ens`.
+
 ### Fixed
 
 - **A TEMPOMAP in a JUNK chunk is not overwritten padding.** 1,079 healthy
@@ -136,29 +161,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tempo still wins, and an ID3 `TBPM` in the WAV, right on 818 of 822, now
   outranks the ACID tempo.
 
-### Changed
-
-- **The library index is schema v4.** It migrates on first open, in place;
-  2.0 builds will refuse a migrated index, so upgrade every acidcat that
-  shares one.
-
-- **SysEx dumps (.syx), with Yamaha DX7 voices decoded.** A .syx is the
-  System Exclusive messages a synth sent, written down as they arrived; each
-  message is a chunk, named by its manufacturer id. A DX7 voice dump is
-  decoded in both of its shapes, the 32-voice cartridge bank (4,104 bytes,
-  parameters packed several to a byte) and the single unpacked voice (163
-  bytes): every voice's name, algorithm, feedback, transpose, LFO, pitch
-  envelope, and per operator the envelope, output level, ratio or fixed
-  frequency, detune and velocity sensitivity. The bulk dump's checksum is
-  checked and a mismatch is a finding, not a refusal; a cut-short bank keeps
-  its whole voices; a parameter above its maximum is named. Any other
-  message, a TX81Z bank or a Roland patch, is named and measured rather than
-  decoded. The library index reads the voice names, so a bank is found by
-  any of its 32. Checked on 9,648 real dumps: every header, byte count and
-  checksum agrees, and the INIT VOICE decodes to its published values.
-
-### Fixed
-
 - **An hsin file with no preset metadata walks.** A Reaktor 6 ensemble's
   frame tree holds no SoundInfoItem, so there was no name to read, and
   `inspect` refused it ("not a recognized Native Instruments preset") while
@@ -182,15 +184,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   does, and the opaque chunk's length and a bank's current program and
   reserved bytes are fields of their own.
 
-- **Reaktor instruments (`.ism`) are recognised.** All 497 in a synth
-  library read as unknown: the sniff looked for `hsin` at 0x0C, and an
-  instrument opens with `NRKT` (or an older 0x3a lead) and its `KSModul`
-  class record, its NI metadata in an hsin frame kilobytes before the end.
-  The class record in the first 128 bytes is the sniff (it matched only
-  Reaktor files across 64,743); `inspect` shows the header, the class
-  record and the metadata frame (name, product, version), searched for in
-  the last 16 MB, and says the module body is not decoded. A directory walk
-  now takes `.ism` and `.ens`.
+### Changed
+
+- **The library index is schema v4.** It migrates on first open, in place;
+  2.0 builds will refuse a migrated index, so upgrade every acidcat that
+  shares one.
 
 ## [2.0.1] - 2026-10-14
 
