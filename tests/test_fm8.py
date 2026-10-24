@@ -111,7 +111,10 @@ def test_the_walker_decodes_an_nfm8_with_deep(tmp_path):
 
 def test_without_deep_the_state_is_named_not_decoded(tmp_path):
     _label, chunks, warns = _walk(tmp_path, seeds.ni_fm8(), deep=False)
-    assert [c["id"] for c in chunks] == ["hsin"]
+    # the frame tree is walked; the FM8 state's own chunks wait for --deep
+    assert chunks[0]["id"] == "hsin"
+    assert not [c for c in chunks if c["id"] in ("fm8", "pitch_env", "matrix")
+                or c["id"].startswith("op[")]
     assert "decode.partial" in _codes(warns)
 
 
@@ -171,8 +174,12 @@ def test_a_tail_whose_count_overruns_is_ignored():
 
 
 def test_bytes_after_the_root_frame_are_reported(tmp_path):
-    _label, _chunks, warns = _walk(tmp_path, seeds.ni_fm8() + bytes(40), deep=False)
+    _label, _chunks, warns = _walk(tmp_path, seeds.ni_fm8() + b"\x01" * 40, deep=False)
     assert "container.trailing" in _codes(warns)
+    # zero fill after the root is a padding node, not a finding
+    _label, chunks, warns = _walk(tmp_path, seeds.ni_fm8() + bytes(40), deep=False)
+    assert "container.trailing" not in _codes(warns)
+    assert chunks[-1]["id"] == "padding" and chunks[-1]["size"] == 40
 
 
 def test_flipped_and_cut_states_degrade_to_findings():

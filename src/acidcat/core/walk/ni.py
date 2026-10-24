@@ -33,6 +33,13 @@ _KONTAKT_TRAILER_CAP = 1 << 20
 # ensemble's outer tree is under a dozen frames (the rest is compressed)
 _HSIN_FRAME_CAP = 512
 _HSIN_DEPTH_CAP = 128
+# an item's own data read to decode it; the largest across 1,797 real
+# presets, ensembles and instruments was a 4,930-byte ControllerAssignments
+# (a module, a subtree or a synth state is placed, not read)
+_HSIN_ITEM_CAP = 1 << 20
+# a SubtreeItem's FastLZ stream decompressed as a layer, and the stream
+# itself; the largest of 1,114 real ones opened to 68,730 bytes
+_HSIN_SUBTREE_CAP = 16 * 1024 * 1024
 # how much of a Reaktor instrument's end is searched for its NI metadata
 # frame (the furthest of 497 real ones began 7 MB from the end), and how many
 # hsin magics in it are tried as a frame
@@ -58,6 +65,10 @@ def inspect_ni(filepath, deep=False):
     at = nimod.reaktor_module_at(head)
     if at is not None:
         return _inspect_reaktor(filepath, file_size, head, at)
+    if nimod.is_ni_hsin(head):
+        walked = _hsin_tree(filepath, file_size, deep)
+        if walked is not None:
+            return walked
     with _open(filepath) as f:
         data = f.read(min(file_size, 16 * 1024 * 1024))
     if nimod.is_ni_ksd(data):
@@ -66,17 +77,9 @@ def inspect_ni(filepath, deep=False):
         meta, kind = nimod.parse_nksf(data), "nksf"
     else:
         meta, kind = nimod.parse_hsin(data), "hsin"
-    if not meta and kind == "hsin" and nimod.is_ni_hsin(data):
-        # a tree with no SoundInfoItem (a Reaktor 6 ensemble) is still a tree
-        return _hsin_structure(filepath, file_size)
     if not meta:
         raise _Unsupported("not a recognized Native Instruments preset")
-    order = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
-             "description", "device_type", "version", "tempo", "genre", "key"]
-    fields = [_f(None, 0, k, _text(meta[k])) for k in order if meta.get(k)]
-    for k in meta:
-        if k not in order:
-            fields.append(_f(None, 0, k, _text(meta[k])))
+    fields = _meta_fields(meta)
     prod = meta.get("product") or meta.get("plugin") or "NI"
     summary = f"{prod} preset '{meta.get('name', '(unnamed)')}'"
     chunks = [{"id": kind, "offset": 0, "size": file_size, "summary": summary,
@@ -243,33 +246,115 @@ def _fm8_chunks(blob, warns):
     return chunks
 
 
+_META_ORDER = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
+               "description", "device_type", "version", "tempo", "genre", "key"]
+
+
+def _meta_fields(meta):
+    """Unpositioned fields for a preset's metadata, in one order across NI's
+    containers; a list is shown comma-joined."""
+    def show(v):
+        if not isinstance(v, (list, tuple)):
+            return str(v)
+        more = f", and {len(v) - 16:,} more" if len(v) > 16 else ""
+        return ", ".join(map(str, v[:16])) + more
+    fields = [_f(None, 0, k, show(meta[k]), text=k != "tempo") for k in _META_ORDER
+              if meta.get(k)]
+    fields += [_f(None, 0, k, show(v), text=True) for k, v in meta.items()
+               if k not in _META_ORDER and k != "bankchain"
+               and v not in (None, "", [], {})]
+    return fields
+
+
 # ── the hsin frame tree, walked for its structure ──
 
-def _hsin_structure(filepath, file_size):
-    """An hsin tree whose metadata could not be read: every frame as a chunk,
-    with its header and item records, and a note that there is no metadata."""
+def _hsin_tree(filepath, file_size, deep=False):
+    """An hsin preset walked frame by frame: each frame's header, its item
+    records and every record's own data, decoded where the item's layout is
+    known, the FastLZ subtree as a layer of its own. None when the root
+    frame does not read, for the caller's string scan."""
     f, read_at = _reader(filepath)
     with f:
         frames, problem = nimod.read_frames(read_at, 0, file_size, _HSIN_FRAME_CAP,
                                            _HSIN_DEPTH_CAP)
-    if not frames:
-        raise _Unsupported("not a recognized Native Instruments preset")
-    warns = [info("decode.partial",
-                  "the frame tree holds no SoundInfoItem (name, author, vendor); "
-                  "its frames are walked, their item data is not decoded")]
-    chunks = _frame_chunks(frames, problem, warns)
+        if not frames:
+            return None
+        warns = []
+        chunks, items = _frame_chunks(frames, problem, warns, read_at=read_at)
+        meta = nimod.hsin_meta(items)
+        if not meta.get("name") and problem not in (None, "frames", "depth"):
+            # the tree breaks before a SoundInfoItem is read: the string scan
+            # reads what the walk cannot reach
+            scanned = nimod.parse_hsin(read_at(0, min(file_size, 16 * 1024 * 1024)))
+            meta = {**(scanned or {}), **meta}
+        if meta.get("product") == "FM8":
+            chunks += _hsin_fm8(read_at, file_size, deep, warns)
+    root = chunks[0]
+    root["fields"] = _meta_fields(meta) + root["fields"]
+    if meta.get("name"):
+        prod = meta.get("product") or "NI"
+        root["summary"] = f"{prod} preset '{meta['name']}'"
+    else:
+        snaps = meta.get("snapshots") or []
+        if snaps:
+            root["summary"] = (f"hsin tree: {len(snaps):,} snapshot(s), "
+                               f"the first '{snaps[0]}'")
+        warns.append(info("decode.partial",
+                          "the frame tree holds no SoundInfoItem at its top "
+                          "(name, author, vendor)"
+                          + (", only its snapshots'" if snaps else "")
+                          + "; its frames and item records are walked"))
     end = frames[0]["size"]
     if end < file_size:
-        warns.append(info("container.trailing",
-                          f"{file_size - end:,} bytes follow the root frame"))
+        n = file_size - end
+        with _open(filepath) as f:
+            f.seek(end)
+            tail = f.read(min(n, 4096))
+        if len(tail) == n and not any(tail):
+            # up to 8 zero bytes follow the root in 65 of 1,200 real presets;
+            # in 55 more the bytes are not zero, and read like the tail of a
+            # longer earlier save (item data endings), so they stay unwalked
+            chunks.append({"id": "padding", "offset": end, "size": n,
+                           "payload_base": end, "payload_len": n, "extent_len": n,
+                           "summary": f"{n:,} zero bytes after the root frame",
+                           "fields": [], "warnings": []})
+        else:
+            warns.append(info("container.trailing",
+                              f"{n:,} bytes follow the root frame"))
     return chunks, warns
 
 
-def _frame_chunks(frames, problem, warns, root_id="hsin"):
+def _hsin_fm8(read_at, file_size, deep, warns):
+    """An FM8 preset's sound state as unpositioned chunks (formats/fm8.py),
+    with deep; without, a note that it is there."""
+    if not deep:
+        warns.append(info("decode.partial",
+                          "the FM8 sound state (operators, envelopes, matrix) "
+                          "is compressed; --deep decodes it"))
+        return []
+    inner = nimod.decompress_subtree(read_at(0, min(file_size, 16 * 1024 * 1024)))
+    if inner is None or not nimod.is_ni_hsin(inner):
+        return []
+    loc = fm8mod.locate(inner, nimod._hsin_walk)
+    if loc is None:
+        return []
+    at, n = loc
+    return _fm8_chunks(inner[at:at + n], warns)
+
+
+def _frame_chunks(frames, problem, warns, root_id="hsin", read_at=None, walk=None):
     """Chunks for frames from formats/ni.read_frames: a chunk per frame, its
-    reference and header as fields before its payload, and an `items` chunk
-    for the item records opening its data section."""
-    chunks = []
+    reference and header as fields before its payload, an `items` chunk for
+    the item records opening its data section, and a chunk for each record's
+    own data, decoded when read_at is given. `walk` carries what nested trees
+    share: the frames left under _HSIN_FRAME_CAP, the depth the tree starts
+    at, whether it is inside a decompressed layer. Returns (chunks, meta),
+    `meta` the items' decoded metadata keyed by item id."""
+    if walk is None:
+        # `left` and `said` are shared by every tree of the walk, copies too
+        walk = {"left": [_HSIN_FRAME_CAP - len(frames)], "depth": 0,
+                "layer": False, "said": set()}
+    chunks, meta = [], {}
     for fr in frames:
         at = fr["at"]
         base = at + nimod.FRAME_HEADER
@@ -292,55 +377,236 @@ def _frame_chunks(frames, problem, warns, root_id="hsin"):
                       enc="<Q", raw=ds)]
         items = fr["items"]
         if items:
-            dom, iid = items[0][1], items[0][2]
+            dom, iid = items[0]["domain"], items[0]["item_id"]
         elif fr["ref_fields"] is not None:
             dom, iid = fr["ref_fields"][1], fr["ref_fields"][2]
         else:
             dom, iid = "?", None
-        # item 1 ends a stack; a frame opening on it is named by number
-        what = nimod.ITEM_NAMES.get(iid, "") if iid != 1 else ""
-        what = what or f"item {iid}"
+        what = nimod.item_name(dom, iid)
         cid = root_id if fr["ref"] is None else f"{dom} {iid}"
-        chunks.append({"id": cid, "offset": start, "size": at + fs - base,
-                       "summary": f"hsin frame: {dom} {what}, {fs:,} bytes",
-                       "fields": fields, "warnings": [], "payload_base": base,
-                       "payload_len": at + fs - base, "extent_len": at + fs - start})
-        if items:
-            ifields = []
-            for pos, idom, i, ver, inner in items:
-                rel = pos - base
-                ifields += [_f(rel, 4, "domain", idom),
-                            _f(rel + 4, 4, "item_id", i, nimod.ITEM_NAMES.get(i, ""),
-                               enc="<I", raw=i),
-                            _f(rel + 8, 4, "version", ver, enc="<I", raw=ver)]
-                if inner is not None:
-                    ifields.append(_f(rel + 12, 8, "inner_size", inner,
-                                      "the records nested inside this one",
-                                      enc="<Q", raw=inner))
-            last = items[-1]
-            stop = last[0] + (12 if last[4] is None else 20)
-            chunks.append({"id": "items", "offset": base, "size": stop - base,
-                           "summary": f"{len(items)} item record(s)",
-                           "fields": ifields, "warnings": [], "payload_base": base,
-                           "payload_len": stop - base, "extent_len": stop - base})
-    if problem == "frames":
+        frame = {"id": cid, "offset": start, "size": at + fs - base,
+                 "summary": f"hsin frame: {dom} {what}, {fs:,} bytes",
+                 "fields": fields, "warnings": [], "payload_base": base,
+                 "payload_len": at + fs - base, "extent_len": at + fs - start}
+        chunks.append(frame)
+        if fr["stack_problem"] and items is not None:
+            frame["warnings"].append(defect(
+                "parse.failed", f"item records: {fr['stack_problem']}"))
+        if not items:
+            continue
+        chunks.append(_records_chunk(items, base))
+        # each record's own data, in file order: the innermost record's first
+        for rec in reversed(items):
+            s, e = rec["own"]
+            if e > s:
+                chunk, imeta = _item_chunk(rec, read_at, warns, walk,
+                                           walk["depth"] + fr["depth"])
+                chunks.append(chunk)
+                chunks += chunk.pop("_inner", [])
+                if imeta:
+                    nimod.collect_meta(meta, rec["item_id"], fr["depth"], imeta)
+    if problem == "frames" and "frames" not in walk["said"]:
+        walk["said"].add("frames")
         warns.append(hit("list_rows", _HSIN_FRAME_CAP, _HSIN_FRAME_CAP + 1,
                          f"the tree holds more than {_HSIN_FRAME_CAP:,} frames; "
                          f"the first {_HSIN_FRAME_CAP:,} have a chunk each and the "
                          f"rest are not walked"))
-    elif problem == "depth":
+    elif problem == "depth" and "depth" not in walk["said"]:
+        walk["said"].add("depth")
         warns.append(hit("depth", _HSIN_DEPTH_CAP, _HSIN_DEPTH_CAP + 1,
                          f"frames nest more than {_HSIN_DEPTH_CAP} deep; the walk "
                          f"stops there"))
-    elif problem:
+    elif problem and problem not in ("frames", "depth"):
         warns.append(defect("parse.failed", f"frame tree: {problem}"))
-    return chunks
+    return chunks, meta
+
+
+def _records_chunk(items, base):
+    """The item records heading a data section, outermost first: each a
+    domain tag, an item id and a version, then the u64 size of the record
+    nested in it."""
+    fields = []
+    for rec in items:
+        rel, i = rec["at"] - base, rec["item_id"]
+        fields += [_f(rel, 4, "domain", rec["domain"]),
+                   _f(rel + 4, 4, "item_id", i,
+                      nimod.item_name(rec["domain"], i, ""), enc="<I", raw=i),
+                   _f(rel + 8, 4, "version", rec["version"], enc="<I",
+                      raw=rec["version"])]
+        if rec["size_at"] is not None:
+            n = rec["own"][0] - rec["size_at"]
+            fields.append(_f(rec["size_at"] - base, 8, "nested_size", n,
+                             "the record nested in this one, these 8 bytes "
+                             "included", enc="<Q", raw=n))
+    last = items[-1]
+    stop = (last["size_at"] + 8 if last["size_at"] is not None
+            else last["at"] + 12)
+    return {"id": "items", "offset": base, "size": stop - base,
+            "summary": f"{len(items)} item record(s): "
+                       + " > ".join(str(r["item_id"]) for r in items),
+            "fields": fields, "warnings": [], "payload_base": base,
+            "payload_len": stop - base, "extent_len": stop - base}
+
+
+def _field_of(off, n, name, value, note, enc):
+    if enc is None:
+        # a string of digits ("1", a property's value) is a number to the
+        # Document, as any display string is; other text stays text
+        return _f(off, n, name, value, note,
+                  text=isinstance(value, str) and not value.strip().isdigit())
+    return _f(off, n, name, value, note, enc=enc, raw=value)
+
+
+def _item_chunk(rec, read_at, warns, walk, depth):
+    """A chunk for one record's own data, its layout decoded when the item id
+    has one. Returns (chunk, meta); a subtree stored as it is leaves its
+    frames' chunks under chunk["_inner"]."""
+    iid = rec["item_id"]
+    s, e = rec["own"]
+    n = e - s
+    name = nimod.item_name(rec["domain"], iid)
+    cid = f"item {iid}" if rec["domain"] == "DSIN" else f"{rec['domain']} item {iid}"
+    chunk = {"id": cid, "offset": s, "size": n, "payload_base": s,
+             "payload_len": n, "extent_len": n, "fields": [], "warnings": [],
+             "summary": f"{name}: {n:,} bytes, its layout not decoded"}
+    if read_at is None or not nimod.decodes(rec["domain"], iid):
+        return chunk, {}
+    head_only = iid in (104, 109, 115)    # a header, then a payload placed whole
+    if n > _HSIN_ITEM_CAP and not head_only:
+        warns.append(hit("read_bytes", _HSIN_ITEM_CAP, n,
+                         f"{name} holds {n:,} bytes; one past "
+                         f"{_HSIN_ITEM_CAP:,} is not decoded"))
+        return chunk, {}
+    b = read_at(s, min(n, 64) if head_only else n)
+    fields, meta, why = nimod.decode_item(iid, b)
+    chunk["fields"] = [_field_of(*fl) for fl in fields]
+    chunk["summary"] = f"{name}: {n:,} bytes"
+    if why:
+        chunk["warnings"].append(info("layout.unmeasured",
+                                      f"{name}: the layout stops matching: {why}"))
+    if iid == 108 and meta.get("name"):
+        chunk["summary"] = f"{name}: '{meta['name']}'"
+    elif iid == 121:
+        pages = meta.get("pages") or []
+        chunk["summary"] = f"{name}: {len(pages)} page(s)"
+        chunk["rows"] = [
+            {"tick": k, "event": page,
+             "detail": f"{pos}: {label} -> parameter {param}"}
+            for k, (page, label, param, pos) in enumerate(
+                (p[2], c[0], c[3], c[4]) for p in pages for c in p[3])]
+    elif iid == 109 and meta.get("state"):
+        rel, m = meta["state"]
+        if _place(chunk, rel, m):
+            chunk["summary"] = (f"{name}: {m:,} bytes of synth state, the "
+                                f"synth's own layout, not decoded")
+    elif iid == 104 and meta.get("module"):
+        rel, m, lead = meta["module"]
+        if _place(chunk, rel, m):
+            chunk["summary"] = (f"{name}: a {m:,}-byte Reaktor module opening "
+                                f"{lead}, as an .ism does; not decoded")
+    elif iid == 115 and meta.get("subtree", {}).get("compressed") == 0:
+        _plain_subtree(chunk, meta["subtree"], read_at, warns, walk, depth)
+    elif iid == 115 and "subtree" in meta:
+        _subtree(chunk, meta["subtree"], read_at, warns, walk)
+    return chunk, meta
+
+
+def _place(chunk, rel, m):
+    """Make the m bytes at `rel` in an item's data the chunk's payload, its
+    fields before it; False when they do not fit the item."""
+    if rel + m > chunk["size"]:
+        return False
+    for fl in chunk["fields"]:
+        fl["off"] -= rel
+    chunk["payload_base"], chunk["payload_len"] = chunk["offset"] + rel, m
+    return True
+
+
+def _inner_tree(read_at, at, end, warns, walk, depth, root_id):
+    """The hsin tree at `at`, inside a SubtreeItem, as chunks; its frames
+    count against the walk's _HSIN_FRAME_CAP and its depth below `depth`."""
+    room = _HSIN_DEPTH_CAP - depth - 1
+    if room < 0:
+        if "depth" not in walk["said"]:
+            walk["said"].add("depth")
+            warns.append(hit("depth", _HSIN_DEPTH_CAP, _HSIN_DEPTH_CAP + 1,
+                             f"frames nest more than {_HSIN_DEPTH_CAP} deep; the "
+                             f"walk stops there"))
+        return []
+    frames, problem = nimod.read_frames(read_at, at, end, max(walk["left"][0], 0),
+                                        room)
+    walk["left"][0] -= len(frames)
+    if not frames:
+        if problem == "frames":
+            _frame_chunks([], problem, warns, walk=walk)
+        return []
+    inner, _meta = _frame_chunks(frames, problem, warns, root_id=root_id,
+                                 read_at=read_at,
+                                 walk=dict(walk, depth=depth + 1))
+    return inner
+
+
+def _plain_subtree(chunk, sub, read_at, warns, walk, depth):
+    """A SubtreeItem stored as it is (compressed 0, every Reaktor ensemble's):
+    the inner hsin tree follows the five-byte header in the file, and its
+    frames are walked in place."""
+    s, n = chunk["offset"], chunk["size"]
+    at = s + sub["tree_at"]
+    for fl in chunk["fields"]:
+        fl["off"] -= sub["tree_at"]
+    chunk["payload_base"], chunk["payload_len"] = at, s + n - at
+    chunk["summary"] = f"SubtreeItem: an hsin tree of {s + n - at:,} bytes, stored as it is"
+    chunk["_inner"] = _inner_tree(read_at, at, s + n, warns, walk, depth, "subtree")
+
+
+def _subtree(chunk, sub, read_at, warns, walk):
+    """The SubtreeItem: its header fields before a payload that is the
+    FastLZ stream, and the stream decompressed as a layer holding the inner
+    hsin tree."""
+    s = chunk["offset"]
+    at, comp, size = s + sub["stream_at"], sub["stream_len"], sub["size"]
+    if sub["compressed"] != 1 or at + comp > s + chunk["size"]:
+        chunk["summary"] += ", the subtree not FastLZ as measured"
+        return
+    for fl in chunk["fields"]:
+        fl["off"] -= sub["stream_at"]
+    chunk["payload_base"], chunk["payload_len"] = at, comp
+    chunk["summary"] = (f"SubtreeItem: {comp:,} bytes of FastLZ, "
+                        f"{size:,} decompressed")
+    if walk["layer"]:
+        # a subtree inside a decompressed one is not opened again: a layer
+        # is one decoding of the file's own bytes
+        return
+    if max(comp, size) > _HSIN_SUBTREE_CAP:
+        warns.append(hit("inflate_bytes", _HSIN_SUBTREE_CAP, max(comp, size),
+                         f"the subtree decompresses to {size:,} bytes; one past "
+                         f"{_HSIN_SUBTREE_CAP:,} is not opened"))
+        return
+    image = nimod.fastlz_decompress(read_at(at, comp), size + 16)
+    if image is None or len(image) != size:
+        chunk["warnings"].append(defect(
+            "parse.failed", f"the FastLZ stream does not decompress to the "
+                            f"{size:,} bytes its header states"))
+        return
+
+    def image_at(off, n):
+        return image[off:off + n]
+    inner = _inner_tree(image_at, 0, len(image), warns, dict(walk, layer=True),
+                        -1, "subtree")
+    if not inner:
+        return
+    chunk["layer"] = {"name": "hsin subtree", "decoder": "fastlz",
+                      "params": {"size": size}, "length": size,
+                      "length_known": True,
+                      "verdict": {"result": "length-only", "method": "exact-length",
+                                  "detail": "FastLZ has no checksum; the stream "
+                                            "fills the uncompressed_size exactly"}}
+    chunk["layer_chunks"] = inner
+    chunk["fields"].append(_f(None, 0, "decompressed", f"{size:,} bytes",
+                              "an hsin tree of its own, walked as a layer"))
 
 
 # ── Reaktor instruments (.ism) ──
-
-_META_ORDER = ["name", "product", "plugin", "author", "vendor", "bank", "comment",
-               "description", "device_type", "version", "tempo", "genre", "key"]
 
 
 def _inspect_reaktor(filepath, file_size, head, at):
@@ -364,25 +630,22 @@ def _inspect_reaktor(filepath, file_size, head, at):
     f, read_at = _reader(filepath)
     with f:
         found = _trailing_frames(read_at, file_size, warns)
-    if not found:
+        if not found:
+            warns.append(info("decode.partial",
+                              "no hsin metadata frame was found; the module body "
+                              "is not decoded"))
+            return chunks, warns
         warns.append(info("decode.partial",
-                          "no hsin metadata frame was found; the module body is "
-                          "not decoded"))
-        return chunks, warns
-    warns.append(info("decode.partial",
-                      "the module body (Reaktor's structure graph) is not decoded"))
-    for frames, problem, meta in found:
-        fchunks = _frame_chunks(frames, problem, warns)
-        top = fchunks[0]
-        top["summary"] = "NI metadata frame" + (f": '{meta['name']}'"
-                                                if meta.get("name") else "")
-        top["fields"] += [_f(None, 0, k, str(meta[k])) for k in _META_ORDER
-                          if meta.get(k)]
-        top["fields"] += [_f(None, 0, k, str(v)) for k, v in meta.items()
-                          if k not in _META_ORDER]
-        chunks += fchunks
-        if meta.get("version"):
-            chunks[0]["summary"] += f", written by Reaktor {meta['version']}"
+                          "the module body (Reaktor's structure graph) is not decoded"))
+        for frames, problem, meta in found:
+            fchunks, _items = _frame_chunks(frames, problem, warns, read_at=read_at)
+            top = fchunks[0]
+            top["summary"] = "NI metadata frame" + (f": '{meta['name']}'"
+                                                    if meta.get("name") else "")
+            top["fields"] = _meta_fields(meta) + top["fields"]
+            chunks += fchunks
+            if meta.get("version"):
+                chunks[0]["summary"] += f", written by Reaktor {meta['version']}"
     return chunks, warns
 
 

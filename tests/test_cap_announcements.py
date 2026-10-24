@@ -161,6 +161,12 @@ EXEMPT = {
                                   "one; reaching this means many crafted "
                                   "candidates, and the deep walk then shows no "
                                   "payload. Pinned in tests/test_ni.py"),
+    ("acidcat.core.formats.ni", "_STACK_CAP"):
+        (Reason.DEPTH_GUARD, "how many item records one hsin data section may "
+                             "nest. A deeper stack is a verdict on the file: "
+                             "the walk reports it as parse.failed on the frame "
+                             "and the bytes past it stay unwalked. Real stacks "
+                             "are three records deep. Pinned in tests/test_ni.py"),
     ("acidcat.core.formats.ni", "_HSIN_STR_MAX"):
         (Reason.FIELD_SANITY, "the largest SoundInfoItem string count an hsin "
                               "preset is read with. A larger count is not a "
@@ -169,14 +175,6 @@ EXEMPT = {
                               "the editor refuses the file; a value past it "
                               "is refused before it is written. Pinned in "
                               "tests/test_ni.py"),
-    ("acidcat.core.formats.ni", "_HSIN_LIST_MAX"):
-        (Reason.FIELD_SANITY, "the largest bank-chain or tag count read after "
-                              "a SoundInfoItem's description. A larger count "
-                              "is not a list cut short: the tail is not the "
-                              "mapped layout, and the bank and tags are left "
-                              "out while the name, author, vendor and "
-                              "description still read. Pinned in "
-                              "tests/test_fm8.py"),
     ("acidcat.core.walk.ni", "_KONTAKT_FASTLZ_CAP"):
         (Reason.RESOURCE_LIMIT, "a decompression bound on a Kontakt 4.2 patch "
                                 "body, so a crafted stream cannot expand "
@@ -699,6 +697,22 @@ def _hsin_deep(tmp_path, n):
         tree = seeds._hsin_frame(5, children=[(b"RTKR", tree)])
     p = tmp_path / "deep.ens"
     p.write_bytes(tree)
+    return str(p)
+
+
+def _hsin_big_item(tmp_path, n):
+    """An hsin preset whose SoundInfoItem is longer than n bytes."""
+    import seeds
+    p = tmp_path / "item.nmsv"
+    p.write_bytes(seeds.ni_hsin(description="x" * n))
+    return str(p)
+
+
+def _hsin_big_subtree(tmp_path, n):
+    """An hsin preset whose subtree decompresses to more than n bytes."""
+    import seeds
+    p = tmp_path / "subtree.nmsv"
+    p.write_bytes(seeds.ni_hsin_preset(state=b"" * n))
     return str(p)
 
 
@@ -1565,6 +1579,10 @@ SWEPT = [
     ("acidcat.core.walk.ni", "_HSIN_FRAME_CAP", 4, _hsin_many_frames,
      "have a chunk each"),
     ("acidcat.core.walk.ni", "_HSIN_DEPTH_CAP", 4, _hsin_deep, "nest more than"),
+    ("acidcat.core.walk.ni", "_HSIN_ITEM_CAP", 64, _hsin_big_item,
+     "is not decoded"),
+    ("acidcat.core.walk.ni", "_HSIN_SUBTREE_CAP", 64, _hsin_big_subtree,
+     "is not opened"),
     ("acidcat.core.walk.ni", "_REAKTOR_TAIL_CAP", 64, _reaktor_long,
      "looked for in the last"),
     ("acidcat.core.walk.ni", "_REAKTOR_SCAN_CAP", 4, _reaktor_many_magics,

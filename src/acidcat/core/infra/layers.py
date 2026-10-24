@@ -72,6 +72,15 @@ def _gzip(src, params, cap):
     return out
 
 
+def _fastlz(src, params, cap):
+    # the stream has no checksum: the check is that it fills the stated length
+    from acidcat.core.formats import ni
+    out = ni.fastlz_decompress(bytes(src), cap)
+    if out is None:
+        raise LayerError("the stream decompresses past the cap of %d bytes" % cap)
+    return out
+
+
 def _exact_length(out, params):
     return len(out) == params["size"]
 
@@ -87,6 +96,8 @@ DECODERS = {
     "zlib": (_zlib, _exact_length, "opaque"),
     # gzip (Ableton documents): its CRC-32 and length trailer
     "gzip": (_gzip, _exact_length, "opaque"),
+    # fastlz (an NI hsin SubtreeItem): only the length it fills
+    "fastlz": (_fastlz, _exact_length, "opaque"),
 }
 
 

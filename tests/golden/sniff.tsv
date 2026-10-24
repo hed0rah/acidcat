@@ -482,6 +482,14 @@ nkx	head256	.nkx	ni
 nkx	sniff_bytes	-	ni
 nkx	zero-pad-front	.nkx	-
 nkx	zero-pad-tail	.nkx	ni
+nmsv	as-built	.bin	ni
+nmsv	as-built	.nmsv	ni
+nmsv	first-byte-flipped	.nmsv	ni
+nmsv	head16	.nmsv	ni
+nmsv	head256	.nmsv	ni
+nmsv	sniff_bytes	-	ni
+nmsv	zero-pad-front	.nmsv	-
+nmsv	zero-pad-tail	.nmsv	ni
 nsf	as-built	.bin	nsf
 nsf	as-built	.nsf	nsf
 nsf	first-byte-flipped	.nsf	-

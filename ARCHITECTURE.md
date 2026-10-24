@@ -54,7 +54,8 @@ limit it hit. Consumers select by kind and code, never by message text. Of
 the kinds, only a `defect` can make a verb exit 1.
 
 A chunk whose payload decodes to another byte string (a packed YM's LHA body,
-a PSF's zlib program, an Ableton document's gzip) may declare it as a layer:
+a PSF's zlib program, an Ableton document's gzip, a Massive or Absynth
+preset's FastLZ subtree) may declare it as a layer:
 `chunk["layer"]` names the decoder and the check it passed, and
 `chunk["layer_chunks"]` walks the decoded image, positioned in it.
 `core/infra/layers.py` holds the decoders.

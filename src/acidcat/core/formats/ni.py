@@ -2,9 +2,13 @@
 
 Massive (.nmsv), Absynth (.nabs), FM8, Reaktor, and modern Kontakt (.nki/.nkm)
 share the NISound container: an EBML-like tree of size-prefixed frames headed
-by the 'hsin' magic at offset 0x0C. The metadata (the SoundInfoItem: preset
-name, product, version) is stored as plain UTF-16LE and needs no decompression;
-only the preset payload itself is FastLZ-compressed and is left opaque here.
+by the 'hsin' magic at offset 0x0C. Each frame's data is one item, a stack of
+nested records (read_stack), and each record's own data has the layout its item
+id gives it (decode_item). The metadata (the SoundInfoItem: preset name,
+author, bank chain, attributes, properties) is plain UTF-16LE and needs no
+decompression; the synth state is a subtree, FastLZ-compressed in Massive and
+Absynth and stored as it is in Reaktor, whose innermost state is the synth's
+own and is left opaque here.
 
 Implemented from byte-level facts only (verified against real Massive and
 Absynth presets), not from any third-party source.
@@ -198,13 +202,14 @@ def read_frames(read_at, off, end, max_frames, max_depth=128):
     four-letter domain tag is accepted: Reaktor writes RTKR beside DSIN.
 
     Returns (frames, problem). A frame is {at, size, data_size, depth, ref,
-    ref_fields, items, header}: `ref` is where the 12-byte reference before a
-    child frame starts and `ref_fields` its (u32, domain, item id), both None
-    for the root; `items` the item records of its data section as
-    (offset, domain, item_id, version, inner_size or None for the stack's end),
-    `header` the six header words. `problem` is None when the tree fills its
-    root exactly, "frames" or "depth" when a bound stopped the walk, else why
-    the bytes stop being a frame tree. An unreadable root is ([], reason)."""
+    ref_fields, items, stack_problem, header}: `ref` is where the 12-byte
+    reference before a child frame starts and `ref_fields` its (u32, domain,
+    item id), both None for the root; `items` the item records of its data
+    section, from read_stack, and `stack_problem` why they stop short of
+    item 1, or None; `header` the six header words. `problem` is None when
+    the tree fills its root exactly, "frames" or "depth" when a bound stopped
+    the walk, else why the bytes stop being a frame tree. An unreadable root
+    is ([], reason)."""
     frames = []
     # (frame offset, reference offset, depth, end of the parent frame, reference)
     todo = [(off, None, 0, end, None)]
@@ -226,24 +231,9 @@ def read_frames(read_at, off, end, max_frames, max_depth=128):
             return frames, (f"the frame at {at:#x} claims {fs:,} bytes and "
                             f"{limit - at:,} remain")
         data_start, data_end, frame_end = at + FRAME_HEADER, at + FRAME_HEADER + ds, at + fs
-        items, pos = [], data_start
-        while pos + 12 <= data_end:
-            rec = read_at(pos, 20)
-            if len(rec) < 12 or not _domain(rec[:4]):
-                break
-            iid, ver = struct.unpack_from("<II", rec, 4)
-            if iid == 1:
-                items.append((pos, rec[:4].decode("ascii"), iid, ver, None))
-                break
-            if len(rec) < 20 or pos + 20 > data_end:
-                break
-            inner = struct.unpack_from("<Q", rec, 12)[0]
-            if pos + 20 + inner > data_end:
-                break
-            items.append((pos, rec[:4].decode("ascii"), iid, ver, inner))
-            pos += 20
+        items, stack_problem = read_stack(read_at, data_start, data_end)
         frames.append({"at": at, "size": fs, "data_size": ds, "depth": depth,
-                       "ref": ref, "items": items,
+                       "ref": ref, "items": items, "stack_problem": stack_problem,
                        "header": (fs, hv, c1, c2, bytes(head[24:40]), ds),
                        "ref_fields": None if ref_bytes is None else (
                            struct.unpack_from("<I", ref_bytes, 0)[0],
@@ -262,6 +252,326 @@ def read_frames(read_at, off, end, max_frames, max_depth=128):
         # depth first, in file order
         todo.extend(reversed(kids))
     return frames, None
+
+
+# records in one item stack; the deepest real one is three
+_STACK_CAP = 64
+_RECORD = 12          # domain tag, u32 item id, u32 version
+
+
+def _nests(head, pos, lim):
+    """Whether the record whose first 20 bytes are `head` is followed by a
+    size that fits a nested record."""
+    if len(head) < _RECORD + 8:
+        return False
+    n = struct.unpack_from("<Q", head, _RECORD)[0]
+    return n >= 8 + _RECORD and pos + _RECORD + n <= lim
+
+
+def read_stack(read_at, start, end):
+    """The item a frame's data section [start, end) holds, as its stack of
+    records, the outermost first.
+
+    A record is a domain tag, a u32 item id and a u32 version. Every record
+    but item 1's is followed by the record nested in it, which opens with its
+    own size as a u64 that counts those 8 bytes too (the outermost record's
+    size is the frame header's data_size, which does not count itself). The
+    nested record ends before its parent does, and the bytes between are the
+    parent's own data, so the records' data reads innermost first: item 1's,
+    then each enclosing record's, the outermost's last.
+
+    Returns (records, problem). A record is {at, domain, item_id, version,
+    size_at, own}: `size_at` is where the nested record's u64 size sits (None
+    for item 1, which nests nothing), `own` the (start, end) of the record's
+    own data. `problem` is None when the stack ends on item 1, else why the
+    records stop; the records read before it keep their own data."""
+    recs, pos, lim = [], start, end
+    while True:
+        if len(recs) >= _STACK_CAP:
+            return recs, f"more than {_STACK_CAP} nested item records"
+        head = read_at(pos, _RECORD + 8) if pos + _RECORD <= lim else b""
+        if len(head) < _RECORD or not _domain(head[:4]):
+            return recs, f"no item record at {pos:#x}"
+        iid, ver = struct.unpack_from("<II", head, 4)
+        dom = head[:4].decode("ascii")
+        rec = {"at": pos, "domain": dom, "item_id": iid,
+               "version": ver, "size_at": None, "own": (pos + _RECORD, lim)}
+        if iid == 1 and (dom == "DSIN" or not _nests(head, pos, lim)):
+            # item 1 of DSIN nests nothing. Reaktor's RTKR item 1 is another
+            # class, and in 266 of its frames across 60 real ensembles a
+            # DSIN record is nested in it
+            recs.append(rec)
+            return recs, None
+        if len(head) < _RECORD + 8 or pos + _RECORD + 8 > lim:
+            return recs, f"the record at {pos:#x} has no room for the size of the one inside it"
+        n = struct.unpack_from("<Q", head, _RECORD)[0]
+        size_at = pos + _RECORD
+        if n < 8 + _RECORD or size_at + n > lim:
+            return recs, (f"the record nested at {size_at:#x} claims {n:,} bytes "
+                          f"and {lim - size_at:,} remain")
+        rec["size_at"], rec["own"] = size_at, (size_at + n, lim)
+        recs.append(rec)
+        pos, lim = size_at + 8, size_at + n
+
+
+# ── an item record's own data ──
+
+class _Short(ValueError):
+    """The item's data ends inside a value."""
+
+
+class _Fields:
+    """Reads an item's own data front to back, keeping each value it reads as
+    (offset, length, name, value, note, enc) relative to the data."""
+
+    def __init__(self, b):
+        self.b, self.pos, self.out = b, 0, []
+
+    def _take(self, n):
+        if self.pos + n > len(self.b):
+            raise _Short(f"{n} bytes at {self.pos} run past the item's "
+                         f"{len(self.b)}")
+        at = self.pos
+        self.pos += n
+        return at
+
+    def num(self, fmt, name, note=""):
+        at = self._take(struct.calcsize(fmt))
+        v = struct.unpack_from(fmt, self.b, at)[0]
+        self.out.append((at, struct.calcsize(fmt), name, v, note, fmt))
+        return v
+
+    def text(self, name, note=""):
+        at = self._take(4)
+        n = struct.unpack_from("<I", self.b, at)[0]
+        if n > _HSIN_STR_MAX:
+            raise _Short(f"a {n:,}-character string at {at}")
+        self.pos = at
+        self._take(4 + 2 * n)
+        v = self.b[at + 4:at + 4 + 2 * n].decode("utf-16-le", errors="replace")
+        self.out.append((at, 4 + 2 * n, name, v, note, None))
+        return v
+
+    def raw(self, n, name, note=""):
+        at = self._take(n)
+        v = bytes(self.b[at:at + n])
+        shown = v.hex(" ") if n <= 24 else f"{n:,} bytes"
+        self.out.append((at, n, name, shown, note, None))
+        return v
+
+    def note(self, text):
+        """Set the note of the value read last."""
+        self.out[-1] = self.out[-1][:4] + (text,) + self.out[-1][5:]
+
+    def rest(self, name="rest", note="uninterpreted"):
+        if self.pos < len(self.b):
+            self.raw(len(self.b) - self.pos, name, note)
+
+
+_SEEN = "uninterpreted; the same in every preset measured"
+# the SoundInfoItem's device flags: 2 on 121 of 536 real Absynth presets, all
+# 121 in effect banks with delay, reverb and distortion attributes; 1 on the
+# instruments (980 of the 1,114 Massive and Absynth measured), 0 on 13 old
+# Massive presets with no attributes
+_DEVICE_FLAGS = {1: "Instrument", 2: "Effect"}
+
+
+def _item_root(r, meta):
+    # item 1 nests nothing; 4 bytes under another record, 12 at a tree's top
+    r.num("<I", "version", "1 in every item measured")
+    r.rest()
+
+
+def _item_versioned(r, meta):
+    # an item whose data is a version word and words not interpreted (106:
+    # 28 bytes under a RepositoryRoot, 8 under an Authoring Application)
+    r.num("<I", "version", "1 in every item measured")
+    r.rest()
+
+
+def _item_118(r, meta):
+    """The RepositoryRoot: the tree's top item."""
+    r.num("<I", "version", "1 in every item measured")
+    w = r.num("<I", "version_word")
+    # read as major << 20 | minor << 12 | patch it is the SoundInfoItem's
+    # @verl property in all 568 of 1,114 real presets whose @verl is 1.7.3 or
+    # later; the rest give 1.3.0 beside an @verl of 1.7.2 (288) or 1.2.0 with
+    # no @verl (258)
+    r.note(f"{w >> 20}.{(w >> 12) & 0xFF}.{w & 0xFFF}, read as major << 20 | "
+           f"minor << 12 | patch")
+    r.raw(24, "words", "uninterpreted")
+    r.text("text", "uninterpreted; \"0\" or \"000\" in every preset measured")
+    r.rest()
+
+
+def _item_101(r, meta):
+    r.num("<I", "version", "1 in every item measured")
+    r.num("<B", "flag", "uninterpreted")
+    app = r.num("<I", "app_id", "the writing product: 7 Massive, 6 Absynth")
+    r.num("<I", "word", _SEEN)
+    ver = r.text("app_version", "the writing product's version")
+    if ver:
+        meta["version"] = ver
+    meta["app_id"] = app
+    r.rest()
+
+
+def _item_108(r, meta):
+    """The SoundInfoItem: the preset's browser card."""
+    r.num("<I", "version", "1 in every item measured")
+    for name in ("word", "word", "word"):
+        r.num("<I", name, _SEEN)
+    for name in _HSIN_INFO:
+        v = r.text(name)
+        if v.strip():
+            meta[name] = v.strip()
+    r.text("text", "uninterpreted; empty in every preset measured")
+    r.raw(24, "words", "uninterpreted")
+    flags = r.num("<I", "device_flags",
+                  "1 an instrument, 2 an effect; equals the @devicetypeflags "
+                  "property wherever both are set")
+    meta["device_flags"] = flags
+    if flags in _DEVICE_FLAGS:
+        meta["device_type"] = _DEVICE_FLAGS[flags]
+    r.num("<I", "word", _SEEN)
+    bank = [r.text(f"bank {i}") for i in range(r.num("<I", "bank_levels"))]
+    attrs = [r.text(f"attribute {i}") for i in range(r.num("<I", "attributes"))]
+    r.num("<I", "word", _SEEN)
+    props = {}
+    for i in range(r.num("<I", "properties")):
+        k = r.text(f"property {i}")
+        props[k] = r.text(k)
+    bank = [b.strip() for b in bank if b.strip()]
+    if bank:
+        meta["bankchain"] = bank
+    attrs = [a.strip() for a in attrs if a.strip()]
+    if attrs:
+        meta["attributes"] = attrs
+    if props:
+        meta["properties"] = props
+    r.rest()
+
+
+def _item_115(r, meta):
+    """The SubtreeItem: a whole hsin tree, FastLZ-compressed or as it is."""
+    r.num("<I", "version", "1 in every item measured")
+    packed = r.num("<B", "compressed", "1: FastLZ, as every Massive and Absynth "
+                                       "preset measured; 0: the tree as it is, "
+                                       "as every Reaktor ensemble")
+    if packed == 0:
+        # the inner tree's own frame follows, its u64 size first
+        meta["subtree"] = {"compressed": 0, "tree_at": r.pos}
+        return
+    full = r.num("<I", "uncompressed_size")
+    comp = r.num("<I", "compressed_size")
+    meta["subtree"] = {"compressed": packed, "size": full, "stream_at": r.pos,
+                       "stream_len": comp}
+    # the stream is the walker's to read; whatever follows it is not measured
+    if r.pos + comp <= len(r.b):
+        r.pos += comp
+        r.rest()
+
+
+def _item_116(r, meta):
+    r.num("<I", "version", "1 in every item measured")
+    r.num("<B", "flag", "uninterpreted; 0 in every Massive and Absynth preset "
+                        "measured, whose subtree then reads as plain FastLZ; "
+                        "Reaktor ensembles write 0, 1 and other values")
+    r.rest()
+
+
+def _item_121(r, meta):
+    """ControllerAssignments: pages of named controls, each slot a label, a
+    range and the synth parameter it drives."""
+    r.num("<I", "version", "1 in every item measured")
+    r.num("<I", "word", _SEEN)
+    pages = []
+    for _ in range(r.num("<I", "pages")):
+        start = r.pos
+        sub = _Fields(r.b)
+        sub.pos = r.pos
+        sub.num("<I", "word")
+        slots = sub.num("<I", "slots")
+        name = sub.text("page")
+        controls = []
+        for _s in range(slots):
+            sub.num("<I", "word")
+            label = sub.text("label")
+            lo = sub.num("<f", "min")
+            hi = sub.num("<f", "max")
+            param = sub.num("<I", "parameter")
+            pos = sub.num("<I", "position")
+            controls.append((label, lo, hi, param, pos))
+        r.pos = sub.pos
+        pages.append((start, r.pos - start, name, controls))
+        r.out.append((start, r.pos - start, f"page {len(pages) - 1}",
+                      f"{name}: {len(controls)} control(s)", "", None))
+    if pages:
+        meta["pages"] = pages
+    r.rest()
+
+
+def _item_109(r, meta):
+    """The synth's own state, inside the subtree."""
+    r.num("<I", "version", "1 in every item measured")
+    r.num("<I", "word", _SEEN)
+    r.num("<I", "word", _SEEN)
+    n = r.num("<Q", "state_size", "bytes of plugin state that follow")
+    # the synth's parameter state, its layout the synth's own (a float array
+    # in Massive, a tagged chunk list in Absynth, megabytes in Reaktor): the
+    # walker's to place; whatever follows it is not measured
+    meta["state"] = (r.pos, n)
+    if r.pos + n <= len(r.b):
+        r.pos += n
+        r.rest()
+
+
+def _item_104(r, meta):
+    """A Reaktor ensemble's module: 98% of the bytes of 40 real ensembles."""
+    r.num("<I", "version", "1 in every item measured")
+    r.num("<I", "word", _SEEN)
+    n = r.num("<Q", "module_size", "bytes of Reaktor module that follow")
+    lead = bytes(r.b[r.pos:r.pos + 4])
+    # it opens NRKT or 0x3a, as an .ism instrument does
+    meta["module"] = (r.pos, n, "NRKT" if lead == REAKTOR_MAGIC else lead[:1].hex())
+    # the module is the walker's to place; whatever follows it is not measured
+    if r.pos + n <= len(r.b):
+        r.pos += n
+        r.rest()
+
+
+ITEM_DECODERS = {1: _item_root, 101: _item_101, 104: _item_104, 106: _item_versioned,
+                 108: _item_108, 109: _item_109, 115: _item_115, 116: _item_116,
+                 118: _item_118, 121: _item_121}
+
+
+def item_name(domain, item_id, default=None):
+    """The name of an item, which only DSIN's ids have here."""
+    name = ITEM_NAMES.get(item_id) if domain == "DSIN" else None
+    return name or (f"item {item_id}" if default is None else default)
+
+
+def decodes(domain, item_id):
+    """Whether an item's own data has a layout here: DSIN's items only, as
+    Reaktor's RTKR numbers its own from 1 too."""
+    return domain == "DSIN" and item_id in ITEM_DECODERS
+
+
+def decode_item(item_id, b):
+    """An item record's own data read as its item id lays it out: (fields,
+    meta, problem). `fields` are (offset, length, name, value, note, enc)
+    relative to the data, `meta` what the item says about the preset, and
+    `problem` None when the layout read to the end, else why it stopped (the
+    fields before it stand). An item with no layout here is (None, {}, None)."""
+    fn = ITEM_DECODERS.get(item_id)
+    if fn is None:
+        return None, {}, None
+    r, meta = _Fields(b), {}
+    try:
+        fn(r, meta)
+    except (_Short, struct.error) as e:
+        return r.out, meta, str(e)
+    return r.out, meta, None
 
 
 class NotHeld(ValueError):
@@ -308,21 +618,30 @@ def _hsin_walk(data, off, fields, depth=0):
         raise Unmapped("data section overruns frame")
     fields.append((off, 8, off, frame_end))               # frame_size (inclusive)
     fields.append((off + 0x28, 8, data_start, data_end))  # data_size (exclusive)
-    item_id, payload_start, pos = None, data_start, data_start
-    while pos + 12 <= data_end and data[pos:pos + 4] in _HSIN_DOMAINS:
+    # the item records (read_stack): the record nested in another opens with
+    # its own u64 size, which counts itself; the outermost record's own data
+    # starts where the record nested in it ends
+    item_id, payload_start, pos, lim = None, None, data_start, data_end
+    while pos + 12 <= lim and data[pos:pos + 4] in _HSIN_DOMAINS:
         iid = struct.unpack_from("<I", data, pos + 4)[0]
         if item_id is None:
             item_id = iid
         if iid == 1:
-            payload_start = max(payload_start, pos + 24)
+            if payload_start is None:
+                payload_start = pos + 12
             break
+        if pos + 20 > lim:
+            raise Unmapped("stack record has no room for its nested size")
         inner = struct.unpack_from("<Q", data, pos + 12)[0]
-        inner_start, inner_end = pos + 20, pos + 20 + inner
-        if inner_end > data_end:
+        inner_start, inner_end = pos + 12, pos + 12 + inner
+        if inner < 20 or inner_end > lim:
             raise Unmapped("stack inner_size overruns data")
         fields.append((pos + 12, 8, inner_start, inner_end))
-        payload_start = max(payload_start, inner_end)
-        pos = inner_start
+        if payload_start is None:
+            payload_start = inner_end
+        pos, lim = inner_start + 8, inner_end
+    if payload_start is None:
+        payload_start = data_start
     frames.append((item_id, off, data_start, data_end, payload_start))
     pos = data_end
     while pos < frame_end:
@@ -342,7 +661,7 @@ def _hsin_info(data, fields=None, bounds=None):
     """The SoundInfoItem(108) strings, located through the frame walk:
     [(offset, count), ...] for name, author, vendor and description, as many
     as the item holds. `fields`, when a list, collects the walk's size fields;
-    `bounds`, when a list, gets the end of the item's data appended.
+    `bounds`, when a list, gets the (start, end) of the item's data appended.
     Raises Unmapped when the tree or the item is not the mapped layout."""
     frames = _hsin_walk(data, 0, [] if fields is None else fields)
     info = [f for f in frames if f[0] == 108]
@@ -350,10 +669,11 @@ def _hsin_info(data, fields=None, bounds=None):
         raise Unmapped(f"expected one SoundInfoItem(108), found {len(info)}")
     _, _, _, d_end, payload = info[0]
     if bounds is not None:
-        bounds.append(d_end)
-    if payload + 8 > d_end or struct.unpack_from("<I", data, payload)[0] != 1:
+        bounds.append((payload, d_end))
+    # the item's own data opens u32 1, 2, 1, 0 (decode_item reads it whole)
+    if payload + 16 > d_end or struct.unpack_from("<I", data, payload + 8)[0] != 1:
         raise Unmapped("unexpected SoundInfoItem payload")
-    out, off = [], payload + 8
+    out, off = [], payload + 16
     while len(out) < len(_HSIN_INFO) and off + 4 <= d_end:
         count = struct.unpack_from("<I", data, off)[0]
         if count > _HSIN_STR_MAX or off + 4 + count * 2 > d_end:
@@ -361,47 +681,6 @@ def _hsin_info(data, fields=None, bounds=None):
         out.append((off, count))
         off += 4 + count * 2
     return out
-
-
-# after the description the SoundInfoItem holds seven u32 words (the second is
-# -1 or 2 in Massive, the rest 0; not decoded), a u32 0 or 1, a u32 1, then
-# three counted lists: the bank chain (product first: "FM8", "-SETUP-.SYX"),
-# the sound's attribute tags ("Bass", "Dry"), and after a u32 0 the
-# key/value properties ("\@verl" "1.7.8"); a u32 1 and a u32 0 close it. Read
-# to the byte on 58,736 FM8 and 100 Massive and Absynth presets
-_HSIN_TAIL_WORDS = 9
-_HSIN_LIST_MAX = 4096
-
-
-def _hsin_strings(data, off, end, count):
-    out = []
-    for _ in range(count):
-        if off + 4 > end:
-            return None, off
-        n = struct.unpack_from("<I", data, off)[0]
-        if n > _HSIN_STR_MAX or off + 4 + n * 2 > end:
-            return None, off
-        out.append(data[off + 4:off + 4 + n * 2].decode("utf-16-le", "replace"))
-        off += 4 + n * 2
-    return out, off
-
-
-def _hsin_tail(data, off, end):
-    """(bank chain, attribute tags) after the description, or None when the
-    bytes are not that layout. Every count is bounded by the item's end."""
-    off += 4 * _HSIN_TAIL_WORDS
-    lists = []
-    for _ in range(2):
-        if off + 4 > end:
-            return None
-        n = struct.unpack_from("<I", data, off)[0]
-        if n > _HSIN_LIST_MAX:
-            return None
-        got, off = _hsin_strings(data, off + 4, end, n)
-        if got is None:
-            return None
-        lists.append(got)
-    return lists[0], lists[1]
 
 
 def read_hsin_info(data):
@@ -420,16 +699,14 @@ def read_hsin_info(data):
             "utf-16-le", errors="replace").strip()
         if val:
             meta[label] = val
-    if len(strings) == len(_HSIN_INFO):
-        off, count = strings[-1]
-        tail = _hsin_tail(data, off + 4 + count * 2, bounds[0])
-        if tail is not None:
-            chain = [s.strip() for s in tail[0] if s.strip()]
-            tags = [s.strip() for s in tail[1] if s.strip()]
-            if chain:
-                meta["bank"] = " / ".join(chain)
-            if tags:
-                meta["attributes"] = tags
+    # the rest of the item (bank chain, attributes, properties) as the walk
+    # reads it, so the two readers cannot drift apart
+    start, end = bounds[0]
+    _fields, item, _why = decode_item(108, data[start:end])
+    if item.get("bankchain"):
+        meta["bank"] = " / ".join(item["bankchain"])
+    if item.get("attributes"):
+        meta["attributes"] = list(item["attributes"])
     return meta
 
 
@@ -700,7 +977,8 @@ def edit_nksf(data, changes):
 
 def parse_nksf(data):
     """RIFF/NIKS (.nksf): decode the NISI MessagePack metadata (name, author,
-    vendor, comment, device type, bankchain), or None if not a .nksf."""
+    vendor, comment, device type, bankchain, and the types and characters
+    as attributes), or None if not a .nksf."""
     if not is_ni_nksf(data):
         return None
     pos = 12
@@ -727,6 +1005,15 @@ def parse_nksf(data):
                 bc = [str(x) for x in bc if x]
                 if bc:
                     meta["bank"] = " / ".join(bc)
+            # the browser's tags: `types` a list of [type, subtype] pairs,
+            # `characters` a list (105 and 104 of 230 real presets carry them)
+            tags = []
+            types, chars = obj.get("types"), obj.get("characters")
+            for t in types if isinstance(types, list) else []:
+                tags += [str(x) for x in (t if isinstance(t, list) else [t]) if x]
+            tags += [str(x) for x in (chars if isinstance(chars, list) else []) if x]
+            if tags:
+                meta["attributes"] = list(dict.fromkeys(tags))
             return meta or None
         pos += 8 + sz + (sz & 1)
     return None
@@ -867,11 +1154,100 @@ def parse_ksd(data):
     return meta or None
 
 
+# the app ids item 101 names, each checked against the product the preset's
+# own bank chain starts with
+_APP_IDS = {6: "Absynth", 7: "Massive"}
+
+
+def _hex_float(s):
+    """A float written as its eight IEEE-754 hex digits, `42F00000` for 120,
+    or None."""
+    if not re.fullmatch(r"[0-9A-Fa-f]{8}", s or ""):
+        return None
+    return struct.unpack(">f", bytes.fromhex(s))[0]
+
+
+def hsin_meta(items):
+    """The preset's metadata from its decoded items ({item id: meta}, as
+    decode_item gives them): name, author, vendor, description, product,
+    version, bank, attributes, tempo, device type, and the names of a
+    Reaktor ensemble's snapshots. Empty when no item says anything."""
+    info, app = items.get(108, {}), items.get(101, {})
+    meta = {k: info[k] for k in _HSIN_INFO if info.get(k)}
+    chain = info.get("bankchain") or []
+    if chain and chain[0] in _APP_NAMES:
+        meta["product"] = chain[0]
+    elif app.get("app_id") in _APP_IDS:
+        meta["product"] = _APP_IDS[app["app_id"]]
+    if app.get("version"):
+        meta["version"] = app["version"]
+    if chain:
+        meta["bank"] = " / ".join(chain)
+        meta["bankchain"] = list(chain)
+    if info.get("attributes"):
+        meta["attributes"] = list(info["attributes"])
+    if info.get("device_type"):
+        meta["device_type"] = info["device_type"]
+    tempo = _hex_float((info.get("properties") or {}).get("\\@tempo"))
+    if tempo:
+        meta["tempo"] = f"{tempo:g}"
+    if items.get("snapshots"):
+        meta["snapshots"] = list(items["snapshots"])
+    return meta
+
+
+# a SoundInfoItem this shallow describes the preset: root > Authoring
+# Application > SoundInfoItem in every Massive and Absynth preset measured.
+# A Reaktor ensemble has none there; it holds one per snapshot, five or more
+# frames down (4,821 of them in 139 of 223 ensembles, named "Untitled
+# Snapshot 1", "snap 1b", "INIT"), and the first is not the ensemble's name
+_PRESET_INFO_DEPTH = 2
+
+
+def collect_meta(items, item_id, depth, meta):
+    """File one decoded item's meta into `items` ({item id: meta}): the first
+    of each item id, except that a SoundInfoItem below _PRESET_INFO_DEPTH adds
+    its name to items["snapshots"] instead."""
+    if item_id == 108 and depth > _PRESET_INFO_DEPTH:
+        if meta.get("name"):
+            items.setdefault("snapshots", []).append(meta["name"])
+        return
+    items.setdefault(item_id, meta)
+
+
+def _tree_items(data):
+    """{item id: meta} for the items of the hsin tree in `data` that carry
+    metadata, or None when the tree does not read. `data` may be the first
+    bytes of a longer file: a tree its end cuts short gives what it holds."""
+    root = struct.unpack_from("<Q", data, 0)[0] if len(data) >= 8 else 0
+    end = max(len(data), root)
+    frames, problem = read_frames(lambda o, n: data[o:o + n], 0, end, 1 << 16)
+    if not frames or (problem is not None and end == len(data)):
+        return None
+    items = {}
+    for fr in frames:
+        for rec in fr["items"]:
+            iid = rec["item_id"]
+            s, e = rec["own"]
+            if iid in (101, 108) and rec["domain"] == "DSIN" and e <= len(data):
+                _fields, meta, _why = decode_item(iid, data[s:e])
+                collect_meta(items, iid, fr["depth"], meta)
+    return items
+
+
 def parse_hsin(data):
-    """Extract {product, version, name} from the hsin metadata, or None if the
-    bytes are not an hsin container."""
+    """The preset metadata of an hsin container ({name, author, vendor,
+    description, product, version, bank, attributes, tempo}), or None if the
+    bytes are not one. A tree that reads whole is read item by item, and one
+    with no SoundInfoItem has no metadata: {}. Only a tree that does not read
+    is scanned for its strings."""
     if not is_ni_hsin(data):
         return None
+    items = _tree_items(data)
+    if items is not None:
+        # a whole tree says what it holds; the string scan below took a
+        # Reaktor ensemble's own bytes for a name, author and version
+        return hsin_meta(items)
     meta = {}
     strings = _u16le_pascals(data)
     app_off = version_off = None

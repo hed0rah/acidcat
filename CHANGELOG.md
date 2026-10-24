@@ -153,12 +153,43 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   6,854 hsin presets in a synth library, 6,631 gain a bank and 4,285 tags,
   and every field read before reads the same. The preset reader is version
   2, so the next `lib index` re-reads presets. Bytes after an hsin root
-  frame are a `container.trailing` finding: 1,849 of the 58,736 FM8
+  frame are a `container.trailing` finding (zero fill there is a padding
+  node instead): 1,849 of the 58,736 FM8
   imports carry 1 to 314 of them, the end of a longer file the preset was
   written over, FM8's own init patch 656, and 387 of 6,854 Massive and
   Absynth presets some. The NI anatomy page said
   item 108 closes with the app name; it closes with the bank chain (the app
   name first), the tags and a list of key/value properties.
+
+- **Massive and Absynth presets are walked byte for byte.** `inspect`
+  showed one node, the whole file, with the name, author, vendor and
+  product beside it. It now walks the hsin frame tree: every frame's header,
+  its item records, and each record's own data with the layout its item id
+  gives it. The SoundInfoItem is read whole, on to the bank chain, tags and
+  properties above, with the device flags and a property list whose `@tempo`
+  is a hex float (120 on 7 of 578 Massive presets); the Authoring
+  Application gives the writing product and version; the
+  ControllerAssignments the pages of named controls a preset puts on the
+  panel, each with its range and the parameter it drives; the SubtreeItem
+  the synth state, whose FastLZ stream opens as a layer holding an inner
+  tree and the synth's own state (a float array in Massive, a tagged chunk
+  list in Absynth; neither is decoded). Across 600 sampled presets, fields
+  now place 61.8% of the `.nmsv` bytes and 22.2% of the `.nabs` bytes, where
+  none were placed before; the FastLZ streams are 38.2% and 77.7%, and the
+  0.01% and 0.11% left over are bytes after the root, the tail of an
+  earlier, longer save. Each preset is 17 nodes where it was one, and the
+  layouts read to the end on all 1,114 of them and on 1,000 FM8 presets.
+  Kontakt 5 and 6 `.nki` are the same tree: 302 of them walk to 21 nodes
+  each, their subtrees opened as layers, with no finding.
+
+- **NI presets give the library index a category, and NKS presets tags.**
+  An hsin SoundInfoItem's device flags are its category: `Effect` on all
+  121 Absynth presets with flag 2, every one in an effect bank, `Instrument`
+  on 980 of the other 993 Massive and Absynth presets measured. An NKS
+  preset's `types` and `characters` are its tags (105 and 104 of 230 `.nksf`
+  carry them); before, the index read no tags from them. The preset reader
+  is version 3, so the next `lib index` re-reads presets.
+
 
 ### Fixed
 
@@ -211,8 +242,29 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `inspect` refused it ("not a recognized Native Instruments preset") while
   `classify` called it walkable: 14 of 40 sampled `.ens`. The walker now
   shows every frame (its reference, header and item records, Reaktor's
-  `RTKR` domain included) and notes that the metadata is absent; the item
-  data stays undecoded and reads as unwalked.
+  `RTKR` domain included) and notes that the metadata is absent.
+
+- **The size after an hsin item record counts itself.** The u64 after an
+  item record is the size of the record nested in it, its own 8 bytes
+  included, and the parent's own data follows the nested record. Read as
+  the size of what came after it, every record's data started 8 bytes late
+  (the SubtreeItem's inside its own uncompressed size), so none could be
+  walked.
+
+- **A Reaktor ensemble has no made-up name.** 124 of 223 real ensembles
+  showed and indexed a name that was not theirs: the string scan, run when
+  the editor's walk refused the `RTKR` domain or a 16 MB read cut the tree
+  short, took the path the file was saved from, "Panel|Structure", or a run
+  of the file's own bytes for the name, author and vendor. A tree that
+  reads is now read item by item. An ensemble has no SoundInfoItem at its
+  top: the 4,821 in 139 of them sit five or more frames down, one per
+  snapshot, so they are its snapshots' names, which the index keeps as the
+  description ("33 snapshots: ..."), and a Reaktor instrument's metadata
+  frame names its snapshots the same way. An ensemble's subtree is stored
+  uncompressed, and its frames are walked in place: over 223 ensembles,
+  the share of bytes no node described fell from 69.0% to 1.1%; the
+  Reaktor module item inside, 98% of the bytes, is named and not decoded.
+  Walking 300 `.ism` took 544 s, most of it the scan, and takes 15 s.
 
 - **A WAV behind an ID3v2 tag walks.** A sample pack shipped about 100 WAVs
   with an ID3v2 tag written in front of a plain RIFF/WAVE, and `inspect`

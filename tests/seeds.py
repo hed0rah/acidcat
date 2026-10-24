@@ -1326,12 +1326,14 @@ def ni():
 # a test that holds the ledger to the editor needs all three.
 
 def _hsin_frame(item_id, payload=b"", children=()):
-    """One hsin frame: the 0x30-byte header, a data section whose item stack
-    is `item_id` over the terminating item 1, the payload, then each child
-    behind its 12-byte reference (u32 0, a domain tag, u32 0)."""
-    term = b"DSIN" + struct.pack("<II", 1, 1) + bytes(12)
+    """One hsin frame: the 0x30-byte header, a data section holding the item
+    record `item_id` with item 1 nested in it (its u64 size counting itself,
+    then its record and its own data, u32 1), `payload` as item_id's own
+    data, then each child behind its 12-byte reference (u32 0, a domain tag,
+    u32 0)."""
+    base = b"DSIN" + struct.pack("<II", 1, 1) + struct.pack("<I", 1)
     data = (b"DSIN" + struct.pack("<II", item_id, 1)
-            + struct.pack("<Q", len(term)) + term + payload)
+            + struct.pack("<Q", 8 + len(base)) + base + payload)
     body = b"".join(struct.pack("<I", 0) + dom + struct.pack("<I", 0) + child
                     for dom, child in children)
     size = 0x30 + len(data) + len(body)
@@ -1339,36 +1341,50 @@ def _hsin_frame(item_id, payload=b"", children=()):
             + bytes(16) + struct.pack("<Q", len(data)) + data + body)
 
 
-def _u16s(*strings):
-    return b"".join(struct.pack("<I", len(s)) + s.encode("utf-16-le")
-                    for s in strings)
+def _u16(s):
+    return struct.pack("<I", len(s)) + s.encode("utf-16-le")
 
 
-def hsin_info_tail(chain, tags=(), props=()):
-    """What a SoundInfoItem holds after the description: seven u32 words
-    (the second -1, as Massive writes), u32 0, u32 1, the bank chain, the
-    attribute tags, u32 0, the key/value properties, u32 1, u32 0."""
-    return (struct.pack("<9I", 0, 0xFFFFFFFF, 0, 0, 0, 0, 0, 0, 1)
-            + struct.pack("<I", len(chain)) + _u16s(*chain)
-            + struct.pack("<I", len(tags)) + _u16s(*tags)
+def hsin_info_payload(name="Seed", author="Nobody", vendor="Seeds", description="",
+                      bank=("Massive", "Seeds"), attributes=(), properties=None,
+                      flags=1):
+    """A SoundInfoItem's own data the way Massive and Absynth write it: u32 1,
+    2, 1, 0; name, author, vendor and description as u32-counted UTF-16LE; an
+    empty string; 24 bytes (-1 then zeros); the device flags and a u32 1; the
+    bank chain, the attributes and the properties, each counted; u32 1, 0."""
+    props = {"\\@devicetypeflags": str(flags), "\\@tempo": "0"} \
+        if properties is None else properties
+    return (struct.pack("<4I", 1, 2, 1, 0)
+            + b"".join(_u16(s) for s in (name, author, vendor, description))
+            + _u16("") + b"\xff" * 4 + bytes(20) + struct.pack("<II", flags, 1)
+            + struct.pack("<I", len(bank)) + b"".join(_u16(s) for s in bank)
+            + struct.pack("<I", len(attributes))
+            + b"".join(_u16(s) for s in attributes)
             + struct.pack("<II", 0, len(props))
-            + b"".join(_u16s(k, v) for k, v in props)
+            + b"".join(_u16(k) + _u16(v) for k, v in props.items())
             + struct.pack("<II", 1, 0))
 
 
 def ni_hsin(name="Seed", author="Nobody", vendor="Seeds", description="",
-            domain=b"DSIN", chain=None, tags=(), children=()):
+            domain=b"DSIN", chain=None, tags=(), children=(), **info):
     """An hsin preset (Massive, Absynth, Kontakt 5+): a root frame holding
-    one SoundInfoItem(108), whose payload is u32 1, u32 0, then name, author,
-    vendor and description as u32-counted UTF-16LE. `domain` is the root's
-    child reference tag. With `chain` the item goes on to the bank chain and
-    `tags` (hsin_info_tail); `children` are further (domain, frame) pairs
-    under the root."""
-    strings = _u16s(name, author, vendor, description)
+    one SoundInfoItem(108). With nothing more its data stops after the
+    description: u32 1, 2, 1, 0, then name, author, vendor and description
+    as u32-counted UTF-16LE. With `chain` (the bank chain) and `tags` it goes
+    on as hsin_info_payload lays it out, device flags 0 and no properties;
+    with `info` (bank, attributes, properties, flags) it is hsin_info_payload
+    whole. `domain` is the root's child reference tag; `children` are further
+    (domain, frame) pairs under the root."""
     if chain is not None:
-        strings += hsin_info_tail(chain, tags)
-    info = _hsin_frame(108, struct.pack("<II", 1, 0) + strings)
-    return _hsin_frame(118, children=[(domain, info)] + list(children))
+        info = dict(dict(bank=tuple(chain), attributes=tuple(tags), properties={},
+                         flags=0), **info)
+    if info:
+        payload = hsin_info_payload(name, author, vendor, description, **info)
+    else:
+        payload = struct.pack("<4I", 1, 2, 1, 0) + b"".join(
+            _u16(s) for s in (name, author, vendor, description))
+    info_frame = _hsin_frame(108, payload)
+    return _hsin_frame(118, children=[(domain, info_frame)] + list(children))
 
 
 def fastlz_literals(data):
@@ -1431,16 +1447,11 @@ def fm8_state(version=207, names=("default",) * 4, transpose=0.0,
 
 def ni_fm8(state=None, name="Seed", bank="SEED.SYX", tags=()):
     """An FM8 preset (.nfm8): the hsin root with a SoundInfoItem whose bank
-    chain is FM8 and `bank`, and a subtree frame holding the FastLZ header
-    (u32 1, u8 1, u32 inflated size, u32 compressed size) and stream. The
-    stream inflates to a second hsin tree whose item 109 payload is u32 1, a
-    u64 length and the FM8 state."""
+    chain is FM8 and `bank`, and the subtree (hsin_subtree_frame), whose
+    FastLZ stream inflates to hsin_inner_tree(state): item 109 holding the
+    FM8 state."""
     state = fm8_state() if state is None else state
-    inner = _hsin_frame(118, children=[(b"DSIN", _hsin_frame(
-        109, struct.pack("<IQ", 1, len(state)) + state + bytes(16)))])
-    comp = fastlz_literals(inner)
-    sub = _hsin_frame(116, struct.pack("<IB", 1, 1)
-                      + struct.pack("<II", len(inner), len(comp)) + comp)
+    sub = hsin_subtree_frame(hsin_inner_tree(state))
     return ni_hsin(name=name, author="", vendor="", chain=["FM8", bank],
                    tags=tags, children=[(b"DSIN", sub)])
 
@@ -1452,6 +1463,56 @@ def ni_ksd_fm8(state=None, name="Seed"):
     state = fm8_state(version=206, names=(name,) * 4) if state is None else state
     head = ni_ksd(doc_name=name, Author="Nobody", Plugin="FM8")
     return head + b"atad" + struct.pack("<I", 2) + b"tsrpbilz" + zlib.compress(state, 9)
+
+
+@seed("nmsv", ".nmsv", sniffs_as="ni")
+def nmsv():
+    """Massive preset: the hsin tree walked whole, every item record's data
+    decoded, the FastLZ subtree a layer (ni_hsin_preset)."""
+    return ni_hsin_preset(attributes=("Bass", "Synthetic"))
+
+
+def hsin_inner_tree(state):
+    """The tree a SubtreeItem holds: a root frame of item 1 alone (12 bytes
+    of its own) over item 109, whose data is u32 1, 1, 1, the u64 length of
+    the synth state, the state and 16 bytes."""
+    inner_root = _hsin_frame(109, struct.pack("<3IQ", 1, 1, 1, len(state)) + state
+                             + bytes(16))
+    root_data = b"DSIN" + struct.pack("<II", 1, 1) + struct.pack("<3I", 1, 1, 1)
+    child = struct.pack("<I", 0) + b"DSIN" + struct.pack("<I", 109) + inner_root
+    return (struct.pack("<QI", 0x30 + len(root_data) + len(child), 1) + b"hsin"
+            + struct.pack("<II", 1, 0) + bytes(16)
+            + struct.pack("<Q", len(root_data)) + root_data + child)
+
+
+def hsin_subtree_frame(inner):
+    """The EncryptionItem frame over the SubtreeItem over item 1, as Massive,
+    Absynth and FM8 write it: the SubtreeItem's data is u32 1, u8 1 (FastLZ),
+    the u32 inflated and compressed sizes and the stream (fastlz_literals of
+    `inner`); the EncryptionItem's is u32 1, u8 0, u32 1, u32 0."""
+    stream = fastlz_literals(inner)
+    sub = struct.pack("<IBII", 1, 1, len(inner), len(stream)) + stream
+    base = b"DSIN" + struct.pack("<II", 1, 1) + struct.pack("<I", 1)
+    s115 = (b"DSIN" + struct.pack("<II", 115, 1) + struct.pack("<Q", 8 + len(base))
+            + base + sub)
+    d116 = (b"DSIN" + struct.pack("<II", 116, 1) + struct.pack("<Q", 8 + len(s115))
+            + s115 + struct.pack("<IB", 1, 0) + struct.pack("<II", 1, 0))
+    return (struct.pack("<QI", 0x30 + len(d116), 1) + b"hsin" + struct.pack("<II", 1, 0)
+            + bytes(16) + struct.pack("<Q", len(d116)) + d116)
+
+
+def ni_hsin_preset(name="Seed", state=b"\x00\x00\x80\x3f" * 16, **info):
+    """A Massive-shaped preset: the root (RepositoryRoot), the Authoring
+    Application (app id 7, version 1.0.0.0) holding the SoundInfoItem, an
+    empty ControllerAssignments and the subtree (hsin_subtree_frame), whose
+    FastLZ stream opens to hsin_inner_tree(state)."""
+    ctl = _hsin_frame(121, struct.pack("<5I", 1, 1, 0, 1, 0))
+    sinfo = _hsin_frame(108, hsin_info_payload(name, **info))
+    enc = hsin_subtree_frame(hsin_inner_tree(state))
+    app = _hsin_frame(101, struct.pack("<IBII", 1, 0, 7, 1) + _u16("1.0.0.0")
+                      + struct.pack("<II", 1, 3),
+                      children=[(b"DSIN", sinfo), (b"DSIN", ctl), (b"DSIN", enc)])
+    return _hsin_frame(118, children=[(b"DSIN", app)])
 
 
 def ni_reaktor_module(body=b"\x07" * 64, tail=b"\x01\x00\x00\x00" * 8,

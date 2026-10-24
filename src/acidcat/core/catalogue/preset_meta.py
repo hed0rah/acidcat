@@ -19,7 +19,8 @@ from acidcat.core.formats import vital as vitalmod
 def _split_tags(s):
     if not s:
         return []
-    return [t for t in s.replace(",", " ").split() if t]
+    # a bank chain joined " / " is not a tag "/"
+    return [t for t in s.replace(",", " ").split() if t and t != "/"]
 
 
 def extract(data):
@@ -54,15 +55,23 @@ def extract(data):
             chain = [s.strip() for s in (m.get("bank") or "").split(" / ")]
             tags = [s for s in chain[1:] if s] + list(m.get("attributes") or [])
         else:
-            tags = _split_tags(m.get("bank"))
+            # an NKS preset's types and characters are whole tags too
+            tags = _split_tags(m.get("bank")) + list(m.get("attributes") or [])
+        desc = m.get("comment") or m.get("description")
+        if not desc and m.get("snapshots"):
+            # a Reaktor ensemble's name is not in it; its snapshots' are, and
+            # they are what a search wants, as a bank's voices are
+            snaps = m["snapshots"]
+            desc = "%d snapshot%s: %s" % (len(snaps), "" if len(snaps) == 1 else "s",
+                                          ", ".join(snaps))
         return {
             "preset_name": m.get("name"),
             "device": m.get("plugin") or m.get("product"),
             "product": m.get("product") or m.get("plugin") or m.get("vendor"),
             "creator": m.get("author") or m.get("vendor"),
             "category": m.get("device_type") or m.get("genre"),
-            "description": m.get("comment") or m.get("description"),
-            "tags": tags,
+            "description": desc,
+            "tags": list(dict.fromkeys(tags)),
         }
 
     names = syxmod.dx7_voices(data)

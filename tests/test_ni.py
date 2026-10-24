@@ -199,7 +199,7 @@ def test_an_hsin_tree_without_metadata_still_walks():
     names = {f["name"]: f["value"] for f in root["fields"]}
     assert names["frame_size"] == len(data) and names["magic"] == "hsin"
     # every frame of the tree, the reference before a child included
-    frames = [c for c in chunks if c["id"] != "items"]
+    frames = [c for c in chunks if c["id"].startswith(("hsin", "RTKR", "DSIN"))]
     assert len(frames) == 3
     rtkr = frames[1]
     assert rtkr["offset"] == data.index(b"RTKR") - 4
@@ -207,10 +207,12 @@ def test_an_hsin_tree_without_metadata_still_walks():
     assert any(w.code == "decode.partial" and "SoundInfoItem" in w for w in warns)
     doc = contract.walk(BytesSource(data, name="x.ens"))
     assert doc["format"]["id"] == "ni"
-    # the headers and the item records are described; what is left is the
-    # item data (40 bytes) and the 12 uninterpreted bytes ending each stack
+    # the headers, the item records and every record's own data are nodes:
+    # the 40 bytes of item 115 and item 5's empty data leave nothing unread
     gaps = [n for n in contract.iter_nodes(doc) if n["kind"] in ("unwalked", "padding")]
-    assert sum(n["extent"]["len"] for n in gaps) == 40 + 3 * 12
+    assert gaps == []
+    own = {c["id"]: c for c in chunks if c["id"].startswith("item ")}
+    assert own["item 115"]["extent_len"] == 40           # its own data, whole
 
 
 def test_a_reaktor_instrument_sniffs_by_its_class_record():
@@ -274,3 +276,221 @@ def test_garbage_behind_the_hsin_magic_is_still_refused():
     data[0:8] = (0x20).to_bytes(8, "little")     # a frame smaller than its header
     with pytest.raises(Unsupported, match="not a recognized"):
         walk_bytes(bytes(data), suffix=".ens")
+
+
+# ── the item stack, and the items' own data ──
+
+def _frames(data):
+    return ni.read_frames(lambda o, n: data[o:o + n], 0, len(data), 64)
+
+
+def test_a_nested_record_size_counts_its_own_eight_bytes():
+    """The u64 after an item record is the size of the record nested in it,
+    those 8 bytes included, and the nested record ends before its parent:
+    the bytes between are the parent's own data. Read as the size of what
+    follows it, the SubtreeItem's data began 8 bytes late, inside its
+    uncompressed size, and every item's data was left unwalked."""
+    import seeds
+    data = seeds.ni_hsin_preset()
+    frames, problem = _frames(data)
+    assert problem is None
+    enc = next(f for f in frames if f["items"][0]["item_id"] == 116)
+    recs = enc["items"]
+    assert [r["item_id"] for r in recs] == [116, 115, 1]
+    assert all(fr["stack_problem"] is None for fr in frames)
+    base = enc["at"] + ni.FRAME_HEADER
+    assert recs[0]["size_at"] == base + 12 and recs[1]["size_at"] == base + 32
+    # item 1's data is the u32 1, then the SubtreeItem's: version, compressed,
+    # the two sizes, the stream; the EncryptionItem's own 13 bytes end it
+    assert recs[2]["own"] == (base + 52, base + 56)
+    s, e = recs[1]["own"]
+    assert s == base + 56 and data[s:s + 5] == b"\x01\x00\x00\x00\x01"
+    assert recs[0]["own"] == (e, base + enc["data_size"])
+    assert recs[0]["own"][1] - recs[0]["own"][0] == 13
+
+
+def test_a_massive_preset_walks_whole_its_subtree_a_layer():
+    """Every byte of a Massive-shaped preset is a node: the frame headers,
+    the item records and every record's own data, decoded; the subtree's
+    FastLZ stream opens to a layer holding the inner tree and the synth's
+    state."""
+    import seeds
+    from acidcat.core.infra import contract
+    from acidcat.core.infra.source import BytesSource
+    from acidcat.core.walk import walk_bytes
+    data = seeds.ni_hsin_preset(name="Glass Pad", author="Nobody",
+                                bank=("Massive", "Seeds Vol 1"),
+                                attributes=("Synth Pad", "Warm"),
+                                properties={"\\@tempo": "42F00000"})
+    _label, chunks, _warns = walk_bytes(data, suffix=".nmsv")
+    root = {f["name"]: f["value"] for f in chunks[0]["fields"]}
+    assert root["name"] == "Glass Pad" and root["product"] == "Massive"
+    assert root["bank"] == "Massive / Seeds Vol 1"
+    assert root["attributes"] == "Synth Pad, Warm"
+    assert root["tempo"] == "120" and root["version"] == "1.0.0.0"
+    assert root["device_type"] == "Instrument"
+    doc = contract.walk(BytesSource(data, name="x.nmsv"))
+    nodes = list(contract.iter_nodes(doc))
+    assert not [n for n in nodes if n["kind"] in ("unwalked", "padding")]
+    assert [lay["name"] for lay in doc["layers"]] == ["file", "hsin subtree"]
+    inner = [n for n in nodes if n.get("extent", {}).get("layer") == 1]
+    assert any(n["name"] == "item 109" for n in inner)
+    sub = next(c for c in chunks if c["id"] == "item 115")
+    vals = {f["name"]: f["value"] for f in sub["fields"]}
+    assert vals["compressed"] == 1
+    assert vals["uncompressed_size"] == doc["layers"][1]["length"]
+
+
+def test_the_soundinfo_item_reads_its_bank_attributes_and_properties():
+    import seeds
+    data = seeds.ni_hsin(name="Wob", bank=("Absynth", "Seeds FX"),
+                         attributes=("Delay", "Reverb"), flags=2,
+                         properties={"\\@devicetypeflags": "2",
+                                     "\\@tempo": "42F00000"})
+    m = ni.parse_hsin(data)
+    assert m["name"] == "Wob" and m["product"] == "Absynth"
+    assert m["bankchain"] == ["Absynth", "Seeds FX"]
+    assert m["attributes"] == ["Delay", "Reverb"]
+    assert m["device_type"] == "Effect" and m["tempo"] == "120"
+    # an unset tempo is "0", not a tempo
+    assert "tempo" not in ni.parse_hsin(seeds.ni_hsin())
+
+
+def test_controller_pages_name_their_controls():
+    """ControllerAssignments: pages of named slots, each a label, a range and
+    the synth parameter it drives, the knobs a preset puts on the panel."""
+    import seeds
+    from acidcat.core.walk import walk_bytes
+
+    def slot(label, param, pos):
+        return (struct.pack("<I", 1) + seeds._u16(label)
+                + struct.pack("<ffII", 0.0, 1.0, param, pos))
+    page = (struct.pack("<II", 1, 2) + seeds._u16("Macros")
+            + slot("Cutoff", 7, 1) + slot("Drive", 9, 2))
+    own = struct.pack("<III", 1, 1, 1) + page + struct.pack("<II", 1, 0)
+    data = seeds._hsin_frame(118, children=[(b"DSIN", seeds._hsin_frame(121, own))])
+    fields, meta, why = ni.decode_item(121, own)
+    assert why is None
+    (_at, _n, name, controls), = meta["pages"]
+    assert name == "Macros"
+    assert controls == [("Cutoff", 0.0, 1.0, 7, 1), ("Drive", 0.0, 1.0, 9, 2)]
+    _label, chunks, _w = walk_bytes(data, suffix=".nmsv")
+    c = next(c for c in chunks if c["id"] == "item 121")
+    assert c["summary"] == "ControllerAssignments: 1 page(s)"
+    assert [r["detail"] for r in c["rows"]] == ["1: Cutoff -> parameter 7",
+                                               "2: Drive -> parameter 9"]
+
+
+def test_an_item_whose_layout_stops_matching_says_so():
+    import seeds
+    from acidcat.core.walk import walk_bytes
+    info = seeds.hsin_info_payload()[:40]          # cut inside the strings
+    data = seeds._hsin_frame(118, children=[(b"DSIN", seeds._hsin_frame(108, info))])
+    _label, chunks, _w = walk_bytes(data, suffix=".nmsv")
+    c = next(c for c in chunks if c["id"] == "item 108")
+    assert c["extent_len"] == 40
+    assert any(w.code == "layout.unmeasured" for w in c["warnings"])
+
+
+def test_an_item_stack_past_its_bound_is_a_verdict(monkeypatch):
+    """_STACK_CAP: records nested deeper than it are reported on the frame,
+    and the bytes past them stay unwalked."""
+    import seeds
+    monkeypatch.setattr(ni, "_STACK_CAP", 1)
+    frames, _problem = _frames(seeds.ni_hsin())
+    assert "nested item records" in frames[0]["stack_problem"]
+    assert [r["item_id"] for r in frames[0]["items"]] == [118]
+
+
+def _reaktor_ensemble(snapshot="Init", plain=b""):
+    """A tree the way a Reaktor ensemble writes one: no SoundInfoItem at the
+    top, a module item holding the path it was saved from and a version-like
+    string as UTF-16 pascal strings, and one SoundInfoItem per snapshot five
+    frames down. `plain` is put in a SubtreeItem stored as it is."""
+    import seeds
+    path = seeds._u16("D:\\Ensembles\\Seed.ens")
+    module = seeds._hsin_frame(104, struct.pack("<IIQ", 1, 1, 8 + len(path))
+                               + b"\x3a" + bytes(7) + path)
+    snap = seeds._hsin_frame(101, struct.pack("<IBII", 1, 0, 9, 1)
+                             + seeds._u16("6.0.3.16") + struct.pack("<II", 1, 3),
+                             children=[(b"DSIN", seeds._hsin_frame(
+                                 108, seeds.hsin_info_payload(
+                                     snapshot, "", "", bank=("Reaktor", "Seeds"))))])
+    deep = snap
+    for iid in (103, 2, 1, 4):
+        deep = seeds._hsin_frame(iid, struct.pack("<III", 1, 0, 0),
+                                 children=[(b"RTKR", deep)])
+    kids = [(b"RTKR", module), (b"RTKR", deep)]
+    if plain:
+        kids.insert(0, (b"DSIN", seeds._hsin_frame(115, struct.pack("<IB", 1, 0) + plain)))
+    return seeds._hsin_frame(118, children=[(b"RTKR", seeds._hsin_frame(5, children=kids))])
+
+
+def test_a_reaktor_ensemble_has_no_name_only_snapshots():
+    """124 of 223 real Reaktor ensembles read a "name" that was not theirs:
+    the string scan, run when the editor's walk refused the RTKR domain or a
+    16 MB read cut the tree, took the path a file was saved from, `Panel|
+    Structure`, or a byte run for the name, author and vendor. A tree that
+    reads is now read item by item; an ensemble has no SoundInfoItem at its
+    top, and the ones five frames down are its snapshots'."""
+    import seeds
+    from acidcat.core.catalogue import preset_meta
+    from acidcat.core.walk import walk_bytes
+    data = _reaktor_ensemble()
+    m = ni.parse_hsin(data)
+    assert "name" not in m and "author" not in m and "vendor" not in m
+    assert m["snapshots"] == ["Init"] and m["version"] == "6.0.3.16"
+    # cut by the read before the snapshot: still no name made up
+    cut = ni.parse_hsin(data[:data.index("D:".encode("utf-16-le")) + 8])
+    assert cut is not None and "name" not in cut
+    _label, chunks, warns = walk_bytes(data, suffix=".ens")
+    assert chunks[0]["summary"] == "hsin tree: 1 snapshot(s), the first 'Init'"
+    assert any("only its snapshots'" in w for w in warns)
+    mod = next(c for c in chunks if c["id"] == "item 104")
+    assert "Reaktor module opening 3a" in mod["summary"]
+    pm = preset_meta.extract(data)
+    assert pm["preset_name"] is None and pm["description"] == "1 snapshot: Init"
+    # a Massive preset's SoundInfoItem sits right under the root's
+    # Authoring Application, and is the preset's
+    assert ni.parse_hsin(seeds.ni_hsin_preset(name="Pad"))["name"] == "Pad"
+
+
+def test_a_subtree_stored_as_it_is_is_walked_in_place():
+    """A Reaktor ensemble's SubtreeItem is not compressed (compressed 0): an
+    hsin tree follows the five-byte header in the file. Read as the FastLZ
+    header, its first bytes were taken for two sizes and the tree, 98% of a
+    real ensemble, was one opaque item."""
+    import seeds
+    from acidcat.core.infra import contract
+    from acidcat.core.infra.source import BytesSource
+    from acidcat.core.walk import walk_bytes
+    inner = seeds._hsin_frame(7, struct.pack("<I", 1))
+    data = _reaktor_ensemble(plain=inner)
+    _label, chunks, _w = walk_bytes(data, suffix=".ens")
+    sub = next(c for c in chunks if c["id"] == "item 115")
+    assert sub["payload_len"] == len(inner) and "stored as it is" in sub["summary"]
+    at = data.index(inner)
+    assert sub["payload_base"] == at
+    assert any(c["id"] == "subtree" and c["offset"] == at for c in chunks)
+    doc = contract.walk(BytesSource(data, name="x.ens"))
+    assert not [n for n in contract.iter_nodes(doc) if n["kind"] == "unwalked"]
+
+
+def test_device_flags_are_the_category_and_nks_types_are_tags():
+    """The SoundInfoItem's device flags (2 on every Absynth effect preset
+    measured) are the index's category; an NKS preset's types and
+    characters are its tags, kept whole."""
+    import seeds
+    from acidcat.core.catalogue import preset_meta
+    m = preset_meta.extract(seeds.ni_hsin(name="Wob", bank=("Absynth", "Seeds FX"),
+                                          attributes=("Delay",), flags=2))
+    assert m["category"] == "Effect" and m["tags"] == ["Seeds FX", "Delay"]
+    assert preset_meta.extract(seeds.ni_hsin(flags=1, bank=("Massive",)))[
+        "category"] == "Instrument"
+    mp = (b"\x84\xa4name\xa3Pad\xa9bankchain\x91\xa9Massive X"
+          b"\xa5types\x91\x92\xa4Bass\xaaSynth Bass\xaacharacters\x91\xa4Warm")
+    nisi = b"NISI" + struct.pack("<II", 4 + len(mp), 1) + mp
+    riff = b"RIFF" + struct.pack("<I", 4 + len(nisi)) + b"NIKS" + nisi
+    pm = preset_meta.extract(riff)
+    assert pm["preset_name"] == "Pad"
+    assert pm["tags"][-3:] == ["Bass", "Synth Bass", "Warm"]

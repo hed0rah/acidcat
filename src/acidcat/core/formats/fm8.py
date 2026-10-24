@@ -208,17 +208,18 @@ def lfo_wave(v):
 
 def locate(inner, hsin_walk):
     """(offset, length) of the block in an inflated FM8 subtree, read through
-    item 109's payload (u32 1, u64 length), or None. `hsin_walk` is
-    formats/ni._hsin_walk, passed in so this module stays leaf-level."""
+    item 109's own data (u32 1, 1, 1, then the u64 length), or None.
+    `hsin_walk` is formats/ni._hsin_walk, passed in so this module stays
+    leaf-level; the payload it gives is where the item's own data starts."""
     try:
         frames = hsin_walk(inner, 0, [])
     except (ValueError, struct.error):
         return None
     for iid, _off, _ds, end, payload in frames:
-        if iid != 109 or payload + 12 > end:
+        if iid != 109 or payload + 20 > end:
             continue
-        n = struct.unpack_from("<Q", inner, payload + 4)[0]
-        at = payload + 12
+        n = struct.unpack_from("<Q", inner, payload + 12)[0]
+        at = payload + 20
         if inner[at:at + 4] == MAGIC and at + n <= end:
             return at, n
     return None
