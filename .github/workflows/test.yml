@@ -25,14 +25,14 @@ on:
   # what reached PyPI.
   workflow_call:
 
-# A branch that is both pushed and has an open PR matches BOTH triggers, so
-# every check ran twice: ten jobs for one commit, around 35 minutes of runner
-# time, and two identical rows per platform in the checks list. Grouping on the
-# commit rather than the ref means the second trigger supersedes the first
-# instead of racing it. Coverage is unchanged: a push with no PR still gets its
-# own full run.
+# One run per commit and trigger. The event is part of the group because a
+# push to next while the next -> main PR is open fires both triggers on one
+# commit: with one group the later run cancelled the earlier, and when that
+# was the PR run the PR's required checks read "cancelled" and it could not
+# merge. The cost is a second run in that one case, since a push triggers
+# only on main and next.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
