@@ -178,3 +178,32 @@ class TestReaderStamp:
         assert not reader_is_current("wav:1")
         assert not reader_is_current("nonsense")
         assert reader_is_current(f"wav:{READER_VERSIONS['wav']}")
+
+
+class TestAudioClaim:
+    def test_audio_outranks_acid_and_smpl_but_not_a_name(self):
+        r = ks.resolve([ks.claim("acid", note=71), ks.claim("audio", "Am")])
+        assert (r["key"], r["key_source"]) == ("Am", "audio")
+        r = ks.resolve([ks.claim("audio", "Am"), ks.claim("name", "Cm")])
+        assert (r["key"], r["key_source"]) == ("Cm", "name")
+
+    def test_analyze_listens_when_the_key_rests_on_acid(self, monkeypatch):
+        from acidcat.core.analysis import detect
+        from acidcat.core.catalogue import indexing
+        monkeypatch.setattr(detect, "estimate_librosa_metadata",
+                            lambda p: {"estimated_key": "Em",
+                                       "estimated_bpm": 99.0})
+        row = {"bpm": 128.0}
+        indexing._set_key(row, [ks.claim("acid", note=64)])
+        assert indexing._wants_audio(row)
+        indexing._fill_from_librosa("x.wav", row)
+        assert (row["key"], row["key_mode"], row["key_source"]) == (
+            "Em", "minor", "audio")
+        assert row["key_claims"] == "audio=Em acid=E?"
+        assert row["bpm"] == 128.0              # a stated tempo is kept
+
+    def test_analyze_leaves_a_named_key_alone(self):
+        from acidcat.core.catalogue import indexing
+        row = {"bpm": 128.0}
+        indexing._set_key(row, [ks.claim("name", "Am")])
+        assert not indexing._wants_audio(row)

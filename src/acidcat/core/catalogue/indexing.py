@@ -333,8 +333,18 @@ ACID_DEFAULT_BPM = 120.0
 
 
 def _set_key(row, claims):
-    """Resolve the claims into the row's key columns."""
-    row.update(ks.resolve(claims))
+    """Resolve the claims into the row's key columns. The claims ride along
+    under `_claims` (not a column) so the audio estimate can join them."""
+    row["_claims"] = [c for c in claims if c]
+    row.update(ks.resolve(row["_claims"]))
+
+
+def _wants_audio(row):
+    """--analyze listens when the metadata leaves the tempo or key missing,
+    or the key rests only on an acid or smpl root, which the audio beats."""
+    source = (row.get("key_source") or "").partition("+")[0]
+    return (row.get("bpm") is None or row.get("key") is None
+            or source in ("acid", "smpl"))
 
 
 def _from_wav(filepath, row, do_deep=False):
@@ -352,10 +362,10 @@ def _from_wav(filepath, row, do_deep=False):
 
     row["format"] = "wav"
     row["duration"] = duration
-    # an ID3 TBPM matched the name on 677 of 681 files, the ACID tempo on
+    # an ID3 TBPM matched the name on 818 of 822 files, the ACID tempo on
     # 82%. 120 is the tempo ACID writers leave behind: where the name gives
-    # one, it says something else for two stored 120s in three, and on the
-    # loops among them beats/duration backs the name 164 times to 13.
+    # one, it says something else for 280 of 440 stored 120s, and on loops
+    # where the two disagree beats/duration backs the name 236 times to 24.
     fname_bpm = parse_bpm_from_filename(filepath)
     acid_bpm = ctx.get("acid_bpm")
     if acid_bpm == ACID_DEFAULT_BPM and fname_bpm is not None:
@@ -391,7 +401,7 @@ def _from_wav(filepath, row, do_deep=False):
     if row["bpm"] is None and fname_bpm is not None:
         row["bpm"] = float(fname_bpm)
 
-    if do_deep and row["bpm"] is None:
+    if do_deep and _wants_audio(row):
         _fill_from_librosa(filepath, row)
 
     return row
@@ -435,7 +445,7 @@ def _from_aiff(filepath, row, do_deep=False):
         if fname_bpm is not None:
             row["bpm"] = float(fname_bpm)
 
-    if do_deep and row.get("bpm") is None:
+    if do_deep and _wants_audio(row):
         _fill_from_librosa(filepath, row)
     return row
 
@@ -543,7 +553,7 @@ def _from_tagged(filepath, row, do_deep=False):
         if fname_bpm is not None:
             row["bpm"] = float(fname_bpm)
 
-    if do_deep and row["bpm"] is None:
+    if do_deep and _wants_audio(row):
         _fill_from_librosa(filepath, row)
     return row
 
@@ -567,8 +577,8 @@ def _fill_from_librosa(filepath, row):
         bpm = est["estimated_bpm"]
         if isinstance(bpm, (int, float)):
             row["bpm"] = float(bpm)
-    if est.get("estimated_key") and row.get("key") is None:
-        _set_key(row, [ks.claim("audio", est["estimated_key"])])
+    if est.get("estimated_key"):
+        _set_key(row, row.get("_claims", []) + [ks.claim("audio", est["estimated_key"])])
     if est.get("duration_sec") and row.get("duration") is None:
         row["duration"] = est["duration_sec"]
 

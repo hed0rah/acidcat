@@ -374,7 +374,7 @@ CREATE TABLE samples (
                                  -- "F" is F major OR an F root of unknown mode
     key_mode         TEXT,       -- schema v4: major, minor, or NULL = unknown
     key_source       TEXT,       -- where the root came from, best first: tag,
-                                 -- midi, name, folder, basc, acid, smpl, audio;
+                                 -- midi, name, folder, basc, audio, acid, smpl;
                                  -- "name+folder" when the mode came from a
                                  -- second source
     key_claims       TEXT,       -- every source's claim: "name=Am acid=B?"

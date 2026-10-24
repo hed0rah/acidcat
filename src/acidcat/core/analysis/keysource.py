@@ -15,10 +15,13 @@ writer defaults far more often than real values:
 
 Those are dropped as no evidence. The ACID root without its root-set flag is
 already zeroed by the WAV walker. With the flag set it is still a weak
-claim: over 363 files with a key in the name, it matched 94 (26%), and 27 of
-274 (10%) where the name states a mode or an accidental. Packs stamp one root
-on every file. So a name outranks the chunk roots, and an ID3 TKEY, right
-on 39 of 39 with its mode, outranks the name.
+claim: over 456 files with a key in the name, it matched 186 (41%), and 110
+of 358 (31%) where the name states a mode or an accidental. Packs stamp one
+root on every file. So a name outranks the chunk roots, and an ID3 TKEY,
+right on 62 of 65 and on the mode of 58 of 58, outranks the name. Even the
+audio estimate beats the chunk roots: past its confidence gate it found the
+name's root on 65% of 6,145 files, and on 130 files where it and a set ACID
+root disagreed it was right 54 times to ACID's 24.
 
 The other problem is the mode. ACID, smpl and basc store a root note only,
 so a loop named "Fm" read as "F", which every consumer took to mean F major.
@@ -39,10 +42,10 @@ or None. `resolve` returns the stored key fields:
 from acidcat.core.analysis.camelot import parse_key, pitch_class_to_name
 
 # root precedence, strongest first. a tag or a MIDI signature is somebody
-# stating the key; a name is a label somebody typed per file; the chunk roots
-# are a note a writer or a pack stamped, usually without looking; audio is an
-# estimate.
-PRECEDENCE = ("tag", "midi", "name", "folder", "basc", "acid", "smpl", "audio")
+# stating the key; a name is a label somebody typed per file; basc matched the
+# name on 75 of 76; audio is an estimate, and a better one than the acid and
+# smpl roots, which a writer or a pack stamped, usually without looking.
+PRECEDENCE = ("tag", "midi", "name", "folder", "basc", "audio", "acid", "smpl")
 
 # sources that hold a root and never a mode
 ROOT_ONLY = frozenset({"acid", "smpl", "basc"})

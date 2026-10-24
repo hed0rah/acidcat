@@ -64,19 +64,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A bare note letter in a name has no mode.** `Bass_A_123BPM` names a root
   of A and says nothing about major or minor; it used to index as A major.
 
-- **A key in the file name outranks an ACID root.** Even with its root-set
-  flag on, an ACID root matched the name on 94 of 363 files (26%), and on 27
-  of 274 (10%) where the name states a mode or an accidental; packs stamp
-  one root on every file. The order is now ID3 `TKEY` (right on 39 of 39,
-  mode included), MIDI key signature, file name, folder name, basc, ACID,
-  smpl, audio. A set ACID root still outranks a smpl root, and still gives
-  the key of a file that names none.
+- **A key in the file name outranks an ACID root, and so does the audio.**
+  Even with its root-set flag on, an ACID root matched the name on 186 of
+  456 files (41%), and on 110 of 358 (31%) where the name states a mode or
+  an accidental; packs stamp one root on every file. The audio estimate,
+  past its confidence gate, found the name's root on 65% of 6,145 files,
+  and where it and a set ACID root disagreed it was right 54 times to 24.
+  The order is now ID3 `TKEY` (right on 62 of 65, mode on 58 of 58), MIDI
+  key signature, file name, folder name, basc (75 of 76), audio, ACID,
+  smpl. A set ACID root still outranks a smpl root, and still gives the key
+  of a file that names none.
+
+- **`lib index --analyze` listens for a missing key, not only a missing
+  tempo.** It ran the audio estimate only on files with no tempo, so a loop
+  with an ACID tempo and no key never got one; it now also runs where the
+  key is missing or rests only on an ACID or smpl root.
 
 - **An ACID tempo of 120 yields to a tempo in the name.** 120 is what ACID
   writers leave behind: where the name gives a tempo, it disagrees with a
-  stored 120 two times in three, and on those loops beats over duration
-  backs the name 164 times to 13. Any other stored tempo still wins, and an
-  ID3 `TBPM` in the WAV, right on 677 of 681, now outranks the ACID tempo.
+  stored 120 on 280 of 440 files, and on loops where the two disagree
+  beats over duration backs the name 236 times to 24. Any other stored
+  tempo still wins, and an ID3 `TBPM` in the WAV, right on 818 of 822, now
+  outranks the ACID tempo.
 
 ### Changed
 
