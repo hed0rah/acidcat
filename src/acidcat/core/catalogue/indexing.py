@@ -18,6 +18,7 @@ from acidcat.core.formats.riff import (
 )
 from acidcat.core.formats.mp3 import decode_frame_header
 from acidcat.core.analysis import keysource as ks
+from acidcat.core.analysis import temposource as ts
 from acidcat.core.tagged import is_tagged_format
 
 
@@ -28,7 +29,7 @@ from acidcat.core.tagged import is_tagged_format
 # reader produced, with no --reread and no rereading of anything else. A row
 # stores "wav:2"; a row with no reader predates the stamp and is stale.
 #   2: key sources (core/analysis/keysource.py), ID3-in-RIFF key and tempo
-READER_VERSIONS = {"wav": 2, "aiff": 2, "midi": 2, "tagged": 2,
+READER_VERSIONS = {"wav": 3, "aiff": 3, "midi": 3, "tagged": 3,
                    "serum": 1, "preset": 1}
 
 
@@ -342,14 +343,19 @@ def _extract_for_index(filepath, scan_root, mtime, size, walk_start,
         return None
 
 
-ACID_DEFAULT_BPM = 120.0
-
-
 def _set_key(row, claims):
     """Resolve the claims into the row's key columns. The claims ride along
     under `_claims` (not a column) so the audio estimate can join them."""
     row["_claims"] = [c for c in claims if c]
     row.update(ks.resolve(row["_claims"]))
+
+
+def _set_tempo(row, claims):
+    """Resolve tempo claims into bpm and bpm_source; `_tempo_claims` rides
+    along (not a column) so the audio estimate can join them."""
+    from acidcat.core.analysis import temposource as ts
+    row["_tempo_claims"] = [c for c in claims if c]
+    row.update(ts.resolve(row["_tempo_claims"], row.get("duration")))
 
 
 def _wants_audio(row):
@@ -364,7 +370,6 @@ def _from_wav(filepath, row, do_deep=False):
     """WAV row extraction, driven by the inspect walker (the single WAV
     decoder since the 2026-07-10 unification): one walk fills a semantic
     ctx dict; the legacy core/riff parse is no longer run here."""
-    from acidcat.core.analysis.detect import parse_bpm_from_filename
     from acidcat.core.walk.wav import inspect_wav
 
     ctx = {}
@@ -375,15 +380,21 @@ def _from_wav(filepath, row, do_deep=False):
 
     row["format"] = "wav"
     row["duration"] = duration
-    # an ID3 TBPM matched the name on 818 of 822 files, the ACID tempo on
-    # 82%. 120 is the tempo ACID writers leave behind: where the name gives
-    # one, it says something else for 280 of 440 stored 120s, and on loops
-    # where the two disagree beats/duration backs the name 236 times to 24.
-    fname_bpm = parse_bpm_from_filename(filepath)
-    acid_bpm = ctx.get("acid_bpm")
-    if acid_bpm == ACID_DEFAULT_BPM and fname_bpm is not None:
-        acid_bpm = None
-    row["bpm"] = _coerce_bpm(ctx.get("id3_bpm")) or acid_bpm
+    # every place the file states a tempo, resolved in core/analysis/
+    # temposource.py: an ID3 TBPM matched the name on 818 of 822 files, the
+    # ACID tempo on 82%, and 120 is the tempo writers leave behind
+    _set_tempo(row, ts.wav_claims(ctx, filepath, ctx.get("acid_bpm")))
+
+    # the INFO text, the bext description, an iXML media comment and an ID3
+    # comment reach the full-text search
+    info = ctx.get("info") or {}
+    row["title"] = info.get("INAM")
+    row["artist"] = info.get("IART")
+    row["album"] = info.get("IPRD")
+    row["genre"] = info.get("IGNR")
+    notes = [info.get("ICMT"), ctx.get("bext_description"),
+             ctx.get("ixml_comment"), ctx.get("id3_comment")]
+    row["comment"] = " | ".join(dict.fromkeys(n for n in notes if n)) or None
 
     # SMPL/ACID root_note = 0 (MIDI C-1) is the documented "unset" value, the
     # walker zeroes an ACID root whose root-set flag is clear, and a smpl
@@ -411,9 +422,6 @@ def _from_wav(filepath, row, do_deep=False):
         row["channels"] = ctx.get("channels")
         row["bits_per_sample"] = ctx.get("bits")
 
-    if row["bpm"] is None and fname_bpm is not None:
-        row["bpm"] = float(fname_bpm)
-
     if do_deep and _wants_audio(row):
         _fill_from_librosa(filepath, row)
 
@@ -423,7 +431,6 @@ def _from_wav(filepath, row, do_deep=False):
 def _from_aiff(filepath, row, do_deep=False):
     """AIFF/AIFC row extraction, driven by the inspect walker (the single
     AIFF decoder since the 2026-07-10 unification)."""
-    from acidcat.core.analysis.detect import parse_bpm_from_filename
     from acidcat.core.walk.aiff import inspect_aiff
 
     with open(filepath, "rb") as f:
@@ -446,17 +453,15 @@ def _from_aiff(filepath, row, do_deep=False):
     # filename bpm on 103/103 surveyed loops). root is a MIDI note;
     # the scale enum is unverified, so only the pitch class is used,
     # same convention as the WAV smpl root.
-    if row.get("bpm") is None and ctx.get("basc_beats") and row["duration"]:
-        row["bpm"] = round(ctx["basc_beats"] / row["duration"] * 60, 2)
+    basc_bpm = (round(ctx["basc_beats"] / row["duration"] * 60, 2)
+                if ctx.get("basc_beats") and row["duration"] else None)
+    _set_tempo(row, [ts.claim("basc", basc_bpm), ts.claim("resu", ctx.get("resu_bpm"))]
+               + ts.path_claims(filepath))
     basc = ctx.get("basc_root_key") or 0
     _set_key(row, [
         ks.claim("basc", note=basc) if 0 < basc < 128 else None,
         ks.path_claim(filepath),
     ])
-    if row.get("bpm") is None:
-        fname_bpm = parse_bpm_from_filename(filepath)
-        if fname_bpm is not None:
-            row["bpm"] = float(fname_bpm)
 
     if do_deep and _wants_audio(row):
         _fill_from_librosa(filepath, row)
@@ -474,7 +479,7 @@ def _from_midi(filepath, row):
     inspect_midi(filepath, ctx=ctx)
     row["format"] = "midi"
     row["duration"] = ctx.get("duration")
-    row["bpm"] = ctx.get("tempo_bpm")
+    _set_tempo(row, [ts.claim("midi", ctx.get("tempo_bpm"))])
     _set_key(row, [ks.midi_claim(ctx.get("key_sig")), ks.path_claim(filepath)])
     if ctx.get("track_name"):
         row["title"] = ctx["track_name"]
@@ -533,7 +538,6 @@ def _from_preset(filepath, row):
 
 def _from_tagged(filepath, row, do_deep=False):
     from acidcat.core.tagged import parse_tagged
-    from acidcat.core.analysis.detect import parse_bpm_from_filename
 
     meta = parse_tagged(filepath)
     if meta is None:
@@ -548,8 +552,9 @@ def _from_tagged(filepath, row, do_deep=False):
     row["album"] = meta.get("album")
     row["genre"] = meta.get("genre")
     row["comment"] = meta.get("comment")
-    row["bpm"] = _coerce_bpm(meta.get("bpm"))
+    _set_tempo(row, [ts.claim("tag", meta.get("bpm"))] + ts.path_claims(filepath))
     _set_key(row, [ks.claim("tag", meta.get("key")) if meta.get("key") else None,
+                   ks.comment_claim(meta.get("comment")),
                    ks.path_claim(filepath)])
 
     # genre frames feed the tags table the same way serum preset tags
@@ -560,11 +565,6 @@ def _from_tagged(filepath, row, do_deep=False):
         parts = [g.strip() for g in
                  genre.replace(";", ",").replace("/", ",").split(",")]
         row["_tags"] = [g for g in parts if g]
-
-    if row["bpm"] is None:
-        fname_bpm = parse_bpm_from_filename(filepath)
-        if fname_bpm is not None:
-            row["bpm"] = float(fname_bpm)
 
     if do_deep and _wants_audio(row):
         _fill_from_librosa(filepath, row)
@@ -587,9 +587,9 @@ def _fill_from_librosa(filepath, row):
         return
     est = estimate_librosa_metadata(filepath) or {}
     if est.get("estimated_bpm") and row.get("bpm") is None:
-        bpm = est["estimated_bpm"]
-        if isinstance(bpm, (int, float)):
-            row["bpm"] = float(bpm)
+        from acidcat.core.analysis import temposource as ts
+        _set_tempo(row, row.get("_tempo_claims", [])
+                   + [ts.claim("audio", est["estimated_bpm"])])
     if est.get("estimated_key"):
         _set_key(row, row.get("_claims", []) + [ks.claim("audio", est["estimated_key"])])
     if est.get("duration_sec") and row.get("duration") is None:

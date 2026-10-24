@@ -27,7 +27,7 @@ PRESET_COLUMNS = ("device", "product", "creator", "category", "preset_name")
 
 # added in schema v4: key provenance (core/analysis/keysource.py) and the
 # reader that produced the row (indexing.READER_VERSIONS)
-V4_COLUMNS = ("key_mode", "key_source", "key_claims", "reader")
+V4_COLUMNS = ("key_mode", "key_source", "key_claims", "reader", "bpm_source")
 
 SAMPLE_COLUMNS = (
     "path", "scan_root", "mtime", "size",
@@ -38,7 +38,7 @@ SAMPLE_COLUMNS = (
     "chunks",
     "device", "product", "creator", "category", "preset_name",
     "indexed_at", "last_seen_at",
-    "key_mode", "key_source", "key_claims", "reader",
+    "key_mode", "key_source", "key_claims", "reader", "bpm_source",
 )
 
 
@@ -339,7 +339,8 @@ _SAMPLES_TABLE_COLS = """
     key_mode TEXT,
     key_source TEXT,
     key_claims TEXT,
-    reader TEXT
+    reader TEXT,
+    bpm_source TEXT
 """
 
 

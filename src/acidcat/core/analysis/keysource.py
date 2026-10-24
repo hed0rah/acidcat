@@ -39,13 +39,16 @@ or None. `resolve` returns the stored key fields:
   key_claims every claim, "name=Am acid=B?", so disagreement stays visible
 """
 
+import re
+
 from acidcat.core.analysis.camelot import parse_key, pitch_class_to_name
 
 # root precedence, strongest first. a tag or a MIDI signature is somebody
 # stating the key; a name is a label somebody typed per file; basc matched the
 # name on 75 of 76; audio is an estimate, and a better one than the acid and
 # smpl roots, which a writer or a pack stamped, usually without looking.
-PRECEDENCE = ("tag", "midi", "name", "folder", "basc", "audio", "acid", "smpl")
+PRECEDENCE = ("tag", "comment", "midi", "name", "folder", "basc", "audio",
+              "acid", "smpl")
 
 # sources that hold a root and never a mode
 ROOT_ONLY = frozenset({"acid", "smpl", "basc"})
@@ -143,6 +146,21 @@ def path_claim(filepath):
     return claim(where, key, mode_known=mode_known)
 
 
+# Mixed In Key writes the key it hears into the comment: "Abm", "Cm - Energy
+# 4" or the Camelot "8A - Energy 4". The root matched the name on 277 of 280
+# WAVs that carry one and the mode on 203 of 203, so a comment that is only
+# a key is a claim; a comment with anything else in it is not read for one.
+_COMMENT_KEY = re.compile(
+    r"^\s*((?:[A-G](?:#|b)?\s*(?:m|min|minor|maj|major)?)|(?:1[0-2]|[1-9])[AB])"
+    r"(?:\s*-\s*Energy\s*\d+)?\s*$", re.I)
+
+
+def comment_claim(text):
+    """A key claim from a comment that holds only a key, or None."""
+    m = _COMMENT_KEY.match(text or "")
+    return claim("comment", m.group(1).replace(" ", "")) if m else None
+
+
 def wav_claims(ctx, filepath):
     """Every key claim a WAV makes, from an inspect_wav ctx and its path.
 
@@ -151,13 +169,15 @@ def wav_claims(ctx, filepath):
     acid = ctx.get("acid_root")
     return [
         claim("tag", ctx["id3_key"]) if ctx.get("id3_key") else None,
+        comment_claim(ctx.get("id3_comment")),
         claim("acid", note=acid) if acid else None,
         smpl_claim(ctx.get("smpl_root")),
         path_claim(filepath),
     ]
 
 
-_SOURCE_WORDS = {"tag": "tag", "midi": "MIDI key signature", "acid": "ACID",
+_SOURCE_WORDS = {"tag": "tag", "comment": "comment", "midi": "MIDI key signature",
+                 "acid": "ACID",
                  "smpl": "SMPL", "basc": "basc", "name": "file name",
                  "folder": "folder name", "audio": "audio"}
 

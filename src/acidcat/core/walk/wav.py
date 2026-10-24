@@ -428,10 +428,14 @@ def _parse_list(b, ctx):
             text = _cstr(b, start + 4, sub_size - 4)
             fields.append(_f(start + 4, sub_size - 4, sub_id, text,
                              f"cue id {cue_id}", text=True))
+            if text:
+                ctx.setdefault("cue_labels", []).append(text)
         else:
             text = _cstr(b, start, sub_size)
             note = _INFO_TAGS.get(sub_id, "")
             fields.append(_f(start, sub_size, sub_id, text, note, text=True))
+            if list_type == "INFO" and text and text.strip():
+                ctx.setdefault("info", {}).setdefault(sub_id, text.strip())
         count += 1
         pos = end + (sub_size & 1)
     return f"{list_type}, {count} entries", fields, warns
@@ -443,6 +447,8 @@ def _parse_bext(b, ctx):
         return "truncated", fields, [defect("chunk.short",
                                             f"bext payload is {len(b)} bytes, v0 minimum is 348")]
     fields.append(_f(0x000, 256, "description", _cstr(b, 0, 256)))
+    if _cstr(b, 0, 256).strip():
+        ctx["bext_description"] = _cstr(b, 0, 256).strip()
     fields.append(_f(0x100, 32, "originator", _cstr(b, 256, 32)))
     fields.append(_f(0x120, 32, "originator_reference", _cstr(b, 288, 32)))
     fields.append(_f(0x140, 10, "origination_date", _cstr(b, 320, 10)))
@@ -501,6 +507,7 @@ def _parse_bwbm(b, ctx):
     bpm = beats / dur * 60 if dur else None
     if bpm and bpm > 0:
         fields.append(_f(None, 0, "derived_bpm", round(bpm, 2), "beats / duration * 60"))
+        ctx["bwbm_bpm"] = round(bpm, 2)
     summary = f"Bitwig beat map, {beats:g} beats, {dur:.3f} s"
     if bpm and bpm > 0:
         summary += f", ~{bpm:.1f} bpm"
@@ -569,11 +576,50 @@ def _parse_ixml(b, ctx):
     tracks = len(re.findall(r"<TRACK>", text, re.I))
     if tracks:
         fields.append(_f(None, 0, "track_count", tracks))
+    # Cubase and Nuendo write an ATTR_LIST of their own: the musical tempo,
+    # the length in beats and the meter of the file, and media text
+    attrs = _steinberg_attrs(text)
+    for name, label in (("MusicalTempo", "musical_tempo"),
+                        ("MusicalBeats", "musical_beats"),
+                        ("MusicalSignature", "musical_signature"),
+                        ("MediaComment", "media_comment"),
+                        ("MediaLibrary", "media_library"),
+                        ("ProgramName", "program")):
+        if attrs.get(name):
+            fields.append(_f(None, 0, label, attrs[name][:80]))
+    for name, key in (("MusicalTempo", "ixml_tempo"), ("MusicalBeats", "ixml_beats")):
+        try:
+            ctx[key] = float(attrs[name])
+        except (KeyError, ValueError):
+            pass
+    if attrs.get("MediaComment"):
+        ctx["ixml_comment"] = attrs["MediaComment"]
     if not fields:
         fields.append(_f(0, len(b), "xml", text[:100].replace("\n", " ")))
     scene, take = tag("SCENE"), tag("TAKE")
     summary = "iXML" + (f": scene {scene}" if scene else "") + (f" take {take}" if take else "")
     return summary, fields, []
+
+
+def _steinberg_attrs(text):
+    """{NAME: VALUE} from a Steinberg <ATTR_LIST>; a rational is "n/d"."""
+    import re
+    out = {}
+    block = re.search(r"<STEINBERG>(.*?)</STEINBERG>", text, re.S | re.I)
+    if not block:
+        return out
+    for a in re.findall(r"<ATTR>(.*?)</ATTR>", block.group(1), re.S):
+        name = re.search(r"<NAME>(.*?)</NAME>", a, re.S)
+        if not name:
+            continue
+        value = re.search(r"<VALUE>(.*?)</VALUE>", a, re.S)
+        num = re.search(r"<NUMERATOR>(.*?)</NUMERATOR>", a, re.S)
+        den = re.search(r"<DENOMINATOR>(.*?)</DENOMINATOR>", a, re.S)
+        if value:
+            out[name.group(1).strip()] = value.group(1).strip()
+        elif num and den:
+            out[name.group(1).strip()] = f"{num.group(1).strip()}/{den.group(1).strip()}"
+    return out
 
 
 def _parse_clm(b, ctx):
@@ -743,6 +789,8 @@ def _parse_riff_id3(b, ctx, whole=None):
             ctx.setdefault("id3_key", str(text).strip())
         elif fid == "TBPM" and text:
             ctx.setdefault("id3_bpm", str(text).strip())
+        elif fid == "COMM" and text and str(text).strip():
+            ctx.setdefault("id3_comment", str(text).strip())
     if len(frames) > _ID3_FRAME_CAP:
         warns = list(warns) + [hit(
             "list_rows", _ID3_FRAME_CAP, len(frames),
@@ -828,8 +876,54 @@ def _parse_disp(b, ctx):
     return f"{name}, {len(body):,} bytes", fields, warns
 
 def _parse_padding(b, ctx):
-    """JUNK / FLLR / PAD, through the reader every container shares."""
+    """JUNK / FLLR / PAD, through the reader every container shares -- unless
+    it opens with TEMPOMAP, a tempo map some writer keeps in a JUNK chunk."""
+    if b[:8] == b"TEMPOMAP":
+        return _parse_tempomap(b, ctx)
     return parse_padding(b)
+
+
+def _parse_tempomap(b, ctx):
+    """A tempo map in a JUNK chunk, big-endian.
+
+    "TEMPOMAP", u16 version (1), an 8-byte 32.32 fixed-point value whose
+    meaning is not established (0 to about 105 across 1,079 files; it may be
+    the file's position on the timeline in beats), u16 entry count, then
+    that many 8-byte entries of u32 position and u32 tempo x 1000. The chunk
+    is 20 + 8 x count bytes on every file seen, one entry to 33. The writer
+    is not identified. The first tempo matched the tempo in the file name on
+    767 of 767 files in four packs.
+
+    Not padding, so not reported as overwritten padding either."""
+    fields, warns = [], []
+    if len(b) < 20:
+        return "TEMPOMAP, truncated", fields, [
+            defect("chunk.short", f"TEMPOMAP is {len(b)} bytes, the header is 20")]
+    version = struct.unpack_from(">H", b, 8)[0]
+    hi, lo = struct.unpack_from(">II", b, 10)
+    count = struct.unpack_from(">H", b, 18)[0]
+    fields.append(_f(0x00, 8, "magic", "TEMPOMAP"))
+    fields.append(_f(0x08, 2, "version", version, enc=">H"))
+    fields.append(_f(0x0A, 8, "unidentified", round(hi + lo / 2 ** 32, 4),
+                     "32.32 fixed point; meaning not established"))
+    fields.append(_f(0x12, 2, "entries", count, enc=">H"))
+    room = (len(b) - 20) // 8
+    if count > room:
+        warns.append(defect("size.overrun",
+                            f"declares {count} entries, the chunk holds {room}"))
+    tempos = []
+    for k in range(min(count, room)):
+        pos, milli = struct.unpack_from(">II", b, 20 + 8 * k)
+        tempos.append(milli / 1000)
+        if k < _ID3_FRAME_CAP:
+            fields.append(_f(20 + 8 * k, 8, f"entry[{k}]",
+                             f"{milli / 1000:g} BPM at {pos}"))
+    if tempos and tempos[0] > 0:
+        ctx["tempomap_bpm"] = tempos[0]
+    shown = f", {tempos[0]:g} BPM" if tempos else ""
+    if len(tempos) > 1:
+        shown += f" then {len(tempos) - 1} change(s)"
+    return f"TEMPOMAP{shown}", fields, warns
 
 
 def _printable(b):

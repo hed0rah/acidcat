@@ -8,6 +8,34 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A tempo says where it came from, and eight more places can state one.**
+  The library index gains `bpm_source`, and reads a WAV's tempo from a
+  Steinberg iXML block (`MusicalTempo`, checked against `MusicalBeats`), a
+  Logic ResU analysis, a TEMPOMAP record in a JUNK chunk, a Bitwig beat map,
+  an INFO `IBPM`, a cue label reading "Tempo: 120", and a tempo in a parent
+  folder's name ("Kit 4 - F minor - 124 bpm/stems/Lead.wav"), as well as
+  ID3 `TBPM`, ACID, the file name and the audio. Measured on 4,958 files,
+  the tempos it gave before still agree with the file names as often (2,714
+  right, 14 wrong) and 430 files without a tempo gain one, almost all loops
+  and stems. Two rules keep stamped values out: a chunk tempo of exactly
+  120 yields to a different tempo in the file name, and the tempos a DAW
+  writes per session count only when the file is a whole number of beats
+  long at that tempo, a bar or more, since a DAW stamps its session tempo
+  on the one-shots it bounces too. The file name outranks those session
+  tempos: where they disagree, the session tempo was a pack-wide stamp.
+
+- **A WAV's text is searchable.** INFO title, artist, product and genre
+  fill `title`, `artist`, `album` and `genre`, and the INFO comment, the
+  bext description, a Steinberg iXML media comment and an ID3 comment fill
+  `comment`, so `lib query --text` and the MCP search find them. Before,
+  none of a WAV's text reached the index; sound-effects libraries keep
+  their keywords there ("Metal, Hinge, Squeak").
+
+- **A Mixed In Key comment is a key.** A comment that holds only a key,
+  "Abm", "Cm - Energy 4" or Camelot "8A - Energy 4", is a key claim, ranked
+  just under an ID3 `TKEY`: its root matched the file name on 277 of 280
+  WAVs and its mode on 203 of 203.
+
 - **How a sound moves, and where its energy sits.** `lib index --profile`
   measures every audio file's envelope and names it `hit` (over within
   half a second), `decay` (one attack and a long tail), `sustain` (holds
@@ -63,6 +91,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   what picks up the key fixes below.
 
 ### Fixed
+
+- **A TEMPOMAP in a JUNK chunk is not overwritten padding.** 1,079 healthy
+  files in five packs carry a tempo map where padding would be, and
+  `inspect` reported each as padding with non-zero bytes. It is now read as
+  what it is: a version, an entry count, and each tempo with its position.
 
 - **A smpl root of 60 is not a key.** Writers fill in middle C when nobody
   set a root, and the smpl chunk has no flag to say so. Over 2,736 files in

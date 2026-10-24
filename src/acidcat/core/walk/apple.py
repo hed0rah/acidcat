@@ -118,6 +118,8 @@ def _parse_resu(b, ctx):
     tempo = ctxd.get("Tempo")
     if isinstance(tempo, list) and tempo and isinstance(tempo[0], dict):
         value = tempo[0].get("tempo")
+        if isinstance(value, (int, float)) and value > 0:
+            ctx["resu_bpm"] = float(value)
         if value is not None:
             fields.append(_f(None, 0, "tempo", f"{value:g} BPM",
                              "as Logic's analysis recorded it"))

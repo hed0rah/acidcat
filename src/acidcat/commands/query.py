@@ -22,7 +22,7 @@ from acidcat.core.infra.render import format_json, output
 
 
 DEFAULT_FIELDS = [
-    "path", "format", "bpm", "key", "key_mode", "key_source", "duration",
+    "path", "format", "bpm", "bpm_source", "key", "key_mode", "key_source", "duration",
     "pitch", "pitch_cents", "tunability", "envelope", "band",
     "title", "artist", "album",
     "preset_name", "device", "product", "creator", "category",

@@ -370,6 +370,10 @@ CREATE TABLE samples (
     format           TEXT,       -- wav, aiff, mp3, flac, ogg, m4a, midi, serum
     duration         REAL,
     bpm              REAL,
+    bpm_source       TEXT,       -- schema v4: where the tempo came from, best
+                                 -- first: tag, midi, basc, acid, name, ixml,
+                                 -- resu, tempomap, bwbm, ibpm, cue, folder,
+                                 -- audio (core/analysis/temposource.py)
     key              TEXT,       -- "Am", "C#", "F", etc. (sharps preferred);
                                  -- "F" is F major OR an F root of unknown mode
     key_mode         TEXT,       -- schema v4: major, minor, or NULL = unknown

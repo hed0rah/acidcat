@@ -110,6 +110,10 @@ CTX_KEYS = frozenset({
     "data_off", "data_bytes", "fact_samples", "frames", "duration",
     "acid_bpm", "acid_beats", "acid_one_shot", "acid_root",
     "smpl_root", "smpl_loop_start", "smpl_loop_end",
+    # tempo and text sources the index reads (walk/wav.py, walk/apple.py,
+    # core/analysis/temposource.py)
+    "tempomap_bpm", "bwbm_bpm", "resu_bpm", "ixml_tempo", "ixml_beats",
+    "ixml_comment", "info", "cue_labels", "bext_description", "id3_comment",
     # AIFF walker keys the scan path reads (walk/aiff.py, core/indexing.py)
     "rate", "compression", "marker_ids", "inst_loop_marker_ids",
     "basc_beats", "basc_root_key", "basc_scale",

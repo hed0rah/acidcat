@@ -159,7 +159,7 @@ the new bytes; `commit()` writes atomically with a `_original` backup.
 
 ```
 src/acidcat/
-  core/            218 modules
+  core/            219 modules
     formats/       per-format byte decoders (42)
     walk/          62 walker modules -> 94 format labels (63)
     primitives/    shared byte readers (6)
@@ -167,7 +167,7 @@ src/acidcat/
     containers/    disc images and archives, a PS1 disc's audio catalog (6)
     infra/         sniff, fieldcodec, Source, Limits, finding codes, layers, the v1 contract, ADDR, capabilities, rendering (16)
     forensics/     anomalies, entropy/viz, audioscan, provenance (19)
-    analysis/      PCM decode, BPM/key, key sources, pitch, profile, features, bandwidth (11)
+    analysis/      PCM decode, BPM/key, key and tempo sources, pitch, profile, features, bandwidth (12)
     write/         strict IFF engine, constraints, repairers, tag-edit profiles (14)
     extract/       embedded-sample recovery (4)
     catalogue/     SQLite index, registry, query builder, search (8)
@@ -180,7 +180,7 @@ src/acidcat/
                    Document, no Textual; state.py what it remembers between
                    runs (tui.json)
   util/            small shared helpers
-  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (286 modules in total)
+  cli.py  cli_aliases.py  explorer.py  tui_theme.py  __init__.py     (287 modules in total)
 lab/src/acidcat_lab/
                    the adversarial half, its OWN distribution (acidcat-lab).
                    Constructs files rather than reading them: cavities,
