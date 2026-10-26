@@ -1243,14 +1243,56 @@ def amxd():
             + b'{"a":1}'.ljust(60, b" "))
 
 
+def serum1_patch(size=20704, name="Seed Patch", author="seeds", description="a seed",
+                 macros=("Macro 1", "Macro 2", "Macro 3", "Macro 4"), params=None,
+                 osc_a="Analog/Seed Saw.wav", osc_b="", noise="Seed/Noise.wav",
+                 fx_order=(1, 2, 3, 4, 5, 6, 7, 8, 9, 0)):
+    """A Serum 1 patch record, written from the published offsets rather than
+    from acidcat's decoder. The parameters default to i/1000, so a decoder that
+    reads one slot off shows it; text is NUL-terminated with 0xFF after it,
+    the leftover bytes real records carry."""
+    rec = bytearray(size)
+    vals = list(params) if params is not None else [i / 1000 for i in range(248)]
+    struct.pack_into("<248f", rec, 0x3460, *vals)
+    struct.pack_into("<10I", rec, 0x3BE0, *fx_order)
+
+    def put(at, n, text):
+        raw = text.encode("utf-8") + b"\x00"
+        rec[at:at + n] = (raw + b"\xff" * n)[:n]
+    put(0x3C08, 512, osc_a)
+    put(0x3E08, 512, osc_b)
+    put(0x4008, 512, noise)
+    put(0x4972, 32, name)
+    put(0x49A0, 48, author)
+    put(0x49D0, 128, description)
+    for i, label in enumerate(macros):
+        put(0x4A60 + 32 * i, 32, label)
+    return bytes(rec)
+
+
+def serum1_chunk(patch=None, tables=b"", trailer=None, tail=b""):
+    """Serum 1's chunk: the patch and the wavetables as two zlib streams, then
+    the patch stream's compressed length as a little-endian u32."""
+    import zlib
+    z1 = zlib.compress(serum1_patch() if patch is None else patch)
+    z2 = zlib.compress(tables)
+    return z1 + z2 + struct.pack("<I", len(z1) if trailer is None else trailer) + tail
+
+
+def vst_fxp(chunk, plugin=b"XfsX", name=b"Seed Preset"):
+    """A VST2 opaque-chunk preset (`CcnK`, `FPCh`) around a plugin chunk."""
+    body = (b"FPCh" + struct.pack(">I", 1) + plugin + struct.pack(">II", 1, 1)
+            + name.ljust(28, b"\x00")[:28] + struct.pack(">I", len(chunk)) + chunk)
+    return b"CcnK" + struct.pack(">I", len(body)) + body
+
+
 @seed("fxp", ".fxp")
 def fxp():
     """VST2 preset: `CcnK`, then `FPCh` for the opaque-chunk form, a four-byte
-    plugin id and a 28-byte fixed-width name."""
-    name = b"Seed Preset".ljust(28, b"\x00")
-    return (b"CcnK" + struct.pack(">I", 100) + b"FPCh" + struct.pack(">I", 1)
-            + b"XfsX" + struct.pack(">I", 1) + struct.pack(">I", 1) + name
-            + struct.pack(">I", 8) + bytes(8))
+    plugin id and a 28-byte fixed-width name. The plugin is Xfer Serum, whose
+    chunk is decoded: two zlib streams and a trailer pointing at the second,
+    so a mutation can land in either stream, the trailer, or the header."""
+    return vst_fxp(serum1_chunk())
 
 
 @seed("rx2", ".rx2")

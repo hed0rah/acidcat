@@ -190,6 +190,24 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   carry them); before, the index read no tags from them. The preset reader
   is version 3, so the next `lib index` re-reads presets.
 
+- **Serum 1 presets are decoded.** A Serum `.fxp` was one opaque chunk. It
+  is three pieces: the patch, a zlib stream; the embedded wavetables, a
+  second zlib stream; and a little-endian u32, the first stream's compressed
+  length. Both streams open as layers. The patch is a fixed-layout record of
+  20,704 to 172,736 bytes, one size per Serum version, with the same offsets
+  in all of them: 248 parameters as normalized floats, the effects rack
+  order, the osc A, osc B and noise files, and the preset name, author,
+  description and four macro labels. 226 of the parameters are named, with
+  the names Serum's own parameter listing gives them; on 913 presets the
+  most common value of 193 of them is the listing's default. 22 stay
+  `param[N]`: two are 0.5 in every preset, and 228 to 247 are not what the
+  listing says is there. The wavetable stream is 2,048-sample float frames,
+  and an AnaMark tuning after them when the patch has one. The library index
+  reads the name, author and description; the record keeps the whole name,
+  where the header keeps 28 bytes. Checked on 2,694 presets from a synth
+  library: every one splits into the three pieces, its trailer matches, and
+  it walks with no finding.
+
 
 ### Fixed
 

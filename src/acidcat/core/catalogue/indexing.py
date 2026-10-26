@@ -261,7 +261,7 @@ def _sniff_format(filepath):
     """
     try:
         with open(filepath, "rb") as f:
-            head = f.read(16)
+            head = f.read(20)
     except OSError:
         return None
     if len(head) < 4:
@@ -273,6 +273,9 @@ def _sniff_format(filepath):
         return "preset"
     # a Yamaha SysEx bulk dump: a DX7 voice or bank, indexed by its voice names
     if head[0:2] == b"\xf0\x43":
+        return "preset"
+    # a Serum 1 preset: a VST2 opaque chunk from plugin XfsX, read by its patch
+    if head[0:4] == b"CcnK" and head[8:12] == b"FPCh" and head[16:20] == b"XfsX":
         return "preset"
     if head[0:4] == b"MThd":
         return "midi"

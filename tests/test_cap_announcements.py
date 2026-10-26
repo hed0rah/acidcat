@@ -167,6 +167,14 @@ EXEMPT = {
                              "the walk reports it as parse.failed on the frame "
                              "and the bytes past it stay unwalked. Real stacks "
                              "are three records deep. Pinned in tests/test_ni.py"),
+    ("acidcat.core.formats.serum", "_META_INFLATE_CAP"):
+        (Reason.RUNAWAY_BACKSTOP, "what the index lets a Serum 1 patch inflate "
+                                  "to while it reads the preset's name: 1 MB "
+                                  "against records of at most 172,736 bytes. "
+                                  "A larger one is not a record Serum wrote, "
+                                  "and the index reads no name from it; inspect "
+                                  "announces its own bound, _SERUM_INFLATE_CAP, "
+                                  "swept below"),
     ("acidcat.core.formats.ni", "_HSIN_STR_MAX"):
         (Reason.FIELD_SANITY, "the largest SoundInfoItem string count an hsin "
                               "preset is read with. A larger count is not a "
@@ -1278,6 +1286,17 @@ def _syx_many_messages(tmp_path, n):
     return str(q)
 
 
+def _serum_fxp_over_cap(tmp_path, n):
+    """A Serum 1 .fxp longer than n bytes: its wavetable stream holds 2n bytes
+    zlib cannot shrink."""
+    import random
+    import seeds
+    q = tmp_path / "big.fxp"
+    tables = random.Random(7).randbytes(2 * n)
+    q.write_bytes(seeds.vst_fxp(seeds.serum1_chunk(tables=tables)))
+    return str(q)
+
+
 def _spc_over_cap(tmp_path, n):
     """An .spc longer than n bytes: the base image plus a padded tail."""
     import seeds
@@ -1473,6 +1492,11 @@ SWEPT = [
     ("acidcat.core.walk.syx", "_SYX_READ_CAP", 512, _seed("syx"), "parsed the first"),
     ("acidcat.core.walk.syx", "_SYX_MESSAGE_LIST_CAP", 2, _syx_many_messages,
      "listing the first"),
+    ("acidcat.core.walk.fxp", "_FXP_READ_CAP", 512, _serum_fxp_over_cap,
+     "parsed the first"),
+    # the seed's patch record is 20,704 bytes inflated
+    ("acidcat.core.walk.fxp", "_SERUM_INFLATE_CAP", 1024, _seed("fxp"),
+     "inflates past"),
     ("acidcat.core.walk.s98", "_S98_READ_CAP", 512, _s98_over_cap,
      "parsed the first"),
     ("acidcat.core.walk.s98", "_S98_COMMAND_CAP", 64, _s98_many_commands,

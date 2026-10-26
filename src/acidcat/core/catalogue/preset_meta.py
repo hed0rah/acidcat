@@ -1,8 +1,8 @@
 """Unified preset-metadata extraction for indexing and search.
 
-The per-format walkers (Bitwig, Native Instruments, Vital, DX7 SysEx) each return
-their own key names. This normalizes them into one shape so the index, query, and MCP can
-treat every preset the same way:
+The per-format walkers (Bitwig, Native Instruments, Vital, DX7 SysEx, Serum 1)
+each return their own key names. This normalizes them into one shape so the
+index, query, and MCP can treat every preset the same way:
 
     {preset_name, device, product, creator, category, description, tags}
 
@@ -12,6 +12,7 @@ for bytes that are not a recognized preset.
 
 from acidcat.core.formats import bitwig as bwmod
 from acidcat.core.formats import ni as nimod
+from acidcat.core.formats import serum as serummod
 from acidcat.core.formats import syx as syxmod
 from acidcat.core.formats import vital as vitalmod
 
@@ -87,6 +88,19 @@ def extract(data):
             # a bank has no name of its own; its voices are what a search wants
             "description": None if single else "%d voices: %s" % (
                 len(names), ", ".join(names)),
+            "tags": [],
+        }
+
+    m = serummod.preset_info(data)
+    if m:  # Xfer Serum 1: a VST2 .fxp whose chunk holds the patch record
+        return {
+            # the record's name is whole; the CcnK header keeps 28 bytes of it
+            "preset_name": m.get("name") or m.get("header_name") or None,
+            "device": "Serum",
+            "product": "Xfer Serum",
+            "creator": m.get("author") or None,
+            "category": None,
+            "description": m.get("description") or None,
             "tags": [],
         }
 
