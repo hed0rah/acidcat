@@ -53,7 +53,7 @@ dissection primitives, the constraint model). Tagging (mutagen), the TUI
 See docs/format_internals.md for the formats acidcat walks.
 """
 
-__version__ = "2.0.1"
+__version__ = "2.1.0rc1"
 
 # dissection namespaces
 from acidcat.core import probe  # noqa: E402,F401
