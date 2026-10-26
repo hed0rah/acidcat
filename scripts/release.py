@@ -95,12 +95,14 @@ def main(argv=None):
         if not args.dry_run:
             path.write_text(text, encoding="utf-8", newline="\n")
     if not args.dry_run:
+        final = PEP440.match(args.version).group(4) is None
+        then = (f"then the next -> main PR, and the tag v{args.version} on main"
+                if final else "then soak it, and cut the final when it holds")
         print(f"\n{old} -> {args.version}. Next, on next:\n"
               f"  python -m pytest -q\n"
               f"  git commit -am \"release: {args.version}\"\n"
               f"  git push origin next\n"
-              f"then the next -> main PR, and the tag v{args.version} on main "
-              f"(docs/releasing.md).")
+              f"{then} (docs/releasing.md).")
     return 0
 
 
